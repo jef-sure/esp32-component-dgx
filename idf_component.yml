@@ -1,0 +1,50 @@
+## IDF Component Manager Manifest File
+version: "0.0.1"
+description: "Display and graphics component for ESP32 with SPI, I2C, and parallel display buses, virtual screens, drawing primitives, and fonts"
+url: https://github.com/jef-sure/esp32-component-dgx
+repository: https://github.com/jef-sure/esp32-component-dgx.git
+documentation: https://github.com/jef-sure/esp32-component-dgx/blob/main/README.md
+issues: https://github.com/jef-sure/esp32-component-dgx/issues
+
+dependencies:
+  idf:
+    version: ">=5.0.0"
+
+tags:
+  - display
+  - graphics
+  - lcd
+  - oled
+  - spi
+  - i2c
+  - framebuffer
+  - font
+
+maintainers:
+  - "Anton Petrusevich <anton.petrusevich.mobile@gmail.com>"
+
+license: MIT
+
+files:
+  include:
+    - "idf_component.yml"
+    - "Kconfig"
+    - "src/**/*.c"
+    - "include/**/*.h"
+    - "CMakeLists.txt"
+    - "font2c/**/*"
+    - "README.md"
+    - "LICENSE"
+  exclude:
+    - "build/**"
+    - "dist/**"
+    - ".git/**"
+    - ".github/**"
+    - ".vscode/**"
+    - "examples/**/build/**"
+    - "examples/**/managed_components/**"
+    - "examples/**/dependencies.lock"
+    - "examples/**/sdkconfig"
+    - "examples/**/sdkconfig.old"
+    - "**/*.old"
+

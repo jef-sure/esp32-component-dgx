@@ -1,0 +1,71 @@
+menu "DGX"
+
+config DGX_ENABLE_SPI
+    bool "Enable SPI transport backend"
+    default n
+
+config DGX_ENABLE_I2C
+    bool "Enable I2C transport backend"
+    default n
+
+config DGX_ENABLE_P8
+    bool "Enable 8-bit parallel transport backend"
+    default n
+
+config DGX_ENABLE_SPI_ST7735
+    bool "Enable ST7735 panel driver"
+    depends on DGX_ENABLE_SPI || DGX_ENABLE_P8
+    default n
+
+config DGX_ENABLE_SPI_ST7789
+    bool "Enable ST7789 panel driver"
+    depends on DGX_ENABLE_SPI || DGX_ENABLE_P8
+    default n
+
+config DGX_ENABLE_SPI_GC9A01
+    bool "Enable GC9A01 panel driver"
+    depends on DGX_ENABLE_SPI || DGX_ENABLE_P8
+    default n
+
+config DGX_ENABLE_SPI_ILI_9341
+    bool "Enable ILI9341 panel driver"
+    depends on DGX_ENABLE_SPI || DGX_ENABLE_P8
+    default n
+
+config DGX_ENABLE_SSD1351
+    bool "Enable SSD1351 panel driver"
+    depends on DGX_ENABLE_SPI || DGX_ENABLE_P8
+    default n
+
+config DGX_ENABLE_SSD1306
+    bool "Enable SSD1306 controller"
+    depends on DGX_ENABLE_SPI || DGX_ENABLE_I2C
+    select DGX_ENABLE_V_BW_SCREEN
+    default n
+
+config DGX_ENABLE_ST7565R
+    bool "Enable ST7565R controller"
+    depends on DGX_ENABLE_SPI
+    select DGX_ENABLE_V_BW_SCREEN
+    default n
+
+config DGX_ENABLE_ST7920
+    bool "Enable ST7920 controller"
+    depends on DGX_ENABLE_SPI || DGX_ENABLE_I2C || DGX_ENABLE_P8
+    select DGX_ENABLE_VSCREEN
+    default n
+
+config DGX_ENABLE_V_BW_SCREEN
+    bool "Enable monochrome virtual/back screen"
+    default n
+
+config DGX_ENABLE_VSCREEN
+    bool "Enable RAM-backed virtual screen"
+    default n
+
+config DGX_ENABLE_VSCREEN_2H
+    bool "Enable dual-head virtual compositor"
+    depends on DGX_ENABLE_VSCREEN
+    default n
+
+endmenu

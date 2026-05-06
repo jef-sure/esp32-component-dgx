@@ -1,55 +1,43 @@
-# Prerequisites
-*.d
-
-# Object files
+# Build directories
+build/
+dist/
 *.o
-*.ko
-*.obj
-*.elf
-
-# Linker output
-*.ilk
-*.map
-*.exp
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Libraries
-*.lib
 *.a
-*.la
-*.lo
-
-# Shared objects (inc. Windows DLLs)
-*.dll
 *.so
-*.so.*
-*.dylib
+*.elf
+*.bin
+*.map
 
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
+# ESP-IDF
+sdkconfig
+sdkconfig.old
+dependencies.lock
+managed_components/
 
-# Debug files
-*.dSYM/
-*.su
-*.idb
-*.pdb
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
 
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
+# Backup files
+*.old
+*.bak
+*.tmp
 
-# debug information files
-*.dwo
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+
+# Logs
+*.log
+
+# OS
+Thumbs.db
+.directory

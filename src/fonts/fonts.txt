@@ -1,0 +1,4 @@
+src/fonts/ArialRegular12.c
+src/fonts/CasusDotView.c
+src/fonts/DroidSansRegular9.c
+src/fonts/VerdanaRegular32.c
