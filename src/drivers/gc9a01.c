@@ -11,6 +11,7 @@
 #define GC9A01_SWRESET 0x01
 #define GC9A01_SLPOUT  0x11
 #define GC9A01_INVON   0x21
+#define GC9A01_DISPOFF 0x28
 #define GC9A01_DISPON  0x29
 #define GC9A01_CASET   0x2A
 #define GC9A01_PASET   0x2B
@@ -151,7 +152,6 @@ dgx_screen_t *dgx_gc9a01_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
 
     if (bus == NULL) {
         ESP_LOGE(TAG, "Display bus is not initialized");
-        free(scr);
         return NULL;
     }
 
@@ -219,4 +219,18 @@ void dgx_gc9a01_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_ori
 
     scr->base.bus->write_command(scr->base.bus, cmd);
     scr->base.bus->write_data(scr->base.bus, data, 8);
+}
+
+void dgx_gc9a01_display_off(dgx_screen_t *_scr)
+{
+    dgx_gc9a01_t *scr = (dgx_gc9a01_t *)_scr;
+
+    scr->base.bus->write_command(scr->base.bus, GC9A01_DISPOFF);
+}
+
+void dgx_gc9a01_display_on(dgx_screen_t *_scr)
+{
+    dgx_gc9a01_t *scr = (dgx_gc9a01_t *)_scr;
+
+    scr->base.bus->write_command(scr->base.bus, GC9A01_DISPON);
 }

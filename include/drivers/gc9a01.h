@@ -12,6 +12,8 @@ extern "C" {
 #include "bus/dgx_bus_protocols.h"
 
 dgx_screen_t *dgx_gc9a01_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo);
+void dgx_gc9a01_display_off(dgx_screen_t *scr);
+void dgx_gc9a01_display_on(dgx_screen_t *scr);
 void dgx_gc9a01_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 
 #ifdef __cplusplus
