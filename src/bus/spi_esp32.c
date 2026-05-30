@@ -13,6 +13,7 @@
 #include "dgx_spi_esp32_priv.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "hal/gpio_ll.h"
 
 static const char TAG[] = "DGX SPI BUS";
 
@@ -22,22 +23,23 @@ static void IRAM_ATTR dgx_spi_set_dc(spi_transaction_t *t)
 {
     uint32_t dc = get_dc_pin(t->user);
     // dgx_gpio_set_level((dc >> 1), dc & 1);
-    // ESP_EARLY_LOGD(TAG, "dgx_spi_set_dc: gpio=%" PRIu32 " level=%" PRIu32, (dc >> 1), dc & 1);
     if (dc & 1) {
-        GPIO.out_w1ts = 1u << (dc >> 1);
+        REG_WRITE(GPIO_OUT_W1TS_REG, 1u << (dc >> 1));
     } else {
-        GPIO.out_w1tc = 1u << (dc >> 1);
+        REG_WRITE(GPIO_OUT_W1TC_REG, 1u << (dc >> 1));
     }
 }
 
 static void IRAM_ATTR dgx_spi_set_dc_high(spi_transaction_t *t)
 {
+#ifdef GPIO_OUT1_W1TS_REG
     uint32_t dc = get_dc_pin(t->user);
     if (dc & 1) {
-        GPIO.out1_w1ts.val = 1u << ((dc >> 1u) - 32u);
+        REG_WRITE(GPIO_OUT1_W1TS_REG, 1u << ((dc >> 1u) - 32u));
     } else {
-        GPIO.out1_w1tc.val = 1u << ((dc >> 1u) - 32u);
+        REG_WRITE(GPIO_OUT1_W1TC_REG, 1u << ((dc >> 1u) - 32u));
     }
+#endif
 }
 
 void dgx_spi_wait_pending(struct _dgx_bus_protocols_t *_bus)

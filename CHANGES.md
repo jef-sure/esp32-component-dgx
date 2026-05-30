@@ -1,5 +1,9 @@
 # Changes
 
+## 0.0.4 - 2026-05-30
+
+- fix GPIO handling in SPI bus functions
+
 ## 0.0.3 - 2026-05-30
 
 - added `dgx_gauge_redraw()` to redraw the whole gauge
