@@ -3,6 +3,7 @@
 ## 0.0.3 - 2026-05-30
 
 - added `dgx_gauge_redraw()` to redraw the whole gauge
+- improved documentation
 
 ## 0.0.2 - 2026-05-13
 
