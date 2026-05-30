@@ -101,3 +101,15 @@ void dgx_gauge_set_value(dgx_gauge_t *gauge, int value)
     gauge->value        = next_value;
     gauge->active_steps = next_active_steps;
 }
+
+void dgx_gauge_redraw(dgx_gauge_t *gauge)
+{
+    for (int step = 1; step <= gauge->active_steps; ++step) {
+        int step_value = dgx_gauge_value_for_step(gauge, step);
+        uint32_t color = gauge->color_fn ? gauge->color_fn(step_value) : gauge->background_color;
+        dgx_gauge_step_quad(gauge, step, color);
+    }
+    for (int step = gauge->active_steps + 1; step <= gauge->sweep_degrees; ++step) {
+        dgx_gauge_step_quad(gauge, step, gauge->background_color);
+    }
+}

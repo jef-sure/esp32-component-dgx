@@ -32,7 +32,7 @@ void dgx_gauge_init(dgx_gauge_t *gauge, dgx_screen_t *scr, int center_x, int cen
                     float start_angle, int sweep_degrees, int min_value, int max_value, uint32_t background_color,
                     dgx_gauge_color_fn_t color_fn);
 void dgx_gauge_set_value(dgx_gauge_t *gauge, int value);
-
+void dgx_gauge_redraw(dgx_gauge_t *gauge);
 #ifdef __cplusplus
 // @formatter:off
 }
