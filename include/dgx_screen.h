@@ -128,6 +128,13 @@ typedef struct _dgx_screen_t
     int                  height;
     uint8_t              color_bits;
     dgx_color_order_t    rgb_order;
+    /*
+     * Nesting counter used to defer intermediate update_screen() calls while
+     * a larger draw operation is still in progress. 0 means a top-level draw
+     * may flush immediately; positive values mean flush is deferred until the
+     * counter returns to 0. Prefer dgx_screen_progress_up/down helpers over
+     * modifying this field directly.
+     */
     int32_t              in_progress;
     uint16_t             cg_row_shift;
     uint16_t             cg_col_shift;
@@ -175,6 +182,10 @@ dgx_point_2d_t _dgx_move_to_next_area_pixel( //
     bool              swap_xy                //
 );
 
+/**
+ * @brief Destroy a screen allocated by a driver or virtual-screen constructor.
+ * @param _pscr In/out pointer to the screen pointer. Set to NULL on return.
+ */
 static inline void dgx_screen_destroy(dgx_screen_t **_pscr)
 {                                      //
     if (*_pscr && (*_pscr)->destroy) { //
@@ -182,11 +193,29 @@ static inline void dgx_screen_destroy(dgx_screen_t **_pscr)
     } //
 }
 
+/**
+ * @brief Increment the nesting counter that defers intermediate flushes.
+ *
+ * Call before starting a batched draw operation that will perform multiple
+ * low-level writes but should result in only one final update_screen() call.
+ *
+ * @param _scr Screen whose batching depth is being increased.
+ * @return New nesting depth.
+ */
 static inline int dgx_screen_progress_up(dgx_screen_t *_scr)
 {                               //
     return ++_scr->in_progress; //
 }
 
+/**
+ * @brief Decrement the nesting counter that defers intermediate flushes.
+ *
+ * Call after finishing a batched draw operation. When the returned value is
+ * 0, callers typically flush the combined dirty region with update_screen().
+ *
+ * @param _scr Screen whose batching depth is being decreased.
+ * @return New nesting depth.
+ */
 static inline int dgx_screen_progress_down(dgx_screen_t *_scr)
 {                               //
     return --_scr->in_progress; //

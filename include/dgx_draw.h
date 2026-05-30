@@ -15,8 +15,8 @@ extern "C" {
 // @formatter:on
 #endif
 
-/*
- * Draws a rectangle on the screen.
+/**
+ * @brief Draws a filled rectangle on the screen.
  *
  * @param scr The screen to draw on.
  * @param x The x coordinate of the top-left corner of the rectangle.
@@ -27,8 +27,8 @@ extern "C" {
 */
 void dgx_fill_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t color);
 
-/*
- * Draws a circle on the screen.
+/**
+ * @brief Draws a circle outline on the screen.
  *
  * @param scr The screen to draw on.
  * @param x The x coordinate of the center of the circle.
@@ -38,8 +38,8 @@ void dgx_fill_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t 
  */
 void dgx_draw_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color);
 
-/*
- * Draws a line on the screen.
+/**
+ * @brief Draws a line on the screen.
  *
  * @param scr The screen to draw on.
  * @param x1 The x coordinate of the first point of the line.
@@ -50,8 +50,8 @@ void dgx_draw_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color);
  */
 void dgx_draw_line(dgx_screen_t *scr, int x1, int y1, int x2, int y2, uint32_t color);
 
-/*
- * Draws a solid circle on the screen.
+/**
+ * @brief Draws a filled circle on the screen.
  *
  * @param scr The screen to draw on.
  * @param x The x coordinate of the center of the circle.
@@ -61,8 +61,8 @@ void dgx_draw_line(dgx_screen_t *scr, int x1, int y1, int x2, int y2, uint32_t c
  */
 void dgx_solid_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color);
 
-/*
- * Set a pixel on the screen.
+/**
+ * @brief Set a pixel on the screen.
  *
  * @param scr The screen to draw on.
  * @param x The x coordinate of the pixel.
@@ -71,8 +71,8 @@ void dgx_solid_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color);
 */
 void dgx_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color);
 
-/*
- * Get a pixel on the screen.
+/**
+ * @brief Get a pixel from the screen.
  *
  * @param scr The screen to draw on.
  * @param x The x coordinate of the pixel.
@@ -84,8 +84,8 @@ void dgx_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color);
 */
 uint32_t dgx_get_pixel(dgx_screen_t *scr, int x, int y);
 
-/*
- * Draws a filled triangle on the screen.
+/**
+ * @brief Draws a filled triangle on the screen.
  *
  * @param scr The screen to draw on.
  * @param x0,y0 First vertex.
@@ -95,8 +95,8 @@ uint32_t dgx_get_pixel(dgx_screen_t *scr, int x, int y);
  */
 void dgx_draw_triangle_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color);
 
-/*
- * Draws a filled simple quadrilateral on the screen.
+/**
+ * @brief Draws a filled simple quadrilateral on the screen.
  *
  * Vertices must be supplied in polygon order, either clockwise or
  * counterclockwise. Convex and concave simple quadrilaterals are supported.
@@ -112,8 +112,8 @@ void dgx_draw_triangle_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
 void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3,
                              uint32_t color);
 
-/*
- * Draws a thick line on the screen as a parallelogram of the given width,
+/**
+ * @brief Draws a thick line on the screen as a parallelogram of the given width,
  * with rounded/triangular caps at the endpoints.
  *
  * @param scr The screen to draw on.
@@ -124,8 +124,8 @@ void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
  */
 void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int width, uint32_t color);
 
-/*
- * Draws a dotted/dashed line using a rotating bit pattern. Each bit of @p mask
+/**
+ * @brief Draws a dotted/dashed line using a rotating bit pattern. Each bit of @p mask
  * (taken LSB-first as the first pixel) selects either @p color (1) or @p bg (0)
  * for one pixel along the line. After @p mask_bits pixels the pattern repeats.
  *

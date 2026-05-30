@@ -97,8 +97,36 @@ typedef struct dgx_font_ {
     dgx_font_model_t f_type;
 } dgx_font_t;
 
+/**
+ * @brief Decode the next UTF-8 code point from a string.
+ * @param chr Pointer to the UTF-8 string.
+ * @param idx In/out byte index; advanced past the decoded code point.
+ * @return The decoded Unicode code point.
+ */
 uint32_t decodeUTF8next(const char *chr, size_t *idx);
+
+/**
+ * @brief Look up the glyph for a code point in a font.
+ * @param codePoint Unicode code point.
+ * @param font      Font to search.
+ * @param xAdvance  Out: cursor advance for this glyph (may be NULL).
+ * @return Pointer to the glyph, or NULL if not present in the font.
+ */
 const glyph_t *dgx_font_find_glyph(uint32_t codePoint, dgx_font_t *font, int16_t *xAdvance);
+
+/**
+ * @brief Render a single code point onto a screen.
+ * @param scr         Target screen.
+ * @param x,y         Baseline origin of the glyph.
+ * @param codePoint   Unicode code point to draw.
+ * @param color       Foreground color.
+ * @param orientation Text orientation (see dgx_output_orientation_t).
+ * @param scale       Integer scale factor (1 = native size).
+ * @param font        Font accessor.
+ * @param draw_func   Optional custom per-glyph draw callback (NULL for default).
+ * @param param       Optional callback parameter.
+ * @return Cursor advance in pixels.
+ */
 int dgx_font_char_to_screen(             //
     dgx_screen_t *scr,                   //
     int16_t x,                           //
@@ -111,7 +139,29 @@ int dgx_font_char_to_screen(             //
     dgx_font_draw_sym_func_t draw_func,  //
     void *param                          //
 );
+
+/**
+ * @brief Compute the vertical bounds of a string in a font.
+ * @param str    UTF-8 string.
+ * @param font   Font accessor.
+ * @param ycorner Out: top Y offset relative to baseline.
+ * @param height  Out: total height in pixels.
+ * @return Total width in pixels.
+ */
 int dgx_font_string_bounds(const char *str, dgx_font_t *font, int16_t *ycorner, int16_t *height);
+
+/**
+ * @brief Render a UTF-8 string onto a screen.
+ * @param scr         Target screen.
+ * @param x,y         Baseline origin of the first glyph.
+ * @param str         UTF-8 string to draw.
+ * @param color       Foreground color.
+ * @param orientation Text orientation (see dgx_output_orientation_t).
+ * @param scale       Integer scale factor (1 = native size).
+ * @param font        Font accessor.
+ * @param draw_func   Optional custom per-glyph draw callback (NULL for default).
+ * @param param       Optional callback parameter.
+ */
 void dgx_font_string_utf8_screen(        //
     dgx_screen_t *scr,                   //
     int16_t x,                           //
@@ -125,8 +175,26 @@ void dgx_font_string_utf8_screen(        //
     void *param                          //
 );
 
+/**
+ * @brief Set up an 8-bit indexed virtual screen as a glyph "dot" render target.
+ * @param vpoint Virtual screen used as the dot canvas.
+ */
 void dgx_font_make_point8(dgx_screen_t *vpoint);
 
+/**
+ * @brief Build a morph descriptor that interpolates between two dot-model glyphs.
+ *
+ * Used to animate one glyph smoothly into another. Free the result with
+ * dgx_font_make_morph_struct_destroy().
+ *
+ * @param font  Dot-model font.
+ * @param fromCP Source code point.
+ * @param toCP   Target code point.
+ * @param from_x,from_y Position of the source glyph.
+ * @param to_x,to_y     Position of the target glyph.
+ * @param scale  Integer scale factor.
+ * @return Newly allocated morph descriptor, or NULL on failure.
+ */
 dgx_font_symbol_morph_t *dgx_font_make_morph_struct(  //
     dgx_font_t *font,                                 //
     uint32_t fromCP,                                  //
@@ -137,6 +205,11 @@ dgx_font_symbol_morph_t *dgx_font_make_morph_struct(  //
     int to_y,                                         //
     int scale                                         //
 );
+
+/**
+ * @brief Destroy a morph descriptor created by dgx_font_make_morph_struct().
+ * @param ms In/out pointer to the descriptor; set to NULL on return.
+ */
 void dgx_font_make_morph_struct_destroy(dgx_font_symbol_morph_t **ms);
 
 #ifdef __cplusplus
