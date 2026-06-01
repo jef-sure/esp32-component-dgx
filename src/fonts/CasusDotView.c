@@ -236,10 +236,10 @@ static const dgx_font_dot_t degree_dots[] = {
 };
 
 static const dgx_font_dot_t colon_dots[] = {
-    {3, 3},
     {3, 4},
-    {3, 7},
-    {3, 8}, // ':'
+    {3, 5},
+    {3, 8},
+    {3, 9}, // ':'
 };
 
 static const glyph_t space_glyph[] = {

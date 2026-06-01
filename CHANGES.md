@@ -1,5 +1,9 @@
 # Changes
 
+## 0.0.6 - 2026-06-01
+
+- fixed `:` (colon) in `CasusDotView` font vertical alignment
+
 ## 0.0.5 - 2026-06-01
 
 - added `:` (colon) to `CasusDotView` font
