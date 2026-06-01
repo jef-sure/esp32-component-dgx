@@ -1,5 +1,9 @@
 # Changes
 
+## 0.0.5 - 2026-06-01
+
+- added `:` (colon) to `CasusDotView` font
+
 ## 0.0.4 - 2026-05-30
 
 - fix GPIO handling in SPI bus functions
