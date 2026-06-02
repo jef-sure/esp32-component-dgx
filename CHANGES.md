@@ -1,5 +1,9 @@
 # Changes
 
+## 0.0.7 - 2026-06-02
+
+- added percent, celsius, dot, `R` and `H` to `CasusDotView` font
+
 ## 0.0.6 - 2026-06-01
 
 - fixed `:` (colon) in `CasusDotView` font vertical alignment
