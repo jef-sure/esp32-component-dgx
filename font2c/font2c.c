@@ -10,6 +10,7 @@
 #include <ft2build.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include FT_GLYPH_H
 #include FT_MODULE_H
 #include FT_FREETYPE_H
@@ -44,13 +45,31 @@ typedef struct
     glyph_t *glyphs;
 } glyph_array_t;
 
+// Sorted array based character set for efficient lookup from file
+typedef struct _char_set {
+    uint32_t *codepoints;
+    int       count;
+    int       capacity;
+} char_set_t;
+
+char_set_t *CharSetFile = 0;
+
 cp_ranges_t *CPRanges = 0;
+
+int charset_contains(char_set_t *set, uint32_t cp);
 
 int isInRange(int codePoint)
 {
-    for (cp_ranges_t *r = CPRanges; r; r = r->next)
-        if (codePoint >= r->first && codePoint < r->first + r->number) return 1;
-    return 0;
+    // CharSetFile filter: character must be in the set (if loaded)
+    if (CharSetFile && !charset_contains(CharSetFile, codePoint)) return 0;
+    // Range filter: character must be in a range (if specified)
+    if (CPRanges) {
+        for (cp_ranges_t *r = CPRanges; r; r = r->next)
+            if (codePoint >= r->first && codePoint < r->first + r->number) return 1;
+        return 0;
+    }
+    // No filters or only CharSetFile: allow if CharSetFile passed above
+    return 1;
 }
 
 cp_ranges_t *SortedCharMap = 0;
@@ -100,6 +119,108 @@ void cpr_insert_cp(int codePoint)
             }
         }
     }
+}
+
+char_set_t *charset_create() {
+    char_set_t *set  = malloc(sizeof(char_set_t));
+    set->count       = 0;
+    set->capacity    = 1024;
+    set->codepoints  = malloc(sizeof(uint32_t) * set->capacity);
+    return set;
+}
+
+void charset_add(char_set_t *set, uint32_t cp) {
+    // binary search for insertion point
+    int left = 0, right = set->count - 1;
+    while (left <= right) {
+        int mid = (left + right) / 2;
+        if (set->codepoints[mid] == cp) return; // duplicate
+        if (set->codepoints[mid] < cp) left = mid + 1;
+        else right = mid - 1;
+    }
+    if (set->count >= set->capacity) {
+        set->capacity *= 2;
+        set->codepoints = realloc(set->codepoints, sizeof(uint32_t) * set->capacity);
+    }
+    memmove(&set->codepoints[left + 1], &set->codepoints[left], sizeof(uint32_t) * (set->count - left));
+    set->codepoints[left] = cp;
+    set->count++;
+}
+
+int charset_contains(char_set_t *set, uint32_t cp) {
+    if (!set || set->count == 0) return 0;
+    int left = 0, right = set->count - 1;
+    while (left <= right) {
+        int mid = (left + right) / 2;
+        if (set->codepoints[mid] == cp) return 1;
+        if (set->codepoints[mid] < cp) left = mid + 1;
+        else right = mid - 1;
+    }
+    return 0;
+}
+
+void charset_free(char_set_t *set) {
+    if (set) {
+        free(set->codepoints);
+        free(set);
+    }
+}
+
+char_set_t *charset_load_from_file(const char *filename) {
+    FILE *f = fopen(filename, "rb");
+    if (!f) {
+        fprintf(stderr, "Error opening charset file: %s\n", filename);
+        return 0;
+    }
+    char_set_t *set = charset_create();
+    // read whole file into buffer for simpler UTF-8 handling
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    unsigned char *buf = malloc(fsize + 1);
+    fread(buf, 1, fsize, f);
+    buf[fsize] = 0;
+    fclose(f);
+
+    for (long i = 0; i < fsize;) {
+        unsigned char c = buf[i];
+        // skip comment lines starting with #
+        if (c == '#') {
+            while (i < fsize && buf[i] != '\n') i++;
+            if (i < fsize) i++; // skip newline
+            continue;
+        }
+        // skip whitespace
+        if (c == '\n' || c == '\r' || c == '\t' || c == ' ') {
+            i++;
+            continue;
+        }
+        // decode UTF-8
+        uint32_t cp = 0;
+        if (c < 0x80) {
+            cp = c;
+            i += 1;
+        } else if ((c >> 5) == 0x6) {
+            if (i + 1 >= fsize) break;
+            cp = ((uint32_t)(c & 0x1F) << 6) | (buf[i + 1] & 0x3F);
+            i += 2;
+        } else if ((c >> 4) == 0xE) {
+            if (i + 2 >= fsize) break;
+            cp = ((uint32_t)(c & 0x0F) << 12) | ((uint32_t)(buf[i + 1] & 0x3F) << 6) | (buf[i + 2] & 0x3F);
+            i += 3;
+        } else if ((c >> 3) == 0x1E) {
+            if (i + 3 >= fsize) break;
+            cp = ((uint32_t)(c & 0x07) << 18) | ((uint32_t)(buf[i + 1] & 0x3F) << 12) | ((uint32_t)(buf[i + 2] & 0x3F) << 6) | (buf[i + 3] & 0x3F);
+            i += 4;
+        } else {
+            i++;
+            continue;
+        }
+        charset_add(set, cp);
+    }
+    free(buf);
+    fprintf(stderr, "Loaded %d characters from %s\n", set->count, filename);
+    return set;
 }
 
 void clearName(char *fname)
@@ -191,25 +312,38 @@ int main(int argc, char *argv[])
     LoadedGlyph       *glyphs;
 
     if (argc < 3) {
-        fprintf(stderr, "Usage: %s fontfile size [first last] .. [firstN lastN]\n", argv[0]);
+        fprintf(stderr, "Usage: %s fontfile size [-f charset_file] [first last] .. [firstN lastN]\n", argv[0]);
+        fprintf(stderr, "  -f charset_file: UTF-8 text file with characters to include\n");
+        fprintf(stderr, "  first last: Unicode range(s) to include (hex or decimal)\n");
         return 1;
     }
 
     size = atoi(argv[2]);
 
-    for (int ri = 3; ri + 1 < argc; ri += 2) {
-        int first = strtol(argv[ri], 0, 0);
-        int last  = strtol(argv[ri + 1], 0, 0);
-        if (!CPRanges) {
-            CPRanges       = malloc(sizeof(cp_ranges_t));
-            CPRanges->next = 0;
-        } else {
-            cp_ranges_t *r = malloc(sizeof(cp_ranges_t));
-            r->next        = CPRanges;
-            CPRanges       = r;
+    for (int ri = 3; ri < argc; ri++) {
+        if (strcmp(argv[ri], "-f") == 0) {
+            if (ri + 1 >= argc) {
+                fprintf(stderr, "Error: -f requires a filename argument\n");
+                return 1;
+            }
+            CharSetFile = charset_load_from_file(argv[ri + 1]);
+            if (!CharSetFile) return 1;
+            ri++; // skip filename
+        } else if (ri + 1 < argc) {
+            int first = strtol(argv[ri], 0, 0);
+            int last  = strtol(argv[ri + 1], 0, 0);
+            if (!CPRanges) {
+                CPRanges       = malloc(sizeof(cp_ranges_t));
+                CPRanges->next = 0;
+            } else {
+                cp_ranges_t *r = malloc(sizeof(cp_ranges_t));
+                r->next        = CPRanges;
+                CPRanges       = r;
+            }
+            CPRanges->first  = first;
+            CPRanges->number = last - first + 1;
+            ri++; // skip second number in pair
         }
-        CPRanges->first  = first;
-        CPRanges->number = last - first + 1;
     }
 
     // Init FreeType lib, load font
@@ -404,6 +538,10 @@ int main(int argc, char *argv[])
     fclose(fontHeaderOut);
 
     FT_Done_FreeType(library);
+    if (CharSetFile) {
+        charset_free(CharSetFile);
+        CharSetFile = 0;
+    }
 
     return 0;
 }
