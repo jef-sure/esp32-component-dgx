@@ -61,7 +61,7 @@ static inline void dgx_delay_us(uint32_t usDelay)
 
 static inline void *dgx_allocate_dma_memory(size_t size)
 {
-    uint8_t *ptr = heap_caps_malloc(size, MALLOC_CAP_DMA);
+    void *ptr = heap_caps_malloc(size, MALLOC_CAP_DMA);
     return ptr;
 }
 
