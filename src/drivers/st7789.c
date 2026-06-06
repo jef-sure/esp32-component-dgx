@@ -7,6 +7,7 @@
 #include "drivers/dgx_lcd_init.h"
 #include "drivers/st7789.h"
 #include "dgx_screen_functions.h"
+#include "dgx_screen_with_bus.h"
 #include "driver/gpio.h"
 
 // ST7789 specific commands used in init
@@ -93,8 +94,13 @@
 #define ST77XX_MADCTL_BGR   0x08
 
 typedef struct _dgx_st7789_t {
-    dgx_screen_t base;
-    dgx_bus_protocols_t *bus;
+    union {
+        struct {
+            dgx_screen_t base;
+            dgx_bus_protocols_t *bus;
+        };
+        dgx_screen_with_bus_t bus_scr;
+    };
     gpio_num_t rst;
 } dgx_st7789_t;
 
@@ -135,7 +141,11 @@ DRAM_ATTR static const dgx_lcd_init_cmd_t st_init_cmds[] = { { ST7789_SWRESET, 0
 //Initialize the display
 dgx_screen_t* dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo) {
     //Attach the LCD to the SPI bus
-    dgx_st7789_t *scr = (dgx_st7789_t*) calloc(1, sizeof(dgx_st7789_t));
+    // Allocate enough for dgx_screen_with_bus_t since dgx_screen_with_bus_init_area
+    // writes cached_area fields that extend past dgx_st7789_t's layout
+    size_t alloc_size = sizeof(dgx_st7789_t) < sizeof(dgx_screen_with_bus_t)
+                        ? sizeof(dgx_screen_with_bus_t) : sizeof(dgx_st7789_t);
+    dgx_st7789_t *scr = (dgx_st7789_t*) calloc(1, alloc_size);
     if (!scr) {
         ESP_LOGE(TAG, "Screen structure memory allocation failed");
         return NULL;
