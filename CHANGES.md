@@ -1,5 +1,12 @@
 # Changes
 
+## 0.0.8 - 2026-06-14
+
+- fixed heap out-of-bounds access in ILI9341, ST7789, ST7735 and SSD1351 drivers: driver structs now
+  correctly embed `dgx_screen_with_bus_t` (instead of a bare `dgx_screen_t` + separate `bus` pointer),
+  ensuring `xcmd_set`, `ycmd_set`, `cached_area` and related fields are part of the allocated object
+- thanks to **yuwgle** for pointing to the problem
+
 ## 0.0.7 - 2026-06-02
 
 - added percent, celsius, dot, `R` and `H` to `CasusDotView` font

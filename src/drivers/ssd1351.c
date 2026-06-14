@@ -42,8 +42,7 @@
 #define SSD1351_CMD_STARTSCROLL 0x9F     ///< Not currently used
 
 typedef struct _dgx_ssd1351_t {
-    dgx_screen_t base;
-    dgx_bus_protocols_t *bus;
+    dgx_screen_with_bus_t base;
     gpio_num_t rst;
 } dgx_ssd1351_t;
 
@@ -96,17 +95,17 @@ dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t
         return NULL;
     }
     scr->rst = rst;
-    scr->bus = bus;
-    scr->base.cg_row_shift = 0;
-    scr->base.cg_col_shift = 0;
-    scr->base.width = 128;
-    scr->base.height = 128;
-    scr->base.color_bits = color_bits;
-    scr->base.rgb_order = cbo;
-    scr->base.screen_name = "SSD 1351";
-    scr->base.screen_submodel = 0;
-    scr->base.screen_subtype = DgxPhysicalScreenWithBus;
-    dgx_screen_with_bus_init_area((dgx_screen_with_bus_t *)scr, SSD1351_CMD_SETCOLUMN, SSD1351_CMD_SETROW, SSD1351_CMD_WRITERAM, 0,
+    scr->base.bus = bus;
+    scr->base.scr.cg_row_shift = 0;
+    scr->base.scr.cg_col_shift = 0;
+    scr->base.scr.width = 128;
+    scr->base.scr.height = 128;
+    scr->base.scr.color_bits = color_bits;
+    scr->base.scr.rgb_order = cbo;
+    scr->base.scr.screen_name = "SSD 1351";
+    scr->base.scr.screen_submodel = 0;
+    scr->base.scr.screen_subtype = DgxPhysicalScreenWithBus;
+    dgx_screen_with_bus_init_area(&scr->base, SSD1351_CMD_SETCOLUMN, SSD1351_CMD_SETROW, SSD1351_CMD_WRITERAM, 0,
                                   DGX_SCREEN_AREA_PROTO_STD8);
     // Initialize non-SPI GPIOs
     if (rst >= 0) {
@@ -119,7 +118,7 @@ dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t
         dgx_gpio_set_level(rst, 1);
     }
     // Send all the commands
-    dgx_lcd_init((dgx_screen_with_bus_t *)scr, st_init_cmds);
+    dgx_lcd_init(&scr->base, st_init_cmds);
     dgx_scr_init_slow_bus_optimized_funcs((dgx_screen_t *)scr);
     return (dgx_screen_t *)scr;
 }
@@ -133,7 +132,7 @@ void dgx_ssd1351_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_or
     _scr->dir_x = dir_x;
     _scr->dir_y = dir_y;
     _scr->swap_xy = swap_xy;
-    if (scr->base.rgb_order == DgxScreenBGR) {
+    if (scr->base.scr.rgb_order == DgxScreenBGR) {
         adj_data[0] &= ~0x4;
     }
     if (_scr->color_bits == 18) {
@@ -149,22 +148,22 @@ void dgx_ssd1351_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_or
     if (swap_xy) {
         adj_data[0] |= 0x01;
     }
-    scr->bus->write_command(scr->bus, cmd);
-    scr->bus->write_data(scr->bus, adj_data, 8);
+    scr->base.bus->write_command(scr->base.bus, cmd);
+    scr->base.bus->write_data(scr->base.bus, adj_data, 8);
     cmd = SSD1351_CMD_STARTLINE;
     if (dir_y == DgxScreenBottomTop) {
         adj_data[0] = 0x80;
     } else {
         adj_data[0] = 0x00;
     }
-    scr->bus->write_command(scr->bus, cmd);
-    scr->bus->write_data(scr->bus, adj_data, 8);
+    scr->base.bus->write_command(scr->base.bus, cmd);
+    scr->base.bus->write_data(scr->base.bus, adj_data, 8);
 }
 
 void dgx_ssd1351_brightness(dgx_screen_t *_scr, uint8_t brightness) {
     dgx_ssd1351_t *scr = (dgx_ssd1351_t *)_scr;
     uint8_t cmd = SSD1351_CMD_CONTRASTMASTER;
     uint8_t adj_data[1] = {brightness >> 4};
-    scr->bus->write_command(scr->bus, cmd);
-    scr->bus->write_data(scr->bus, adj_data, 8);
+    scr->base.bus->write_command(scr->base.bus, cmd);
+    scr->base.bus->write_data(scr->base.bus, adj_data, 8);
 }

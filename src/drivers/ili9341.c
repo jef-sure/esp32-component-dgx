@@ -76,8 +76,7 @@
 #define MADCTL_MH 0x04   ///< LCD refresh right to left
 
 typedef struct _dgx_ili9341_t {
-    dgx_screen_t base;
-    dgx_bus_protocols_t *bus;
+    dgx_screen_with_bus_t base;
     gpio_num_t rst;
 } dgx_ili9341_t;
 
@@ -157,17 +156,17 @@ dgx_screen_t *dgx_ili9341_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t
         return NULL;
     }
     scr->rst = rst;
-    scr->bus = bus;
-    scr->base.cg_row_shift = 0;
-    scr->base.cg_col_shift = 0;
-    scr->base.width = 240;
-    scr->base.height = 320;
-    scr->base.color_bits = color_bits;
-    scr->base.rgb_order = cbo;
-    scr->base.screen_name = "ILI 9341";
-    scr->base.screen_submodel = 0;
-    scr->base.screen_subtype = DgxPhysicalScreenWithBus;
-    dgx_screen_with_bus_init_area((dgx_screen_with_bus_t *)scr, ILI9341_CASET, ILI9341_PASET, ILI9341_RAMWR, 0,
+    scr->base.bus = bus;
+    scr->base.scr.cg_row_shift = 0;
+    scr->base.scr.cg_col_shift = 0;
+    scr->base.scr.width = 240;
+    scr->base.scr.height = 320;
+    scr->base.scr.color_bits = color_bits;
+    scr->base.scr.rgb_order = cbo;
+    scr->base.scr.screen_name = "ILI 9341";
+    scr->base.scr.screen_submodel = 0;
+    scr->base.scr.screen_subtype = DgxPhysicalScreenWithBus;
+    dgx_screen_with_bus_init_area(&scr->base, ILI9341_CASET, ILI9341_PASET, ILI9341_RAMWR, 0,
                                   DGX_SCREEN_AREA_PROTO_STD16);
                          // Initialize non-SPI GPIOs
     dgx_gpio_set_direction(rst, GPIO_MODE_OUTPUT);
@@ -178,7 +177,7 @@ dgx_screen_t *dgx_ili9341_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t
     dgx_delay(100);
     dgx_gpio_set_level(rst, 1);
     // Send all the commands
-    dgx_lcd_init((dgx_screen_with_bus_t *)scr, st_init_cmds);
+    dgx_lcd_init(&scr->base, st_init_cmds);
     dgx_scr_init_slow_bus_optimized_funcs((dgx_screen_t *)scr);
     return (dgx_screen_t *)scr;
 }
@@ -200,7 +199,7 @@ void dgx_ili9341_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_or
         _scr->width = 240;
         _scr->height = 320;
     }
-    if (scr->base.rgb_order == DgxScreenRGB) data[0] |= MADCTL_BGR;
-    scr->bus->write_command(scr->bus, cmd);
-    scr->bus->write_data(scr->bus, data, 1);
+    if (scr->base.scr.rgb_order == DgxScreenRGB) data[0] |= MADCTL_BGR;
+    scr->base.bus->write_command(scr->base.bus, cmd);
+    scr->base.bus->write_data(scr->base.bus, data, 1);
 }
