@@ -8,6 +8,8 @@
 #include <ctype.h>
 #include <errno.h>
 #include <ft2build.h>
+#include <getopt.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
 #include FT_GLYPH_H
@@ -48,58 +50,124 @@ cp_ranges_t *CPRanges = 0;
 
 int isInRange(int codePoint)
 {
-    for (cp_ranges_t *r = CPRanges; r; r = r->next)
-        if (codePoint >= r->first && codePoint < r->first + r->number) return 1;
+    for (cp_ranges_t *r = CPRanges; r; r = r->next) {
+        if (codePoint < r->first) return 0;
+        if (codePoint < r->first + r->number) return 1;
+    }
     return 0;
+}
+
+// Insert a range into a sorted list of ranges, merging overlapping/adjacent
+// nodes so contiguous code points collapse into one range.
+void cpr_insert_range(cp_ranges_t **head, int first, int last)
+{
+    if (last < first) {
+        int t = first;
+        first = last;
+        last  = t;
+    }
+
+    cp_ranges_t *prev = 0;
+    cp_ranges_t *cur  = *head;
+
+    while (cur && (cur->first + cur->number - 1) < first - 1) {
+        prev = cur;
+        cur  = cur->next;
+    }
+
+    int mergedFirst = first;
+    int mergedLast  = last;
+
+    while (cur && cur->first <= mergedLast + 1) {
+        int curLast = cur->first + cur->number - 1;
+        if (cur->first < mergedFirst) mergedFirst = cur->first;
+        if (curLast > mergedLast) mergedLast = curLast;
+        cp_ranges_t *next = cur->next;
+        free(cur);
+        cur = next;
+    }
+
+    cp_ranges_t *node = malloc(sizeof(cp_ranges_t));
+    node->first       = mergedFirst;
+    node->number      = mergedLast - mergedFirst + 1;
+    node->next        = cur;
+
+    if (prev) {
+        prev->next = node;
+    } else {
+        *head = node;
+    }
+}
+
+// Insert a single code point into a sorted list of ranges.
+void cpr_insert(cp_ranges_t **head, int codePoint)
+{
+    cpr_insert_range(head, codePoint, codePoint);
+}
+
+void cpr_insert_filter_cp(int codePoint)
+{
+    cpr_insert(&CPRanges, codePoint);
+}
+
+// Read a UTF-8 text file and add every character it contains to CPRanges.
+// Newline, carriage return and tab characters are ignored.
+void loadCharsetFile(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "Error opening charset file %s: %s\n", path, strerror(errno));
+        exit(1);
+    }
+    int c;
+    while ((c = fgetc(f)) != EOF) {
+        unsigned char b = (unsigned char)c;
+        uint32_t      cp;
+        int           extra;
+        if (b < 0x80) {
+            cp    = b;
+            extra = 0;
+        } else if ((b & 0xE0) == 0xC0) {
+            cp    = b & 0x1F;
+            extra = 1;
+        } else if ((b & 0xF0) == 0xE0) {
+            cp    = b & 0x0F;
+            extra = 2;
+        } else if ((b & 0xF8) == 0xF0) {
+            cp    = b & 0x07;
+            extra = 3;
+        } else {
+            continue; // invalid lead or stray continuation byte, skip
+        }
+        int ok = 1;
+        for (int k = 0; k < extra; k++) {
+            int cc = fgetc(f);
+            if (cc == EOF || ((unsigned char)cc & 0xC0) != 0x80) {
+                ok = 0;
+                break;
+            }
+            cp = (cp << 6) | ((unsigned char)cc & 0x3F);
+        }
+        if (!ok) continue;
+        if (cp == '\n' || cp == '\r' || cp == '\t') continue;
+        cpr_insert_filter_cp((int)cp);
+    }
+    fclose(f);
+}
+
+static void show_usage(const char *programName)
+{
+    fprintf(stderr,
+            "Usage: %s [-f charset_file] fontfile size [first last] .. [firstN lastN]\n"
+            "  -f charset_file: UTF-8 text file with characters to include\n",
+            programName);
 }
 
 cp_ranges_t *SortedCharMap = 0;
 
-void cpr_insert_cp(int codePoint)
+void cpr_insert_output_cp(int codePoint)
 {
-    cp_ranges_t *r;
-    if (SortedCharMap == 0) {
-        SortedCharMap         = malloc(sizeof(cp_ranges_t));
-        SortedCharMap->first  = codePoint;
-        SortedCharMap->number = 1;
-        SortedCharMap->next   = 0;
-        return;
-    } else {
-        if (codePoint < SortedCharMap->first) {
-            if (codePoint == SortedCharMap->first - 1) {
-                SortedCharMap->first--;
-                SortedCharMap->number++;
-                return;
-            }
-            cp_ranges_t *t        = SortedCharMap;
-            SortedCharMap         = malloc(sizeof(cp_ranges_t));
-            SortedCharMap->first  = codePoint;
-            SortedCharMap->number = 1;
-            SortedCharMap->next   = t;
-            return;
-        }
-        for (r = SortedCharMap; r; r = r->next) {
-            if (codePoint >= r->first && codePoint < r->first + r->number) return;
-            if (codePoint == r->first + r->number) {
-                r->number++;
-                if (r->next && r->next->first - 1 == codePoint) {
-                    cp_ranges_t *t = r->next;
-                    r->number += t->number;
-                    r->next = t->next;
-                    free(t);
-                }
-                return;
-            }
-            if (!r->next || r->next->first > codePoint) {
-                cp_ranges_t *t = malloc(sizeof(cp_ranges_t));
-                t->first       = codePoint;
-                t->number      = 1;
-                t->next        = r->next;
-                r->next        = t;
-                return;
-            }
-        }
-    }
+    cpr_insert(&SortedCharMap, codePoint);
 }
 
 void clearName(char *fname)
@@ -190,26 +258,35 @@ int main(int argc, char *argv[])
     FT_BitmapGlyphRec *g;
     LoadedGlyph       *glyphs;
 
-    if (argc < 3) {
-        fprintf(stderr, "Usage: %s fontfile size [first last] .. [firstN lastN]\n", argv[0]);
+    const char *charsetFile = 0;
+    int         opt;
+    while ((opt = getopt(argc, argv, "f:")) != -1) {
+        switch (opt) {
+        case 'f':
+            charsetFile = optarg;
+            break;
+        default:
+            show_usage(argv[0]);
+            return 1;
+        }
+    }
+
+    if (argc - optind < 2) {
+        show_usage(argv[0]);
         return 1;
     }
 
-    size = atoi(argv[2]);
+    const char *fontFile = argv[optind];
+    size                 = atoi(argv[optind + 1]);
 
-    for (int ri = 3; ri + 1 < argc; ri += 2) {
+    for (int ri = optind + 2; ri + 1 < argc; ri += 2) {
         int first = strtol(argv[ri], 0, 0);
         int last  = strtol(argv[ri + 1], 0, 0);
-        if (!CPRanges) {
-            CPRanges       = malloc(sizeof(cp_ranges_t));
-            CPRanges->next = 0;
-        } else {
-            cp_ranges_t *r = malloc(sizeof(cp_ranges_t));
-            r->next        = CPRanges;
-            CPRanges       = r;
-        }
-        CPRanges->first  = first;
-        CPRanges->number = last - first + 1;
+        cpr_insert_range(&CPRanges, first, last);
+    }
+
+    if (charsetFile) {
+        loadCharsetFile(charsetFile);
     }
 
     // Init FreeType lib, load font
@@ -225,7 +302,7 @@ int main(int argc, char *argv[])
     //    FT_UInt interpreter_version = TT_INTERPRETER_VERSION_35;
     //    FT_Property_Set(library, "truetype", "interpreter-version", &interpreter_version);
 
-    if ((err = FT_New_Face(library, argv[1], 0, &face))) {
+    if ((err = FT_New_Face(library, fontFile, 0, &face))) {
         fprintf(stderr, "Font load error: %d", err);
         FT_Done_FreeType(library);
         return err;
@@ -304,7 +381,7 @@ int main(int argc, char *argv[])
             if (xWidest < glyphs[j].ginfo.width) xWidest = glyphs[j].ginfo.width;
             xWidthAverage += glyphs[j].ginfo.width;
         }
-        cpr_insert_cp(i);
+        cpr_insert_output_cp(i);
         char gname[64];
         if (0 == FT_Get_Glyph_Name(face, gindex, gname, sizeof(gname))) {
             clearName(gname);
