@@ -168,5 +168,5 @@ void dgx_st7735_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_ori
     if (scr->base.scr.rgb_order == DgxScreenBGR) data[0] |= ST77XX_MADCTL_BGR;
     if (swap_xy) data[0] |= ST77XX_MADCTL_MV;
     scr->base.bus->write_command(scr->base.bus, cmd);
-    scr->base.bus->write_data(scr->base.bus, data, 1);
+    scr->base.bus->write_data(scr->base.bus, data, 8);
 }

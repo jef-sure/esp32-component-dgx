@@ -1,5 +1,9 @@
 # Changes
 
+## 0.0.10 - 2026-06-15
+
+- fixed MADCTL orientation command data length in ST7735, ST7789 and ILI9341 drivers
+
 ## 0.0.9 - 2026-06-14
 
 - `font2c`: added `-f charset_file` (UTF-8 text input)

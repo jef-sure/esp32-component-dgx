@@ -14,6 +14,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "hal/gpio_ll.h"
+#include "soc/gpio_reg.h"
 
 static const char TAG[] = "DGX SPI BUS";
 
