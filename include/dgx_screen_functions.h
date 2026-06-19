@@ -3,7 +3,8 @@
  * dgx_screen_functions.h
  *
  *  Created on: 16.12.2022
- *      Author: KYMJ
+ *  Copyright (c) 2021-2026 Anton Petrusevich
+ *      Author: Anton Petrusevich
  */
 
 

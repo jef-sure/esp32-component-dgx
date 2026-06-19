@@ -3,7 +3,8 @@
  * dgx_screen_with_bus.h
  *
  *  Created on: 02.01.2023
- *      Author: KYMJ
+ *  Copyright (c) 2021-2026 Anton Petrusevich
+ *      Author: Anton Petrusevich
  */
 
 

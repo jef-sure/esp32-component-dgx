@@ -1,14 +1,14 @@
 #pragma once
 /*
- * dgx_spi_esp32.h
+ * dgx_i2c_esp32.h
  *
  *  Created on: 28.10.2022
- *      Author: KYMJ
+ *  Copyright (c) 2021-2026 Anton Petrusevich
+ *      Author: Anton Petrusevich
  */
 
 
 #include "bus/dgx_bus_protocols.h"
-
 #include "driver/i2c_master.h"
 #include "driver/gpio.h"
 

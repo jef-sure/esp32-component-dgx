@@ -3,7 +3,8 @@
  * dgx_colors.h
  *
  *  Created on: 26.01.2023
- *      Author: KYMJ
+ *  Copyright (c) 2021-2026 Anton Petrusevich
+ *      Author: Anton Petrusevich
  */
 
 

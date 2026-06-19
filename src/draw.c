@@ -2,7 +2,8 @@
  * draw.c
  *
  *  Created on: Apr 2, 2023
- *      Author: anton
+ *  Copyright (c) 2021-2026 Anton Petrusevich
+ *      Author: Anton Petrusevich
  */
 
 #include "dgx_draw.h"

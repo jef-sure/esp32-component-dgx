@@ -1,9 +1,10 @@
 #pragma once
 /*
- * dgx_spi_esp32.h
+ * dgx_p8_esp32.h
  *
  *  Created on: 28.10.2022
- *      Author: KYMJ
+ *  Copyright (c) 2021-2026 Anton Petrusevich
+ *      Author: Anton Petrusevich
  */
 
 

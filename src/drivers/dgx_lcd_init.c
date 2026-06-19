@@ -2,7 +2,8 @@
  * dgx_lcd_init.c
  *
  *  Created on: 16.12.2022
- *      Author: Anton
+ *  Copyright (c) 2021-2026 Anton Petrusevich
+ *      Author: Anton Petrusevich
  */
 
 #include "drivers/dgx_lcd_init.h"

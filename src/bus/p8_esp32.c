@@ -2,6 +2,7 @@
  * p8_esp32.c
  *
  *  Created on: 14.10.2022
+ *  Copyright (c) 2021-2026 Anton Petrusevich
  *      Author: Anton Petrusevich
  *
  *  Migrated to esp_lcd I80 peripheral driver (DMA-backed)

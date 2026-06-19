@@ -2,7 +2,8 @@
  * dgx_slow_bus_optimized_funcs.c
  *
  *  Created on: 16.12.2022
- *      Author: KYMJ
+ *  Copyright (c) 2021-2026 Anton Petrusevich
+ *      Author: Anton Petrusevich
  */
 
 #include "dgx_bits.h"

@@ -119,6 +119,12 @@ DRAM_ATTR static const dgx_lcd_init_cmd_t st_init_cmds[] = {
     {0,                0,                      0xff, 0,   {0}                                                                                       }  // Stop
 };
 
+// clang-format off
+
+/*
+ * Alternative initialization sequence with more commands, which may be needed for some displays. It is not used by default because it takes more time to execute.
+ */
+/*
 DRAM_ATTR static const dgx_lcd_init_cmd_t st_init_cmds_tft[] __attribute__((unused)) = {
     //
     {0xEF,             0,                      3,    0,   {0x03, 0x80, 0x02}                                                                        }, // Soft Reset
@@ -145,9 +151,11 @@ DRAM_ATTR static const dgx_lcd_init_cmd_t st_init_cmds_tft[] __attribute__((unus
     {ILI9341_DISPON,   0,                      0,    0,   {0}                                                                                       }, // Display On
     {0,                0,                      0xff, 0,   {0}                                                                                       }  // Stop
 };
+*/
+// clang-format on
 
 // Initialize the display
-dgx_screen_t *dgx_ili9341_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo)
+dgx_screen_t *dgx_ili9341_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo)
 {
     // Attach the LCD to the SPI bus
     dgx_ili9341_t *scr = (dgx_ili9341_t *)calloc(1, sizeof(dgx_ili9341_t));
@@ -156,6 +164,7 @@ dgx_screen_t *dgx_ili9341_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t
         return NULL;
     }
     scr->rst                      = rst;
+    scr->backlight                = backlight;
     scr->base.bus                 = bus;
     scr->base.scr.cg_row_shift    = 0;
     scr->base.scr.cg_col_shift    = 0;
@@ -179,6 +188,10 @@ dgx_screen_t *dgx_ili9341_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t
     }
     // Send all the commands
     dgx_lcd_init(&scr->base, st_init_cmds);
+    if (backlight >= 0) {
+        dgx_gpio_set_direction(backlight, GPIO_MODE_OUTPUT);
+        dgx_ili9341_backlight((dgx_screen_t *)scr, true);
+    }
     dgx_scr_init_slow_bus_optimized_funcs((dgx_screen_t *)scr);
     return (dgx_screen_t *)scr;
 }
@@ -204,4 +217,11 @@ void dgx_ili9341_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_or
     if (scr->base.scr.rgb_order == DgxScreenRGB) data[0] |= MADCTL_BGR;
     scr->base.bus->write_command(scr->base.bus, cmd);
     scr->base.bus->write_data(scr->base.bus, data, 8);
+}
+
+esp_err_t dgx_ili9341_backlight(dgx_screen_t *_scr, bool on)
+{
+    dgx_ili9341_t *scr = (dgx_ili9341_t *)_scr;
+    dgx_gpio_set_level(scr->backlight, on ? 1 : 0);
+    return ESP_OK;
 }

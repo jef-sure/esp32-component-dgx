@@ -505,4 +505,4 @@ See [CHANGES.md](CHANGES.md) for the release history.
 
 ## License
 
-See [LICENSE](LICENSE).
+Copyright (c) 2021-2026 Anton Petrusevich. See [LICENSE](LICENSE).
