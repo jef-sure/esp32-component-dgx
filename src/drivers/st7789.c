@@ -141,11 +141,8 @@ DRAM_ATTR static const dgx_lcd_init_cmd_t st_init_cmds[] = { { ST7789_SWRESET, 0
 //Initialize the display
 dgx_screen_t* dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo) {
     //Attach the LCD to the SPI bus
-    // Allocate enough for dgx_screen_with_bus_t since dgx_screen_with_bus_init_area
-    // writes cached_area fields that extend past dgx_st7789_t's layout
-    size_t alloc_size = sizeof(dgx_st7789_t) < sizeof(dgx_screen_with_bus_t)
-                        ? sizeof(dgx_screen_with_bus_t) : sizeof(dgx_st7789_t);
-    dgx_st7789_t *scr = (dgx_st7789_t*) calloc(1, alloc_size);
+    // dgx_st7789_t embeds dgx_screen_with_bus_t at offset 0, so sizeof(dgx_st7789_t) is sufficient.
+    dgx_st7789_t *scr = (dgx_st7789_t*) calloc(1, sizeof(dgx_st7789_t));
     if (!scr) {
         ESP_LOGE(TAG, "Screen structure memory allocation failed");
         return NULL;

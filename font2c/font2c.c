@@ -122,10 +122,15 @@ void cpr_insert_cp(int codePoint)
 }
 
 char_set_t *charset_create() {
-    char_set_t *set  = malloc(sizeof(char_set_t));
-    set->count       = 0;
-    set->capacity    = 1024;
-    set->codepoints  = malloc(sizeof(uint32_t) * set->capacity);
+    char_set_t *set = malloc(sizeof(char_set_t));
+    if (!set) return 0;
+    set->count    = 0;
+    set->capacity = 1024;
+    set->codepoints = malloc(sizeof(uint32_t) * (size_t)set->capacity);
+    if (!set->codepoints) {
+        free(set);
+        return 0;
+    }
     return set;
 }
 
@@ -139,8 +144,11 @@ void charset_add(char_set_t *set, uint32_t cp) {
         else right = mid - 1;
     }
     if (set->count >= set->capacity) {
-        set->capacity *= 2;
-        set->codepoints = realloc(set->codepoints, sizeof(uint32_t) * set->capacity);
+        int new_capacity = set->capacity * 2;
+        uint32_t *tmp = realloc(set->codepoints, sizeof(uint32_t) * (size_t)new_capacity);
+        if (!tmp) return;
+        set->codepoints = tmp;
+        set->capacity = new_capacity;
     }
     memmove(&set->codepoints[left + 1], &set->codepoints[left], sizeof(uint32_t) * (set->count - left));
     set->codepoints[left] = cp;
@@ -173,12 +181,39 @@ char_set_t *charset_load_from_file(const char *filename) {
         return 0;
     }
     char_set_t *set = charset_create();
+    if (!set) {
+        fprintf(stderr, "Out of memory creating charset set\n");
+        fclose(f);
+        return 0;
+    }
     // read whole file into buffer for simpler UTF-8 handling
-    fseek(f, 0, SEEK_END);
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fprintf(stderr, "Error seeking charset file: %s\n", filename);
+        fclose(f);
+        charset_free(set);
+        return 0;
+    }
     long fsize = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    unsigned char *buf = malloc(fsize + 1);
-    fread(buf, 1, fsize, f);
+    if (fsize < 0 || fseek(f, 0, SEEK_SET) != 0) {
+        fprintf(stderr, "Error reading charset file size: %s\n", filename);
+        fclose(f);
+        charset_free(set);
+        return 0;
+    }
+    unsigned char *buf = malloc((size_t)fsize + 1);
+    if (!buf) {
+        fprintf(stderr, "Out of memory reading charset file: %s\n", filename);
+        fclose(f);
+        charset_free(set);
+        return 0;
+    }
+    if (fread(buf, 1, (size_t)fsize, f) != (size_t)fsize) {
+        fprintf(stderr, "Error reading charset file: %s\n", filename);
+        fclose(f);
+        free(buf);
+        charset_free(set);
+        return 0;
+    }
     buf[fsize] = 0;
     fclose(f);
 
