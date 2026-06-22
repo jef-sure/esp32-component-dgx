@@ -1,5 +1,9 @@
 # Changes
 
+## 0.0.13 - 2026-06-22
+
+- added sanity checks to utf-8 decoding
+
 ## 0.0.12 - 2026-06-19
 
 - fixed backlight control to ILI9341 driver

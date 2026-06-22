@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdlib.h>
 
 #include "dgx_bitmap.h"
@@ -36,6 +37,7 @@ uint32_t decodeUTF8next(const char *chr, size_t *idx)
     }
     while (--len) {
         uint32_t nc = chr[(*idx)++];
+        if(nc == 0) break;
         if ((nc & 0xC0) == 0x80) {
             c <<= 6;
             c |= nc & 0x3f;
