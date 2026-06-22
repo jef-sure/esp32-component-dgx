@@ -79,6 +79,7 @@ typedef struct _dgx_ili9341_t
 {
     dgx_screen_with_bus_t base;
     gpio_num_t            rst;
+    gpio_num_t            backlight;
 } dgx_ili9341_t;
 
 static const char TAG[] = "DGX ILI9341";
