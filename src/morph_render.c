@@ -65,7 +65,7 @@ dgx_morph_glow_t *dgx_morph_glow_create(int width, int height, int cell_width, u
     g->height = height;
     g->color_bits = color_bits;
     g->radius = cell_width / 2 + cell_width / 4;
-    if (g->radius < 1) g->radius = 1;
+    if (g->radius < 2) g->radius = 2;
     int rlut_limit = g->radius * g->radius;
     size_t pixels = (size_t)width * (size_t)height;
 

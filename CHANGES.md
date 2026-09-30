@@ -1,5 +1,10 @@
 # Changes
 
+## 0.1.1 - 2026-10-01
+
+- corrected the glow falloff documentation to describe its squared-distance LUT
+- enforce a minimum glow radius of 2 pixels so small cell sizes retain a soft dot
+
 ## 0.1.0 - 2026-09-30
 
 - `dgx_point_2d_t` fields are now `int16_t` (were `int`): halves point arrays

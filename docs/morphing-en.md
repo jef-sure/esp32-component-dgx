@@ -341,8 +341,9 @@ background.
 #### Glow: Disks with a Soft Falloff
 
 A dot is rendered as a disk with radius `R = cell / 2 + cell / 4` and
-brightness `255 * (1 - 3x² + 2x³)`, where `x = d / R`. The disks accumulate
-into an 8-bit brightness map, which is then blended with the previous frame
+brightness `255 * (1 - 3x² + 2x³)`, where `x = d² / R²`. If the calculated
+radius is below 2 pixels, `R = 2` is used. The disks accumulate into an 8-bit
+brightness map, which is then blended with the previous frame
 (see Phosphor Persistence above). Brightness is mapped to color when the frame
 is presented, using a precomputed 256-entry LUT in the screen's color format:
 16, 18, or 24 bits. The default LUT is grayscale.

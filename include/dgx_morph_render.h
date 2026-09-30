@@ -12,9 +12,9 @@ extern "C" {
 /**
  * @brief Additive glow renderer with phosphor persistence.
  *
- * Each dot is a disc of radius cell*3/4 with smoothstep falloff, summed into
- * an 8-bit brightness map; present() blends it with the previous frame, maps
- * brightness to colors through a 256-entry LUT into an owned vscreen and
+ * Each dot is a disc of radius max(cell*3/4, 2) with smoothstep falloff,
+ * summed into an 8-bit brightness map. present() blends it with the previous
+ * frame, maps brightness through a 256-entry LUT into an owned vscreen and
  * blits that to the screen.
  */
 typedef struct dgx_morph_glow dgx_morph_glow_t;
