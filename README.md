@@ -81,18 +81,27 @@ to use it:
 
 1. Drop it into your own ESP-IDF project under `components/` (a git submodule
    at `components/dgx` works well).
-2. Build the bundled demo in `examples/screen_demo` to see it run end-to-end.
+2. Build `examples/screen_demo` for a general ILI9341 graphics test, or
+  `examples/morph_demo` for the CYD word-morphing demo.
 
 Either way, enable only the pieces you need in `menuconfig`, under the **DGX**
 menu. Drivers automatically pull in the transports they require.
 
-To build and flash the demo:
+To build and flash the graphics demo:
 
 ```sh
 cd examples/screen_demo
 idf.py set-target esp32
 idf.py menuconfig
 idf.py build
+idf.py flash monitor
+```
+
+To run the morphing demo on the CYD board:
+
+```sh
+cd examples/morph_demo
+idf.py set-target esp32
 idf.py flash monitor
 ```
 
@@ -204,6 +213,126 @@ Declared in [include/dgx_font.h](include/dgx_font.h):
 | `dgx_font_find_glyph(codePoint, font, xAdvance)` | Look up a single glyph. |
 | `decodeUTF8next(chr, idx)` | Decode the next UTF-8 code point. |
 | `dgx_font_make_morph_struct(...)` / `dgx_font_make_morph_struct_destroy(...)` | Build/free a glyph-to-glyph morph descriptor for animation. |
+| `dgx_bw_bitmap_foreach_set(bmap, func, user_data)` | Iterate set pixels of a 1-bpp bitmap; zero bytes skip 8 pixels at once (LINES format). |
+
+### Dot morphing framework
+
+Enable with `CONFIG_DGX_ENABLE_MORPH`. Everything morphs one bit matrix into
+another; declared in [include/dgx_matrix_morph.h](include/dgx_matrix_morph.h),
+[include/dgx_morph.h](include/dgx_morph.h),
+[include/dgx_morph_sources.h](include/dgx_morph_sources.h) and
+[include/dgx_morph_render.h](include/dgx_morph_render.h):
+
+| Part | API | Description |
+| --- | --- | --- |
+| Data | `dgx_bit_matrix_t`, `dgx_matrix_*()` | Packed 1-bit grid; inline `get_point`/`set_point`. |
+| Sources | `dgx_morph_glyph_matrix(font, cp)` | Glyph of a dot or bitmap font as a matrix in the font-wide box. |
+| Morph | `dgx_morph_create(from, to, sources, user_data)` | Plans flights in cell coordinates. `sources` decides where each new cell flies in from: `dgx_morph_sources_life` (all live neighbors) or `dgx_morph_sources_cells` (one free neighbor, then an expanding ring), or your own callback. |
+| Frame | `dgx_morph_draw(morph, t, x, y, cell, trail, dot, user_data)`, `dgx_morph_progress()` | Stateless: emits the dots of progress `t` in pixels through a `dgx_morph_dot_func_t`. |
+| Renderers | `dgx_morph_glow_*` / `dgx_morph_sprite_*` | Additive glow with phosphor persistence and its own vscreen, or an intensity-scaled dot sprite. Both map brightness to colors through a replaceable 256-entry LUT in the screen format (16, 18 or 24 bits; need `CONFIG_DGX_ENABLE_VSCREEN`). |
+
+### Tutorial: morph two glyphs
+
+This example turns `1` into `8`. It assumes `screen` is an initialized color
+display and the component was built with `CONFIG_DGX_ENABLE_MORPH` and
+`CONFIG_DGX_ENABLE_VSCREEN` enabled.
+
+**1. Convert glyphs to matrices.** `dgx_morph_glyph_matrix()` rasterizes a
+glyph into a 1-bit matrix. Both glyphs use the same font-wide box and baseline,
+so their cells line up even when the glyphs have different shapes. The
+matrices use cell coordinates, not screen pixels.
+
+**2. Choose a cell size that fits.** A glow dot extends beyond its cell. The
+code reserves `radius` pixels on every edge, where the default glow radius is
+`cell / 2 + cell / 4`. It then picks the largest integer cell size for which
+the scaled matrix and that margin fit on screen.
+
+**3. Build the morph.** `dgx_morph_create()` compares the two matrices and
+stores the flights, static dots and fading dots. `dgx_morph_sources_cells`
+chooses one available source for each new cell: an adjacent cell first, then
+an expanding ring. Use `dgx_morph_sources_life` instead when every live
+neighbor should contribute, as in Game of Life.
+
+**4. Animate the transition.** On each frame, `dgx_morph_progress()` maps
+elapsed microseconds to `[0, 1]`. `dgx_morph_draw()` emits the dots at that
+progress to the glow accumulator; `dgx_morph_glow_present()` blends the frame
+with the retained phosphor and displays it. Create the glow object once for
+the transition, not once per frame. With an additive glow renderer,
+`trail = true` draws the lagging half-brightness tail as well as the head.
+
+```c
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "dgx_draw.h"
+#include "dgx_morph.h"
+#include "dgx_morph_render.h"
+#include "dgx_morph_sources.h"
+
+static void morph_glyphs(dgx_screen_t *screen, dgx_font_t *font)
+{
+  // Rasterize both glyphs into the same font-wide cell grid.
+    dgx_bit_matrix_t *from = dgx_morph_glyph_matrix(font, '1');
+    dgx_bit_matrix_t *to = dgx_morph_glyph_matrix(font, '8');
+    dgx_morph_t *morph = NULL;
+    dgx_morph_glow_t *glow = NULL;
+    if (!from || !to) goto cleanup;
+
+    int cell = 0;
+    int radius = 0;
+    // Include the glow falloff margin when fitting the glyph to the screen.
+    for (int candidate = screen->width; candidate > 0; --candidate) {
+        int candidate_radius = candidate / 2 + candidate / 4;
+        if (candidate_radius < 1) candidate_radius = 1;
+        int width = from->width * candidate + 2 * candidate_radius;
+        int height = from->height * candidate + 2 * candidate_radius;
+        if (width <= screen->width && height <= screen->height) {
+            cell = candidate;
+            radius = candidate_radius;
+            break;
+        }
+    }
+    if (!cell) goto cleanup;
+
+    int width = from->width * cell + 2 * radius;
+    int height = from->height * cell + 2 * radius;
+    int x = (screen->width - width) / 2;
+    int y = (screen->height - height) / 2;
+    // CELLS uses a free neighbor first, then searches expanding rings.
+    morph = dgx_morph_create(from, to, dgx_morph_sources_cells, NULL);
+    glow = dgx_morph_glow_create(width, height, cell, screen->color_bits);
+    if (!morph || !glow) goto cleanup;
+
+    dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, 0);
+    int64_t start_us = esp_timer_get_time();
+    float t;
+    do {
+        // Draw inside the glow margin; present() places this buffer on screen.
+        t = dgx_morph_progress(start_us, esp_timer_get_time(), 500000);
+        dgx_morph_draw(morph, t, radius, radius, cell, true,
+                       dgx_morph_glow_dot, glow);
+        dgx_morph_glow_present(glow, t, screen, x, y);
+        vTaskDelay(pdMS_TO_TICKS(1));
+    } while (t < 1.0f);
+
+cleanup:
+    // The morph owns its plan; these source matrices remain caller-owned.
+    dgx_morph_glow_destroy(&glow);
+    dgx_morph_destroy(&morph);
+    dgx_matrix_destroy(&from);
+    dgx_matrix_destroy(&to);
+}
+```
+
+The source matrices are only needed while `dgx_morph_glyph_matrix()` and
+`dgx_morph_create()` build their owned data, so the cleanup releases them along
+with the morph and renderer. To morph your own patterns instead of font
+glyphs, create matrices with `dgx_matrix_init()` and set their cells with
+`dgx_matrix_set_point()`.
+
+For the complete discussion of source callbacks, trails, glow, and the CYD
+word demo, see the [English morphing tutorial](docs/morphing-en.md) or the
+[Russian version](docs/morphing-ru.md).
 
 `orientation` is a `dgx_output_orientation_t`: `DgxOutputNormal`,
 `DgxOutputMirrorX`, `DgxOutputMirrorY`, `DgxOutputRotate180`,
@@ -214,10 +343,11 @@ Each bundled font header under `include/fonts/` exposes an accessor, e.g.
 
 ### Colors
 
-The helpers in [include/dgx_colors.h](include/dgx_colors.h) are macros, not
-constants. You pair them with either the uppercase packing macros from
-[include/dgx_bits.h](include/dgx_bits.h) or the inline `dgx_rgb_to_*()`
-wrappers, so the same color name works across pixel formats:
+The helpers in [include/dgx_colors.h](include/dgx_colors.h) are parameterized
+color constructors, not stored color values. `DGX_RED(rgb_func)` substitutes
+the supplied packer into a call with the color's RGB channels. The screen's
+pixel format is selected by passing either an uppercase packing macro from
+[include/dgx_bits.h](include/dgx_bits.h) or an inline `dgx_rgb_to_*()` wrapper:
 
 ```c
 DGX_LIGHTGREY(DGX_RGB_16)   // pure macro expansion, RGB565
@@ -225,6 +355,19 @@ DGX_RED(dgx_rgb_to_16)      // inline wrapper, also RGB565
 DGX_RED(DGX_RGB_24)         // 24-bit RGB
 DGX_WHITE(DGX_RGB_12)       // 12-bit packed color
 ```
+
+For example, `DGX_RED(DGX_RGB_16)` preprocesses all the way to the bitwise
+RGB565 packing expression with channels `(255, 0, 0)`. With
+`DGX_RED(dgx_rgb_to_16)`, it preprocesses to `dgx_rgb_to_16(255, 0, 0)`.
+The argument is a macro or function name, not a function pointer: there is no
+indirect call or runtime format switch.
+
+That keeps the color's meaning separate from its binary representation: one
+palette of names works for 12-, 16-, 18- and 24-bit screens. Switching a
+renderer from RGB565 to 18-bit RGB means changing the packer, not maintaining
+a second set of `RED_565`, `RED_666` and `RED_888` constants. Passing the
+packing macro gives direct macro expansion; passing the inline wrapper gives
+the same result through a typed function-like interface.
 
 Available packers: `DGX_RGB_12` / `dgx_rgb_to_12`, `DGX_RGB_16` /
 `dgx_rgb_to_16`, `DGX_RGB_18` / `dgx_rgb_to_18`, `DGX_RGB_24` /
@@ -283,19 +426,38 @@ driver pulls in only the transports it needs; enable them in `menuconfig`.
 
 ### Flush control and batching
 
-Most DGX drawing APIs flush the touched region automatically by calling
-`scr->update_screen(...)` when the current top-level operation finishes.
-The `in_progress` field on `dgx_screen_t` is the nesting counter that suppresses
-those intermediate flushes while a larger operation is still building up.
+For a physical display that should not be updated after every primitive, draw
+the complete image into a virtual screen in RAM and send it to the panel when
+the frame is ready with `dgx_vscreen_to_screen()` (see the virtual-screen
+tutorial above). The virtual screen is the backbuffer; `in_progress` is not a
+pixel buffer.
+
+Some screens stage changes and commit them when `update_screen()` is called.
+For those drivers, `in_progress` lets a group of drawing operations finish
+before the automatic commit happens. This is useful on slower displays, where
+showing each intermediate change can create visible pauses or partial updates.
+It is a nesting counter: inner drawing operations defer their update while an
+outer batch is active. On drivers that transmit pixels immediately from
+`write_area()`, the counter cannot buffer those transfers; use a virtual screen
+when the whole frame must be composed before it is sent.
 
 Declared in [include/dgx_screen.h](include/dgx_screen.h):
 
 | API | Description |
 | --- | --- |
-| `scr->in_progress` | Nesting depth for deferred flushes. `0` means a standalone draw may flush immediately; `> 0` means wait until the outermost operation finishes. |
+| `scr->in_progress` | Nesting depth for deferred `update_screen()` calls. `0` allows an update; `> 0` defers it. |
 | `dgx_screen_progress_up(scr)` | Increment the nesting counter before a batched operation. Returns the new depth. |
-| `dgx_screen_progress_down(scr)` | Decrement the nesting counter after a batched operation. Returns the new depth; when it becomes `0`, callers typically issue one final `update_screen(...)` for the combined dirty area. |
+| `dgx_screen_progress_down(scr)` | Decrement the nesting counter after a batched operation. Returns the new depth; when it becomes `0`, the caller can commit the accumulated dirty area with `update_screen(...)`. |
 | `dgx_screen_destroy(&scr)` | Destroy a screen allocated by a driver or virtual screen constructor. |
+
+```c
+dgx_screen_progress_up(scr);
+dgx_fill_rectangle(scr, x, y, w, h, bg);
+dgx_draw_line(scr, x1, y1, x2, y2, fg);
+if (!dgx_screen_progress_down(scr)) {
+  scr->update_screen(scr, dirty_left, dirty_right, dirty_top, dirty_bottom);
+}
+```
 
 Guidelines:
 
@@ -303,8 +465,8 @@ Guidelines:
 - If you batch manually, prefer `dgx_screen_progress_up()` and
   `dgx_screen_progress_down()` over modifying the field directly.
 - Always pair every `up` with one `down`.
-- While the counter is positive, track the dirty rectangle yourself and flush
-  once when the counter drops back to `0`.
+- Track the dirty rectangle while batching; when the outermost `down` returns
+  `0`, call `update_screen()` once for that region if the driver needs it.
 
 ## Tutorials
 
@@ -478,15 +640,17 @@ once.
 A couple of practical limitations are worth knowing up front:
 
 - **Pixel readback is reliable on virtual screens.** They keep the full
+For example, `DGX_RED(DGX_RGB_16)` preprocesses to the RGB565 packing
+expression with channels `(255, 0, 0)`. `DGX_RED(dgx_rgb_to_16)` preprocesses
   framebuffer in RAM, so `get_pixel()` behaves as expected there. On physical
   panels, hardware readback is still incomplete and should not be relied on.
+
 - **Virtual screens don't honor `dir_x`/`dir_y`/`swap_xy` for framebuffer
   access.** Those fields describe orientation metadata, but they do not
   rotate or mirror the stored pixel data.
 
-## Repository layout
-
-```
+packing macro gives direct macro expansion; passing the inline wrapper gives
+the same result through a typed function-like interface.
 include/                 public headers
   bus/                   transport interfaces (SPI, I2C, P8)
   drivers/               panel drivers + virtual screens
@@ -497,6 +661,7 @@ src/                     implementations matching include/
   fonts/                 generated font sources (glob-built)
 font2c/                  offline TTF/BDF -> C font generator
 examples/screen_demo/    minimal end-to-end example
+examples/morph_demo/     sequential CYD word-morphing demo
 Kconfig                  feature toggles
 CMakeLists.txt           ESP-IDF component build
 ```

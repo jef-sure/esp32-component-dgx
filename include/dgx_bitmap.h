@@ -21,6 +21,31 @@ bool dgx_bw_bitmap_get_pixel(dgx_bw_bitmap_t *bmap, int x, int y);
 void dgx_bw_bitmap_set_pixel(dgx_bw_bitmap_t *bmap, int x, int y, bool color);
 
 /**
+ * @brief Callback for dgx_bw_bitmap_foreach_set().
+ * @param user_data Caller context.
+ * @param x,y       Coordinates of a set pixel.
+ * @return false to stop iteration early.
+ */
+typedef bool (*dgx_bw_bitmap_pixel_func_t)(void *user_data, int x, int y);
+
+/**
+ * @brief Invoke a callback for every set pixel in scan order (rows top to
+ * bottom, x ascending).
+ *
+ * Optimized for the linear MSB-first layout (is_stream == false): whole zero
+ * bytes skip 8 pixels at once and non-zero bytes are walked set-bit by
+ * set-bit, so cost is proportional to the number of set pixels rather than to
+ * the area. Row padding bits beyond width are ignored. The legacy Arduino
+ * stream layout (is_stream == true) falls back to per-pixel reads.
+ *
+ * @param bmap      Bitmap to scan.
+ * @param func      Callback; NULL only counts set pixels.
+ * @param user_data Opaque context passed to the callback.
+ * @return Number of set pixels visited before iteration stopped.
+ */
+int dgx_bw_bitmap_foreach_set(dgx_bw_bitmap_t *bmap, dgx_bw_bitmap_pixel_func_t func, void *user_data);
+
+/**
  * @brief OR-blit a 1-bpp bitmap onto another at (@p x, @p y) with full clipping.
  *
  * Source bits set to 1 set the corresponding destination bits; source bits set

@@ -1,5 +1,24 @@
 # Changes
 
+## 0.1.0 - 2026-09-30
+
+- `dgx_point_2d_t` fields are now `int16_t` (were `int`): halves point arrays
+  (morph segments, glyph dots); code taking `int *` to `.x`/`.y` must adapt
+- added font metrics `yBottomMax`, `xOffsetLowest` and `xRightMax` to
+  `dgx_font_t` (bounding box of all glyphs); `font2c` emits them and all
+  bundled fonts carry them
+- added the dot morphing framework (`DGX_ENABLE_MORPH`): one bit-matrix to
+  bit-matrix morph (`dgx_morph_create`) with pluggable source-selection
+  callbacks (`dgx_morph_sources_life`, `dgx_morph_sources_cells`,
+  `dgx_morph_ring_find`), glyph-to-matrix source, stateless per-frame
+  `dgx_morph_draw` with head/tail trails, and glow / sprite renderers
+  (optimized `collect_glow` core: dx-symmetric writes, incremental squared
+  distance, preswapped grayscale LUT)
+- added `examples/morph_demo`: CYD demo that morphs Russian words one letter
+  at a time using independent per-letter morphs and glow renderers
+- added `dgx_bw_bitmap_foreach_set()`: set-pixel scanner that skips whole zero
+  bytes (8 pixels at once) for LINES-format bitmaps; used by glyph morphing
+
 ## 0.0.13 - 2026-06-22
 
 - added sanity checks to utf-8 decoding

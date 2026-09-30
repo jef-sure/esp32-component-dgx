@@ -266,7 +266,10 @@ dgx_font_t* WeatherDotView25()
         .yOffsetLowest = -20,
         .xWidest = 25,
         .xWidthAverage = 25,
-        .f_type = DGX_FONT_BITMAP_LINES 
+        .f_type = DGX_FONT_BITMAP_LINES,
+        .yBottomMax = 7,
+        .xOffsetLowest = -1,
+        .xRightMax = 25
     };
     return &rval;
 }

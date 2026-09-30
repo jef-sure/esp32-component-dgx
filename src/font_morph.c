@@ -6,36 +6,35 @@
 
 static const char TAG[] = "DGX FONT MORPH";
 
+typedef struct {
+    dgx_font_dot_t *dots;
+    int             count;
+} _dgx_dots_collect_ctx_t;
+
+static bool _dgx_dots_collect(void *user_data, int x, int y)
+{
+    _dgx_dots_collect_ctx_t *ctx = user_data;
+    ctx->dots[ctx->count++] = dgx_font_dot_new((int8_t)x, (int8_t)y);
+    return true;
+}
+
 static dgx_font_dot_t *_dgx_dots_from_bitmap(const glyph_t *g, bool is_stream, int *number_of_dots)
 {
     if (!g) {
         *number_of_dots = 0;
         return NULL;
     }
-    int             count = 0;
-    dgx_bw_bitmap_t bmap  = dgx_bw_bitmap_make_of((uint8_t *)g->bitmap, g->width, g->height, is_stream);
-    for (int by = 0; by < g->height; ++by) {
-        for (int bx = 0; bx < g->width; bx++) {
-            bool pix = dgx_bw_bitmap_get_pixel(&bmap, bx, by);
-            count += (int)pix;
-        }
-    }
-    *number_of_dots     = count;
-    dgx_font_dot_t *ret = calloc((size_t)count, sizeof(dgx_font_dot_t));
+    dgx_bw_bitmap_t bmap = dgx_bw_bitmap_make_of((uint8_t *)g->bitmap, g->width, g->height, is_stream);
+    int             count = dgx_bw_bitmap_foreach_set(&bmap, NULL, NULL);
+    *number_of_dots       = count;
+    dgx_font_dot_t *ret   = calloc((size_t)count, sizeof(dgx_font_dot_t));
     if (!ret) {
         ESP_LOGE(TAG, "Memory allocation for temporary dgx_font_dot_t array failed");
         *number_of_dots = 0;
         return NULL;
     }
-    count = 0;
-    for (int by = 0; by < g->height; ++by) {
-        for (int bx = 0; bx < g->width; bx++) {
-            bool pix = dgx_bw_bitmap_get_pixel(&bmap, bx, by);
-            if (pix) {
-                ret[count++] = dgx_font_dot_new(bx, by);
-            }
-        }
-    }
+    _dgx_dots_collect_ctx_t ctx = { ret, 0 };
+    dgx_bw_bitmap_foreach_set(&bmap, _dgx_dots_collect, &ctx);
     return ret;
 }
 

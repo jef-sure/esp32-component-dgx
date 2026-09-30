@@ -7510,7 +7510,10 @@ dgx_font_t* WeatherIconsRegular27() {
     .yOffsetLowest = -29,           //
     .xWidest = 41,                  //
     .xWidthAverage = 23.890351,     //
-    .f_type = DGX_FONT_BITMAP_LINES //
+    .f_type = DGX_FONT_BITMAP_LINES, //
+    .yBottomMax = 10,               //
+    .xOffsetLowest = -1,            //
+    .xRightMax = 41                 //
   };
 	return &rval;
 }

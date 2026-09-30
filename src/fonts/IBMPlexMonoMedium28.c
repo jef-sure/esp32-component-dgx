@@ -2259,7 +2259,10 @@ dgx_font_t* IBMPlexMonoMedium28() {
 		.yOffsetLowest = -22,
 		.xWidest = 17,
 		.xWidthAverage = 12.526316,
-	.f_type = DGX_FONT_BITMAP_LINES
+	.f_type = DGX_FONT_BITMAP_LINES,
+		.yBottomMax = 7,
+		.xOffsetLowest = 0,
+		.xRightMax = 17
 	};
 	return &rval;
 }

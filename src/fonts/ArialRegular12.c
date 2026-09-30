@@ -7957,7 +7957,10 @@ dgx_font_t* ArialRegular12() {
 		.yOffsetLowest = -13,
 		.xWidest = 12,
 		.xWidthAverage = 5.347953,
-	.f_type = DGX_FONT_BITMAP_LINES
+	.f_type = DGX_FONT_BITMAP_LINES,
+		.yBottomMax = 5,
+		.xOffsetLowest = -6,
+		.xRightMax = 13
 	};
 	return &rval;
 }

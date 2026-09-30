@@ -95,6 +95,7 @@ typedef struct dgx_font_ {
     const glyph_array_t *glyph_ranges;
     int16_t yAdvance, yOffsetLowest, xWidest, xWidthAverage;
     dgx_font_model_t f_type;
+    int16_t yBottomMax, xOffsetLowest, xRightMax;
 } dgx_font_t;
 
 /**

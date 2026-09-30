@@ -7176,7 +7176,10 @@ dgx_font_t* DroidSansRegular9() {
 		.yOffsetLowest = -10,
 		.xWidest = 11,
 		.xWidthAverage = 4.434473,
-	.f_type = DGX_FONT_BITMAP_LINES
+	.f_type = DGX_FONT_BITMAP_LINES,
+		.yBottomMax = 5,
+		.xOffsetLowest = -5,
+		.xRightMax = 11
 	};
 	return &rval;
 }

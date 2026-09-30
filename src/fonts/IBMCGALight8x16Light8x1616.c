@@ -15770,7 +15770,10 @@ dgx_font_t* IBMCGALight8x16Light8x1616() {
     .yOffsetLowest = -13, 
     .xWidest = 8, 
     .xWidthAverage = 8.000000, 
-    .f_type = DGX_FONT_BITMAP_LINES
+    .f_type = DGX_FONT_BITMAP_LINES,
+    .yBottomMax = 3,
+    .xOffsetLowest = 0,
+    .xRightMax = 8
   };
 	return &rval;
 }

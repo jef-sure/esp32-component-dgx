@@ -2694,7 +2694,10 @@ dgx_font_t* VerdanaRegular32() {
 		.yOffsetLowest = -25,
 		.xWidest = 30,
 		.xWidthAverage = 15.073684,
-	.f_type = DGX_FONT_BITMAP_LINES
+	.f_type = DGX_FONT_BITMAP_LINES,
+		.yBottomMax = 7,
+		.xOffsetLowest = -1,
+		.xRightMax = 32
 	};
 	return &rval;
 }

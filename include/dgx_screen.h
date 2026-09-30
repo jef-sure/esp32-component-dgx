@@ -158,8 +158,8 @@ typedef struct _dgx_screen_t
 
 typedef struct dgx_point_2d
 {
-    int x;
-    int y;
+    int16_t x;
+    int16_t y;
 } dgx_point_2d_t;
 
 dgx_point_2d_t _dgx_start_area_pixel( //

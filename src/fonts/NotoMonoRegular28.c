@@ -2244,7 +2244,10 @@ dgx_font_t* NotoMonoRegular28() {
 		.yOffsetLowest = -20,
 		.xWidest = 17,
 		.xWidthAverage = 12.042105,
-	.f_type = DGX_FONT_BITMAP_LINES
+	.f_type = DGX_FONT_BITMAP_LINES,
+		.yBottomMax = 8,
+		.xOffsetLowest = 0,
+		.xRightMax = 17
 	};
 	return &rval;
 }

@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2021 Anton Petrusevich
+ * Copyright (c) 2021-2026 Anton Petrusevich
  *
  */
 
@@ -334,7 +334,7 @@ int main(int argc, char *argv[])
     fprintf(fontOut, "#include \"dgx_font.h\"\n");
     fprintf(fontOut, "static const uint8_t bitmaps[] = {\n  ");
     int     fComma        = 0;
-    int32_t yOffsetLowest = 0, xWidest = 0;
+    int32_t yOffsetLowest = 0, yBottomMax = 0, xWidest = 0, xOffsetLowest = 0, xRightMax = 0;
     double  xWidthAverage = 0;
     // Process glyphs and output huge bitmap data array
     for (i = FT_Get_First_Char(face, &gindex), j = 0; gindex != 0; i = FT_Get_Next_Char(face, i, &gindex)) {
@@ -374,11 +374,17 @@ int main(int argc, char *argv[])
         glyphs[j].ginfo.yOffset      = 1 - g->top;
         if (j == 0) {
             yOffsetLowest = glyphs[j].ginfo.yOffset;
+            yBottomMax    = glyphs[j].ginfo.yOffset + glyphs[j].ginfo.height;
             xWidest       = glyphs[j].ginfo.width;
+            xOffsetLowest = glyphs[j].ginfo.xOffset;
+            xRightMax     = glyphs[j].ginfo.xOffset + glyphs[j].ginfo.width;
             xWidthAverage = glyphs[j].ginfo.width;
         } else {
             if (yOffsetLowest > glyphs[j].ginfo.yOffset) yOffsetLowest = glyphs[j].ginfo.yOffset;
+            if (yBottomMax < glyphs[j].ginfo.yOffset + glyphs[j].ginfo.height) yBottomMax = glyphs[j].ginfo.yOffset + glyphs[j].ginfo.height;
             if (xWidest < glyphs[j].ginfo.width) xWidest = glyphs[j].ginfo.width;
+            if (xOffsetLowest > glyphs[j].ginfo.xOffset) xOffsetLowest = glyphs[j].ginfo.xOffset;
+            if (xRightMax < glyphs[j].ginfo.xOffset + glyphs[j].ginfo.width) xRightMax = glyphs[j].ginfo.xOffset + glyphs[j].ginfo.width;
             xWidthAverage += glyphs[j].ginfo.width;
         }
         cpr_insert_output_cp(i);
@@ -455,14 +461,20 @@ int main(int argc, char *argv[])
             ".yOffsetLowest = %d,\n\t\t"
             ".xWidest = %d,\n\t\t"
             ".xWidthAverage = %f,\n\t"
-            ".f_type = DGX_FONT_BITMAP_LINES\n\t"
+            ".f_type = DGX_FONT_BITMAP_LINES,\n\t\t"
+            ".yBottomMax = %d,\n\t\t"
+            ".xOffsetLowest = %d,\n\t\t"
+            ".xRightMax = %d\n\t"
             "};\n\t"
             "return &rval;\n}\n",
             funcname,                                                                                           //
             (face->size->metrics.height == 0 ? (long)glyphs[0].ginfo.height : face->size->metrics.height >> 6), //
             yOffsetLowest,                                                                                      //
             xWidest,                                                                                            //
-            xWidthAverage                                                                                       //
+            xWidthAverage,                                                                                      //
+            yBottomMax,                                                                                         //
+            xOffsetLowest,                                                                                      //
+            xRightMax                                                                                           //
     );
     fclose(fontOut);
     strcpy(fontname, funcname);

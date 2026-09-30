@@ -62,6 +62,13 @@ if(CONFIG_DGX_ENABLE_VSCREEN_2H)
 	list(APPEND srcs "src/drivers/vscreen_2h.c")
 endif()
 
+if(CONFIG_DGX_ENABLE_MORPH)
+	list(APPEND srcs "src/matrix.c" "src/morph.c" "src/morph_sources.c")
+	if(CONFIG_DGX_ENABLE_VSCREEN)
+		list(APPEND srcs "src/morph_render.c")
+	endif()
+endif()
+
 idf_component_register(
 	SRCS "${srcs}"
 	REQUIRES driver

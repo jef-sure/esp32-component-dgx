@@ -207,7 +207,7 @@ static void dgx_st7920_update_screen(dgx_screen_t *_scr, int left, int right, in
     dgx_st7920_t  *scr     = (dgx_st7920_t *)_scr;
     dgx_vscreen_t *vscreen = &scr->base;
 
-    ESP_LOGI(TAG, "Updating screen: left=%d, right=%d, top=%d, bottom=%d", left, right, top, bottom);
+    ESP_LOGD(TAG, "Updating screen: left=%d, right=%d, top=%d, bottom=%d", left, right, top, bottom);
 
     // Clamp coordinates to display bounds
     if (left < 0) left = 0;

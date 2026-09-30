@@ -431,7 +431,10 @@ dgx_font_t *CasusDotView()
         .yOffsetLowest = -12,          //
         .xWidest       = 7,            //
         .xWidthAverage = 7.000000,     //
-        .f_type        = DGX_FONT_DOTS //
+        .f_type        = DGX_FONT_DOTS, //
+        .yBottomMax    = 2,             //
+        .xOffsetLowest = 0,             //
+        .xRightMax     = 7              //
     };
     return &rval;
 }

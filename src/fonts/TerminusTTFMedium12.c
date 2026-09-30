@@ -5070,7 +5070,10 @@ dgx_font_t* TerminusTTFMedium12() {
     .yOffsetLowest = -9,
     .xWidest = 6,
     .xWidthAverage = 6.000000,
-    .f_type = DGX_FONT_BITMAP_LINES 
+    .f_type = DGX_FONT_BITMAP_LINES,
+    .yBottomMax = 3,
+    .xOffsetLowest = 0,
+    .xRightMax = 6
   };
 	return &rval;
 }

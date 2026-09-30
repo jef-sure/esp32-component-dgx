@@ -4,6 +4,49 @@
 #include "dgx_bitmap.h"
 #include "dgx_bits.h"
 
+int dgx_bw_bitmap_foreach_set(dgx_bw_bitmap_t *bmap, dgx_bw_bitmap_pixel_func_t func, void *user_data)
+{
+    int visited = 0;
+    if (bmap == NULL || bmap->bitmap == NULL) {
+        return visited;
+    }
+    if (!bmap->is_stream) { // DGX_FONT_BITMAP_LINES: row-major, MSB-first
+        int pitch = (bmap->width + 7) / 8;
+        for (int y = 0; y < bmap->height; ++y) {
+            const uint8_t *row = bmap->bitmap + (size_t)y * (size_t)pitch;
+            for (int xb = 0; xb < pitch; ++xb) {
+                uint8_t bits = row[xb];
+                if (bits == 0) continue; // whole byte empty: skip 8 pixels
+                int valid = bmap->width - xb * 8;
+                if (valid < 8) bits &= (uint8_t)(0xffu << (8 - valid)); // drop row padding
+                if (bits == 0) continue;
+                if (func == NULL) {
+                    visited += __builtin_popcount(bits);
+                    continue;
+                }
+                int x_base = xb * 8;
+                while (bits) {
+                    int lead = __builtin_clz((unsigned)bits << 24); // 0..7, MSB first
+                    int x    = x_base + lead;
+                    bits &= (uint8_t)~(uint8_t)(0x80u >> lead);
+                    visited++;
+                    if (!func(user_data, x, y)) return visited;
+                }
+            }
+        }
+        return visited;
+    }
+    // Legacy Arduino stream layout: keep per-pixel semantics.
+    for (int y = 0; y < bmap->height; ++y) {
+        for (int x = 0; x < bmap->width; ++x) {
+            if (!dgx_bw_bitmap_get_pixel(bmap, x, y)) continue;
+            visited++;
+            if (func && !func(user_data, x, y)) return visited;
+        }
+    }
+    return visited;
+}
+
 bool dgx_bw_bitmap_get_pixel(dgx_bw_bitmap_t *bmap, int x, int y)
 {
     int     offset;
