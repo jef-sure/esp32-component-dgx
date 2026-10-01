@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## 0.1.2 - 2026-10-01
 
 - fixed the full-screen black fill fast path in `vscreen` (compared `y` with
   the height instead of `h`, so `memset` never ran)
@@ -8,7 +8,8 @@
   argument added in 0.0.11; README no longer promises menuconfig pin options
 - `DGX_ENABLE_MORPH` now selects `DGX_ENABLE_VSCREEN` (the renderers need it)
 - component requirements: `esp_driver_gpio`, `esp_driver_spi`,
-  `esp_driver_i2c` on IDF 5.3+, the legacy `driver` component before that
+  `esp_driver_i2c` on IDF 5.3+, the legacy `driver` component before that;
+  minimum IDF raised to 5.2 (the I2C backend uses `driver/i2c_master.h`)
 - `dgx_morph_create` returns NULL for sides above `INT16_MAX` cells;
   `dgx_morph_draw` skips dots whose pixel position does not fit `int16_t`
 - added matrix helpers `dgx_matrix_clear`, `dgx_matrix_clone`,
