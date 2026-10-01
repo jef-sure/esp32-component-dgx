@@ -148,7 +148,7 @@ void dgx_draw_triangle_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
         if (x2 < a) a = x2;
         else if (x2 > b) b = x2;
         scr->fill_rectangle(scr, a, y0, b - a + 1, 1, color);
-        if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, a, b, y0, y0);
+        dgx_screen_progress_down(scr);
         return;
     }
     int dx01 = x1 - x0;
@@ -178,12 +178,7 @@ void dgx_draw_triangle_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
         if (a > b) DGX_INT_SWAP(a, b);
         scr->fill_rectangle(scr, a, y, b - a + 1, 1, color);
     }
-    a = b = x0;
-    if (x1 < a) a = x1;
-    else if (x1 > b) b = x1;
-    if (x2 < a) a = x2;
-    else if (x2 > b) b = x2;
-    if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, a, b, y0, y2);
+    dgx_screen_progress_down(scr);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -199,8 +194,6 @@ void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
 {
     int vx[4] = {x0, x1, x2, x3};
     int vy[4] = {y0, y1, y2, y3};
-    int dirty_left = DGX_MIN(DGX_MIN(x0, x1), DGX_MIN(x2, x3));
-    int dirty_right = DGX_MAX(DGX_MAX(x0, x1), DGX_MAX(x2, x3));
     int dirty_top = DGX_MIN(DGX_MIN(y0, y1), DGX_MIN(y2, y3));
     int dirty_bottom = DGX_MAX(DGX_MAX(y0, y1), DGX_MAX(y2, y3));
 
@@ -258,7 +251,7 @@ void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
             scr->fill_rectangle(scr, xs[i], y, xs[i + 1] - xs[i] + 1, 1, color);
         }
     }
-    if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, dirty_left, dirty_right, dirty_top, dirty_bottom);
+    dgx_screen_progress_down(scr);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -274,7 +267,7 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x, int y, int x2, int y2, int wi
     dgx_screen_progress_up(scr);
     if (dx == 0 && dy == 0) {
         dgx_solid_circle(scr, x, y, mw ? mw : pw, color);
-        if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, x - pw, x + pw, y - pw, y + pw);
+        dgx_screen_progress_down(scr);
         return;
     }
     if (dx == 0) {
@@ -283,7 +276,7 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x, int y, int x2, int y2, int wi
             dy = -dy;
         }
         scr->fill_rectangle(scr, x - mw, y, width, dy + 1, color);
-        if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, x - mw, x + pw, y, y + dy);
+        dgx_screen_progress_down(scr);
         return;
     }
     if (dy == 0) {
@@ -292,7 +285,7 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x, int y, int x2, int y2, int wi
             dx = -dx;
         }
         scr->fill_rectangle(scr, x, y - mw, dx + 1, width, color);
-        if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, x, x + dx, y - mw, y + pw);
+        dgx_screen_progress_down(scr);
         return;
     }
     float s = sqrtf((float)((int32_t)dx * dx + (int32_t)dy * dy));
@@ -303,7 +296,6 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x, int y, int x2, int y2, int wi
     int adx = dx < 0 ? -dx : dx;
     int ady = dy < 0 ? -dy : dy;
     int err;
-    int dirty_left, dirty_right, dirty_top, dirty_bottom;
     if (adx >= ady) {
         if (x > x2) {
             DGX_INT_SWAP(x, x2);
@@ -315,10 +307,6 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x, int y, int x2, int y2, int wi
         int ltx1 = x + px, lty1 = y + py;
         int rtx0 = x2 + mx, rty0 = y2 + my;
         int rtx1 = x2 + px, rty1 = y2 + py;
-        dirty_left   = DGX_MIN(DGX_MIN(ltx0, ltx1), DGX_MIN(rtx0, rtx1));
-        dirty_right  = DGX_MAX(DGX_MAX(ltx0, ltx1), DGX_MAX(rtx0, rtx1));
-        dirty_top    = DGX_MIN(DGX_MIN(lty0, lty1), DGX_MIN(rty0, rty1));
-        dirty_bottom = DGX_MAX(DGX_MAX(lty0, lty1), DGX_MAX(rty0, rty1));
         int lty2, ltx2, rtx2, rty2, usy, dsy;
         if (ltx1 > ltx0) {
             ltx2 = ltx1;
@@ -347,7 +335,7 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x, int y, int x2, int y2, int wi
         if (ltx1 >= rtx0 || ltx0 >= rtx1) {
             dgx_draw_triangle_solid(scr, ltx0, lty0, ltx1, lty1, rtx1, rty1, color);
             dgx_draw_triangle_solid(scr, rtx0, rty0, rtx1, rty1, ltx0, lty0, color);
-            if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, dirty_left, dirty_right, dirty_top, dirty_bottom);
+            dgx_screen_progress_down(scr);
             return;
         }
         dgx_draw_triangle_solid(scr, ltx0, lty0, ltx1, lty1, ltx2, lty2, color);
@@ -383,10 +371,6 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x, int y, int x2, int y2, int wi
         int ltx1 = x + px, lty1 = y + py;
         int rtx0 = x2 + mx, rty0 = y2 + my;
         int rtx1 = x2 + px, rty1 = y2 + py;
-        dirty_left   = DGX_MIN(DGX_MIN(ltx0, ltx1), DGX_MIN(rtx0, rtx1));
-        dirty_right  = DGX_MAX(DGX_MAX(ltx0, ltx1), DGX_MAX(rtx0, rtx1));
-        dirty_top    = DGX_MIN(DGX_MIN(lty0, lty1), DGX_MIN(rty0, rty1));
-        dirty_bottom = DGX_MAX(DGX_MAX(lty0, lty1), DGX_MAX(rty0, rty1));
         int lty2, ltx2, rtx2, rty2, ls, ds;
         if (lty1 > lty0) {
             lty2 = lty1;
@@ -415,7 +399,7 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x, int y, int x2, int y2, int wi
         if (lty1 >= rty0 || lty0 >= rty1) {
             dgx_draw_triangle_solid(scr, ltx0, lty0, ltx1, lty1, rtx1, rty1, color);
             dgx_draw_triangle_solid(scr, rtx0, rty0, rtx1, rty1, ltx0, lty0, color);
-            if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, dirty_left, dirty_right, dirty_top, dirty_bottom);
+            dgx_screen_progress_down(scr);
             return;
         }
         dgx_draw_triangle_solid(scr, ltx0, lty0, ltx1, lty1, ltx2, lty2, color);
@@ -441,7 +425,7 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x, int y, int x2, int y2, int wi
             }
         } while (y1++ != y2);
     }
-    if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, dirty_left, dirty_right, dirty_top, dirty_bottom);
+    dgx_screen_progress_down(scr);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -465,7 +449,7 @@ uint32_t dgx_draw_line_mask(dgx_screen_t *scr, int x1, int y1, int x2, int y2, u
     if (adx == 0 && ady == 0) {
         scr->set_pixel(scr, x1, y1, (mask & 1u) ? color : bg);
         mask = dgx_ror_nbits(mask, mask_bits, 1);
-        if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, x1, x1, y1, y1);
+        dgx_screen_progress_down(scr);
         return mask;
     }
     if (adx == 0) {
@@ -474,7 +458,7 @@ uint32_t dgx_draw_line_mask(dgx_screen_t *scr, int x1, int y1, int x2, int y2, u
             mask = dgx_ror_nbits(mask, mask_bits, 1);
             if (y == y2) break;
         }
-        if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, x1, x1, ya, yb);
+        dgx_screen_progress_down(scr);
         return mask;
     }
     if (ady == 0) {
@@ -483,7 +467,7 @@ uint32_t dgx_draw_line_mask(dgx_screen_t *scr, int x1, int y1, int x2, int y2, u
             mask = dgx_ror_nbits(mask, mask_bits, 1);
             if (x == x2) break;
         }
-        if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, xa, xb, y1, y1);
+        dgx_screen_progress_down(scr);
         return mask;
     }
     /* Diagonal: per-pixel Bresenham (no fill primitives can carry the pattern). */
@@ -516,6 +500,6 @@ uint32_t dgx_draw_line_mask(dgx_screen_t *scr, int x1, int y1, int x2, int y2, u
             }
         }
     }
-    if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, xa, xb, ya, yb);
+    dgx_screen_progress_down(scr);
     return mask;
 }

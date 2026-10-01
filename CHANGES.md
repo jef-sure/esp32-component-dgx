@@ -1,5 +1,21 @@
 # Changes
 
+## 0.2.0 - 2026-10-01
+
+- screens accumulate a pending dirty area (`dirty_left/top/right/bottom` in
+  `dgx_screen_t`): primitives report changes with the new `dgx_screen_touch()`,
+  and the outermost `dgx_screen_progress_down()` commits the bounding box of
+  everything drawn in the batch with one `update_screen()` call. Previously
+  only the outer operation's own rectangle was committed, so changes made by
+  other calls inside a batch were lost on staged screens (ST7920, SSD1306,
+  ST7565R, `vscreen_2h`)
+- added `dgx_screen_flush()`; `dgx_screen_progress_down()` now flushes at
+  depth 0, so code that called `update_screen()` after it can drop that call;
+  do not modify `in_progress` directly any more; an unbalanced extra
+  `progress_down()` resets the counter to 0 instead of deferring forever
+- `dgx_vscreen_copy()` now marks the destination dirty
+- fixed `r == 0` in vscreen circles drawing at (0, 0) instead of the center
+
 ## 0.1.2 - 2026-10-01
 
 - fixed the full-screen black fill fast path in `vscreen` (compared `y` with

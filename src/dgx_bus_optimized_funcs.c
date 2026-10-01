@@ -95,7 +95,8 @@ static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, in
     if (draw_buffer != scr->draw_buffer) {
         free(draw_buffer);
     }
-    if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, x, x + w - 1, y, y + h - 1);
+    dgx_screen_touch(scr, x, x + w - 1, y, y + h - 1);
+    dgx_screen_progress_down(scr);
 }
 
 static void dgx_scr_set_pixel_sb(dgx_screen_t *scr, int x, int y, uint32_t color)
@@ -107,7 +108,7 @@ static void dgx_scr_set_pixel_sb(dgx_screen_t *scr, int x, int y, uint32_t color
     DGX_FILL_BUFFER(scr->color_bits, lp, x, 1, color);
     scr->set_area(scr, x, x, y, y);
     scr->write_area(scr, draw_buffer, dgx_color_points_to_bytes(scr->color_bits, 1) * 8u);
-    if (!scr->in_progress) scr->update_screen(scr, x, x, y, y);
+    dgx_screen_touch(scr, x, x, y, y);
 }
 
 static uint32_t dgx_scr_get_pixel_sb(dgx_screen_t *_scr, int x, int y)
@@ -178,7 +179,7 @@ static void dgx_scr_line_sb(dgx_screen_t *scr, int x1, int y1, int x2, int y2, u
             x1 += sx;
             y1 += sy;
         };
-        if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, area_left, area_right, area_top, area_bottom);
+        dgx_screen_progress_down(scr);
         return;
     }
     int err;
@@ -215,7 +216,7 @@ static void dgx_scr_line_sb(dgx_screen_t *scr, int x1, int y1, int x2, int y2, u
             y1 += sy;
         }
     }
-    if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, area_left, area_right, area_top, area_bottom);
+    dgx_screen_progress_down(scr);
 }
 
 static void dgx_scr_circle_emit_outline_spans(dgx_screen_t *scr, int x, int y, int yoff, int xstart, int xend, uint32_t color)
@@ -294,7 +295,7 @@ static void dgx_scr_circle_sb(dgx_screen_t *scr, int x, int y, int r, uint32_t c
         }
     }
     dgx_scr_circle_emit_outline_spans(scr, x, y, 0, run_start_xs, xs, color);
-    if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, area_left, area_right, area_top, area_bottom);
+    dgx_screen_progress_down(scr);
 }
 
 static void dgx_scr_solid_circle_sb(dgx_screen_t *scr, int x, int y, int r, uint32_t color)
@@ -349,7 +350,7 @@ static void dgx_scr_solid_circle_sb(dgx_screen_t *scr, int x, int y, int r, uint
             px = xs;
         }
     }
-    if (!dgx_screen_progress_down(scr)) scr->update_screen(scr, area_left, area_right, area_top, area_bottom);
+    dgx_screen_progress_down(scr);
 }
 
 static void dgx_scr_set_area_sb(dgx_screen_t *scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)

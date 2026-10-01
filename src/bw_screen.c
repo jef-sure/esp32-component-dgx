@@ -103,7 +103,7 @@ void dgx_bw_set_pixel(dgx_screen_t *scr_, int x, int y, uint32_t color)
     uint8_t          *pb   = scr->v_array + page * scr->base.width + x;
     if (color) *pb |= mask;
     else *pb &= ~mask;
-    if (!scr_->in_progress) scr_->update_screen(scr_, x, x, y, y);
+    dgx_screen_touch(scr_, x, x, y, y);
 }
 
 uint32_t dgx_bw_get_pixel(dgx_screen_t *scr_, int x, int y)
@@ -134,7 +134,7 @@ void dgx_bw_fast_vline(dgx_screen_t *scr_, int x, int y, int h, uint32_t color)
         if (color) *pb |= mask;
         else *pb &= ~mask;
     }
-    if (!scr_->in_progress) scr_->update_screen(scr_, x, x, y, y + h - 1);
+    dgx_screen_touch(scr_, x, x, y, y + h - 1);
 }
 
 void dgx_bw_fill_rectangle(dgx_screen_t *scr_, int x, int y, int w, int h, uint32_t color)
@@ -164,7 +164,8 @@ void dgx_bw_fill_rectangle(dgx_screen_t *scr_, int x, int y, int w, int h, uint3
             dgx_bw_fast_vline(scr_, x + i, y, h, color);
         }
     }
-    if (!dgx_screen_progress_down(scr_)) scr_->update_screen(scr_, x, x + w - 1, y, y + h - 1);
+    dgx_screen_touch(scr_, x, x + w - 1, y, y + h - 1);
+    dgx_screen_progress_down(scr_);
 }
 
 void dgx_bw_update_screen(dgx_screen_t *scr_, int left, int right, int top, int bottom)

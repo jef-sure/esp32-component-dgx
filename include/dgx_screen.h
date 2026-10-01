@@ -136,6 +136,11 @@ typedef struct _dgx_screen_t
      * modifying this field directly.
      */
     int32_t              in_progress;
+    /* Pending dirty area, right/bottom exclusive; empty when dirty_right <= dirty_left. */
+    int16_t              dirty_left;
+    int16_t              dirty_top;
+    int16_t              dirty_right;
+    int16_t              dirty_bottom;
     uint16_t             cg_row_shift;
     uint16_t             cg_col_shift;
     uint8_t             *draw_buffer;
@@ -194,10 +199,10 @@ static inline void dgx_screen_destroy(dgx_screen_t **_pscr)
 }
 
 /**
- * @brief Increment the nesting counter that defers intermediate flushes.
+ * @brief Increment the nesting counter that defers flushes.
  *
- * Call before starting a batched draw operation that will perform multiple
- * low-level writes but should result in only one final update_screen() call.
+ * Everything drawn until the matching dgx_screen_progress_down() is collected
+ * into one dirty area and sent with a single update_screen() call.
  *
  * @param _scr Screen whose batching depth is being increased.
  * @return New nesting depth.
@@ -208,17 +213,63 @@ static inline int dgx_screen_progress_up(dgx_screen_t *_scr)
 }
 
 /**
- * @brief Decrement the nesting counter that defers intermediate flushes.
+ * @brief Send the pending dirty area with update_screen() and clear it.
+ * @param _scr Screen to flush.
+ */
+static inline void dgx_screen_flush(dgx_screen_t *_scr)
+{
+    if (_scr->dirty_right <= _scr->dirty_left) return;
+    int left = _scr->dirty_left, right = _scr->dirty_right - 1;
+    int top = _scr->dirty_top, bottom = _scr->dirty_bottom - 1;
+    _scr->dirty_left = _scr->dirty_right = _scr->dirty_top = _scr->dirty_bottom = 0;
+    if (_scr->update_screen) _scr->update_screen(_scr, left, right, top, bottom);
+}
+
+/**
+ * @brief Mark an area as changed (inclusive bounds, clipped to the screen).
  *
- * Call after finishing a batched draw operation. When the returned value is
- * 0, callers typically flush the combined dirty region with update_screen().
+ * Outside a batch the area is flushed at once; inside it is merged into the
+ * pending dirty area.
+ *
+ * @param _scr Screen that was drawn on.
+ */
+static inline void dgx_screen_touch(dgx_screen_t *_scr, int left, int right, int top, int bottom)
+{
+    if (left < 0) left = 0;
+    if (top < 0) top = 0;
+    if (right >= _scr->width) right = _scr->width - 1;
+    if (bottom >= _scr->height) bottom = _scr->height - 1;
+    if (left <= right && top <= bottom) {
+        if (_scr->dirty_right <= _scr->dirty_left) {
+            _scr->dirty_left   = (int16_t)left;
+            _scr->dirty_top    = (int16_t)top;
+            _scr->dirty_right  = (int16_t)(right + 1);
+            _scr->dirty_bottom = (int16_t)(bottom + 1);
+        } else {
+            if (left < _scr->dirty_left) _scr->dirty_left = (int16_t)left;
+            if (top < _scr->dirty_top) _scr->dirty_top = (int16_t)top;
+            if (right + 1 > _scr->dirty_right) _scr->dirty_right = (int16_t)(right + 1);
+            if (bottom + 1 > _scr->dirty_bottom) _scr->dirty_bottom = (int16_t)(bottom + 1);
+        }
+    }
+    if (!_scr->in_progress) dgx_screen_flush(_scr);
+}
+
+/**
+ * @brief Decrement the nesting counter; at 0 flush the pending dirty area.
  *
  * @param _scr Screen whose batching depth is being decreased.
  * @return New nesting depth.
  */
 static inline int dgx_screen_progress_down(dgx_screen_t *_scr)
-{                               //
-    return --_scr->in_progress; //
+{
+    int depth = --_scr->in_progress;
+    if (depth <= 0) {
+        _scr->in_progress = 0; // unbalanced down: recover instead of deferring forever
+        depth             = 0;
+        dgx_screen_flush(_scr);
+    }
+    return depth;
 }
 
 #ifdef __cplusplus

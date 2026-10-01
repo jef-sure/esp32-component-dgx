@@ -270,9 +270,5 @@ void dgx_morph_sprite_dot(void *sprite, const dgx_point_2d_t *point, uint8_t int
             dgx_morph_put_color(bits, dst + bpp * ((size_t)ty * dw + tx), color);
         }
     }
-    if (!s->target->in_progress) {
-        int l = x0 < 0 ? 0 : x0, r = x0 + d - 1 < dw ? x0 + d - 1 : dw - 1;
-        int t = y0 < 0 ? 0 : y0, b = y0 + d - 1 < dh ? y0 + d - 1 : dh - 1;
-        if (l <= r && t <= b) s->target->update_screen(s->target, l, r, t, b);
-    }
+    dgx_screen_touch(s->target, x0, x0 + d - 1, y0, y0 + d - 1);
 }

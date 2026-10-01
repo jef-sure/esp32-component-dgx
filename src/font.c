@@ -208,16 +208,10 @@ int dgx_font_char_to_screen(            //
                  scr->screen_subtype == DgxVirtualBackScreen)) {
                 dgx_vscreen_t  *vscr = (dgx_vscreen_t *)scr;
                 dgx_bw_bitmap_t dst  = dgx_bw_bitmap_make_of(vscr->v_array, scr->width, scr->height, false);
-                int             top_progress = dgx_screen_progress_up(scr);
-                dgx_bw_bitmap_blit_or(&dst, x + x_shift, y + y_shift, &bmap);
-                if (dgx_screen_progress_down(scr) == 0 && scr->update_screen) {
-                    int gx0 = x + x_shift;
-                    int gy0 = y + y_shift;
-                    int gx1 = gx0 + g->width  - 1;
-                    int gy1 = gy0 + g->height - 1;
-                    scr->update_screen(scr, gx0, gx1, gy0, gy1);
-                }
-                (void)top_progress;
+                int             gx0  = x + x_shift;
+                int             gy0  = y + y_shift;
+                dgx_bw_bitmap_blit_or(&dst, gx0, gy0, &bmap);
+                dgx_screen_touch(scr, gx0, gx0 + g->width - 1, gy0, gy0 + g->height - 1);
                 return xAdvance * scale;
             }
             dgx_point_2d_t current_point = _dgx_start_area_pixel(left, right, top, bottom, xdir, ydir);
@@ -310,8 +304,6 @@ void dgx_font_string_utf8_screen(       //
     dgx_orientation_t ydir    = dgx_output_orientation_ydir(orientation);
     bool              swap_xy = dgx_output_orientation_swap_xy(orientation);
     size_t idx = 0;
-    idx        = 0;
-    int left = x, right = x, top = y, bottom = y;
     dgx_screen_progress_up(scr);
     while (str[idx]) {
         uint32_t cp = decodeUTF8next(str, &idx);
@@ -319,47 +311,10 @@ void dgx_font_string_utf8_screen(       //
             dgx_font_char_to_screen(scr, x, y, cp, color, orientation, scale, font, draw_func, param);
         if (swap_xy) {
             y += offset * ydir;
-            if (ydir == DgxScreenTopBottom) {
-                if (y > bottom) bottom = y;
-            } else {
-                if (y < top) top = y;
-            }
         } else {
             x += offset * xdir;
-            if (xdir == DgxScreenLeftRight) {
-                if (x > right) right = x;
-            } else {
-                if (x < left) left = x;
-            }
         }
     }
-    if (!dgx_screen_progress_down(scr)) {
-        if (left == right && top == bottom) {
-            return;
-        }
-        int16_t ycorner;
-        int16_t height;
-        dgx_font_string_bounds(str, font, &ycorner, &height);
-        ycorner *= scale;
-        height  *= scale;
-        if (left == right) {
-            if (xdir == DgxScreenLeftRight) {
-                right = x + height + ycorner;
-                left  = x - height;
-            } else {
-                right = x - height;
-                left  = x + height + ycorner;
-            }
-        } else if (top == bottom) {
-            if (ydir == DgxScreenTopBottom) {
-                bottom = y + height + ycorner;
-                top    = y - height;
-            } else {
-                bottom = y - height;
-                top    = y + height + ycorner;
-            }
-        }
-        scr->update_screen(scr, left, right, top, bottom);
-    }
+    dgx_screen_progress_down(scr);
 }
 

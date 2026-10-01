@@ -436,41 +436,43 @@ the frame is ready with `dgx_vscreen_to_screen()` (see the virtual-screen
 tutorial above). The virtual screen is the backbuffer; `in_progress` is not a
 pixel buffer.
 
-Some screens stage changes and commit them when `update_screen()` is called.
-For those drivers, `in_progress` lets a group of drawing operations finish
-before the automatic commit happens. This is useful on slower displays, where
-showing each intermediate change can create visible pauses or partial updates.
-It is a nesting counter: inner drawing operations defer their update while an
-outer batch is active. On drivers that transmit pixels immediately from
-`write_area()`, the counter cannot buffer those transfers; use a virtual screen
-when the whole frame must be composed before it is sent.
+Some screens stage changes and commit them when `update_screen()` is called
+(ST7920, SSD1306, ST7565R, the two-head compositor). Every primitive marks
+what it changed with `dgx_screen_touch()`; the screen keeps one pending dirty
+rectangle. Outside a batch the rectangle is committed at once. Inside a batch
+(`in_progress > 0`) rectangles are merged, and the outermost
+`dgx_screen_progress_down()` commits their bounding box with a single
+`update_screen()` call. One transfer of a larger area is usually cheaper than
+several small ones: setting up a transfer costs more latency than the pixels
+themselves. On drivers that transmit pixels immediately from `write_area()`,
+the batch cannot buffer those transfers; use a virtual screen when the whole
+frame must be composed before it is sent.
 
 Declared in [include/dgx_screen.h](include/dgx_screen.h):
 
 | API | Description |
 | --- | --- |
-| `scr->in_progress` | Nesting depth for deferred `update_screen()` calls. `0` allows an update; `> 0` defers it. |
-| `dgx_screen_progress_up(scr)` | Increment the nesting counter before a batched operation. Returns the new depth. |
-| `dgx_screen_progress_down(scr)` | Decrement the nesting counter after a batched operation. Returns the new depth; when it becomes `0`, the caller can commit the accumulated dirty area with `update_screen(...)`. |
+| `dgx_screen_progress_up(scr)` | Open a batch (nesting counter). Returns the new depth. |
+| `dgx_screen_progress_down(scr)` | Close a batch; at depth `0` commits the pending dirty area. Returns the new depth. |
+| `dgx_screen_touch(scr, left, right, top, bottom)` | Mark an area as changed (inclusive, clipped). For code that writes pixels directly, e.g. into `v_array`. |
+| `dgx_screen_flush(scr)` | Commit the pending dirty area now. |
 | `dgx_screen_destroy(&scr)` | Destroy a screen allocated by a driver or virtual screen constructor. |
 
 ```c
 dgx_screen_progress_up(scr);
 dgx_fill_rectangle(scr, x, y, w, h, bg);
 dgx_draw_line(scr, x1, y1, x2, y2, fg);
-if (!dgx_screen_progress_down(scr)) {
-  scr->update_screen(scr, dirty_left, dirty_right, dirty_top, dirty_bottom);
-}
+dgx_font_string_utf8_screen(scr, x, y, "42", fg, DgxOutputNormal, 1, font, NULL, NULL);
+dgx_screen_progress_down(scr);   // one update_screen() for everything above
 ```
 
 Guidelines:
 
-- Most applications should not touch `in_progress` at all.
-- If you batch manually, prefer `dgx_screen_progress_up()` and
-  `dgx_screen_progress_down()` over modifying the field directly.
-- Always pair every `up` with one `down`.
-- Track the dirty rectangle while batching; when the outermost `down` returns
-  `0`, call `update_screen()` once for that region if the driver needs it.
+- Most applications only need `progress_up`/`progress_down` around a group of
+  drawing calls, or nothing at all.
+- Always pair every `up` with one `down`; do not modify `in_progress` directly.
+- If you write pixels behind the primitives' back, call `dgx_screen_touch()`
+  for that area.
 
 ## Tutorials
 

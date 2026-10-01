@@ -13,7 +13,7 @@ LIB_SRCS := $(addprefix $(ROOT)/src/, matrix.c morph.c morph_sources.c morph_ren
               font.c bitmap.c draw.c orientation.c drivers/vscreen.c) \
             $(wildcard $(ROOT)/src/fonts/*.c)
 
-TESTS := test_matrix test_morph test_render test_fonts
+TESTS := test_matrix test_morph test_render test_fonts test_screen
 BUILD := build
 
 all: $(addprefix run-, $(TESTS))

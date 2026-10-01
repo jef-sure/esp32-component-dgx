@@ -94,7 +94,7 @@ static void dgx_vscreen_set_pixel(dgx_screen_t *_scr, int x, int y, uint32_t col
     uint32_t offset = DGX_VSCR_OFFSET(scr, x, y);
     uint8_t *lp     = DGX_VSCR_PTR(scr, offset);
     dgx_fill_buf_value(_scr->color_bits, lp, offset, color);
-    if (!_scr->in_progress) _scr->update_screen(_scr, x, x, y, y);
+    dgx_screen_touch(_scr, x, x, y, y);
 }
 
 static uint32_t dgx_vscreen_get_pixel(dgx_screen_t *_scr, int x, int y)
@@ -152,7 +152,7 @@ static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, 
             DGX_FILL_BUFFER(_scr->color_bits, lp, offset, w, color);
         }
     }
-    if (!_scr->in_progress) _scr->update_screen(_scr, x, x + w - 1, y, y + h - 1);
+    dgx_screen_touch(_scr, x, x + w - 1, y, y + h - 1);
 }
 static void dgx_vscreen_line(dgx_screen_t *_scr, int x1, int y1, int x2, int y2, uint32_t color)
 {
@@ -185,7 +185,7 @@ static void dgx_vscreen_line(dgx_screen_t *_scr, int x1, int y1, int x2, int y2,
     dy     = DGX_ABS(dy);
     ++dx;
     ++dy;
-    _scr->in_progress++;
+    dgx_screen_progress_up(_scr);
     if (dx == dy) {
         while (1) {
             _scr->set_pixel(_scr, x1, y1, color);
@@ -193,7 +193,7 @@ static void dgx_vscreen_line(dgx_screen_t *_scr, int x1, int y1, int x2, int y2,
             x1 += sx;
             y1 += sy;
         };
-        if (!--_scr->in_progress) _scr->update_screen(_scr, area_left, area_right, area_top, area_bottom);
+        dgx_screen_progress_down(_scr);
         return;
     }
     int err;
@@ -230,9 +230,7 @@ static void dgx_vscreen_line(dgx_screen_t *_scr, int x1, int y1, int x2, int y2,
             y1 += sy;
         }
     }
-    if (!--_scr->in_progress) {
-        _scr->update_screen(_scr, area_left, area_right, area_top, area_bottom);
-    }
+    dgx_screen_progress_down(_scr);
 }
 
 static void dgx_vscreen_circle(dgx_screen_t *_scr, int x0, int y0, int r, uint32_t color)
@@ -248,12 +246,11 @@ static void dgx_vscreen_circle(dgx_screen_t *_scr, int x0, int y0, int r, uint32
     int area_bottom = y0 + r;
     if (area_bottom < 0 || area_top >= _scr->height || area_left >= _scr->width || area_right < 0) return;
     if (r == 0) {
-        _scr->set_pixel(_scr, x, y, color);
-        // set_pixel has its own call to update_screen
+        _scr->set_pixel(_scr, x0, y0, color);
         return;
     }
 
-    ++_scr->in_progress;
+    dgx_screen_progress_up(_scr);
 
     _scr->set_pixel(_scr, x0, y0 + r, color);
     _scr->set_pixel(_scr, x0, y0 - r, color);
@@ -279,7 +276,7 @@ static void dgx_vscreen_circle(dgx_screen_t *_scr, int x0, int y0, int r, uint32
         _scr->set_pixel(_scr, x0 + y, y0 - x, color);
         _scr->set_pixel(_scr, x0 - y, y0 - x, color);
     }
-    if (!--_scr->in_progress) _scr->update_screen(_scr, area_left, area_right, area_top, area_bottom);
+    dgx_screen_progress_down(_scr);
 }
 
 static void dgx_vscreen_solid_circle(dgx_screen_t *_scr, int x0, int y0, int r, uint32_t color)
@@ -295,12 +292,11 @@ static void dgx_vscreen_solid_circle(dgx_screen_t *_scr, int x0, int y0, int r, 
     int area_bottom = y0 + r;
     if (area_bottom < 0 || area_top >= _scr->height || area_left >= _scr->width || area_right < 0) return;
     if (r == 0) {
-        _scr->set_pixel(_scr, x, y, color);
-        // set_pixel has its own call to update_screen
+        _scr->set_pixel(_scr, x0, y0, color);
         return;
     }
 
-    ++_scr->in_progress;
+    dgx_screen_progress_up(_scr);
 
     _scr->fill_rectangle(_scr, x0 - r, y0, 2 * r + 1, 1, color);
     while (x < y) {
@@ -317,7 +313,7 @@ static void dgx_vscreen_solid_circle(dgx_screen_t *_scr, int x0, int y0, int r, 
         _scr->fill_rectangle(_scr, x0 - y, y0 + x, 2 * y + 1, 1, color);
         _scr->fill_rectangle(_scr, x0 - y, y0 - x, 2 * y + 1, 1, color);
     }
-    if (!--_scr->in_progress) _scr->update_screen(_scr, area_left, area_right, area_top, area_bottom);
+    dgx_screen_progress_down(_scr);
 }
 
 // Initialize the display
@@ -438,7 +434,7 @@ void dgx_vscreen_to_vscreen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_sc
         bh = _scr_dst->height - y1;
     }
     if (bh <= 0 || bw <= 0) return;
-    ++_scr_dst->in_progress;
+    dgx_screen_progress_up(_scr_dst);
     uint32_t csize = dgx_color_points_to_bytes(_scr_dst->color_bits, bw);
     for (int br = 0; br < bh; ++br) {
         if (_scr_dst->color_bits % 8u == 0) {
@@ -466,7 +462,8 @@ void dgx_vscreen_to_vscreen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_sc
             }
         }
     }
-    if (!--_scr_dst->in_progress) _scr_dst->update_screen(_scr_dst, x1, x1 + bw - 1, y1, y1 + bh - 1);
+    dgx_screen_touch(_scr_dst, x1, x1 + bw - 1, y1, y1 + bh - 1);
+    dgx_screen_progress_down(_scr_dst);
 }
 
 bool dgx_vscreen_copy(dgx_screen_t *_scr_dst, dgx_screen_t *_scr_src)
@@ -485,6 +482,7 @@ bool dgx_vscreen_copy(dgx_screen_t *_scr_dst, dgx_screen_t *_scr_src)
     if (!scr_dst->v_array || !scr_src->v_array) return false;
     uint32_t asize = dgx_color_points_to_bytes(_scr_src->color_bits, _scr_src->width * _scr_src->height);
     memcpy(scr_dst->v_array, scr_src->v_array, asize);
+    dgx_screen_touch(_scr_dst, 0, _scr_dst->width - 1, 0, _scr_dst->height - 1);
     return true;
 }
 
@@ -524,9 +522,8 @@ void dgx_vscreen_to_vscreen_oriented(dgx_screen_t *_scr_dst, int x_dst, int y_ds
 
     dgx_screen_progress_up(_scr_dst);
     blit_func(_scr_dst, x_dst, y_dst, _scr_src, 0, 0, _scr_src->width, _scr_src->height, has_transparency);
-    if (!dgx_screen_progress_down(_scr_dst)) {
-        _scr_dst->update_screen(_scr_dst, left, right, top, bottom);
-    }
+    dgx_screen_touch(_scr_dst, left, right, top, bottom);
+    dgx_screen_progress_down(_scr_dst);
 }
 
 #define DGX_INTERSECT_RECTANGLES(xo, yo, wo, ho, xb, yb, wb, hb) \
@@ -691,7 +688,7 @@ void dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_scr
             }
         }
     }
-    if (!_scr_dst->in_progress) _scr_dst->update_screen(_scr_dst, x1, x1 + bw - 1, y1, y1 + bh - 1);
+    dgx_screen_touch(_scr_dst, x1, x1 + bw - 1, y1, y1 + bh - 1);
 }
 
 void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width, int height)
@@ -756,7 +753,7 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
     if (_scr_dst->screen_subtype != DgxPhysicalScreenWithBus) {
         free(draw_buffer);
     }
-    if (!_scr_dst->in_progress) _scr_dst->update_screen(_scr_dst, x_dst, x_dst + width - 1, y_dst, y_dst + height - 1);
+    dgx_screen_touch(_scr_dst, x_dst, x_dst + width - 1, y_dst, y_dst + height - 1);
 }
 
 void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint16_t *lut, bool has_transparency)
@@ -841,7 +838,7 @@ void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_
             }
         }
     }
-    if (!_scr_dst->in_progress) _scr_dst->update_screen(_scr_dst, rxd, rxd + bw - 1, ryd, ryd + bh - 1);
+    dgx_screen_touch(_scr_dst, rxd, rxd + bw - 1, ryd, ryd + bh - 1);
 }
 
 dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src)
@@ -898,7 +895,6 @@ void dgx_vscreen_region_to_screen_oriented(dgx_screen_t *_scr_dst, int x_dst, in
 
     dgx_screen_progress_up(_scr_dst);
     blit_func(_scr_dst, x_dst, y_dst, _scr_src, x_src, y_src, width, height, false);
-    if (!dgx_screen_progress_down(_scr_dst)) {
-        _scr_dst->update_screen(_scr_dst, left, right, top, bottom);
-    }
+    dgx_screen_touch(_scr_dst, left, right, top, bottom);
+    dgx_screen_progress_down(_scr_dst);
 }
