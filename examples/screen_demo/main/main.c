@@ -200,7 +200,7 @@ void app_main(void)
         return;
     }
 
-    dgx_screen_t *screen = dgx_ili9341_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, 16, DgxScreenRGB);
+    dgx_screen_t *screen = dgx_ili9341_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, GPIO_NUM_NC, 16, DgxScreenRGB);
     if (!screen) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
         bus->dispose(bus);

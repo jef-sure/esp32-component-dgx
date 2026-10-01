@@ -33,6 +33,7 @@ small offline tool for converting fonts.
 - [Coordinates and orientation](#coordinates-and-orientation)
 - [Build options](#build-options)
 - [Known gaps](#known-gaps)
+- [Host tests](#host-tests)
 - [Repository layout](#repository-layout)
 - [License](#license)
 
@@ -191,7 +192,7 @@ Declared in [include/dgx_draw.h](include/dgx_draw.h):
 | Function | Description |
 | --- | --- |
 | `dgx_set_pixel(scr, x, y, color)` | Set one pixel. |
-| `dgx_get_pixel(scr, x, y)` | Read one pixel (reliable on virtual screens only). |
+| `dgx_get_pixel(scr, x, y)` | Read one pixel: virtual screens and panels drawn through a virtual back screen only; see [Known gaps](#known-gaps). |
 | `dgx_draw_line(scr, x1, y1, x2, y2, color)` | Single-pixel line. |
 | `dgx_draw_line_thick(scr, x1, y1, x2, y2, width, color)` | Thick line with caps. |
 | `dgx_draw_line_mask(scr, x1, y1, x2, y2, color, bg, mask, mask_bits)` | Dashed/dotted line; returns the rotated mask to continue the pattern. |
@@ -225,17 +226,18 @@ another; declared in [include/dgx_matrix_morph.h](include/dgx_matrix_morph.h),
 
 | Part | API | Description |
 | --- | --- | --- |
-| Data | `dgx_bit_matrix_t`, `dgx_matrix_*()` | Packed 1-bit grid; inline `get_point`/`set_point`. |
-| Sources | `dgx_morph_glyph_matrix(font, cp)` | Glyph of a dot or bitmap font as a matrix in the font-wide box. |
-| Morph | `dgx_morph_create(from, to, sources, user_data)` | Plans flights in cell coordinates. `sources` decides where each new cell flies in from: `dgx_morph_sources_life` (all live neighbors) or `dgx_morph_sources_cells` (one free neighbor, then an expanding ring), or your own callback. |
+| Data | `dgx_bit_matrix_t`, `dgx_matrix_*()` | Packed 1-bit grid; inline `get_point`/`set_point`; `clear`, `clone`, `copy`, `equals`. |
+| Sources | `dgx_morph_glyph_matrix(font, cp)`, `dgx_matrix_from_bw_bitmap(bmap)` | Glyph of a dot or bitmap font as a matrix in the font-wide box; any 1-bpp bitmap as a matrix. |
+| Morph | `dgx_morph_create(from, to, sources, user_data)` | Plans flights in cell coordinates. `sources` decides where each new cell flies in from: `dgx_morph_sources_life` (all live neighbors) or `dgx_morph_sources_cells` (one free neighbor, then an expanding ring), or your own callback. Sides above 32767 cells are rejected. |
+| Text | `dgx_morph_text_create(font, from, to, length, sources, user_data)`, `dgx_morph_text_duration_us()` | One morph per letter between two UTF-8 strings; the shorter one is padded with spaces. `changed` tells how many letters actually move. |
 | Frame | `dgx_morph_draw(morph, t, x, y, cell, trail, dot, user_data)`, `dgx_morph_progress()` | Stateless: emits the dots of progress `t` in pixels through a `dgx_morph_dot_func_t`. |
-| Renderers | `dgx_morph_glow_*` / `dgx_morph_sprite_*` | Additive glow with phosphor persistence and its own vscreen, or an intensity-scaled dot sprite. Both map brightness to colors through a replaceable 256-entry LUT in the screen format (16, 18 or 24 bits; need `CONFIG_DGX_ENABLE_VSCREEN`). |
+| Renderers | `dgx_morph_glow_*` / `dgx_morph_sprite_*` | Additive glow with phosphor persistence and its own vscreen, or an intensity-scaled dot sprite. Both map brightness to colors through a replaceable 256-entry LUT in the screen format (16, 18 or 24 bits). |
 
 ### Tutorial: morph two glyphs
 
 This example turns `1` into `8`. It assumes `screen` is an initialized color
-display and the component was built with `CONFIG_DGX_ENABLE_MORPH` and
-`CONFIG_DGX_ENABLE_VSCREEN` enabled.
+display and the component was built with `CONFIG_DGX_ENABLE_MORPH` (it selects
+`CONFIG_DGX_ENABLE_VSCREEN`).
 
 **1. Convert glyphs to matrices.** `dgx_morph_glyph_matrix()` rasterizes a
 glyph into a 1-bit matrix. Both glyphs use the same font-wide box and baseline,
@@ -328,7 +330,9 @@ The source matrices are only needed while `dgx_morph_glyph_matrix()` and
 `dgx_morph_create()` build their owned data, so the cleanup releases them along
 with the morph and renderer. To morph your own patterns instead of font
 glyphs, create matrices with `dgx_matrix_init()` and set their cells with
-`dgx_matrix_set_point()`.
+`dgx_matrix_set_point()`, or convert a 1-bpp bitmap with
+`dgx_matrix_from_bw_bitmap()`. For a whole line of text, `dgx_morph_text_create()`
+builds one morph per letter; `examples/morph_demo` uses it.
 
 For the complete discussion of source callbacks, trails, glow, and the CYD
 word demo, see the [English morphing tutorial](docs/morphing-en.md) or the
@@ -628,6 +632,7 @@ in the transports they require.
 | `CONFIG_DGX_ENABLE_V_BW_SCREEN` | `bw_screen.c` | 1-bit virtual screen |
 | `CONFIG_DGX_ENABLE_VSCREEN` | `drivers/vscreen.c` | color RAM-backed screen |
 | `CONFIG_DGX_ENABLE_VSCREEN_2H` | `drivers/vscreen_2h.c` | needs `VSCREEN` |
+| `CONFIG_DGX_ENABLE_MORPH` | `matrix.c`, `morph*.c` | dot morphing; selects `VSCREEN` |
 
 `dgx_lcd_init.c`, the drawing and font code, and everything in `src/fonts/`
 are always compiled. Fonts are picked up via a `file(GLOB)` on
@@ -639,18 +644,30 @@ once.
 
 A couple of practical limitations are worth knowing up front:
 
-- **Pixel readback is reliable on virtual screens.** They keep the full
-For example, `DGX_RED(DGX_RGB_16)` preprocesses to the RGB565 packing
-expression with channels `(255, 0, 0)`. `DGX_RED(dgx_rgb_to_16)` preprocesses
-  framebuffer in RAM, so `get_pixel()` behaves as expected there. On physical
-  panels, hardware readback is still incomplete and should not be relied on.
+- **Pixel readback works only from RAM.** `get_pixel()` reads virtual screens
+  and panels that draw into a virtual back screen first (ST7920, SSD1306,
+  ST7565R). Direct panels (ILI9341, ST7789, ...) return 0: many SPI modules
+  have no MISO line at all, and where RAMRD works it is far too slow. If you
+  need to read what you drew, draw into a `vscreen` and push it with
+  `dgx_vscreen_to_screen()`.
 
 - **Virtual screens don't honor `dir_x`/`dir_y`/`swap_xy` for framebuffer
   access.** Those fields describe orientation metadata, but they do not
   rotate or mirror the stored pixel data.
 
-packing macro gives direct macro expansion; passing the inline wrapper gives
-the same result through a typed function-like interface.
+## Host tests
+
+The platform-independent code (matrices, morphing, renderers, virtual screen,
+fonts) has host tests built with gcc against small ESP-IDF stubs and run under
+ASan/UBSan:
+
+```sh
+make -C test/host
+```
+
+## Repository layout
+
+```
 include/                 public headers
   bus/                   transport interfaces (SPI, I2C, P8)
   drivers/               panel drivers + virtual screens
@@ -662,6 +679,8 @@ src/                     implementations matching include/
 font2c/                  offline TTF/BDF -> C font generator
 examples/screen_demo/    minimal end-to-end example
 examples/morph_demo/     sequential CYD word-morphing demo
+test/host/               host tests with ESP-IDF stubs
+docs/                    morphing articles (English and Russian)
 Kconfig                  feature toggles
 CMakeLists.txt           ESP-IDF component build
 ```

@@ -326,6 +326,21 @@ for (int i = 0; i < letters; ++i) {
 }
 ```
 
+`dgx_morph_text_create()` builds the morphs for such a line: it takes two
+UTF-8 strings, pads the shorter one with spaces and creates one morph per
+letter in the font-wide box. The `changed` field tells how many letters from
+the left actually change, and `dgx_morph_text_duration_us()` computes when the
+last of them finishes, so trailing identical spaces do not stretch the
+transition:
+
+```c
+dgx_morph_text_t *text = dgx_morph_text_create(font, "hello", "world", 0,
+                                               dgx_morph_sources_cells, NULL);
+int64_t total_us = dgx_morph_text_duration_us(text, duration_us, delay_us);
+/* draw text->letters[i] with the loop above */
+dgx_morph_text_destroy(&text);
+```
+
 No synchronization is needed. One thing to keep in mind with glow is that a
 renderer has one frame blend for its entire image and accepts a single `t`.
 For letters with independent progress, it is simplest to create one glow
@@ -375,7 +390,7 @@ size based on available memory.
 
 #### Sprite: A Dot as a Grayscale Matrix
 
-As in the clock, a dot is a small 8-bit grayscale matrix. Sprites up to 8
+As in the clock, a dot is a small 8-bit grayscale matrix. Sprites of 1 to 4
 pixels are drawn by hand; larger ones are generated from filled circles with
 brightness falling toward the edge (`dgx_font_make_point8()`). When drawn,
 each sprite pixel is multiplied by the dot's intensity and passed through the
@@ -558,13 +573,13 @@ to the same place, which was not noticeable by eye.
 5. **There is no thread safety.** A morph is read-only after creation, so it
    is safe to draw it from one task. Other concurrent access requires
    external synchronization.
-6. **Example.** A logical next step is `examples/morph_demo` with Game of Life
-   and a word whose letters morph in sequence.
+6. **A Game of Life example.** `examples/morph_demo` currently shows only
+   words whose letters morph in sequence; Game of Life is not there yet.
 
 ## Tests
 
-Host tests are built with gcc using ESP-IDF stubs and run under ASan/UBSan.
-For now they live outside the repository. They cover:
+Host tests live in `test/host`. They are built with gcc using ESP-IDF stubs
+and run under ASan/UBSan with `make -C test/host`. They cover:
 
 - a Life blinker: 6 flights at 85 brightness, one static dot, no fading dots;
 - CELLS: flight (7, 5) → (5, 2) via a ring, static source, axis neighbor before
@@ -577,8 +592,14 @@ For now they live outside the repository. They cover:
   flight add to 254;
 - glyph matrices: equal bounds for different glyphs, every `CasusDotView`
   dot preserved, glyph-to-space collapses all dots to the center;
-- glow dots outside screen bounds and sprite rendering to a virtual screen;
-- metrics for all 11 bundled fonts match their glyph data.
+- glow dots outside screen bounds, the disk radius for small cells, frame
+  blending; sprite rendering to a virtual screen;
+- `dgx_morph_text`: space padding, number of changed letters, duration;
+- a morph wider than 32767 cells is rejected, dots outside `int16_t` are not
+  drawn;
+- matrix copy, comparison and clearing, a matrix from a 1-bpp bitmap;
+- metrics for all 11 bundled fonts match their glyph data, and
+  `TerminusTTFMedium12` has every letter of the example's words.
 
 Hardware-dependent behavior is not covered on the host: visual appearance,
 FPS and SPI output.

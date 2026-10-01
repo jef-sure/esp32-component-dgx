@@ -147,6 +147,10 @@ dgx_morph_t *dgx_morph_create(
     m->width = dgx_morph_max_int(from ? from->width : 0, to ? to->width : 0);
     m->height = dgx_morph_max_int(from ? from->height : 0, to ? to->height : 0);
     int w = m->width, h = m->height;
+    if (w > INT16_MAX || h > INT16_MAX) {
+        free(m);
+        return NULL;
+    }
     if (w == 0 || h == 0) return m;
 
     size_t n_static = 0, n_new = 0, n_old = 0;
@@ -269,12 +273,13 @@ float dgx_morph_ease(dgx_morph_easing_t easing, float t)
     }
 }
 
-static dgx_point_2d_t dgx_morph_pixel(dgx_point_2d_t a, dgx_point_2d_t b, float t, int x, int y, int cell)
+static bool dgx_morph_pixel(dgx_point_2d_t a, dgx_point_2d_t b, float t, int x, int y, int cell, dgx_point_2d_t *p)
 {
-    return (dgx_point_2d_t){
-        .x = (int16_t)(x + cell / 2 + a.x * cell + (int)((b.x - a.x) * cell * t)),
-        .y = (int16_t)(y + cell / 2 + a.y * cell + (int)((b.y - a.y) * cell * t)),
-    };
+    int64_t px = (int64_t)x + cell / 2 + (int64_t)a.x * cell + (int64_t)((b.x - a.x) * (float)cell * t);
+    int64_t py = (int64_t)y + cell / 2 + (int64_t)a.y * cell + (int64_t)((b.y - a.y) * (float)cell * t);
+    if (px < INT16_MIN || px > INT16_MAX || py < INT16_MIN || py > INT16_MAX) return false;
+    *p = (dgx_point_2d_t){ .x = (int16_t)px, .y = (int16_t)py };
+    return true;
 }
 
 void dgx_morph_draw(
@@ -297,22 +302,28 @@ void dgx_morph_draw(
         const dgx_morph_segment_t *s = &morph->segments[i];
         int v = s->start_intensity + (int)((s->end_intensity - s->start_intensity) * t);
         uint8_t intensity = (uint8_t)(v < 0 ? 0 : (v > 255 ? 255 : v));
-        dgx_point_2d_t head = dgx_morph_pixel(s->start, s->end, t, x, y, cell_width);
+        dgx_point_2d_t head, tail;
+        bool head_ok = dgx_morph_pixel(s->start, s->end, t, x, y, cell_width, &head);
         if (trail) {
-            dgx_point_2d_t tail = dgx_morph_pixel(s->start, s->end, t_tail, x, y, cell_width);
-            dot(user_data, &tail, (uint8_t)(intensity / 2));
-            dot(user_data, &head, (uint8_t)(intensity / 2));
-        } else {
+            if (dgx_morph_pixel(s->start, s->end, t_tail, x, y, cell_width, &tail)) {
+                dot(user_data, &tail, (uint8_t)(intensity / 2));
+            }
+            if (head_ok) dot(user_data, &head, (uint8_t)(intensity / 2));
+        } else if (head_ok) {
             dot(user_data, &head, intensity);
         }
     }
     for (size_t i = 0; i < morph->number_of_static_points; ++i) {
-        dgx_point_2d_t p = dgx_morph_pixel(morph->static_points[i], morph->static_points[i], 0.0f, x, y, cell_width);
-        dot(user_data, &p, 255);
+        dgx_point_2d_t p;
+        if (dgx_morph_pixel(morph->static_points[i], morph->static_points[i], 0.0f, x, y, cell_width, &p)) {
+            dot(user_data, &p, 255);
+        }
     }
     uint8_t fade = (uint8_t)(255.0f * (1.0f - t));
     for (size_t i = 0; i < morph->number_of_fading_points; ++i) {
-        dgx_point_2d_t p = dgx_morph_pixel(morph->fading_points[i], morph->fading_points[i], 0.0f, x, y, cell_width);
-        dot(user_data, &p, fade);
+        dgx_point_2d_t p;
+        if (dgx_morph_pixel(morph->fading_points[i], morph->fading_points[i], 0.0f, x, y, cell_width, &p)) {
+            dot(user_data, &p, fade);
+        }
     }
 }

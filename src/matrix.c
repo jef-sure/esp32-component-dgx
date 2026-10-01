@@ -29,6 +29,43 @@ void dgx_matrix_destroy(dgx_bit_matrix_t **matrix)
     }
 }
 
+static size_t dgx_matrix_bytes(const dgx_bit_matrix_t *matrix)
+{
+    return ((size_t)matrix->width * (size_t)matrix->height + 7u) / 8u;
+}
+
+void dgx_matrix_clear(dgx_bit_matrix_t *matrix)
+{
+    if (!matrix) return;
+    memset(matrix->bits, 0, dgx_matrix_bytes(matrix));
+    matrix->number_of_set_cells = 0;
+}
+
+dgx_bit_matrix_t *dgx_matrix_clone(const dgx_bit_matrix_t *src)
+{
+    if (!src) return NULL;
+    dgx_bit_matrix_t *dst = dgx_matrix_init(src->width, src->height);
+    if (dst) dgx_matrix_copy(dst, src);
+    return dst;
+}
+
+bool dgx_matrix_copy(dgx_bit_matrix_t *dst, const dgx_bit_matrix_t *src)
+{
+    if (!dst || !src || dst->width != src->width || dst->height != src->height) return false;
+    if (dst != src) memcpy(dst->bits, src->bits, dgx_matrix_bytes(src));
+    dst->number_of_set_cells = src->number_of_set_cells;
+    return true;
+}
+
+bool dgx_matrix_equals(const dgx_bit_matrix_t *a, const dgx_bit_matrix_t *b)
+{
+    if (!a || !b) return a == b;
+    if (a->width != b->width || a->height != b->height) return false;
+    if (a->number_of_set_cells != b->number_of_set_cells) return false;
+    /* Padding bits of the last byte are always zero: set_point never touches them. */
+    return memcmp(a->bits, b->bits, dgx_matrix_bytes(a)) == 0;
+}
+
 void dgx_matrix_foreach_set(
     const dgx_bit_matrix_t *matrix,
     dgx_matrix_cell_func_t  func,

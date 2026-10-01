@@ -47,5 +47,6 @@ files:
     - "examples/**/dependencies.lock"
     - "examples/**/sdkconfig"
     - "examples/**/sdkconfig.old"
+    - "test/host/build/**"
     - "**/*.old"
 

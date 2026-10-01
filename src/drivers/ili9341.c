@@ -124,17 +124,18 @@ DRAM_ATTR static const dgx_lcd_init_cmd_t st_init_cmds[] = {
 
 /*
  * Alternative initialization sequence with more commands, which may be needed for some displays. It is not used by default because it takes more time to execute.
+ * Source: TFT_eSPI TFT_Drivers/ILI9341_Init.h — power/timing from ILI9341_DRIVER, gamma from ILI9341_2_DRIVER
+ * (see https://github.com/Bodmer/TFT_eSPI/issues/1172).
  */
 /*
 DRAM_ATTR static const dgx_lcd_init_cmd_t st_init_cmds_tft[] __attribute__((unused)) = {
     //
-    {0xEF,             0,                      3,    0,   {0x03, 0x80, 0x02}                                                                        }, // Soft Reset
-    {0xCF,             0,                      3,    0,   {0x00, 0XC1, 0X30}                                                                        }, // Display Off
+    {0xEF,             0,                      3,    0,   {0x03, 0x80, 0x02}                                                                        }, // Undocumented
+    {0xCF,             0,                      3,    0,   {0x00, 0XC1, 0X30}                                                                        }, // Power control B
     {0xED,             0,                      4,    0,   {0x64, 0x03, 0X12, 0X81}                                                                  }, // Power on sequence control
     {0xE8,             0,                      3,    0,   {0x85, 0x00, 0x78}                                                                        }, // Driver timing control A
     {0xCB,             0,                      5,    0,   {0x39, 0x2C, 0x00, 0x34, 0x02}                                                            }, // Power control A
     {0xF7,             0,                      1,    0,   {0x20}                                                                                    }, // Pump ratio control
-    {0xEA,             0,                      2,    0,   {0x00, 0x00}                                                                              }, // Driver timing control B
     {0xEA,             0,                      2,    0,   {0x00, 0x00}                                                                              }, // Driver timing control B
     {ILI9341_PWCTR1,   0,                      1,    0,   {0x23}                                                                                    }, //
     {ILI9341_PWCTR2,   0,                      1,    0,   {0x10}                                                                                    }, //

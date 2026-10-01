@@ -39,6 +39,27 @@ dgx_bit_matrix_t *dgx_matrix_init(
  */
 void dgx_matrix_destroy(dgx_bit_matrix_t **matrix);
 
+/** @brief Clear every cell. NULL is a no-op. */
+void dgx_matrix_clear(dgx_bit_matrix_t *matrix);
+
+/**
+ * @brief Allocate a copy of a matrix.
+ * @return Owned matrix, or NULL for NULL source or allocation failure.
+ */
+dgx_bit_matrix_t *dgx_matrix_clone(const dgx_bit_matrix_t *src);
+
+/**
+ * @brief Copy cells between matrices of equal size.
+ * @return false for NULL arguments or different sizes; dst is then unchanged.
+ */
+bool dgx_matrix_copy(dgx_bit_matrix_t *dst, const dgx_bit_matrix_t *src);
+
+/**
+ * @brief Compare size and cells.
+ * @return true when both are NULL or both have equal size and cells.
+ */
+bool dgx_matrix_equals(const dgx_bit_matrix_t *a, const dgx_bit_matrix_t *b);
+
 /**
  * @brief Read one cell.
  * @param matrix Source matrix.

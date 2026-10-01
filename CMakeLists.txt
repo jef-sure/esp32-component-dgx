@@ -69,9 +69,16 @@ if(CONFIG_DGX_ENABLE_MORPH)
 	endif()
 endif()
 
+# IDF 5.3 split "driver" into esp_driver_*; since IDF 6 "driver" no longer re-exports them.
+if(IDF_VERSION_MAJOR GREATER 5 OR (IDF_VERSION_MAJOR EQUAL 5 AND IDF_VERSION_MINOR GREATER_EQUAL 3))
+	set(dgx_requires esp_driver_gpio esp_driver_spi esp_driver_i2c)
+else()
+	set(dgx_requires driver)
+endif()
+
 idf_component_register(
 	SRCS "${srcs}"
-	REQUIRES driver
+	REQUIRES ${dgx_requires}
 	PRIV_REQUIRES esp_lcd
 	INCLUDE_DIRS "include"
 )

@@ -112,7 +112,7 @@ int dgx_morph_ring_find(
  * @brief Plan a morph between two matrices.
  * @param from,to   Matrices; NULL means empty. Sizes may differ.
  * @param sources   Sources callback; NULL makes every new cell appear.
- * @return Owned morph, or NULL on allocation failure.
+ * @return Owned morph, or NULL on allocation failure or if a side exceeds INT16_MAX.
  */
 dgx_morph_t *dgx_morph_create(
     const dgx_bit_matrix_t  *from,
@@ -147,7 +147,7 @@ float dgx_morph_ease(dgx_morph_easing_t easing, float t);
  *
  * Cell (cx, cy) maps to pixel (x + cx*cell_width + cell_width/2, ...).
  * With trail each flight emits a head and a lagging tail at half brightness
- * each; trails need an additive renderer.
+ * each; trails need an additive renderer. Dots outside the int16_t range are skipped.
  */
 void dgx_morph_draw(
     const dgx_morph_t   *morph,

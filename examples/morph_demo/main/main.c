@@ -1,8 +1,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <inttypes.h>
-#include <string.h>
 
 #include "driver/gpio.h"
 #include "driver/spi_common.h"
@@ -45,25 +43,17 @@ static const int EXAMPLE_LCD_SPI_CLOCK_MHZ = 40;
 
 static const char *const words[WORD_COUNT] = {
     /* The first state is blank; shorter words are padded with spaces. */
-    "           ",
+    "",
     "привет",
     "участникам",
     "соревнований",
 };
 
-typedef struct {
-    /* Each letter keeps its own timeline and phosphor. */
-    dgx_morph_t *morph;
-    dgx_morph_glow_t *glow;
-} letter_slot_t;
-
-static uint32_t word_codepoints[WORD_COUNT][DEMO_MAX_LETTERS];
-static size_t word_lengths[WORD_COUNT];
+/* Each letter keeps its own timeline and phosphor. */
+static dgx_morph_glow_t *glows[DEMO_MAX_LETTERS];
+static dgx_morph_text_t *text;
 static size_t letter_count;
 static dgx_font_t *font;
-static letter_slot_t letters[DEMO_MAX_LETTERS];
-static uint32_t current_codepoints[DEMO_MAX_LETTERS];
-static uint32_t target_codepoints[DEMO_MAX_LETTERS];
 static int glyph_width;
 static int glyph_height;
 static int cell_width;
@@ -76,37 +66,16 @@ static int64_t transition_start_us;
 static int64_t transition_finish_us;
 static int64_t pause_until_us;
 static size_t current_word;
-static size_t target_word;
-static size_t active_letter_count;
 static bool in_pause;
 
-static bool decode_words(void)
+static bool count_letters(void)
 {
     letter_count = 0;
     for (size_t word = 0; word < WORD_COUNT; ++word) {
-        size_t byte_index = 0;
-        size_t count = 0;
-        while (words[word][byte_index]) {
-            if (count >= DEMO_MAX_LETTERS) return false;
-            uint32_t cp = decodeUTF8next(words[word], &byte_index);
-            int16_t advance;
-            if (!dgx_font_find_glyph(cp, font, &advance)) {
-                ESP_LOGE(TAG, "Font is missing U+%04" PRIX32, cp);
-                return false;
-            }
-            word_codepoints[word][count++] = cp;
-        }
-        word_lengths[word] = count;
+        size_t count = dgx_morph_text_length(words[word]);
         if (count > letter_count) letter_count = count;
     }
-    if (!letter_count || letter_count > DEMO_MAX_LETTERS) return false;
-
-    for (size_t word = 0; word < WORD_COUNT; ++word) {
-        for (size_t i = word_lengths[word]; i < letter_count; ++i) {
-            word_codepoints[word][i] = ' ';
-        }
-    }
-    return true;
+    return letter_count && letter_count <= DEMO_MAX_LETTERS;
 }
 
 static bool choose_cell_width(const dgx_screen_t *screen)
@@ -134,49 +103,15 @@ static bool choose_cell_width(const dgx_screen_t *screen)
     return false;
 }
 
-static dgx_bit_matrix_t *matrix_for(uint32_t codepoint)
+static bool make_transition(size_t from_word, size_t to_word, int64_t start_us)
 {
-    if (codepoint == ' ') return dgx_matrix_init((uint16_t)glyph_width, (uint16_t)glyph_height);
-    return dgx_morph_glyph_matrix(font, codepoint);
-}
-
-static void destroy_transition(void)
-{
-    for (size_t i = 0; i < letter_count; ++i) {
-        dgx_morph_destroy(&letters[i].morph);
-    }
-}
-
-static bool make_transition(size_t next_word, int64_t start_us)
-{
-    destroy_transition();
-    target_word = next_word;
+    dgx_morph_text_destroy(&text);
+    text = dgx_morph_text_create(font, words[from_word], words[to_word], letter_count,
+                                 dgx_morph_sources_cells, NULL);
+    if (!text) return false;
     transition_start_us = start_us;
-    active_letter_count = 0;
-
-    for (size_t i = 0; i < letter_count; ++i) {
-        target_codepoints[i] = word_codepoints[target_word][i];
-        /* Trailing unchanged spaces do not extend the word's transition. */
-        if (target_codepoints[i] != current_codepoints[i]) active_letter_count = i + 1;
-        dgx_bit_matrix_t *from = matrix_for(current_codepoints[i]);
-        dgx_bit_matrix_t *to = matrix_for(target_codepoints[i]);
-        if (!from || !to) {
-            dgx_matrix_destroy(&from);
-            dgx_matrix_destroy(&to);
-            destroy_transition();
-            return false;
-        }
-        letters[i].morph = dgx_morph_create(from, to, dgx_morph_sources_cells, NULL);
-        dgx_matrix_destroy(&from);
-        dgx_matrix_destroy(&to);
-        if (!letters[i].morph) {
-            destroy_transition();
-            return false;
-        }
-    }
-
-    transition_finish_us = transition_start_us +
-        (int64_t)(active_letter_count ? active_letter_count - 1 : 0) * LETTER_STAGGER_US + MORPH_DURATION_US;
+    /* Trailing unchanged spaces do not extend the word's transition. */
+    transition_finish_us = start_us + dgx_morph_text_duration_us(text, MORPH_DURATION_US, LETTER_STAGGER_US);
     return true;
 }
 
@@ -187,9 +122,9 @@ static void render_frame(dgx_screen_t *screen, int64_t now_us)
         int64_t letter_start_us = transition_start_us + (int64_t)i * LETTER_STAGGER_US;
         float t = dgx_morph_progress(letter_start_us, now_us, MORPH_DURATION_US);
         int slot_x = line_x + (int)i * slot_width;
-        dgx_morph_draw(letters[i].morph, t, glow_radius, glow_radius, cell_width,
-                       true, dgx_morph_glow_dot, letters[i].glow);
-        dgx_morph_glow_present(letters[i].glow, t, screen, slot_x, line_y);
+        dgx_morph_draw(text->letters[i], t, glow_radius, glow_radius, cell_width,
+                       true, dgx_morph_glow_dot, glows[i]);
+        dgx_morph_glow_present(glows[i], t, screen, slot_x, line_y);
     }
 }
 
@@ -202,18 +137,18 @@ static bool create_renderers(void)
     }
 
     for (size_t i = 0; i < letter_count; ++i) {
-        letters[i].glow = dgx_morph_glow_create(slot_width, slot_height, cell_width, 16);
-        if (!letters[i].glow) return false;
-        dgx_morph_glow_set_lut(letters[i].glow, lut);
+        glows[i] = dgx_morph_glow_create(slot_width, slot_height, cell_width, 16);
+        if (!glows[i]) return false;
+        dgx_morph_glow_set_lut(glows[i], lut);
     }
     return true;
 }
 
 static void release_resources(void)
 {
-    destroy_transition();
+    dgx_morph_text_destroy(&text);
     for (size_t i = 0; i < letter_count; ++i) {
-        dgx_morph_glow_destroy(&letters[i].glow);
+        dgx_morph_glow_destroy(&glows[i]);
     }
 }
 
@@ -240,7 +175,7 @@ void app_main(void)
     dgx_ili9341_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
 
     font = TerminusTTFMedium12();
-    if (!decode_words() || !choose_cell_width(screen)) {
+    if (!count_letters() || !choose_cell_width(screen)) {
         ESP_LOGE(TAG, "Unable to fit demo words and font on screen");
         return;
     }
@@ -248,7 +183,6 @@ void app_main(void)
              (unsigned)letter_count, glyph_width, glyph_height, cell_width,
              slot_width * (int)letter_count, slot_height);
 
-    for (size_t i = 0; i < letter_count; ++i) current_codepoints[i] = ' ';
     if (!create_renderers()) {
         ESP_LOGE(TAG, "Unable to allocate morph renderers");
         release_resources();
@@ -259,7 +193,7 @@ void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(500));
 
     current_word = 0;
-    if (!make_transition(1, esp_timer_get_time())) {
+    if (!make_transition(0, 1, esp_timer_get_time())) {
         ESP_LOGE(TAG, "Unable to create initial word transition");
         release_resources();
         return;
@@ -270,16 +204,12 @@ void app_main(void)
         render_frame(screen, now_us);
 
         if (!in_pause && now_us >= transition_finish_us) {
-            for (size_t i = 0; i < letter_count; ++i) {
-                current_codepoints[i] = target_codepoints[i];
-            }
-            current_word = target_word;
+            current_word = (current_word + 1) % WORD_COUNT;
             in_pause = true;
             pause_until_us = transition_finish_us + WORD_PAUSE_US;
         } else if (in_pause && now_us >= pause_until_us) {
-            size_t next_word = (current_word + 1) % WORD_COUNT;
             in_pause = false;
-            if (!make_transition(next_word, now_us)) {
+            if (!make_transition(current_word, (current_word + 1) % WORD_COUNT, now_us)) {
                 ESP_LOGE(TAG, "Unable to create word transition");
                 release_resources();
                 return;

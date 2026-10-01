@@ -1,5 +1,28 @@
 # Changes
 
+## Unreleased
+
+- fixed the full-screen black fill fast path in `vscreen` (compared `y` with
+  the height instead of `h`, so `memset` never ran)
+- fixed `examples/screen_demo`: `dgx_ili9341_init()` call lacked the backlight
+  argument added in 0.0.11; README no longer promises menuconfig pin options
+- `DGX_ENABLE_MORPH` now selects `DGX_ENABLE_VSCREEN` (the renderers need it)
+- component requirements: `esp_driver_gpio`, `esp_driver_spi`,
+  `esp_driver_i2c` on IDF 5.3+, the legacy `driver` component before that
+- `dgx_morph_create` returns NULL for sides above `INT16_MAX` cells;
+  `dgx_morph_draw` skips dots whose pixel position does not fit `int16_t`
+- added matrix helpers `dgx_matrix_clear`, `dgx_matrix_clone`,
+  `dgx_matrix_copy`, `dgx_matrix_equals` and `dgx_matrix_from_bw_bitmap`
+- added `dgx_morph_text_create` / `dgx_morph_text_destroy` /
+  `dgx_morph_text_duration_us`: per-letter morph between two UTF-8 strings;
+  `examples/morph_demo` uses it
+- documented that `get_pixel` reads only virtual screens and panels with a
+  virtual back screen
+- marked the commented-out alternative ILI9341 init sequence as taken from
+  TFT_eSPI and fixed its command labels
+- added host tests (`make -C test/host`, ASan/UBSan)
+- repaired the end of README (Known gaps, Repository layout)
+
 ## 0.1.1 - 2026-10-01
 
 - corrected the glow falloff documentation to describe its squared-distance LUT

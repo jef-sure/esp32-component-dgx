@@ -70,6 +70,7 @@ config DGX_ENABLE_VSCREEN_2H
 
 config DGX_ENABLE_MORPH
     bool "Enable dot morphing framework (bit-matrix morphs, glow/sprite renderers)"
+    select DGX_ENABLE_VSCREEN
     default n
 
 endmenu

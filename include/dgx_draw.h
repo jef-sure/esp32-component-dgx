@@ -79,9 +79,9 @@ void dgx_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color);
  * @param x The x coordinate of the pixel.
  * @param y The y coordinate of the pixel.
  * @return The color of the pixel.
- * @note If the screen does not have a get_pixel function, as most physical displays,
-         this function will return 0.
- * 
+ * @note Works only on virtual screens and on physical screens that draw into a
+ *       virtual back screen first (ST7920, SSD1306, ST7565R). Direct physical
+ *       panels (ILI9341, ST7789, ...) do not read back and return 0.
 */
 uint32_t dgx_get_pixel(dgx_screen_t *scr, int x, int y);
 

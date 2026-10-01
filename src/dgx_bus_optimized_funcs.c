@@ -118,7 +118,7 @@ static uint32_t dgx_scr_get_pixel_sb(dgx_screen_t *_scr, int x, int y)
         if (scr->rcmd_send != 0) {
             _scr->set_area(_scr, x, x, y, y);
             bus->write_command(bus, scr->rcmd_send);
-            // somehow we should receive data here
+            // Readback is not implemented: many SPI panels have no MISO, and where RAMRD exists it is too slow.
             return 0;
         }
     }

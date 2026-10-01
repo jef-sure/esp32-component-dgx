@@ -21,4 +21,7 @@ idf.py set-target esp32
 idf.py flash monitor
 ```
 
-If your panel uses different pins or a different SPI clock, change them in `idf.py menuconfig` under `Example ILI9341 SPI Demo`.
+If your panel uses different pins or a different SPI clock, change the
+`EXAMPLE_LCD_*` constants at the top of `main/main.c`. The backlight pin is
+not driven (`GPIO_NUM_NC`); pass its GPIO to `dgx_ili9341_init()` if your
+board needs it.

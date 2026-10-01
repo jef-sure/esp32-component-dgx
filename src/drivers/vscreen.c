@@ -142,7 +142,7 @@ static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, 
         h = _scr->height - y;
     }
     if (h <= 0 || w <= 0) return;
-    if (x == 0 && w == _scr->width && y == 0 && y == _scr->height && color == 0) {
+    if (x == 0 && w == _scr->width && y == 0 && h == _scr->height && color == 0) {
         uint32_t asize = dgx_color_points_to_bytes(_scr->color_bits, _scr->width * _scr->height);
         memset(scr->v_array, 0, asize);
     } else {
