@@ -27,6 +27,7 @@ static dgx_font_dot_t *_dgx_dots_from_bitmap(const glyph_t *g, bool is_stream, i
     dgx_bw_bitmap_t bmap = dgx_bw_bitmap_make_of((uint8_t *)g->bitmap, g->width, g->height, is_stream);
     int             count = dgx_bw_bitmap_foreach_set(&bmap, NULL, NULL);
     *number_of_dots       = count;
+    if (count == 0) return NULL;
     dgx_font_dot_t *ret   = calloc((size_t)count, sizeof(dgx_font_dot_t));
     if (!ret) {
         ESP_LOGE(TAG, "Memory allocation for temporary dgx_font_dot_t array failed");
@@ -90,8 +91,10 @@ dgx_font_symbol_morph_t *dgx_font_make_morph_struct( //
     int                   y_shift_to   = gTo ? gTo->yOffset * scale : 0;
     max_sym_height                     = gFrom ? gFrom->height : 0;
     max_sym_width                      = gFrom ? gFrom->width : 0;
-    max_sym_height                     = gTo ? DGX_MAX(gTo->height, max_sym_height) : 0;
-    max_sym_width                      = gTo ? DGX_MAX(gTo->width, max_sym_width) : 0;
+    if (gTo) {
+        max_sym_height = DGX_MAX(gTo->height, max_sym_height);
+        max_sym_width  = DGX_MAX(gTo->width, max_sym_width);
+    }
     if (font->f_type == DGX_FONT_DOTS) {
         from_dots           = gFrom ? gFrom->dots : NULL;
         from_number_of_dots = gFrom ? gFrom->number_of_dots : 0;
@@ -102,8 +105,11 @@ dgx_font_symbol_morph_t *dgx_font_make_morph_struct( //
             _dgx_dots_from_bitmap(gFrom, font->f_type == DGX_FONT_BITMAP_STREAM, &from_number_of_dots);
         to_dots = to_dots_tmp = _dgx_dots_from_bitmap(gTo, font->f_type == DGX_FONT_BITMAP_STREAM, &to_number_of_dots);
     }
-    if (from_number_of_dots == 0 && to_number_of_dots == 0) return ret;
-    if (max_sym_height == 0 || max_sym_width == 0) return ret;
+    if ((from_number_of_dots == 0 && to_number_of_dots == 0) || max_sym_height == 0 || max_sym_width == 0) {
+        free(from_dots_tmp);
+        free(to_dots_tmp);
+        return ret;
+    }
     ret->is_from_empty  = from_number_of_dots == 0;
     ret->is_to_empty    = to_number_of_dots == 0;
     int maxp            = DGX_MAX(from_number_of_dots, to_number_of_dots);
@@ -111,6 +117,8 @@ dgx_font_symbol_morph_t *dgx_font_make_morph_struct( //
     ret->m_start        = (dgx_point_2d_t *)calloc((size_t)maxp * 2, sizeof(dgx_point_2d_t));
     if (!ret->m_start) {
         ESP_LOGE(TAG, "Memory allocation for dots array failed");
+        free(from_dots_tmp);
+        free(to_dots_tmp);
         free(ret);
         return NULL;
     }

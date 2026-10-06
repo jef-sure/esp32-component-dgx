@@ -42,6 +42,9 @@ static inline uint8_t *dgx_morph_put_color(uint8_t color_bits, uint8_t *lp, uint
 /* Glow                                                                 */
 /* ------------------------------------------------------------------ */
 
+/* a brightness map read four pixels at a time */
+typedef uint32_t __attribute__((may_alias)) dgx_glow_word_t;
+
 struct dgx_morph_glow {
     dgx_screen_t *vscreen;
     int width, height;
@@ -176,12 +179,37 @@ void dgx_morph_glow_present(dgx_morph_glow_t *glow, float t, dgx_screen_t *scree
     uint8_t *prev = glow->glow_prev;
     uint8_t *next = glow->glow_next;
     if (glow->color_bits == 16) {
-        uint16_t *out16 = (uint16_t *)out;
-        for (size_t i = 0; i < pixels; ++i) {
+        /*
+         * Most of a glow frame is black, so the brightness maps are read a
+         * word at a time (they come from calloc and are word-aligned) and a
+         * black word costs four stores instead of four blends.
+         */
+        uint16_t           *out16 = (uint16_t *)out;
+        const uint16_t      black = glow->lut16_swapped[0];
+        const dgx_glow_word_t *next4 = (const dgx_glow_word_t *)next;
+        const dgx_glow_word_t *prev4 = (const dgx_glow_word_t *)prev;
+        size_t              words = pixels / 4;
+        for (size_t w = 0; w < words; ++w) {
+            size_t i = w * 4;
+            if ((next4[w] | prev4[w]) == 0) {
+                out16[i]     = black;
+                out16[i + 1] = black;
+                out16[i + 2] = black;
+                out16[i + 3] = black;
+                continue;
+            }
+            for (size_t end = i + 4; i < end; ++i) {
+                uint8_t v = (uint8_t)((next[i] * blend + prev[i] * inv) >> 8);
+                out16[i]  = glow->lut16_swapped[v];
+                prev[i]   = v;
+                next[i]   = 0;
+            }
+        }
+        for (size_t i = words * 4; i < pixels; ++i) {
             uint8_t v = (uint8_t)((next[i] * blend + prev[i] * inv) >> 8);
-            out16[i] = glow->lut16_swapped[v];
-            prev[i] = v;
-            next[i] = 0;
+            out16[i]  = glow->lut16_swapped[v];
+            prev[i]   = v;
+            next[i]   = 0;
         }
     } else {
         for (size_t i = 0; i < pixels; ++i) {
@@ -240,8 +268,7 @@ void dgx_morph_sprite_set_lut(dgx_morph_sprite_t *sprite, const uint32_t *lut)
 void dgx_morph_sprite_set_target(dgx_morph_sprite_t *sprite, dgx_screen_t *vscreen)
 {
     if (!sprite) return;
-    bool ok = vscreen && dgx_morph_color_bits_ok(vscreen->color_bits) &&
-              (vscreen->screen_subtype == DgxVirtualScreen || vscreen->screen_subtype == DgxVirtualBackScreen);
+    bool ok = vscreen && dgx_morph_color_bits_ok(vscreen->color_bits) && dgx_vscreen_is_linear(vscreen);
     sprite->target = ok ? vscreen : NULL;
 }
 

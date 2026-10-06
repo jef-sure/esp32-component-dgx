@@ -293,8 +293,6 @@ dgx_screen_t *dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
     //                            fill_rectangle, draw_line, circle, solid_circle, wait_buffer
     scr->base.base.update_screen = dgx_st7920_update_screen;
     scr->base.base.destroy       = dgx_st7920_destroy;
-    // Enable debug logging
-    esp_log_level_set(TAG, ESP_LOG_DEBUG);
 
     return (dgx_screen_t *)scr;
 }

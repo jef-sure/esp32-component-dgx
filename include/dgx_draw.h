@@ -143,6 +143,41 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int 
 uint32_t dgx_draw_line_mask(dgx_screen_t *scr, int x1, int y1, int x2, int y2, uint32_t color, uint32_t bg, uint32_t mask,
                             uint8_t mask_bits);
 
+/**
+ * @brief Stretches a rectangular region of a texture onto a convex quadrilateral.
+ *
+ * @p quad lists the screen positions of the region's corners in the order
+ * top-left, top-right, bottom-right, bottom-left; the quad may be mirrored or
+ * rotated. Texture coordinates are interpolated linearly along the edges and
+ * along every scanline (affine mapping, no perspective correction), with
+ * nearest-texel sampling. Parts outside the screen are clipped.
+ *
+ * The texture must be readable with get_pixel (a virtual screen or a panel
+ * with a virtual back screen) and have the same color depth as @p scr. A
+ * 16-bit virtual screen texture is read directly from its buffer.
+ *
+ * @param scr     The screen to draw on.
+ * @param quad    Four vertices of a convex quadrilateral.
+ * @param texture Source screen.
+ * @param tx,ty   Top-left corner of the texture region.
+ * @param tw,th   Size of the texture region; it must lie inside the texture.
+ */
+void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_screen_t *texture, int tx, int ty, int tw, int th);
+
+/**
+ * @brief Scales a rectangular region of a texture into a rectangle on the screen.
+ *
+ * Same as dgx_draw_texture_quad() with an axis-aligned quad.
+ *
+ * @param scr     The screen to draw on.
+ * @param x,y     Top-left corner of the destination rectangle.
+ * @param w,h     Size of the destination rectangle.
+ * @param texture Source screen.
+ * @param tx,ty   Top-left corner of the texture region.
+ * @param tw,th   Size of the texture region.
+ */
+void dgx_draw_texture_rect(dgx_screen_t *scr, int x, int y, int w, int h, dgx_screen_t *texture, int tx, int ty, int tw, int th);
+
 #ifdef __cplusplus
 // @formatter:off
 }

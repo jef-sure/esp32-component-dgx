@@ -97,11 +97,13 @@ static void dgx_spi_send_command(struct _dgx_bus_protocols_t *_bus, uint8_t cmd)
     ret = spi_device_queue_trans(bus->spi, &bus->trans_sync, portMAX_DELAY);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "dgx_spi_send_command/spi_device_queue_trans failed");
+        return; // nothing was queued: waiting for a result would block forever
     }
-    spi_transaction_t *ret_trans;
+    spi_transaction_t *ret_trans = NULL;
     ret = spi_device_get_trans_result(bus->spi, &ret_trans, portMAX_DELAY);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "dgx_spi_send_command/spi_device_get_trans_result failed");
+        return;
     }
     if (ret_trans != &bus->trans_sync) {
         ESP_LOGE(TAG, "dgx_spi_send_command/ret_trans != &bus->trans_sync failed");
@@ -145,11 +147,13 @@ static void dgx_spi_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *
     ret = spi_device_queue_trans(bus->spi, &bus->trans_sync, portMAX_DELAY);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "dgx_spi_send_data/spi_device_queue_trans failed");
+        return; // nothing was queued: waiting for a result would block forever
     }
-    spi_transaction_t *ret_trans;
+    spi_transaction_t *ret_trans = NULL;
     ret = spi_device_get_trans_result(bus->spi, &ret_trans, portMAX_DELAY);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "dgx_spi_send_data/spi_device_get_trans_result failed");
+        return;
     }
     if (ret_trans != &bus->trans_sync) {
         ESP_LOGE(TAG, "dgx_spi_send_data/ret_trans != &bus->trans_sync failed");
@@ -165,9 +169,11 @@ static uint32_t dgx_spi_read_data(struct _dgx_bus_protocols_t *_bus, uint8_t *da
     bus->trans_sync.rx_buffer = data;
     bus->trans_sync.length    = len;                      // Data length in bits
     bus->trans_sync.user      = set_dc_pin(bus->dcio, 1); // DC = 1 when data
-    ret                       = spi_device_transmit(bus->spi, &bus->trans_sync);
+    dgx_spi_wait_pending(_bus);
+    ret = spi_device_transmit(bus->spi, &bus->trans_sync);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "dgx_spi_send_data failed");
+        ESP_LOGE(TAG, "dgx_spi_read_data failed");
+        return 0;
     }
     return bus->trans_sync.rxlength;
 }
@@ -211,6 +217,7 @@ static void dgx_spi_send_data_async(struct _dgx_bus_protocols_t *_bus, const uin
 static void dgx_spi_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_spi_bus_t *bus = (dgx_spi_bus_t *)_bus;
+    dgx_spi_wait_pending(_bus); // the device cannot be removed with transactions in flight
     spi_bus_remove_device(bus->spi);
     spi_bus_free(bus->host_id);
     free(bus->protocols.buffer);
@@ -288,6 +295,7 @@ dgx_bus_protocols_t *dgx_spi_init(spi_host_device_t host_id, spi_dma_chan_t dma_
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "dgx_spi_init spi_bus_add_device failed");
         spi_bus_free(host_id);
+        free(bus->protocols.buffer);
         free(bus);
         return NULL;
     }

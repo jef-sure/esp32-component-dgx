@@ -63,7 +63,7 @@ static void dgx_i2c_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *
     if(_bus->buffer_len < len + 1) {
         void *temp_buffer = realloc(_bus->buffer, len + 1);
         if(temp_buffer == NULL) {
-            ESP_LOGE(TAG, "dgx_i2c_send_commands failed to allocate buffer");
+            ESP_LOGE(TAG, "dgx_i2c_send_data failed to allocate buffer");
             return;
         }
         _bus->buffer = (uint8_t *)temp_buffer;
@@ -88,8 +88,9 @@ static uint32_t dgx_i2c_read_data(struct _dgx_bus_protocols_t *_bus, uint8_t *da
 static void dgx_i2c_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_i2c_bus_t *bus = (dgx_i2c_bus_t *)_bus;
-    ESP_ERROR_CHECK(i2c_master_bus_rm_device(bus->dev_handle));
-    ESP_ERROR_CHECK(i2c_del_master_bus(bus->bus_handle));
+    esp_err_t      rc;
+    RCCHECK(i2c_master_bus_rm_device(bus->dev_handle), "dgx_i2c_dispose failed to remove I2C device");
+    RCCHECK(i2c_del_master_bus(bus->bus_handle), "dgx_i2c_dispose failed to delete I2C master bus");
     free(bus->protocols.buffer);
     free(bus);
 }
@@ -116,7 +117,11 @@ dgx_bus_protocols_t *dgx_i2c_init(i2c_port_t i2c_num, uint8_t i2c_address, gpio_
 
     esp_err_t               rc;
     i2c_master_bus_handle_t bus_handle;
-    RCCHECK(i2c_new_master_bus(&bus_cfg, &bus_handle), "dgx_i2c_init failed to create I2C master bus");
+    rc = i2c_new_master_bus(&bus_cfg, &bus_handle);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "dgx_i2c_init failed to create I2C master bus");
+        return NULL;
+    }
 
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7, //

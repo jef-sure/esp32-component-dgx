@@ -53,7 +53,9 @@ static inline void _dgx_move_to_next_area_pixel_v(dgx_screen_t *_scr)
 
 #define DGX_VSCR_OFFSET(vscr, x, y) ((x) + (y) * (vscr)->base.width)
 #define DGX_VSCR_PTR(vscr, offset) \
-    ((vscr)->v_array + ((vscr)->base.color_bits < 8u ? (offset) / (8u / (vscr)->base.color_bits) : (offset) * (((vscr)->base.color_bits + 7u) / 8u)))
+    ((vscr)->v_array + ((vscr)->base.color_bits < 8u     ? (offset) / (8u / (vscr)->base.color_bits) \
+                        : (vscr)->base.color_bits == 12u ? (offset) * 3u / 2u                        \
+                                                         : (offset) * (((vscr)->base.color_bits + 7u) / 8u)))
 
 static void dgx_vscreen_write_area(dgx_screen_t *_scr, uint8_t *data, uint32_t lenbits)
 {
@@ -107,6 +109,11 @@ static uint32_t dgx_vscreen_get_pixel(dgx_screen_t *_scr, int x, int y)
     return color;
 }
 
+bool dgx_vscreen_is_linear(const dgx_screen_t *scr)
+{
+    return scr && scr->get_pixel == dgx_vscreen_get_pixel;
+}
+
 static void dgx_vscreen_update_area(dgx_screen_t *_scr, int left, int right, int top, int bottom)
 {
 }
@@ -148,7 +155,11 @@ static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, 
     } else {
         for (int i = 0; i < h; ++i) {
             uint32_t offset = DGX_VSCR_OFFSET(scr, x, y + i);
-            uint8_t *lp     = DGX_VSCR_PTR(scr, offset);
+            if (_scr->color_bits == 1) {
+                dgx_fill_bits_msb(scr->v_array, offset, (size_t)w, color != 0);
+                continue;
+            }
+            uint8_t *lp = DGX_VSCR_PTR(scr, offset);
             DGX_FILL_BUFFER(_scr->color_bits, lp, offset, w, color);
         }
     }
@@ -394,6 +405,32 @@ dgx_screen_t *dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_co
         }                                         \
     } while (0)
 
+/*
+ * Append a run of whole pixels to the transfer buffer, sending the buffer
+ * whenever it fills up. A virtual screen keeps its pixels in the byte order
+ * of the wire, so this is a plain copy. Returns the new write position.
+ */
+static uint8_t *dgx_vscreen_send_row(dgx_screen_t *_scr_dst, uint8_t *draw_buffer, size_t draw_buffer_len, uint8_t *cbuf, const uint8_t *src,
+                                     uint32_t bytes, uint32_t pixel_bytes)
+{
+    while (bytes) {
+        size_t room = draw_buffer_len - (size_t)(cbuf - draw_buffer);
+        room -= room % pixel_bytes;
+        if (room == 0) {
+            _scr_dst->write_area(_scr_dst, draw_buffer, 8u * (cbuf - draw_buffer));
+            _scr_dst->wait_buffer(_scr_dst);
+            cbuf = draw_buffer;
+            continue;
+        }
+        size_t chunk = bytes < room ? bytes : room;
+        memcpy(cbuf, src, chunk);
+        cbuf += chunk;
+        src += chunk;
+        bytes -= chunk;
+    }
+    return cbuf;
+}
+
 void dgx_vscreen_to_vscreen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, bool has_transparency)
 {
     if (_scr_src->screen_subtype != DgxVirtualScreen && _scr_src->screen_subtype != DgxVirtualBackScreen) {
@@ -475,6 +512,10 @@ bool dgx_vscreen_copy(dgx_screen_t *_scr_dst, dgx_screen_t *_scr_src)
     }
     if (_scr_dst->screen_subtype != DgxVirtualScreen && _scr_dst->screen_subtype != DgxVirtualBackScreen) {
         ESP_LOGE(TAG, "dgx_vscreen_copy: destination is not virtual");
+        return false;
+    }
+    if (!dgx_vscreen_is_linear(_scr_src) || !dgx_vscreen_is_linear(_scr_dst)) {
+        ESP_LOGE(TAG, "dgx_vscreen_copy: screens with a non-linear buffer layout are not supported");
         return false;
     }
     dgx_vscreen_t *scr_dst = (dgx_vscreen_t *)_scr_dst;
@@ -643,17 +684,7 @@ void dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_scr
             if (_scr_dst->color_bits % 8u == 0) {
                 uint32_t offset_src = DGX_VSCR_OFFSET(scr_src, skip_x, skip_y + br);
                 uint8_t *lp_src     = DGX_VSCR_PTR(scr_src, offset_src);
-                for (int bc = 0; bc < bw; ++bc) {
-                    uint32_t color = _DGX_READ_COLOR(_scr_src->color_bits, lp_src);
-                    _DGX_WRITE_COLOR(_scr_src->color_bits, cbuf, color);
-                    lp_src += bip;
-                    cbuf += bip;
-                    if (cbuf - draw_buffer >= draw_buffer_len - 4) {
-                        _scr_dst->write_area(_scr_dst, draw_buffer, 8u * (cbuf - draw_buffer));
-                        _scr_dst->wait_buffer(_scr_dst);
-                        cbuf = draw_buffer;
-                    }
-                }
+                cbuf                = dgx_vscreen_send_row(_scr_dst, draw_buffer, draw_buffer_len, cbuf, lp_src, (uint32_t)bw * bip, bip);
             } else {
                 for (int bc = 0; bc < bw; ++bc) {
                     uint32_t color = _scr_src->get_pixel(_scr_src, skip_x + bc, skip_y + br);
@@ -702,10 +733,19 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
         ESP_LOGE(TAG, "dgx_vscreen_to_screen: source is not virtual");
         return;
     }
+    /* Whatever is cut off on one side has to move the origin on the other side too. */
+    int x_req = x_src;
+    int y_req = y_src;
     DGX_INTERSECT_RECTANGLES(x_src, y_src, width, height, 0, 0, _scr_src->width, _scr_src->height);
     if (width <= 0 || height <= 0) return;
+    x_dst += x_src - x_req;
+    y_dst += y_src - y_req;
+    x_req = x_dst;
+    y_req = y_dst;
     DGX_INTERSECT_RECTANGLES(x_dst, y_dst, width, height, 0, 0, _scr_dst->width, _scr_dst->height);
     if (width <= 0 || height <= 0) return;
+    x_src += x_dst - x_req;
+    y_src += y_dst - y_req;
     uint8_t *draw_buffer;
     size_t   draw_buffer_len;
     if (_scr_dst->screen_subtype == DgxPhysicalScreenWithBus) {
@@ -728,17 +768,7 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
         if (_scr_dst->color_bits % 8u == 0) {
             uint32_t offset_src = DGX_VSCR_OFFSET(scr_src, x_src, y_src + br);
             uint8_t *lp_src     = DGX_VSCR_PTR(scr_src, offset_src);
-            for (int bc = 0; bc < width; ++bc) {
-                uint32_t color = _DGX_READ_COLOR(_scr_src->color_bits, lp_src);
-                _DGX_WRITE_COLOR(_scr_src->color_bits, cbuf, color);
-                lp_src += bip;
-                cbuf += bip;
-                if (cbuf - draw_buffer >= draw_buffer_len - 4u) {
-                    _scr_dst->write_area(_scr_dst, draw_buffer, 8u * (cbuf - draw_buffer));
-                    _scr_dst->wait_buffer(_scr_dst);
-                    cbuf = draw_buffer;
-                }
-            }
+            cbuf                = dgx_vscreen_send_row(_scr_dst, draw_buffer, draw_buffer_len, cbuf, lp_src, (uint32_t)width * bip, bip);
         } else {
             for (int bc = 0; bc < width; ++bc) {
                 uint32_t color = _scr_src->get_pixel(_scr_src, x_src + bc, y_src + br);
@@ -847,6 +877,10 @@ dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src)
         ESP_LOGE(TAG, "dgx_vscreen_clone: source is not virtual");
         return 0;
     }
+    if (!dgx_vscreen_is_linear(_scr_src)) {
+        ESP_LOGE(TAG, "dgx_vscreen_clone: screens with a non-linear buffer layout are not supported");
+        return 0;
+    }
     dgx_screen_t *_scr = dgx_vscreen_init(_scr_src->width, _scr_src->height, _scr_src->color_bits, _scr_src->rgb_order);
     if (!_scr) return 0;
     dgx_vscreen_t *scr_src = (dgx_vscreen_t *)_scr_src;
@@ -876,8 +910,39 @@ void dgx_vscreen_region_to_screen_oriented(dgx_screen_t *_scr_dst, int x_dst, in
         ESP_LOGE(TAG, "dgx_vscreen_to_screen: source is not virtual");
         return;
     }
+    int x_req = x_src, y_req = y_src, w_req = width, h_req = height;
     DGX_INTERSECT_RECTANGLES(x_src, y_src, width, height, 0, 0, _scr_src->width, _scr_src->height);
     if (width <= 0 || height <= 0) return;
+    /* Keep the surviving pixels where the uncropped region would have put them. */
+    int cut_left   = x_src - x_req;
+    int cut_top    = y_src - y_req;
+    int cut_right  = (x_req + w_req) - (x_src + width);
+    int cut_bottom = (y_req + h_req) - (y_src + height);
+    switch (orientation) {
+    case DgxOutputMirrorX:
+        x_dst += cut_right, y_dst += cut_top;
+        break;
+    case DgxOutputMirrorY:
+        x_dst += cut_left, y_dst += cut_bottom;
+        break;
+    case DgxOutputRotate180:
+        x_dst += cut_right, y_dst += cut_bottom;
+        break;
+    case DgxOutputTranspose:
+        x_dst += cut_top, y_dst += cut_left;
+        break;
+    case DgxOutputRotate90CCW:
+        x_dst += cut_top, y_dst += cut_right;
+        break;
+    case DgxOutputRotate90CW:
+        x_dst += cut_bottom, y_dst += cut_left;
+        break;
+    case DgxOutputTransverse:
+        x_dst += cut_bottom, y_dst += cut_right;
+        break;
+    default:
+        break;
+    }
 
     dgx_vscreen_oriented_blit_func_t blit_func = dgx_vscreen_output_blit_func(orientation);
     if (!blit_func) {

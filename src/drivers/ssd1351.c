@@ -56,7 +56,7 @@ static uint8_t *dgx_ssd1351_adj_madctl(dgx_screen_with_bus_t *scr, const struct 
         adj_data[0] = init_cmd->data[0];
     if (scr->scr.color_bits == 18) {
         adj_data[0] |= 0x80;
-        adj_data[0] &= 0x40;
+        adj_data[0] &= ~0x40;
     }  // else 16 bits
     return adj_data;
 }

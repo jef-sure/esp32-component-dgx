@@ -39,6 +39,16 @@ static inline dgx_vscreen_output_orientation_t dgx_vscreen_output_orientation_ma
 dgx_screen_t* dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_color_order_t cbo);
 
 /**
+ * @brief Tell whether a screen keeps its pixels in the linear dgx_vscreen_t layout.
+ *
+ * True for dgx_vscreen_init() screens and the drivers built on them (ST7920,
+ * vscreen_2h). False for hardware panels and for the page-organised
+ * black-and-white screens (SSD1306, ST7565R), although those are also
+ * DgxVirtualBackScreen: their v_array must not be accessed as a dgx_vscreen_t.
+ */
+bool dgx_vscreen_is_linear(const dgx_screen_t *scr);
+
+/**
  * @brief Allocate a new virtual screen with the same geometry and a copy of the pixels.
  * @param _scr_src Source virtual screen.
  * @return Cloned screen, or NULL on failure. Free with dgx_screen_destroy().

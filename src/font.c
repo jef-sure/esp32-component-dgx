@@ -5,6 +5,18 @@
 #include "dgx_draw.h"
 #include "dgx_font.h"
 #include "drivers/vscreen.h"
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
+
+/* The packed glyph blit needs vscreen.c, which is optional in the component build. */
+#if !defined(ESP_PLATFORM) || defined(CONFIG_DGX_ENABLE_VSCREEN)
+#define DGX_FONT_VSCREEN_FAST_PATH 1
+#endif
+#if !defined(ESP_PLATFORM) || defined(CONFIG_DGX_ENABLE_V_BW_SCREEN)
+#include "dgx_bw_screen.h"
+#define DGX_FONT_BW_SCREEN_FAST_PATH 1
+#endif
 
 /*
  * @brief Get Unicode codepoint from UTF-8 encoded string
@@ -16,7 +28,7 @@
  */
 uint32_t decodeUTF8next(const char *chr, size_t *idx)
 {
-    uint32_t c = chr[*idx];
+    uint32_t c = (uint8_t)chr[*idx];
     if (c < 0x80) {
         if (c) ++*idx;
         return c;
@@ -36,14 +48,12 @@ uint32_t decodeUTF8next(const char *chr, size_t *idx)
         return c;
     }
     while (--len) {
-        uint32_t nc = chr[(*idx)++];
-        if(nc == 0) break;
-        if ((nc & 0xC0) == 0x80) {
-            c <<= 6;
-            c |= nc & 0x3f;
-        } else {
-            break;
-        }
+        uint32_t nc = (uint8_t)chr[*idx];
+        // truncated sequence: leave the terminator or the next character unconsumed
+        if ((nc & 0xC0) != 0x80) break;
+        ++*idx;
+        c <<= 6;
+        c |= nc & 0x3f;
     }
     return c;
 }
@@ -200,12 +210,12 @@ int dgx_font_char_to_screen(            //
              * loop. Conditions are kept narrow to preserve exact semantics of
              * the slow path; any mismatch falls through to it.
              */
+#ifdef DGX_FONT_VSCREEN_FAST_PATH
             if (font->f_type == DGX_FONT_BITMAP_LINES &&
                 scale == 1 && !swap_xy &&
                 xdir == DgxScreenLeftRight && ydir == DgxScreenTopBottom &&
                 color != 0 && scr->color_bits == 1 &&
-                (scr->screen_subtype == DgxVirtualScreen ||
-                 scr->screen_subtype == DgxVirtualBackScreen)) {
+                scr->width % 8 == 0 && dgx_vscreen_is_linear(scr)) {
                 dgx_vscreen_t  *vscr = (dgx_vscreen_t *)scr;
                 dgx_bw_bitmap_t dst  = dgx_bw_bitmap_make_of(vscr->v_array, scr->width, scr->height, false);
                 int             gx0  = x + x_shift;
@@ -214,18 +224,59 @@ int dgx_font_char_to_screen(            //
                 dgx_screen_touch(scr, gx0, gx0 + g->width - 1, gy0, gy0 + g->height - 1);
                 return xAdvance * scale;
             }
-            dgx_point_2d_t current_point = _dgx_start_area_pixel(left, right, top, bottom, xdir, ydir);
+#endif
+#ifdef DGX_FONT_BW_SCREEN_FAST_PATH
+            /* The same for a page-organised screen (SSD1306, ST7565R): set the bits right in its buffer. */
+            if (font->f_type == DGX_FONT_BITMAP_LINES &&
+                scale == 1 && !swap_xy &&
+                xdir == DgxScreenLeftRight && ydir == DgxScreenTopBottom &&
+                color != 0 && dgx_bw_screen_is_paged(scr)) {
+                dgx_bw_blit_or(scr, x + x_shift, y + y_shift, &bmap);
+                return xAdvance * scale;
+            }
+#endif
+            /*
+             * Every run of set pixels in a glyph row goes out as one
+             * rectangle: on a panel a rectangle costs a window setup, so a
+             * pixel at a time is several times slower.
+             */
+            const bool is_lines = font->f_type == DGX_FONT_BITMAP_LINES;
+            const int  pitch    = (g->width + 7) / 8;
+            dgx_screen_progress_up(scr);
             for (int by = 0; by < g->height; ++by) {
-                for (int bx = 0; bx < g->width; bx++) {
-                    bool pix = dgx_bw_bitmap_get_pixel(&bmap, bx, by);
-                    if (pix) {
-                        dgx_fill_rectangle(scr, x + x_shift + current_point.x * scale,
-                                           y + y_shift + current_point.y * scale, scale, scale, color);
+                const uint8_t *row = (const uint8_t *)g->bitmap + by * pitch;
+                for (int bx = 0; bx < g->width; ++bx) {
+                    if (is_lines) {
+                        if ((bx & 7) == 0 && row[bx >> 3] == 0) { // whole byte empty: skip 8 pixels
+                            bx += 7;
+                            continue;
+                        }
+                        if (!(row[bx >> 3] & (0x80u >> (bx & 7)))) continue;
+                    } else if (!dgx_bw_bitmap_get_pixel(&bmap, bx, by)) {
+                        continue;
                     }
-                    current_point =
-                        _dgx_move_to_next_area_pixel(current_point, left, right, top, bottom, xdir, ydir, swap_xy);
+                    int run_start = bx;
+                    while (bx + 1 < g->width && (is_lines ? (row[(bx + 1) >> 3] & (0x80u >> ((bx + 1) & 7))) != 0
+                                                          : dgx_bw_bitmap_get_pixel(&bmap, bx + 1, by))) {
+                        ++bx;
+                    }
+                    /* glyph columns run_start..bx of row by, placed the way the orientation asks */
+                    int rx, ry, rw, rh;
+                    if (!swap_xy) {
+                        rx = xdir == DgxScreenLeftRight ? run_start : right - bx;
+                        ry = ydir == DgxScreenTopBottom ? by : bottom - by;
+                        rw = bx - run_start + 1;
+                        rh = 1;
+                    } else {
+                        rx = xdir == DgxScreenLeftRight ? by : right - by;
+                        ry = ydir == DgxScreenTopBottom ? run_start : bottom - bx;
+                        rw = 1;
+                        rh = bx - run_start + 1;
+                    }
+                    dgx_fill_rectangle(scr, x + x_shift + rx * scale, y + y_shift + ry * scale, rw * scale, rh * scale, color);
                 }
             }
+            dgx_screen_progress_down(scr);
         } else {
             int x_shift = g->xOffset * scale;
             int y_shift = g->yOffset * scale;

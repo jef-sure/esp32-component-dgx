@@ -7,6 +7,7 @@ extern "C" {
 #endif
 #include <stdint.h>
 #include <stddef.h>
+#include "dgx_bitmap.h"
 #include "dgx_screen.h"
 
 typedef struct _dgx_bw_vscreen_t {
@@ -32,6 +33,24 @@ void dgx_bw_set_area(dgx_screen_t *scr, uint16_t caset_lo, uint16_t caset_hi, ui
 void dgx_bw_wait_data(dgx_screen_t *scr);
 void dgx_bw_write_data(dgx_screen_t *scr, uint8_t *data, uint32_t lenbits);
 void dgx_bw_write_value(dgx_screen_t *scr, uint32_t value);
+
+/**
+ * @brief Tell whether a screen keeps its pixels in the page layout of dgx_bw_init():
+ * one byte holds 8 pixels of a column, the top one in bit 0.
+ */
+bool dgx_bw_screen_is_paged(const dgx_screen_t *scr);
+
+/**
+ * @brief Set the pixels of a page screen where a row-major 1-bpp bitmap has set bits.
+ *
+ * Clear bits of the bitmap leave the screen untouched; the bitmap is clipped
+ * to the screen. Whole empty bytes of the bitmap are skipped.
+ *
+ * @param scr  Screen created by dgx_bw_init() or a driver built on it.
+ * @param x,y  Position of the bitmap's top-left corner.
+ * @param bmap Bitmap with byte-aligned rows (not the stream layout).
+ */
+void dgx_bw_blit_or(dgx_screen_t *scr, int x, int y, const dgx_bw_bitmap_t *bmap);
 
 
 #ifdef __cplusplus

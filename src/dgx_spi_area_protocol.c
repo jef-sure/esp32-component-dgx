@@ -6,153 +6,54 @@
 #include "bus/dgx_spi_esp32.h"
 #include "bus/dgx_spi_esp32_priv.h"
 
-static void dgx_screen_with_bus_set_area_window_spi_async(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
+/*
+ * One short command or parameter transfer. These are 1-4 bytes long: polling
+ * them takes a fraction of the time a queued, interrupt-driven transaction
+ * needs, and that is what a single pixel or a short line mostly consists of.
+ */
+static void dgx_spi_area_send(dgx_spi_bus_t *bus, bool is_data, const uint8_t *bytes, uint8_t count)
 {
-    dgx_spi_bus_t *bus = (dgx_spi_bus_t *)sbus->bus;
-    int queued = 0;
-    bool update_x = sbus->cached_area.left != left || sbus->cached_area.right != right;
-    bool update_y = sbus->cached_area.top != top || sbus->cached_area.bottom != bottom;
-
-    dgx_spi_wait_pending((dgx_bus_protocols_t *)bus);
-
-    if (update_x) {
-        memset(&bus->trans_area[queued], 0, sizeof(bus->trans_area[queued]));
-        bus->trans_area[queued].length = 8;
-        bus->trans_area[queued].flags = SPI_TRANS_USE_TXDATA;
-        bus->trans_area[queued].tx_data[0] = sbus->xcmd_set;
-        bus->trans_area[queued].user = set_dc_pin(bus->dcio, 0);
-        spi_device_queue_trans(bus->spi, &bus->trans_area[queued], portMAX_DELAY);
-        queued++;
-
-        memset(&bus->trans_area[queued], 0, sizeof(bus->trans_area[queued]));
-        bus->trans_area[queued].length = sbus->area_protocol == DGX_SCREEN_AREA_PROTO_STD8 ? 16 : 32;
-        bus->trans_area[queued].flags = SPI_TRANS_USE_TXDATA;
-        if (sbus->area_protocol == DGX_SCREEN_AREA_PROTO_STD8) {
-            bus->trans_area[queued].tx_data[0] = (uint8_t)left;
-            bus->trans_area[queued].tx_data[1] = (uint8_t)right;
-        } else {
-            bus->trans_area[queued].tx_data[0] = left >> 8;
-            bus->trans_area[queued].tx_data[1] = left & 0xff;
-            bus->trans_area[queued].tx_data[2] = right >> 8;
-            bus->trans_area[queued].tx_data[3] = right & 0xff;
-        }
-        bus->trans_area[queued].user = set_dc_pin(bus->dcio, 1);
-        spi_device_queue_trans(bus->spi, &bus->trans_area[queued], portMAX_DELAY);
-        queued++;
-
-        sbus->cached_area.left = left;
-        sbus->cached_area.right = right;
-    }
-
-    if (update_y) {
-        memset(&bus->trans_area[queued], 0, sizeof(bus->trans_area[queued]));
-        bus->trans_area[queued].length = 8;
-        bus->trans_area[queued].flags = SPI_TRANS_USE_TXDATA;
-        bus->trans_area[queued].tx_data[0] = sbus->ycmd_set;
-        bus->trans_area[queued].user = set_dc_pin(bus->dcio, 0);
-        spi_device_queue_trans(bus->spi, &bus->trans_area[queued], portMAX_DELAY);
-        queued++;
-
-        memset(&bus->trans_area[queued], 0, sizeof(bus->trans_area[queued]));
-        bus->trans_area[queued].length = sbus->area_protocol == DGX_SCREEN_AREA_PROTO_STD8 ? 16 : 32;
-        bus->trans_area[queued].flags = SPI_TRANS_USE_TXDATA;
-        if (sbus->area_protocol == DGX_SCREEN_AREA_PROTO_STD8) {
-            bus->trans_area[queued].tx_data[0] = (uint8_t)top;
-            bus->trans_area[queued].tx_data[1] = (uint8_t)bottom;
-        } else {
-            bus->trans_area[queued].tx_data[0] = top >> 8;
-            bus->trans_area[queued].tx_data[1] = top & 0xff;
-            bus->trans_area[queued].tx_data[2] = bottom >> 8;
-            bus->trans_area[queued].tx_data[3] = bottom & 0xff;
-        }
-        bus->trans_area[queued].user = set_dc_pin(bus->dcio, 1);
-        spi_device_queue_trans(bus->spi, &bus->trans_area[queued], portMAX_DELAY);
-        queued++;
-
-        sbus->cached_area.top = top;
-        sbus->cached_area.bottom = bottom;
-    }
-
-    memset(&bus->trans_area[queued], 0, sizeof(bus->trans_area[queued]));
-    bus->trans_area[queued].length = 8;
-    bus->trans_area[queued].flags = SPI_TRANS_USE_TXDATA;
-    bus->trans_area[queued].tx_data[0] = sbus->wcmd_send;
-    bus->trans_area[queued].user = set_dc_pin(bus->dcio, 0);
-    spi_device_queue_trans(bus->spi, &bus->trans_area[queued], portMAX_DELAY);
-    queued++;
-
-    bus->pending_transactions += queued;
+    spi_transaction_t *trans = &bus->trans_sync;
+    memset(trans, 0, sizeof(*trans));
+    trans->length = count * 8u;
+    trans->flags  = SPI_TRANS_USE_TXDATA;
+    memcpy(trans->tx_data, bytes, count);
+    trans->user = set_dc_pin(bus->dcio, is_data);
+    spi_device_polling_transmit(bus->spi, trans);
 }
 
-static void dgx_screen_with_bus_set_area_window_spi_full_async(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right,
-                                                               uint16_t top, uint16_t bottom)
+static void dgx_spi_area_send_range(dgx_screen_with_bus_t *sbus, uint8_t cmd, uint16_t from, uint16_t to)
 {
     dgx_spi_bus_t *bus = (dgx_spi_bus_t *)sbus->bus;
-    int            queued = 0;
+    dgx_spi_area_send(bus, false, &cmd, 1);
+    if (sbus->area_protocol == DGX_SCREEN_AREA_PROTO_STD8) {
+        const uint8_t range[2] = {(uint8_t)from, (uint8_t)to};
+        dgx_spi_area_send(bus, true, range, sizeof(range));
+    } else {
+        const uint8_t range[4] = {from >> 8, from & 0xff, to >> 8, to & 0xff};
+        dgx_spi_area_send(bus, true, range, sizeof(range));
+    }
+}
 
+static void dgx_screen_with_bus_set_area_window_spi(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom,
+                                                    bool full)
+{
+    dgx_spi_bus_t *bus = (dgx_spi_bus_t *)sbus->bus;
+
+    /* pixel data of the previous operation may still be queued */
     dgx_spi_wait_pending((dgx_bus_protocols_t *)bus);
 
-    memset(&bus->trans_area[queued], 0, sizeof(bus->trans_area[queued]));
-    bus->trans_area[queued].length = 8;
-    bus->trans_area[queued].flags = SPI_TRANS_USE_TXDATA;
-    bus->trans_area[queued].tx_data[0] = sbus->xcmd_set;
-    bus->trans_area[queued].user = set_dc_pin(bus->dcio, 0);
-    spi_device_queue_trans(bus->spi, &bus->trans_area[queued], portMAX_DELAY);
-    queued++;
-
-    memset(&bus->trans_area[queued], 0, sizeof(bus->trans_area[queued]));
-    bus->trans_area[queued].length = sbus->area_protocol == DGX_SCREEN_AREA_PROTO_STD8 ? 16 : 32;
-    bus->trans_area[queued].flags = SPI_TRANS_USE_TXDATA;
-    if (sbus->area_protocol == DGX_SCREEN_AREA_PROTO_STD8) {
-        bus->trans_area[queued].tx_data[0] = (uint8_t)left;
-        bus->trans_area[queued].tx_data[1] = (uint8_t)right;
-    } else {
-        bus->trans_area[queued].tx_data[0] = left >> 8;
-        bus->trans_area[queued].tx_data[1] = left & 0xff;
-        bus->trans_area[queued].tx_data[2] = right >> 8;
-        bus->trans_area[queued].tx_data[3] = right & 0xff;
+    if (full || sbus->cached_area.left != left || sbus->cached_area.right != right) {
+        dgx_spi_area_send_range(sbus, sbus->xcmd_set, left, right);
+        sbus->cached_area.left  = left;
+        sbus->cached_area.right = right;
     }
-    bus->trans_area[queued].user = set_dc_pin(bus->dcio, 1);
-    spi_device_queue_trans(bus->spi, &bus->trans_area[queued], portMAX_DELAY);
-    queued++;
-
-    memset(&bus->trans_area[queued], 0, sizeof(bus->trans_area[queued]));
-    bus->trans_area[queued].length = 8;
-    bus->trans_area[queued].flags = SPI_TRANS_USE_TXDATA;
-    bus->trans_area[queued].tx_data[0] = sbus->ycmd_set;
-    bus->trans_area[queued].user = set_dc_pin(bus->dcio, 0);
-    spi_device_queue_trans(bus->spi, &bus->trans_area[queued], portMAX_DELAY);
-    queued++;
-
-    memset(&bus->trans_area[queued], 0, sizeof(bus->trans_area[queued]));
-    bus->trans_area[queued].length = sbus->area_protocol == DGX_SCREEN_AREA_PROTO_STD8 ? 16 : 32;
-    bus->trans_area[queued].flags = SPI_TRANS_USE_TXDATA;
-    if (sbus->area_protocol == DGX_SCREEN_AREA_PROTO_STD8) {
-        bus->trans_area[queued].tx_data[0] = (uint8_t)top;
-        bus->trans_area[queued].tx_data[1] = (uint8_t)bottom;
-    } else {
-        bus->trans_area[queued].tx_data[0] = top >> 8;
-        bus->trans_area[queued].tx_data[1] = top & 0xff;
-        bus->trans_area[queued].tx_data[2] = bottom >> 8;
-        bus->trans_area[queued].tx_data[3] = bottom & 0xff;
+    if (full || sbus->cached_area.top != top || sbus->cached_area.bottom != bottom) {
+        dgx_spi_area_send_range(sbus, sbus->ycmd_set, top, bottom);
+        sbus->cached_area.top    = top;
+        sbus->cached_area.bottom = bottom;
     }
-    bus->trans_area[queued].user = set_dc_pin(bus->dcio, 1);
-    spi_device_queue_trans(bus->spi, &bus->trans_area[queued], portMAX_DELAY);
-    queued++;
-
-    memset(&bus->trans_area[queued], 0, sizeof(bus->trans_area[queued]));
-    bus->trans_area[queued].length = 8;
-    bus->trans_area[queued].flags = SPI_TRANS_USE_TXDATA;
-    bus->trans_area[queued].tx_data[0] = sbus->wcmd_send;
-    bus->trans_area[queued].user = set_dc_pin(bus->dcio, 0);
-    spi_device_queue_trans(bus->spi, &bus->trans_area[queued], portMAX_DELAY);
-    queued++;
-
-    sbus->cached_area.left = left;
-    sbus->cached_area.right = right;
-    sbus->cached_area.top = top;
-    sbus->cached_area.bottom = bottom;
-    bus->pending_transactions += queued;
+    dgx_spi_area_send(bus, false, &sbus->wcmd_send, 1);
 }
 
 void dgx_screen_with_bus_set_area_window(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
@@ -168,7 +69,7 @@ void dgx_screen_with_bus_set_area_window(dgx_screen_with_bus_t *sbus, uint16_t l
     }
 
     if (bus->bus_type == DGX_BUS_SPI) {
-        dgx_screen_with_bus_set_area_window_spi_async(sbus, left, right, top, bottom);
+        dgx_screen_with_bus_set_area_window_spi(sbus, left, right, top, bottom, false);
         return;
     }
 
@@ -221,7 +122,7 @@ void dgx_screen_with_bus_set_area_window_full(dgx_screen_with_bus_t *sbus, uint1
     }
 
     if (bus->bus_type == DGX_BUS_SPI) {
-        dgx_screen_with_bus_set_area_window_spi_full_async(sbus, left, right, top, bottom);
+        dgx_screen_with_bus_set_area_window_spi(sbus, left, right, top, bottom, true);
         return;
     }
 

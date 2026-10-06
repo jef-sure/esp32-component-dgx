@@ -102,8 +102,8 @@ static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, in
 static void dgx_scr_set_pixel_sb(dgx_screen_t *scr, int x, int y, uint32_t color)
 {
     if (x < 0 || x >= scr->width || y < 0 || y >= scr->height) return;
-    uint8_t  draw_buffer[4];
-    uint8_t *lp = draw_buffer;
+    uint8_t  draw_buffer[4] = { 0 };
+    uint8_t *lp             = draw_buffer;
     if (scr->wait_buffer) scr->wait_buffer(scr);
     DGX_FILL_BUFFER(scr->color_bits, lp, x, 1, color);
     scr->set_area(scr, x, x, y, y);

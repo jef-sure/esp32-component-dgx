@@ -1,4 +1,5 @@
 #pragma once
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #ifdef __cplusplus
@@ -109,6 +110,29 @@ static inline void dgx_andnot_bits_msb(uint8_t *array, size_t idx, uint8_t msb_v
     }
 }
 
+/**
+ * @brief Set or clear a run of @p len bits in a linear 1-bpp byte array,
+ *        starting at bit position @p idx (same layout as dgx_pack_bits_msb).
+ *
+ * Whole bytes inside the run are written at once; only its ends are masked.
+ */
+static inline void dgx_fill_bits_msb(uint8_t *array, size_t idx, size_t len, bool value)
+{
+    if (len == 0) return;
+    size_t  first     = idx >> 3;
+    size_t  last      = (idx + len - 1) >> 3;
+    uint8_t head_mask = (uint8_t)(0xff >> (idx & 7));
+    uint8_t tail_mask = (uint8_t)(0xff << (7 - ((idx + len - 1) & 7)));
+    if (first == last) {
+        head_mask &= tail_mask;
+        array[first] = value ? (array[first] | head_mask) : (array[first] & (uint8_t)~head_mask);
+        return;
+    }
+    array[first] = value ? (array[first] | head_mask) : (array[first] & (uint8_t)~head_mask);
+    for (size_t i = first + 1; i < last; ++i) array[i] = value ? 0xff : 0x00;
+    array[last] = value ? (array[last] | tail_mask) : (array[last] & (uint8_t)~tail_mask);
+}
+
 static inline uint32_t dgx_rol_bits(uint32_t a, uint8_t bits)
 {
     return (a >> (bits - 1)) | (a << 1);
@@ -196,7 +220,7 @@ static inline uint8_t *dgx_fill_buf_value_4(uint8_t *lp, int idx, uint32_t value
     uint8_t idx_shift = (idx & 1) << 2;
     uint8_t mask      = 0x0fu << idx_shift;
     uint8_t pb        = *lp & mask;
-    *lp               = pb | ((uint8_t)value >> idx_shift);
+    *lp               = pb | (((uint8_t)value & 0xf0u) >> idx_shift);
     lp += idx & 1;
     return lp;
 }
@@ -211,7 +235,7 @@ static inline uint8_t *dgx_fill_buf_value_12(uint8_t *lp, int idx, uint32_t valu
 {
     if ((idx & 1) == 0) {
         *lp++ = (uint8_t)(value >> 8);
-        *lp   = (uint8_t)(value & 0xf0u);
+        *lp   = (uint8_t)((*lp & 0x0fu) | (value & 0xf0u)); // low nibble belongs to the next pixel
     } else {
         uint8_t pb = *lp & 0xf0u;
         *lp++      = pb | (uint8_t)(value >> 12);
@@ -254,12 +278,12 @@ static inline uint32_t dgx_read_buf_value_1(uint8_t **lp, int idx)
 
 static inline uint32_t dgx_read_buf_value_4(uint8_t **lp, int idx)
 {
-    uint8_t value = **lp << 8;
+    uint8_t value = **lp;
     *lp += idx & 1;
     if (idx & 1) {
         value <<= 4;
     }
-    return value;
+    return value & 0xf0u;
 }
 
 static inline uint32_t dgx_read_buf_value_8(uint8_t **lp, int idx)

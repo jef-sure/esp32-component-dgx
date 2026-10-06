@@ -489,6 +489,9 @@ dgx_morph_t *morph = dgx_morph_create(from, to, dgx_morph_sources_cells, NULL);
 
 ## How the Projects Fit
 
+The first two projects, rewritten this way, are in the examples:
+`examples/glyph_morph_demo` and `examples/life_morph_demo`.
+
 **[cyd-dotview-morphing][gh-dotview-morphing].** From roughly 800 lines in
 `main.c`, the cell matrix, segment vector, `create_cell_morphing()` with its
 ring search (about 300 lines), the glow code, and `collect_initial_glow()` go
@@ -573,8 +576,6 @@ to the same place, which was not noticeable by eye.
 5. **There is no thread safety.** A morph is read-only after creation, so it
    is safe to draw it from one task. Other concurrent access requires
    external synchronization.
-6. **A Game of Life example.** `examples/morph_demo` currently shows only
-   words whose letters morph in sequence; Game of Life is not there yet.
 
 ## Tests
 

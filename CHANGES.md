@@ -1,5 +1,68 @@
 # Changes
 
+## 0.3.0 - 2026-10-06
+
+- added `dgx_draw_texture_quad()` and `dgx_draw_texture_rect()`: a region of a
+  virtual screen stretched onto a convex quadrilateral or scaled into a
+  rectangle (affine mapping, nearest texel, any screen as the target), and
+  `examples/flip_clock_demo`, a split-flap clock built on them
+- added `examples/life_morph_demo` (Conway's Game of Life with morphing
+  generations) and `examples/glyph_morph_demo` (one large symbol morphing into
+  the next): the cyd-life-morphing and cyd-dotview-morphing projects rewritten
+  on the morphing framework
+- faster drawing, measured on an ESP32 with an ILI9341 at 40 MHz:
+  - SPI panels: the address window is set with polling transfers instead of
+    queued, interrupt-driven ones; a single pixel, short lines, circle
+    outlines and everything else made of small rectangles take about half the
+    time (1000 pixels: 157 ms to 79 ms)
+  - text: every run of set pixels in a glyph row is drawn as one rectangle
+    (Verdana 32 on the panel: 108 ms to 13 ms; Terminus 12 into a 16-bit
+    virtual screen: 0.79 ms to 0.32 ms)
+  - text on page screens (SSD1306, ST7565R) sets the bits directly in the
+    buffer, 7 times faster; `dgx_bw_blit_or()` and `dgx_bw_screen_is_paged()`
+    are public
+  - `dgx_vscreen_to_screen()` and `dgx_vscreen_region_to_screen()` copy 8-,
+    16- and 24-bit rows into the transfer buffer with `memcpy` (210x231:
+    28.0 ms to 20.6 ms, of which 19.4 ms is the transfer itself)
+  - the glow renderer skips black pixels a word at a time
+  - rectangles on 1-bit screens are filled a byte at a time: by page rows on
+    page screens, with the new `dgx_fill_bits_msb()` on linear ones (100x40:
+    119 us to 8 us and 260 us to 24 us)
+  - with all of it `examples/life_morph_demo` went from 28 to 37 FPS and
+    `examples/glyph_morph_demo` from 50 to 66 FPS
+- black-and-white page screens (SSD1306, ST7565R): `set_pixel`, `get_pixel`
+  and `dgx_bw_fast_vline()` check bounds; `fill_rectangle` clips a rectangle
+  that starts above the top edge instead of dropping it; `dgx_bw_init()` sets
+  `screen_subtype` before installing the default functions (they read past the
+  allocation otherwise); `write_area` wraps inside the area when given more
+  data than it holds
+- added `dgx_vscreen_is_linear()`. The packed glyph blit, `dgx_vscreen_copy()`,
+  `dgx_vscreen_clone()` and `dgx_morph_sprite_set_target()` use it, so page
+  screens are no longer accessed as a linear `dgx_vscreen_t`; text on them was
+  garbage and could write outside the buffer. The glyph blit is also skipped on
+  1-bit virtual screens whose width is not a multiple of 8
+- `decodeUTF8next()` no longer steps over the terminator (or swallows the next
+  character) on a truncated UTF-8 sequence
+- fixed 4-bit pixel reads always returning 0; 12-bit virtual screens addressed
+  2 bytes per pixel in a 1.5 bytes per pixel buffer, and writing an even pixel
+  cleared part of its right neighbour
+- `dgx_vscreen_region_to_screen()` and its oriented variant keep the picture in
+  place when the region is cropped by the source or destination edge
+- `dgx_font_make_morph_struct()` keeps the symbol when the target code point
+  has no glyph; temporary dot arrays are freed on the early-return paths
+- SSD1351: 18-bit mode set and then cleared the color depth bit (`&= 0x40`)
+- SPI bus: a failed `spi_device_queue_trans()` in `write_command`/`write_data`
+  no longer waits forever for a result that was never queued; `read_data` and
+  `dispose` wait for pending transactions first; `dgx_spi_init()` frees the
+  transfer buffer when `spi_bus_add_device()` fails
+- I2C bus: `dgx_i2c_init()` returns NULL when the master bus cannot be created
+  (it went on with an uninitialized handle); `dispose` logs errors instead of
+  aborting, so the memory is still released
+- ST7565R and ST7920 no longer switch their log tag to DEBUG at the end of
+  init (leftover debugging; every screen update was logged)
+- `dgx_vscreen_2h_init()` no longer leaks the temporary screen's buffer when
+  the allocation of the composite screen fails
+
 ## 0.2.0 - 2026-10-01
 
 - screens accumulate a pending dirty area (`dirty_left/top/right/bottom` in

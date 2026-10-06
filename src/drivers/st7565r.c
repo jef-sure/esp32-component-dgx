@@ -160,6 +160,5 @@ dgx_screen_t *dgx_st7565r_init(dgx_bus_protocols_t *bus, gpio_num_t rst)
             dgx_delay(ms);
         }
     }
-    esp_log_level_set(TAG, ESP_LOG_DEBUG);
     return (dgx_screen_t *)scr;
 }

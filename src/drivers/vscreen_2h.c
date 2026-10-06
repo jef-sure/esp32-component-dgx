@@ -91,7 +91,7 @@ dgx_screen_t *dgx_vscreen_2h_init(dgx_screen_t *left_screen, dgx_screen_t *right
     dgx_vscreen_2h_t *scr = (dgx_vscreen_2h_t *)calloc(1, sizeof(dgx_vscreen_2h_t));
     if (!scr) {
         ESP_LOGE(TAG, "Screen structure memory allocation failed");
-        free(vscr);
+        dgx_screen_destroy((dgx_screen_t **)&vscr);
         return NULL;
     }
     scr->base.cg_row_shift = 0;

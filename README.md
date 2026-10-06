@@ -48,8 +48,8 @@ small offline tool for converting fonts.
   buffers behind monochrome controllers.
 - A two-head compositor (`vscreen_2h`) that exposes two child screens as one
   logical screen.
-- Drawing primitives — pixels, lines, rectangles, circles, filled quads — and
-  an arc gauge helper.
+- Drawing primitives — pixels, lines, rectangles, circles, filled and textured
+  quads — and an arc gauge helper.
 - UTF-8 text rendering with 8-way orientation, glyph lookup, layout and bounds
   queries, plus a small "morph" helper for animating between glyphs.
 - `font2c`, an offline tool that turns TTF/BDF-style fonts into C source/header
@@ -82,8 +82,11 @@ to use it:
 
 1. Drop it into your own ESP-IDF project under `components/` (a git submodule
    at `components/dgx` works well).
-2. Build `examples/screen_demo` for a general ILI9341 graphics test, or
-  `examples/morph_demo` for the CYD word-morphing demo.
+2. Build `examples/screen_demo` for a general ILI9341 graphics test, or one
+  of the CYD morphing demos: `examples/morph_demo` (words, letter by letter),
+  `examples/glyph_morph_demo` (one large symbol into the next) or
+  `examples/life_morph_demo` (Conway's Game of Life). `examples/flip_clock_demo`
+  is a split-flap clock for the same board, built on textured quads.
 
 Either way, enable only the pieces you need in `menuconfig`, under the **DGX**
 menu. Drivers automatically pull in the transports they require.
@@ -98,7 +101,7 @@ idf.py build
 idf.py flash monitor
 ```
 
-To run the morphing demo on the CYD board:
+To run a morphing demo on the CYD board (the other two build the same way):
 
 ```sh
 cd examples/morph_demo
@@ -201,6 +204,13 @@ Declared in [include/dgx_draw.h](include/dgx_draw.h):
 | `dgx_solid_circle(scr, x, y, r, color)` | Filled circle. |
 | `dgx_draw_triangle_solid(scr, x0, y0, x1, y1, x2, y2, color)` | Filled triangle. |
 | `dgx_draw_polygon4_solid(scr, x0..y3, color)` | Filled simple quadrilateral (convex or concave). |
+| `dgx_draw_texture_quad(scr, quad, texture, tx, ty, tw, th)` | Stretch a region of a virtual screen onto a convex quadrilateral (affine, nearest texel). |
+| `dgx_draw_texture_rect(scr, x, y, w, h, texture, tx, ty, tw, th)` | Scale a region of a virtual screen into a rectangle. |
+
+`quad` is four `dgx_point_2d_t` vertices in the order of the region's corners:
+top-left, top-right, bottom-right, bottom-left. The texture needs the same
+color depth as the target screen; `examples/flip_clock_demo` uses both
+functions.
 
 ### Text and fonts
 
@@ -681,6 +691,9 @@ src/                     implementations matching include/
 font2c/                  offline TTF/BDF -> C font generator
 examples/screen_demo/    minimal end-to-end example
 examples/morph_demo/     sequential CYD word-morphing demo
+examples/glyph_morph_demo/  CYD demo morphing one large symbol into the next
+examples/life_morph_demo/   CYD Game of Life with morphing generations
+examples/flip_clock_demo/   CYD split-flap clock drawn with textured quads
 test/host/               host tests with ESP-IDF stubs
 docs/                    morphing articles (English and Russian)
 Kconfig                  feature toggles

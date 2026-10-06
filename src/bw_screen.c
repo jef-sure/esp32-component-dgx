@@ -54,7 +54,7 @@ void dgx_bw_write_data(dgx_screen_t *scr_, uint8_t *data, uint32_t lenbits)
     while (lenbits) {
         if (x > right) {
             x = left;
-            if (y > bottom) y = top;
+            if (y >= bottom) y = top;
             else y++;
         }
         const uint8_t rmask = (uint8_t)(1u << (y & 7));
@@ -96,11 +96,12 @@ void dgx_bw_write_data(dgx_screen_t *scr_, uint8_t *data, uint32_t lenbits)
 
 void dgx_bw_set_pixel(dgx_screen_t *scr_, int x, int y, uint32_t color)
 {
-    dgx_bw_vscreen_t *scr  = (dgx_bw_vscreen_t *)scr_;
-    uint8_t           page = (uint16_t)y >> 3;
-    uint8_t           bit  = y & 7;
-    uint8_t           mask = 1 << bit;
-    uint8_t          *pb   = scr->v_array + page * scr->base.width + x;
+    dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)scr_;
+    if (x < 0 || y < 0 || x >= scr->base.width || y >= scr->base.height) return;
+    uint8_t  page = (uint16_t)y >> 3;
+    uint8_t  bit  = y & 7;
+    uint8_t  mask = 1 << bit;
+    uint8_t *pb   = scr->v_array + page * scr->base.width + x;
     if (color) *pb |= mask;
     else *pb &= ~mask;
     dgx_screen_touch(scr_, x, x, y, y);
@@ -108,12 +109,57 @@ void dgx_bw_set_pixel(dgx_screen_t *scr_, int x, int y, uint32_t color)
 
 uint32_t dgx_bw_get_pixel(dgx_screen_t *scr_, int x, int y)
 {
-    dgx_bw_vscreen_t *scr  = (dgx_bw_vscreen_t *)scr_;
-    uint8_t           page = (uint16_t)y >> 3;
-    uint8_t           bit  = y & 7;
-    uint8_t           mask = 1 << bit;
-    uint8_t          *pb   = scr->v_array + page * scr->base.width + x;
+    dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)scr_;
+    if (x < 0 || y < 0 || x >= scr->base.width || y >= scr->base.height) return 0;
+    uint8_t  page = (uint16_t)y >> 3;
+    uint8_t  bit  = y & 7;
+    uint8_t  mask = 1 << bit;
+    uint8_t *pb   = scr->v_array + page * scr->base.width + x;
     return !!(*pb & mask);
+}
+
+bool dgx_bw_screen_is_paged(const dgx_screen_t *scr)
+{
+    return scr && scr->get_pixel == dgx_bw_get_pixel;
+}
+
+void dgx_bw_blit_or(dgx_screen_t *scr_, int x, int y, const dgx_bw_bitmap_t *bmap)
+{
+    if (!dgx_bw_screen_is_paged(scr_) || !bmap || !bmap->bitmap || bmap->is_stream) return;
+    dgx_bw_vscreen_t *scr   = (dgx_bw_vscreen_t *)scr_;
+    const int         width = scr->base.width;
+    const int         pitch = (bmap->width + 7) / 8;
+    int               row0  = y < 0 ? -y : 0;
+    int               row1  = y + bmap->height > scr->base.height ? scr->base.height - y : bmap->height;
+    for (int row = row0; row < row1; ++row) {
+        const uint8_t *src  = bmap->bitmap + row * pitch;
+        const int      sy   = y + row;
+        const uint8_t  mask = (uint8_t)(1u << (sy & 7));
+        uint8_t       *page = scr->v_array + (sy >> 3) * width;
+        for (int xb = 0; xb < pitch; ++xb) {
+            uint8_t bits = src[xb];
+            if (bits == 0) continue; // whole byte empty: skip 8 pixels
+            int valid = bmap->width - xb * 8;
+            if (valid < 8) bits &= (uint8_t)(0xffu << (8 - valid)); // drop row padding
+            int sx = x + xb * 8;
+            if (sx >= 0 && sx + 8 <= width) {
+                uint8_t *pb = page + sx;
+                if (bits & 0x80) pb[0] |= mask;
+                if (bits & 0x40) pb[1] |= mask;
+                if (bits & 0x20) pb[2] |= mask;
+                if (bits & 0x10) pb[3] |= mask;
+                if (bits & 0x08) pb[4] |= mask;
+                if (bits & 0x04) pb[5] |= mask;
+                if (bits & 0x02) pb[6] |= mask;
+                if (bits & 0x01) pb[7] |= mask;
+            } else {
+                for (int bit = 0; bit < 8; ++bit) {
+                    if ((bits & (0x80u >> bit)) && sx + bit >= 0 && sx + bit < width) page[sx + bit] |= mask;
+                }
+            }
+        }
+    }
+    dgx_screen_touch(scr_, x, x + bmap->width - 1, y, y + bmap->height - 1);
 }
 
 void dgx_bw_wait_data(dgx_screen_t *scr)
@@ -123,12 +169,18 @@ void dgx_bw_wait_data(dgx_screen_t *scr)
 
 void dgx_bw_fast_vline(dgx_screen_t *scr_, int x, int y, int h, uint32_t color)
 {
-    dgx_bw_vscreen_t *scr  = (dgx_bw_vscreen_t *)scr_;
-    int               y2   = y + h - 1;
-    uint8_t           page = (uint16_t)y >> 3;
-    uint8_t          *pb   = scr->v_array + page * scr->base.width + x;
+    dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)scr_;
+    if (x < 0 || x >= scr->base.width) return;
+    if (y < 0) {
+        h += y;
+        y = 0;
+    }
+    if (y + h > scr->base.height) h = scr->base.height - y;
+    if (h <= 0) return;
+    int      y2   = y + h - 1;
+    uint8_t  page = (uint16_t)y >> 3;
+    uint8_t *pb   = scr->v_array + page * scr->base.width + x;
     for (int yl = y; yl <= y2; yl += 8 - (yl & 7), pb += scr->base.width) {
-        page         = (uint16_t)yl >> 3;
         uint8_t mask = 0xff << (yl & 7);
         if ((yl & ~7) == (y2 & ~7)) mask &= 0xff >> (7 - (y2 & 7));
         if (color) *pb |= mask;
@@ -140,7 +192,7 @@ void dgx_bw_fast_vline(dgx_screen_t *scr_, int x, int y, int h, uint32_t color)
 void dgx_bw_fill_rectangle(dgx_screen_t *scr_, int x, int y, int w, int h, uint32_t color)
 {
     dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)scr_;
-    if (y < 0 || w < 0 || x + w < 0 || x >= scr->base.width || h < 0 || y + h < 0 || y > scr->base.height) return;
+    if (w < 0 || x + w < 0 || x >= scr->base.width || h < 0 || y + h < 0 || y >= scr->base.height) return;
     if (x < 0) {
         w = x + w;
         x = 0;
@@ -155,13 +207,26 @@ void dgx_bw_fill_rectangle(dgx_screen_t *scr_, int x, int y, int w, int h, uint3
     if (y + h > scr->base.height) {
         h = scr->base.height - y;
     }
+    if (h <= 0 || w <= 0) return;
     dgx_screen_progress_up(scr_);
     if (x == 0 && w == scr->base.width && y == 0 && h == scr->base.height) {
         // full screen fill
         memset(scr->v_array, color ? 0xFF : 0x00, ((scr->base.height + 7) / 8) * scr->base.width);
     } else {
-        for (int i = 0; i < w; ++i) {
-            dgx_bw_fast_vline(scr_, x + i, y, h, color);
+        /* One pass per page: every byte of a page row gets the same bit mask. */
+        const int y2 = y + h - 1;
+        for (int page = y >> 3; page <= y2 >> 3; ++page) {
+            uint8_t mask = 0xff;
+            if (page == y >> 3) mask &= (uint8_t)(0xff << (y & 7));
+            if (page == y2 >> 3) mask &= (uint8_t)(0xff >> (7 - (y2 & 7)));
+            uint8_t *pb = scr->v_array + page * scr->base.width + x;
+            if (mask == 0xff) {
+                memset(pb, color ? 0xff : 0x00, (size_t)w);
+            } else if (color) {
+                for (int i = 0; i < w; ++i) pb[i] |= mask;
+            } else {
+                for (int i = 0; i < w; ++i) pb[i] &= (uint8_t)~mask;
+            }
         }
     }
     dgx_screen_touch(scr_, x, x + w - 1, y, y + h - 1);
@@ -194,7 +259,9 @@ dgx_screen_t *dgx_bw_init(int width, int height)
     scr->base.dir_x       = DgxScreenLeftRight;
     scr->base.dir_y       = DgxScreenTopBottom;
     scr->base.swap_xy     = false;
-    scr->v_array          = heap_caps_calloc(1, ((scr->base.height + 7) / 8) * scr->base.width, MALLOC_CAP_DMA);
+    // must be set before dgx_scr_init_slow_bus_optimized_funcs(), which takes subtype 0 for a screen with a bus
+    scr->base.screen_subtype = DgxVirtualBackScreen;
+    scr->v_array             = heap_caps_calloc(1, ((scr->base.height + 7) / 8) * scr->base.width, MALLOC_CAP_DMA);
     if (!scr->v_array) {
         free(scr);
         ESP_LOGE(TAG, "Impossible to allocate memory for BW virtual screen buffer");
