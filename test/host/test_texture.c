@@ -127,6 +127,25 @@ static void test_shapes_and_clipping(void)
     CHECK(dst->get_pixel(dst, 8, 14) == texel(0, TEX_H - 1));
     CHECK(dst->get_pixel(dst, 20, 14) != 0 && dst->get_pixel(dst, 8, 2) == 0);
 
+    /* a triangle passed as a quad: the doubled vertex sits on a side, in either chain; both halves taper */
+    static const dgx_point_2d_t triangles[][4] = {
+        {{2, 1}, {30, 11}, {30, 11}, {2, 21}},
+        {{2, 1}, {2, 21}, {30, 11}, {30, 11}},
+        {{2, 1}, {30, 11}, {2, 21}, {2, 21}},
+    };
+    for (size_t t = 0; t < sizeof(triangles) / sizeof(triangles[0]); ++t) {
+        dgx_fill_rectangle(dst, 0, 0, 40, 30, 0);
+        dgx_draw_texture_quad(dst, triangles[t], tex, 0, 0, TEX_W, TEX_H);
+        for (int y = 1; y <= 21; ++y) {
+            int last = -1;
+            for (int x = 0; x < dst->width; ++x)
+                if (dst->get_pixel(dst, x, y)) last = x;
+            int edge = 2 + 28 * (y <= 11 ? y - 1 : 21 - y) / 10;
+            CHECK(dst->get_pixel(dst, 2, y) != 0);
+            CHECK(last >= edge - 1 && last <= edge + 1);
+        }
+    }
+
     /* hanging over every edge: the visible part matches the unclipped picture (ASan guards the rest) */
     dgx_screen_t *big = dgx_vscreen_init(120, 110, 16, DgxScreenRGB);
     const dgx_point_2d_t over[4]    = {{-20, -15}, {70, -25}, {60, 50}, {-10, 45}};

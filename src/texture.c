@@ -267,15 +267,22 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
             dgx_texture_span(&ctx, y, &e_prev, &e_next);
             dgx_texture_edge_step(&e_prev);
             dgx_texture_edge_step(&e_next);
-            /* past a vertex the next edge of the chain takes over from the following scanline */
+            /*
+             * Past a vertex the next edge of the chain takes over from the following scanline. Vertices on the
+             * same scanline (a doubled one: a triangle passed as a quad) are skipped, an edge between them has no rows.
+             */
             if (y == vertices[v_prev].p.y && y < y_end) {
-                from_prev = v_prev;
-                v_prev    = DGX_QUAD_PREV(v_prev);
+                do {
+                    from_prev = v_prev;
+                    v_prev    = DGX_QUAD_PREV(v_prev);
+                } while (y == vertices[v_prev].p.y);
                 dgx_texture_edge_init(&e_prev, &vertices[from_prev], &vertices[v_prev], y + 1, y_start, y_end);
             }
             if (y == vertices[v_next].p.y && y < y_end) {
-                from_next = v_next;
-                v_next    = DGX_QUAD_NEXT(v_next);
+                do {
+                    from_next = v_next;
+                    v_next    = DGX_QUAD_NEXT(v_next);
+                } while (y == vertices[v_next].p.y);
                 dgx_texture_edge_init(&e_next, &vertices[from_next], &vertices[v_next], y + 1, y_start, y_end);
             }
         }

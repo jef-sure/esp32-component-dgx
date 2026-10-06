@@ -1,5 +1,11 @@
 # Changes
 
+## 0.3.1 - 2026-10-06
+
+- `dgx_draw_texture_quad()`: a quad with two coinciding vertices on a side (a
+  triangle passed as a quad) was drawn as a rectangle below that vertex; the
+  edge chains now skip vertices that lie on the same scanline
+
 ## 0.3.0 - 2026-10-06
 
 - added `dgx_draw_texture_quad()` and `dgx_draw_texture_rect()`: a region of a
