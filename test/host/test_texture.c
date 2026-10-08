@@ -233,6 +233,8 @@ int main(void)
 {
     test_copy_and_scale(8);
     test_copy_and_scale(16);
+    test_copy_and_scale(18); /* three bytes a pixel, as 24 */
+    test_copy_and_scale(24);
     test_shapes_and_clipping();
     test_packed_depths();
     CHECK_DONE();

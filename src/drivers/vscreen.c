@@ -61,14 +61,16 @@ static void dgx_vscreen_write_area(dgx_screen_t *_scr, uint8_t *data, uint32_t l
 {
     dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
     int            idx = 0;
-    while (lenbits >= _scr->color_bits) {
+    /* an 18-bit pixel takes three bytes in a buffer, as it does on the wire */
+    uint32_t       pixel_bits = _scr->color_bits == 18 ? 24u : _scr->color_bits;
+    while (lenbits >= pixel_bits) {
         uint32_t offset = DGX_VSCR_OFFSET(scr, scr->area.x_offset, scr->area.y_offset);
         uint8_t *lp     = DGX_VSCR_PTR(scr, offset);
         uint32_t color  = dgx_read_buf_value(_scr->color_bits, &data, idx);
         ++idx;
         dgx_fill_buf_value(_scr->color_bits, lp, offset, color);
         _dgx_move_to_next_area_pixel_v(_scr);
-        lenbits -= _scr->color_bits;
+        lenbits -= pixel_bits;
     }
 }
 static uint32_t dgx_vscreen_read_area(dgx_screen_t *_scr, uint8_t *data, uint32_t lenbits)
@@ -76,15 +78,17 @@ static uint32_t dgx_vscreen_read_area(dgx_screen_t *_scr, uint8_t *data, uint32_
     uint32_t       ret = 0;
     dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
     int            idx = 0;
-    while (lenbits >= _scr->color_bits) {
+    /* an 18-bit pixel takes three bytes in a buffer, as it does on the wire */
+    uint32_t       pixel_bits = _scr->color_bits == 18 ? 24u : _scr->color_bits;
+    while (lenbits >= pixel_bits) {
         uint32_t offset = DGX_VSCR_OFFSET(scr, scr->area.x_offset, scr->area.y_offset);
         uint8_t *lp     = DGX_VSCR_PTR(scr, offset);
         uint32_t color  = dgx_read_buf_value(_scr->color_bits, &lp, offset);
         data            = dgx_fill_buf_value(_scr->color_bits, data, idx, color);
         ++idx;
         _dgx_move_to_next_area_pixel_v(_scr);
-        ret += _scr->color_bits;
-        lenbits -= _scr->color_bits;
+        ret += pixel_bits;
+        lenbits -= pixel_bits;
     }
     return ret;
 }

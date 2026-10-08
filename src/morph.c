@@ -218,6 +218,23 @@ int dgx_morph_sources_cells(
     return pass + 1 < dgx_morph_scan_vectors(reach) ? DGX_MORPH_DEFER : 0;
 }
 
+/* the radius a search is kept within, 0 for none */
+static int dgx_morph_within(const void *user_data)
+{
+    int radius = user_data ? *(const int *)user_data : 0;
+    return radius < 1 ? 0 : radius;
+}
+
+int dgx_morph_sources_cells_within(
+    const dgx_morph_ctx_t *ctx, int x, int y, int pass,
+    dgx_point_2d_t out[DGX_MORPH_MAX_SOURCES], void *user_data)
+{
+    int radius = dgx_morph_within(user_data);
+    /* the rings of the radius are passed: nothing nearer was found */
+    if (radius && pass >= dgx_morph_scan_vectors(radius)) return 0;
+    return dgx_morph_sources_cells(ctx, x, y, pass, out, NULL);
+}
+
 /* 32 bits of a line of bits from a position on, which may lie before its start or go past its end */
 static inline uint32_t dgx_morph_bits_window(const uint32_t *bits, int words, int start)
 {
@@ -380,7 +397,12 @@ dgx_morph_t *dgx_morph_create(
 
     size_t pending = n_new;
     int reach = dgx_morph_max_int(dgx_morph_max_int(w, h) - 1, 1);
-    if (sources == dgx_morph_sources_cells) {
+    bool by_vectors = sources == dgx_morph_sources_cells || sources == dgx_morph_sources_cells_within;
+    if (by_vectors && sources == dgx_morph_sources_cells_within && dgx_morph_within(user_data)) {
+        /* further than the radius nothing is looked for */
+        reach = dgx_morph_max_int(1, dgx_morph_within(user_data) < reach ? dgx_morph_within(user_data) : reach);
+    }
+    if (by_vectors) {
         /*
          * The same search as the callback does, pass by pass, done on rows of
          * bits: the cells still waiting in a row, and the unused sources of the

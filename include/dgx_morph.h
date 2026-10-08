@@ -103,8 +103,32 @@ int dgx_morph_sources_life(
  * the order in which the cells are asked decides nothing: two cells never
  * look at the same cell on a pass. With no unused cell left, the rest appear
  * from the grid center.
+ *
+ * Given this very function, dgx_morph_create() does the search itself on
+ * words of bits. Called from a callback of one's own it gives the same plan
+ * 6 to 16 times slower on average: a call per waiting cell per vector.
  */
 int dgx_morph_sources_cells(
+    const dgx_morph_ctx_t *ctx, int x, int y, int pass,
+    dgx_point_2d_t out[DGX_MORPH_MAX_SOURCES], void *user_data);
+
+/**
+ * As dgx_morph_sources_cells(), but no further than a radius: a new cell with
+ * no unused cell within it appears from the grid center at once, and an old
+ * cell that nobody took fades where it is. No dot flies across the whole
+ * picture, and the rings beyond the radius are not gone through at all.
+ *
+ * user_data points to an int, the radius in cells; it is read while the plan
+ * is made. NULL, or a radius below 1, is no limit. Given this very function,
+ * dgx_morph_create() does the search itself on words of bits, as it does for
+ * dgx_morph_sources_cells().
+ *
+ * @code
+ * int radius = 6;
+ * m = dgx_morph_create(from, to, dgx_morph_sources_cells_within, &radius);
+ * @endcode
+ */
+int dgx_morph_sources_cells_within(
     const dgx_morph_ctx_t *ctx, int x, int y, int pass,
     dgx_point_2d_t out[DGX_MORPH_MAX_SOURCES], void *user_data);
 

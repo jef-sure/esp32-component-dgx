@@ -267,10 +267,8 @@ static int segment_cmp(const void *a, const void *b)
 }
 
 /* the planner's own quick search by vectors gives what asking the callback cell by cell, pass by pass, gives */
-static void check_same_plan(const dgx_bit_matrix_t *a, const dgx_bit_matrix_t *b)
+static void check_same_plans(dgx_morph_t *quick, dgx_morph_t *asked)
 {
-    dgx_morph_t *quick = dgx_morph_create(a, b, dgx_morph_sources_cells, NULL);
-    dgx_morph_t *asked = dgx_morph_create(a, b, same_as_cells, NULL);
     CHECK(quick && asked && quick->number_of_segments == asked->number_of_segments);
     CHECK(quick->number_of_fading_points == asked->number_of_fading_points);
     if (quick && asked && quick->number_of_segments == asked->number_of_segments) {
@@ -290,6 +288,35 @@ static void check_same_plan(const dgx_bit_matrix_t *a, const dgx_bit_matrix_t *b
     }
     dgx_morph_destroy(&quick);
     dgx_morph_destroy(&asked);
+}
+
+static int same_as_within(const dgx_morph_ctx_t *ctx, int x, int y, int pass, dgx_point_2d_t out[DGX_MORPH_MAX_SOURCES], void *user_data)
+{
+    return dgx_morph_sources_cells_within(ctx, x, y, pass, out, user_data);
+}
+
+static void check_same_plan(const dgx_bit_matrix_t *a, const dgx_bit_matrix_t *b)
+{
+    check_same_plans(dgx_morph_create(a, b, dgx_morph_sources_cells, NULL), dgx_morph_create(a, b, same_as_cells, NULL));
+    /* and kept within a radius: no dot flies further, the planner and the callback agree again */
+    static const int radii[] = {1, 2, 3, 5, 9, 40};
+    for (unsigned k = 0; k < sizeof(radii) / sizeof(radii[0]); ++k) {
+        int          radius = radii[k];
+        dgx_morph_t *m = dgx_morph_create(a, b, dgx_morph_sources_cells_within, &radius);
+        CHECK(m != NULL);
+        for (size_t i = 0; m && i < m->number_of_segments; ++i) {
+            const dgx_morph_segment_t *g = &m->segments[i];
+            if (!g->start_intensity || !g->end_intensity) continue; /* from the center, or into it */
+            CHECK(abs(g->end.x - g->start.x) <= radius && abs(g->end.y - g->start.y) <= radius);
+        }
+        check_same_plans(m, dgx_morph_create(a, b, same_as_within, &radius));
+    }
+    /* a radius of the whole grid, none, or one that is not a radius: the search without a limit */
+    int all = 1000, none = 0, minus = -5;
+    check_same_plans(dgx_morph_create(a, b, dgx_morph_sources_cells_within, &all), dgx_morph_create(a, b, dgx_morph_sources_cells, NULL));
+    check_same_plans(dgx_morph_create(a, b, dgx_morph_sources_cells_within, &none), dgx_morph_create(a, b, dgx_morph_sources_cells, NULL));
+    check_same_plans(dgx_morph_create(a, b, dgx_morph_sources_cells_within, &minus), dgx_morph_create(a, b, same_as_cells, NULL));
+    check_same_plans(dgx_morph_create(a, b, dgx_morph_sources_cells_within, NULL), dgx_morph_create(a, b, same_as_within, NULL));
 }
 
 static void test_cells_by_vector(void)

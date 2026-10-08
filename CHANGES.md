@@ -1,5 +1,23 @@
 # Changes
 
+## 0.4.4 - 2026-10-09
+
+- added `dgx_morph_sources_cells_within()`: the search by vectors kept
+  within a radius given through `user_data`. A new cell with no unused cell
+  within it appears from the center at once and no dot flies across the
+  picture; the rings beyond the radius are not gone through, and the planner
+  does this search on words of bits as well. On an ESP32 a plan between any
+  two weather symbols within 5 cells takes 1.4 ms on average and 2.5 ms at
+  most, against 2.6 and 7.8 without a limit
+- an 18-bit virtual screen counted 18 bits for a pixel when rows were
+  written to it or read from it, while a pixel takes three bytes in every
+  buffer. A textured quad or a copy drawn into such a screen put a third more
+  pixels than it was given, wrong ones, past the end of the row and of the
+  screen
+- the morphing guides give the time of a plan on five chips: ESP32, S3, C3,
+  C6 and P4, and what the same search costs when it is asked through a
+  callback
+
 ## 0.4.3 - 2026-10-08
 
 - thick Bezier curves: a pen wider than 46340 overflowed an `int` and went

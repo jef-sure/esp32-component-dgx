@@ -251,6 +251,23 @@ for a grid r + 1 cells wide, hundreds of thousands of calls for one cell of a
 320 x 240 grid. A callback that defers should give its last answer as soon as
 it knows there will be no other.
 
+A callback is a call per waiting cell per pass, and that is what it costs.
+The planner does the search of `dgx_morph_sources_cells` itself, on words of
+bits, when it is given that very function; asked through a callback that only
+calls it, the same search with the same plan takes 6 to 16 times longer on
+average and up to 50 times at worst. For the weather symbols on an ESP32 at
+240 MHz, a plan in milliseconds, on average and at most:
+
+| transitions | the planner itself | through a callback |
+| --- | --- | --- |
+| day and night of the same weather | 1.6, 4.8 | 11, 68 |
+| weather that follows | 1.6, 4.2 | 10, 65 |
+| any weather to any other | 2.6, 7.8 | 42, 412 |
+
+So a callback that defers pass after pass is for a search of another kind,
+not for a variation of this one; one that answers on its first or second
+pass, as `dgx_morph_sources_life` does, costs next to nothing.
+
 Inside the callback, `dgx_morph_was_set(ctx, x, y)` tells whether a cell was
 set in `from`, and `dgx_morph_is_used(ctx, x, y)` tells whether it has already
 been used. There are two built-in callbacks, one for each source project.
@@ -343,6 +360,47 @@ clouds and clouds with rain: 1.6 ms a plan on average, under 5 ms at most. Any
 weather to any other: 2.6 ms on average, 8 ms at most. Of that 0.5 ms is the
 plan without any search. The plan is built once per transition, not once per
 frame.
+
+The same on other chips, a plan in milliseconds, on average and at most:
+
+| chip | clock | weather that follows | any weather to any other | without search |
+| --- | --- | --- | --- | --- |
+| ESP32-P4, rev 1.3 | 360 MHz | 0.7, 1.9 | 1.2, 3.6 | 0.2 |
+| ESP32-S3, rev 0.2 | 240 MHz | 1.2, 3.4 | 2.1, 6.3 | 0.3 |
+| ESP32-D0WD-V3, rev 3.1 | 240 MHz | 1.6, 4.2 | 2.6, 7.8 | 0.5 |
+| ESP32-C3, rev 0.4 | 160 MHz | 1.8, 4.7 | 3.0, 9.0 | 0.5 |
+| ESP32-C6FH4, rev 0.2 | 160 MHz | 1.8, 4.8 | 3.0, 9.3 | 0.5 |
+
+#### Within a Radius
+
+`dgx_morph_sources_cells_within` is the same search kept within a radius. A
+new cell that has no unused cell within it appears from the center of the
+grid at once, an old cell that nobody took fades where it is, and the rings
+beyond the radius are not gone through. The radius, in cells, is an `int`
+that `user_data` points to; NULL or a radius below 1 is no limit.
+
+```c
+int radius = 6;
+morph = dgx_morph_create(from, to, dgx_morph_sources_cells_within, &radius);
+```
+
+The planner does this search itself as well, on words of bits. What a radius
+gives and what it takes, for any weather symbol into any other on an ESP32 at
+240 MHz: the time of a plan on average and at most, the share of the new
+cells that appear from the center instead of flying, and how far those that
+fly go on average.
+
+| radius | plan, ms | from the center | flight, cells |
+| --- | --- | --- | --- |
+| 3 | 1.1, 1.7 | 45% | 1.7 |
+| 5 | 1.4, 2.5 | 33% | 2.2 |
+| 8 | 1.9, 3.8 | 23% | 2.8 |
+| 12 | 2.2, 4.9 | 17% | 3.3 |
+| no limit | 2.6, 7.8 | 10% | 4.5 |
+
+A small radius makes a calm morph, where nothing crosses the picture, at the
+price of more dots that simply light up; without a limit every dot that can
+fly does.
 
 In a callback of your own, `dgx_morph_scan_vector()` gives the vector of a
 pass, `dgx_morph_ring_at()` looks at the whole ring of one radius and
