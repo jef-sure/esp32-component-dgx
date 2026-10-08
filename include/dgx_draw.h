@@ -126,6 +126,108 @@ void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
 void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int width, uint32_t color);
 
 /**
+ * @brief Draws a quadratic Bezier curve as a thick line with round ends.
+ *
+ * The curve is split into straight pieces drawn one after another. A piece
+ * has a flat start and a round end, which closes the joint with the next one.
+ *
+ * @param scr    The screen to draw on.
+ * @param points Start point, control point, end point.
+ * @param pieces How many straight pieces to split the curve into, equal in
+ *               its parameter. 0: as many as it takes for the polyline to stay
+ *               within half a pixel of the curve, found from the points with
+ *               a margin. A curve of a handwritten font comes with its own
+ *               number, see dgx_hw_font.h.
+ * @param width  Line thickness in pixels (>= 1).
+ * @param color  Line color.
+ */
+void dgx_draw_bezier3(dgx_screen_t *scr, const dgx_point_2d_t points[3], int pieces, int width, uint32_t color);
+
+/**
+ * @brief Draws a cubic Bezier curve as a thick line with round ends.
+ *
+ * @param scr    The screen to draw on.
+ * @param points Start point, two control points, end point.
+ * @param pieces How many straight pieces to split the curve into, see
+ *               dgx_draw_bezier3(); 0 estimates it from the points.
+ * @param width  Line thickness in pixels (>= 1).
+ * @param color  Line color.
+ */
+void dgx_draw_bezier4(dgx_screen_t *scr, const dgx_point_2d_t points[4], int pieces, int width, uint32_t color);
+
+/**
+ * @brief A Bezier curve being drawn part by part.
+ *
+ * Filled by dgx_bezier3_begin() or dgx_bezier4_begin() and drawn on by
+ * dgx_bezier_draw_to(). It owns no memory and may be dropped at any moment.
+ * Only @c pieces and @c done are of use to the caller, and only for reading.
+ */
+typedef struct {
+    int16_t        pieces;         /**< Straight pieces in the whole curve. */
+    int16_t        done;           /**< Pieces drawn whole so far. */
+    dgx_screen_t  *scr;
+    uint32_t       color;
+    int            width;
+    float          kx[4], ky[4];   /* a point is ((k[0] * t + k[1]) * t + k[2]) * t + k[3] */
+    dgx_point_2d_t end;
+    float          length;         /* of all the pieces, pixels; < 0: not counted yet */
+    float          drawn;          /* the way the pen has gone */
+    int            x, y;           /* the start of the piece the pen is on */
+    int            bx, by;         /* its end */
+    float          piece_length;
+    float          piece_drawn;    /* how far along it the pen is */
+    bool           in_piece;       /* the four above are set */
+    int            ex, ey;         /* where the axis runs from the points, in half pixels */
+    bool           started;
+    int            rx, ry, rw, rh; /* equal rows not sent yet, rh == 0: none */
+} dgx_bezier_t;
+
+/**
+ * @brief Prepares a quadratic Bezier curve for drawing part by part; draws nothing.
+ *
+ * The parameters are those of dgx_draw_bezier3().
+ */
+void dgx_bezier3_begin(dgx_bezier_t *b, dgx_screen_t *scr, const dgx_point_2d_t points[3], int pieces, int width, uint32_t color);
+
+/**
+ * @brief Prepares a cubic Bezier curve for drawing part by part; draws nothing.
+ *
+ * The parameters are those of dgx_draw_bezier4().
+ */
+void dgx_bezier4_begin(dgx_bezier_t *b, dgx_screen_t *scr, const dgx_point_2d_t points[4], int pieces, int width, uint32_t color);
+
+/**
+ * @brief The length of a prepared curve as it is drawn, in pixels.
+ *
+ * It is the length of its straight pieces together, the way the pen goes; a
+ * curve of several pieces of the same pace takes the time by it.
+ *
+ * @param b The curve.
+ * @return The length; 0 for a curve that is a dot.
+ */
+float dgx_bezier_length(dgx_bezier_t *b);
+
+/**
+ * @brief Draws a prepared curve on, up to the given share of it.
+ *
+ * @p t is how complete the curve must be, as in morphing: 0 is nothing, 1 the
+ * whole curve, counted by the way of the pen, so a pen led by an even t moves
+ * at an even speed however the curve is split into pieces. Only what is not
+ * drawn yet is drawn: the pieces the pen has passed whole, and the piece it is
+ * on as far as it has got. What a call draws reaches the screen before it
+ * returns, and the line ends round where the pen stopped. A @p t not greater
+ * than the one before draws nothing; a curve is not drawn back.
+ *
+ * Drawn to 1 in any number of calls, a curve is the same picture as
+ * dgx_draw_bezier3() or dgx_draw_bezier4() give.
+ *
+ * @param b The curve.
+ * @param t How complete it must be, 0 .. 1.
+ * @return true when the curve is finished.
+ */
+bool dgx_bezier_draw_to(dgx_bezier_t *b, float t);
+
+/**
  * @brief Draws a dotted/dashed line using a rotating bit pattern. Each bit of @p mask
  * (taken LSB-first as the first pixel) selects either @p color (1) or @p bg (0)
  * for one pixel along the line. After @p mask_bits pixels the pattern repeats.

@@ -271,20 +271,21 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x, int y, int x2, int y2, int wi
         return;
     }
     if (dx == 0) {
+        /* the wider side of an even width is on the right of the way, as for slanted lines */
         if (dy < 0) {
-            y = y2;
-            dy = -dy;
+            scr->fill_rectangle(scr, x - mw, y2, width, -dy + 1, color);
+        } else {
+            scr->fill_rectangle(scr, x - pw, y, width, dy + 1, color);
         }
-        scr->fill_rectangle(scr, x - mw, y, width, dy + 1, color);
         dgx_screen_progress_down(scr);
         return;
     }
     if (dy == 0) {
         if (dx < 0) {
-            x = x2;
-            dx = -dx;
+            scr->fill_rectangle(scr, x2, y - pw, -dx + 1, width, color);
+        } else {
+            scr->fill_rectangle(scr, x, y - mw, dx + 1, width, color);
         }
-        scr->fill_rectangle(scr, x, y - mw, dx + 1, width, color);
         dgx_screen_progress_down(scr);
         return;
     }

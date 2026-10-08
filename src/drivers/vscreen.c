@@ -672,6 +672,7 @@ void dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_scr
     if (bh <= 0 || bw <= 0) return;
     int skip_x = x1 - x_dst;
     int skip_y = y1 - y_dst;
+    dgx_screen_progress_up(_scr_dst);
     if (_scr_dst->screen_subtype == DgxPhysicalScreenWithBus) {
         dgx_bus_protocols_t *bus             = ((dgx_screen_with_bus_t *)_scr_dst)->bus;
         uint8_t             *draw_buffer     = bus->buffer;
@@ -720,6 +721,7 @@ void dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_scr
         }
     }
     dgx_screen_touch(_scr_dst, x1, x1 + bw - 1, y1, y1 + bh - 1);
+    dgx_screen_progress_down(_scr_dst);
 }
 
 void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width, int height)
@@ -760,6 +762,7 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
             return;
         }
     }
+    dgx_screen_progress_up(_scr_dst);
     _scr_dst->set_area(_scr_dst, x_dst, x_dst + width - 1, y_dst, y_dst + height - 1);
     _scr_dst->wait_buffer(_scr_dst);
     uint8_t *cbuf = draw_buffer;
@@ -784,6 +787,7 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
         free(draw_buffer);
     }
     dgx_screen_touch(_scr_dst, x_dst, x_dst + width - 1, y_dst, y_dst + height - 1);
+    dgx_screen_progress_down(_scr_dst);
 }
 
 void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint16_t *lut, bool has_transparency)
@@ -805,6 +809,7 @@ void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_
     if (bh <= 0 || bw <= 0) return;
     int skip_x = rxd - x_dst;
     int skip_y = ryd - y_dst;
+    dgx_screen_progress_up(_scr_dst);
     if (_scr_dst->screen_subtype == DgxPhysicalScreenWithBus) {
         dgx_bus_protocols_t *bus             = ((dgx_screen_with_bus_t *)_scr_dst)->bus;
         uint8_t             *draw_buffer     = bus->buffer;
@@ -834,9 +839,9 @@ void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_
         } else {
             for (int br = 0; br < bh; ++br) {
                 for (int bc = 0; bc < bw; ++bc) {
-                    uint32_t color = _scr_src->get_pixel(_scr_src, bc + skip_x, br + skip_y);
-                    if (color || !has_transparency) {
-                        _scr_dst->set_pixel(_scr_dst, rxd + bc, ryd + br, color);
+                    uint8_t cidx = scr_src->v_array[skip_x + bc + (skip_y + br) * _scr_src->width];
+                    if (cidx || !has_transparency) {
+                        _scr_dst->set_pixel(_scr_dst, rxd + bc, ryd + br, lut[cidx]);
                     }
                 }
             }
@@ -850,9 +855,10 @@ void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_
                 uint32_t offset_dst = DGX_VSCR_OFFSET(scr_dst, rxd, ryd + br);
                 uint8_t *lp_dst     = DGX_VSCR_PTR(scr_dst, offset_dst);
                 for (int bc = 0; bc < bw; ++bc) {
-                    uint32_t color = lut[*lp_src];
+                    uint8_t  cidx  = *lp_src;
+                    uint32_t color = lut[cidx];
                     ++lp_src;
-                    if (color || !has_transparency) {
+                    if (cidx || !has_transparency) {
                         uint8_t *dst_ptr = lp_dst + bc * 2u;
                         dst_ptr[0]       = (uint8_t)(color >> 8);
                         dst_ptr[1]       = (uint8_t)color;
@@ -869,6 +875,7 @@ void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_
         }
     }
     dgx_screen_touch(_scr_dst, rxd, rxd + bw - 1, ryd, ryd + bh - 1);
+    dgx_screen_progress_down(_scr_dst);
 }
 
 dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src)

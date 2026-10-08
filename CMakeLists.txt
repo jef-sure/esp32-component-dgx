@@ -2,7 +2,7 @@ file(GLOB dgx_font_sources
 	"${COMPONENT_DIR}/src/fonts/*.c"
 )
 
-set(srcs "src/drivers/dgx_lcd_init.c" "src/dgx_bus_optimized_funcs.c" "src/dgx_spi_area_protocol.c" "src/draw.c" "src/font.c" "src/font_morph.c" "src/orientation.c" "src/bitmap.c" "src/gauge.c" "src/texture.c")
+set(srcs "src/drivers/dgx_lcd_init.c" "src/dgx_bus_optimized_funcs.c" "src/dgx_spi_area_protocol.c" "src/draw.c" "src/bezier.c" "src/font.c" "src/hw_font.c" "src/hw_morph.c" "src/font_morph.c" "src/orientation.c" "src/bitmap.c" "src/gauge.c" "src/texture.c")
 
 list(APPEND srcs ${dgx_font_sources})
 

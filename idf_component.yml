@@ -1,6 +1,6 @@
 ## IDF Component Manager Manifest File
-version: "0.3.1"
-description: "Display and graphics component for ESP32 with SPI, I2C, and parallel display buses, virtual screens, drawing primitives, and fonts"
+version: "0.4.0"
+description: "Display and graphics component for ESP32 with SPI, I2C, and parallel display buses, virtual screens, drawing primitives, fonts, handwritten text and morphing"
 url: https://github.com/jef-sure/esp32-component-dgx
 repository: https://github.com/jef-sure/esp32-component-dgx.git
 documentation: https://github.com/jef-sure/esp32-component-dgx/blob/main/README.md
@@ -19,6 +19,9 @@ tags:
   - i2c
   - framebuffer
   - font
+  - bezier
+  - handwriting
+  - morphing
 
 maintainers:
   - "Anton Petrusevich <anton.petrusevich.mobile@gmail.com>"

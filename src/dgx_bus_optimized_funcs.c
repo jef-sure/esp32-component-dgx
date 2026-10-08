@@ -77,7 +77,7 @@ static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, in
     uint32_t pic = dgx_bytes_to_color_points(scr->color_bits, draw_buffer_len);
     if (pic > fill_scr_size) pic = fill_scr_size;
     if (scr->wait_buffer) scr->wait_buffer(scr);
-    DGX_FILL_BUFFER(scr->color_bits, lp, x, pic, color);
+    DGX_FILL_BUFFER(scr->color_bits, lp, 0, pic, color); // index inside the buffer, not on the screen
     uint32_t pic_lenbits = dgx_color_points_to_bytes(scr->color_bits, pic) * 8u;
     scr->set_area(scr, x, x + w - 1, y, y + h - 1);
     while (fill_scr_size != 0) {
@@ -105,9 +105,11 @@ static void dgx_scr_set_pixel_sb(dgx_screen_t *scr, int x, int y, uint32_t color
     uint8_t  draw_buffer[4] = { 0 };
     uint8_t *lp             = draw_buffer;
     if (scr->wait_buffer) scr->wait_buffer(scr);
-    DGX_FILL_BUFFER(scr->color_bits, lp, x, 1, color);
+    DGX_FILL_BUFFER(scr->color_bits, lp, 0, 1, color);
     scr->set_area(scr, x, x, y, y);
     scr->write_area(scr, draw_buffer, dgx_color_points_to_bytes(scr->color_bits, 1) * 8u);
+    // draw_buffer lives on the stack: an asynchronous bus must finish with it before we return
+    if (scr->wait_buffer) scr->wait_buffer(scr);
     dgx_screen_touch(scr, x, x, y, y);
 }
 

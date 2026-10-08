@@ -94,6 +94,25 @@ void dgx_bw_write_data(dgx_screen_t *scr_, uint8_t *data, uint32_t lenbits)
     scr->area.y_offset = y;
 }
 
+void dgx_bw_write_value(dgx_screen_t *scr_, uint32_t value)
+{
+    dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)scr_;
+    uint16_t          x   = scr->area.x_offset;
+    uint16_t          y   = scr->area.y_offset;
+    /* dgx_bw_write_data() leaves the position past the right edge until the next pixel arrives */
+    if (x > scr->area.right) {
+        x = scr->area.left;
+        if (y >= scr->area.bottom) y = scr->area.top;
+        else y++;
+    }
+    const uint8_t mask = (uint8_t)(1u << (y & 7));
+    uint8_t      *pb   = scr->v_array + (uint32_t)(y >> 3) * scr->base.width + x;
+    if (value) *pb |= mask;
+    else *pb &= (uint8_t)~mask;
+    scr->area.x_offset = (uint16_t)(x + 1);
+    scr->area.y_offset = y;
+}
+
 void dgx_bw_set_pixel(dgx_screen_t *scr_, int x, int y, uint32_t color)
 {
     dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)scr_;

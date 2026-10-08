@@ -49,6 +49,19 @@ static void test_bw_screen(void)
     CHECK(s->get_pixel(s, 2, 0) && s->get_pixel(s, 5, 1) && !s->get_pixel(s, 2, 2));
     dgx_fill_rectangle(s, 0, 0, 32, 16, 0);
 
+    /* one value at a time fills the area like write_area does, wraps in it and mixes with write_area */
+    s->set_area(s, 3, 5, 6, 9);
+    for (int i = 0; i < 12; ++i) dgx_bw_write_value(s, i % 5 != 0);
+    for (int i = 0; i < 12; ++i) CHECK(s->get_pixel(s, 3 + i % 3, 6 + i / 3) == (uint32_t)(i % 5 != 0));
+    CHECK(count_set(s) == 9);
+    dgx_bw_write_value(s, 1); /* wrapped back to the first pixel of the area */
+    CHECK(s->get_pixel(s, 3, 6) == 1 && count_set(s) == 10);
+    uint8_t two_bits = 0x40;
+    s->write_area(s, &two_bits, 2);
+    dgx_bw_write_value(s, 0);
+    CHECK(!s->get_pixel(s, 4, 6) && s->get_pixel(s, 5, 6) && !s->get_pixel(s, 3, 7) && count_set(s) == 8);
+    dgx_fill_rectangle(s, 0, 0, 32, 16, 0);
+
     /* over the other edges, and fully outside */
     dgx_fill_rectangle(s, 30, 14, 10, 10, 1);
     CHECK(count_set(s) == 2 * 2);

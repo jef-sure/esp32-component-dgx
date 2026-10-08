@@ -1,5 +1,105 @@
 # Changes
 
+## 0.4.0 - 2026-10-08
+
+- added `dgx_draw_bezier3()` and `dgx_draw_bezier4()`: thick quadratic and
+  cubic Bezier curves with round ends. A curve is drawn by the given number
+  of straight pieces, or by as many as keep it within half a pixel when none
+  is given; a piece has a flat start and a round end that closes the joint
+  with the next one
+- added `dgx_bezier3_begin()`, `dgx_bezier4_begin()`, `dgx_bezier_draw_to()`
+  and `dgx_bezier_length()`: the same curves drawn part by part, to animate
+  writing. A curve is drawn on until it is `t` complete, as in morphing; `t`
+  goes by the way of the pen, so the pen moves evenly however the curve is
+  split into pieces, and a piece is drawn as far as the pen has got
+- handwritten fonts, the data part: a font of type `DGX_FONT_HW` keeps every
+  symbol as a pen path of Bezier curves. Its glyphs are ordinary `glyph_t`
+  found with `dgx_font_find_glyph()`; what a glyph has no place for is in the
+  tables of `dgx_hw_font.h`, which repeat the file of the hw-fonts editor.
+  Such a font is not drawn by `dgx_font_char_to_screen()` and the like but
+  by its own functions. See `docs/hw-font-ru.md`
+- `dgx_hw_draw_text()` writes a text of a handwritten font at any size with a
+  pen of any thickness, joined or not: two letters are joined by one curve
+  made of their connections, postponed strokes are written when the pen
+  leaves the paper
+- `dgx_hw_writing_begin()` and `dgx_hw_writing_draw_to()` write it by the pace
+  of a pen: up to the effort the pen has gone through, adding only what is
+  new. `dgx_hw_text_effort()` gives the whole effort of a text, `dgx_hw_pace()`
+  the pace of a font with the least effort taken from its hyphen
+- `dgx_hw_writer_begin()` and `dgx_hw_writer_next()` give the strokes of a
+  text one by one in the order of writing
+- `dgx_hw_text_box()` gives the box a text takes, to choose its size and place
+- morphing of handwritten texts: every stroke is a cubic curve, a morph is a
+  list of pairs of curves and a frame is every pair taken between its two
+  curves. `dgx_hw_morph_create()` plans a line into a line as a whole (the
+  whole way of the pen into the whole way of the pen, the longest curves cut
+  in two until the numbers are equal), `dgx_hw_morph_text_create()` letter by
+  letter (strokes in order, what has no pair grows from the point where the
+  other pen ended); `dgx_hw_morph_draw()` draws a frame, `dgx_hw_morph_shift()`
+  moves the two texts, `dgx_hw_morph_box()` gives the box no frame leaves
+- added `docs/handwriting-en.md` and `docs/handwriting-ru.md`: handwritten
+  text in detail, from a text at once to writing at the pace of a pen and
+  both morphs
+- added `examples/hw_morph_demo`: handwritten words morphing one into another
+  on a CYD, as a whole and letter by letter in turn
+- added `examples/hw_font_demo`: three lines written by hand on a CYD at the
+  largest size that fits the screen
+- `dgx_hw_element_effort()` and `dgx_hw_stroke_effort()`: the effort of
+  writing an element of a handwritten font, `length + k * pieces` but not less
+  than the least effort, which a dot and a move of the pen in the air take;
+  the measure for the pace of the pen
+- `dgx_hw_line_begin()` and `dgx_hw_line_place()` place the symbols of a
+  handwritten font in a line: by width, keeping apart the parts of tall
+  symbols above the lowercase band. Handwritten fonts are never of fixed
+  width, `widthType` of the file is not read
+- added the handwritten font `font0ss` (`fonts/font0ss.h`): 153 symbols, Latin,
+  German and Russian letters, digits and punctuation
+- `font2c` converts handwritten fonts: given a `.json` file of format
+  `hw-font` version 1 it writes such a font. Ranges and `-f` select symbols as
+  for other fonts; there is no size argument
+- `dgx_font_t` has `number_of_ranges`; when a font tells it,
+  `dgx_font_find_glyph()` searches the ranges by halving instead of trying
+  them in order. `font2c` writes it for every font; fonts generated before
+  work as they did
+- `dgx_draw_line_thick()`: an exactly horizontal or vertical line of an even
+  width put its wider side down or right whatever its direction; now it is on
+  the right of the direction, as it always was for slanted lines
+- added `dgx_bw_write_value()`: it was declared in `dgx_bw_screen.h` but never
+  defined. It writes one pixel at the current position of the area set with
+  `dgx_bw_set_area()` and moves on, the way `dgx_bw_write_data()` does for a run
+- README: installing from the ESP Component Registry, the `backlight`
+  parameter of `dgx_ili9341_init()`, the `-f` option of `font2c` and other
+  corrections; `examples/screen_demo` runs in portrait, not landscape
+- ST7735, ST7789: `rst` may be `GPIO_NUM_NC`, as the README says; the reset
+  pulse was sent to the pin unconditionally
+- SSD1351: `dgx_ssd1351_orientation()` still had the `&= 0x40` fixed in the
+  init sequence in 0.3.0, so 18-bit mode lost the other remap bits on every
+  orientation change
+- P8 bus: a failed `esp_lcd_panel_io_tx_color()` no longer leaves the bus
+  waiting forever for a completion that will not come
+- panels with a bus: `set_pixel` waits for the transfer before returning; it
+  sends a buffer from its stack, and the P8 bus transmits asynchronously
+  without copying it
+- panels with a bus: `fill_rectangle` and `set_pixel` packed 4- and 12-bit
+  pixels by the screen column instead of the position in the buffer, so
+  everything starting at an odd column was shifted by a nibble
+- `dgx_vscreen8_to_screen16()` with transparency sent the palette index instead
+  of the color to a physical screen; transparency is now decided by index 0, as
+  documented, and not by the color the palette gives (a black entry was
+  skipped on virtual screens)
+- `dgx_vscreen_to_screen()`, `dgx_vscreen_region_to_screen()` and
+  `dgx_vscreen8_to_screen16()` flush the target once per call instead of once
+  per pixel when the row cannot be copied as bytes (1-bit targets)
+- stream bitmaps (`is_stream`): `dgx_bw_bitmap_get_pixel()` and
+  `dgx_bw_bitmap_set_pixel()` addressed the wrong byte for every bit but the
+  first of each byte
+- gauge: no division by zero when `min_value == max_value` or
+  `sweep_degrees == 0`; `start_angle` is in degrees, the header and the README
+  example said radians
+- `dgx_read_buf_value_32()`: the top byte was shifted as a signed `int`
+- Kconfig: the P8 backend depends on `SOC_LCD_I80_SUPPORTED`, so it is not
+  offered on targets without an I80 peripheral (ESP32-C3 and the like)
+
 ## 0.3.1 - 2026-10-06
 
 - `dgx_draw_texture_quad()`: a quad with two coinciding vertices on a side (a

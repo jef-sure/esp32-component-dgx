@@ -45,8 +45,13 @@ typedef struct dgx_font_sym8_params_ {
 typedef enum {                   //
     DGX_FONT_BITMAP_LINES = 1,   //
     DGX_FONT_BITMAP_STREAM = 2,  //
-    DGX_FONT_DOTS = 3            //
+    DGX_FONT_DOTS = 3,           //
+    DGX_FONT_HW = 4              ///< Handwritten: pen paths of Bezier curves, see dgx_hw_font.h
 } dgx_font_model_t;
+
+struct dgx_hw_element_;
+struct dgx_hw_symbol_;
+struct dgx_hw_font_;
 
 typedef struct {
     union {
@@ -55,8 +60,12 @@ typedef struct {
             const dgx_font_dot_t *dots;
             size_t number_of_dots;
         };
+        struct {                                   ///< DGX_FONT_HW
+            const struct dgx_hw_element_ *elements; ///< The pen path of the symbol
+            const struct dgx_hw_symbol_ *hw;        ///< Its segments and the rest of its measures
+        };
     };
-    int16_t width;     ///< Bitmap dimensions in pixels
+    int16_t width;     ///< Bitmap dimensions in pixels; DGX_FONT_HW: of the drawing in cells of its grid, as all below
     int16_t height;    ///< Bitmap dimensions in pixels
     int16_t xAdvance;  ///< Distance to advance cursor (x axis)
     int16_t xOffset;
@@ -96,6 +105,8 @@ typedef struct dgx_font_ {
     int16_t yAdvance, yOffsetLowest, xWidest, xWidthAverage;
     dgx_font_model_t f_type;
     int16_t yBottomMax, xOffsetLowest, xRightMax;
+    int16_t number_of_ranges;       ///< Ranges in glyph_ranges, ascending, for a search by halving; 0: not told, they are tried in order
+    const struct dgx_hw_font_ *hw;  ///< DGX_FONT_HW: what the font has besides its glyphs
 } dgx_font_t;
 
 /**
@@ -117,6 +128,9 @@ const glyph_t *dgx_font_find_glyph(uint32_t codePoint, dgx_font_t *font, int16_t
 
 /**
  * @brief Render a single code point onto a screen.
+ *
+ * Fonts of bitmaps and dots only. A DGX_FONT_HW font is drawn by its own
+ * functions; here nothing is drawn for it.
  * @param scr         Target screen.
  * @param x,y         Baseline origin of the glyph.
  * @param codePoint   Unicode code point to draw.

@@ -10,11 +10,11 @@ CPPFLAGS += -Istubs -I$(ROOT)/include -I$(ROOT)/src -include stubs/esp_log.h
 LDLIBS  += -lm
 
 LIB_SRCS := $(addprefix $(ROOT)/src/, matrix.c morph.c morph_sources.c morph_render.c \
-              font.c font_morph.c bitmap.c draw.c texture.c orientation.c drivers/vscreen.c \
+              font.c hw_font.c hw_morph.c font_morph.c bitmap.c draw.c bezier.c texture.c orientation.c drivers/vscreen.c \
               bw_screen.c dgx_bus_optimized_funcs.c) stubs/bus_stub.c \
             $(wildcard $(ROOT)/src/fonts/*.c)
 
-TESTS := test_matrix test_morph test_render test_fonts test_screen test_bw test_texture
+TESTS := test_matrix test_morph test_render test_fonts test_screen test_bw test_texture test_bezier test_hw_font test_hw_line test_hw_write test_hw_morph
 BUILD := build
 
 all: $(addprefix run-, $(TESTS))

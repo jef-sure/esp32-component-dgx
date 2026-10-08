@@ -71,11 +71,29 @@ uint32_t decodeUTF8next(const char *chr, size_t *idx)
 const glyph_t *dgx_font_find_glyph(uint32_t codePoint, dgx_font_t *font, int16_t *xAdvance)
 {
     const glyph_t *g = 0, *fg = 0;
-    for (const glyph_array_t *r = font->glyph_ranges; r->number; ++r) {
-        if (!fg) fg = r->glyphs;
-        if (codePoint >= r->first && codePoint < r->first + r->number) {
-            g = r->glyphs + (codePoint - r->first);
-            break;
+    if (font->number_of_ranges > 0) {
+        /* the ranges are told to be ascending: found by halving */
+        int lo = 0, hi = font->number_of_ranges - 1;
+        fg = font->glyph_ranges[0].glyphs;
+        while (lo <= hi) {
+            int                  mid = (lo + hi) / 2;
+            const glyph_array_t *r = font->glyph_ranges + mid;
+            if (codePoint < (uint32_t)r->first) {
+                hi = mid - 1;
+            } else if (codePoint >= (uint32_t)r->first + r->number) {
+                lo = mid + 1;
+            } else {
+                g = r->glyphs + (codePoint - r->first);
+                break;
+            }
+        }
+    } else {
+        for (const glyph_array_t *r = font->glyph_ranges; r->number; ++r) {
+            if (!fg) fg = r->glyphs;
+            if (codePoint >= r->first && codePoint < r->first + r->number) {
+                g = r->glyphs + (codePoint - r->first);
+                break;
+            }
         }
     }
     if (g == 0 && fg) {
@@ -186,6 +204,8 @@ int dgx_font_char_to_screen(            //
         int16_t        xAdvance;
         const glyph_t *g = dgx_font_find_glyph(codePoint, font, &xAdvance);
         if (!g) return xAdvance;
+        /* a handwritten font is not drawn symbol by symbol, see dgx_hw_font.h */
+        if (font->f_type == DGX_FONT_HW) return xAdvance * (scale ? scale : 1);
         if (font->f_type == DGX_FONT_BITMAP_LINES || font->f_type == DGX_FONT_BITMAP_STREAM) {
             dgx_bw_bitmap_t bmap   = dgx_bw_bitmap_make_of((uint8_t *)g->bitmap, g->width, g->height,
                                                            font->f_type == DGX_FONT_BITMAP_STREAM);

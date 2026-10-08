@@ -10,6 +10,7 @@ config DGX_ENABLE_I2C
 
 config DGX_ENABLE_P8
     bool "Enable 8-bit parallel transport backend"
+    depends on SOC_LCD_I80_SUPPORTED
     default n
 
 config DGX_ENABLE_SPI_ST7735

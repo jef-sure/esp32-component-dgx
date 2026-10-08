@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include FT_GLYPH_H
 #include FT_MODULE_H
 #include FT_FREETYPE_H
@@ -159,8 +160,10 @@ static void show_usage(const char *programName)
 {
     fprintf(stderr,
             "Usage: %s [-f charset_file] fontfile size [first last] .. [firstN lastN]\n"
-            "  -f charset_file: UTF-8 text file with characters to include\n",
-            programName);
+            "       %s [-f charset_file] fontfile.json [first last] .. [firstN lastN]\n"
+            "  -f charset_file: UTF-8 text file with characters to include\n"
+            "  fontfile.json: a handwritten font saved by the hw-fonts editor\n",
+            programName, programName);
 }
 
 cp_ranges_t *SortedCharMap = 0;
@@ -244,6 +247,422 @@ void encodeBM(uint8_t *bitmap, uint16_t pitch, uint16_t width, uint16_t height, 
     *ret     = xbm;
 } // no decode required
 
+/* ------------------------------------------------------------------------- */
+/*  handwritten fonts: the JSON file of the hw-fonts editor                   */
+/* ------------------------------------------------------------------------- */
+
+typedef struct _json {
+    char          type; /* 'o'bject, 'a'rray, 's'tring, 'n'umber, 'z' null, 't'rue, 'f'alse */
+    char         *key;  /* of a member of an object */
+    char         *str;
+    double        num;
+    struct _json *child, *next;
+} json_t;
+
+static const char *jsonText, *jsonPos;
+
+static void json_fail(const char *what)
+{
+    int line = 1;
+    for (const char *c = jsonText; c < jsonPos; ++c) line += *c == '\n';
+    fprintf(stderr, "JSON error in line %d: %s\n", line, what);
+    exit(1);
+}
+
+static void json_space(void)
+{
+    while (*jsonPos == ' ' || *jsonPos == '\t' || *jsonPos == '\n' || *jsonPos == '\r') ++jsonPos;
+}
+
+static char *json_string(void)
+{
+    if (*jsonPos != '"') json_fail("a string expected");
+    const char *end = ++jsonPos;
+    while (*end && *end != '"') end += *end == '\\' && end[1] ? 2 : 1;
+    if (!*end) json_fail("a string is not closed");
+    char *str = malloc(end - jsonPos + 1), *out = str;
+    while (jsonPos < end) {
+        char c = *jsonPos++;
+        if (c == '\\') {
+            c = *jsonPos++;
+            if (c == 'n') c = '\n';
+            else if (c == 't') c = '\t';
+            else if (c == 'u') {
+                /* names and keys of a font are plain; anything else is of no use here */
+                jsonPos += 4;
+                c = '?';
+            }
+        }
+        *out++ = c;
+    }
+    *out = 0;
+    ++jsonPos;
+    return str;
+}
+
+static json_t *json_value(void)
+{
+    json_t *v = calloc(1, sizeof(json_t));
+    json_space();
+    char c = *jsonPos;
+    if (c == '{' || c == '[') {
+        char close = c == '{' ? '}' : ']';
+        v->type = c == '{' ? 'o' : 'a';
+        ++jsonPos;
+        json_t **tail = &v->child;
+        json_space();
+        while (*jsonPos != close) {
+            char *key = 0;
+            if (v->type == 'o') {
+                json_space();
+                key = json_string();
+                json_space();
+                if (*jsonPos++ != ':') json_fail("':' expected");
+            }
+            *tail = json_value();
+            (*tail)->key = key;
+            tail = &(*tail)->next;
+            json_space();
+            if (*jsonPos == ',') {
+                ++jsonPos;
+                json_space();
+            } else if (*jsonPos != close) {
+                json_fail("',' expected");
+            }
+        }
+        ++jsonPos;
+    } else if (c == '"') {
+        v->type = 's';
+        v->str = json_string();
+    } else if (!strncmp(jsonPos, "null", 4)) {
+        v->type = 'z';
+        jsonPos += 4;
+    } else if (!strncmp(jsonPos, "true", 4)) {
+        v->type = 't';
+        jsonPos += 4;
+    } else if (!strncmp(jsonPos, "false", 5)) {
+        v->type = 'f';
+        jsonPos += 5;
+    } else {
+        char *end;
+        v->type = 'n';
+        v->num = strtod(jsonPos, &end);
+        if (end == jsonPos) json_fail("a value expected");
+        jsonPos = end;
+    }
+    return v;
+}
+
+static json_t *json_load(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "Error opening font file %s: %s\n", path, strerror(errno));
+        exit(1);
+    }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *text = malloc(size + 1);
+    if (fread(text, 1, size, f) != (size_t)size) {
+        fprintf(stderr, "Error reading font file %s\n", path);
+        exit(1);
+    }
+    text[size] = 0;
+    fclose(f);
+    jsonText = jsonPos = text;
+    json_t *v = json_value();
+    json_space();
+    if (*jsonPos) json_fail("something after the end of the font");
+    return v;
+}
+
+static json_t *json_get(json_t *obj, const char *key)
+{
+    for (json_t *m = obj && obj->type == 'o' ? obj->child : 0; m; m = m->next) {
+        if (!strcmp(m->key, key)) return m;
+    }
+    return 0;
+}
+
+static int json_count(json_t *arr)
+{
+    int n = 0;
+    for (json_t *m = arr ? arr->child : 0; m; m = m->next) ++n;
+    return n;
+}
+
+static const char *hwWhere = "the font"; /* for messages */
+
+/* a whole number from min to max; without one the font is not what this program can use */
+static int hw_number(json_t *obj, const char *key, double scale, int min, int max)
+{
+    json_t *v = json_get(obj, key);
+    if (!v || v->type != 'n') {
+        fprintf(stderr, "%s: no number \"%s\". Save the font with the current hw-fonts editor.\n", hwWhere, key);
+        exit(1);
+    }
+    double n = v->num * scale;
+    int    r = (int)(n < 0 ? n - 0.5 : n + 0.5);
+    if (r < min || r > max) {
+        fprintf(stderr, "%s: \"%s\" is %g, it must be from %g to %g\n", hwWhere, key, v->num, min / scale, max / scale);
+        exit(1);
+    }
+    return r;
+}
+
+typedef struct {
+    uint32_t codePoint;
+    json_t  *symbol;
+} hw_symbol_t;
+
+static int hw_symbol_cmp(const void *a, const void *b)
+{
+    uint32_t ca = ((const hw_symbol_t *)a)->codePoint, cb = ((const hw_symbol_t *)b)->codePoint;
+    return ca < cb ? -1 : ca > cb;
+}
+
+/* the format of the editor's file this program knows, see font-format-ru.md of hw-fonts */
+#define HW_FORMAT_NAME    "hw-font"
+#define HW_FORMAT_VERSION 1
+
+static const char *const hwParts[4] = {"beginConnection", "mainSegments", "endConnection", "postSegments"};
+static const char *const hwTypes[5] = {0, "dot", "line", "curve3p", "curve"};
+static const char *const hwTypeNames[5] = {0, "DGX_HW_DOT", "DGX_HW_LINE", "DGX_HW_CURVE3P", "DGX_HW_CURVE"};
+
+/* the elements of a part of a symbol; returns how many */
+static int hw_elements(FILE *out, json_t *symbol, const char *part)
+{
+    json_t *arr = json_get(symbol, part);
+    if (!arr || arr->type != 'a') {
+        fprintf(stderr, "%s: no \"%s\"\n", hwWhere, part);
+        exit(1);
+    }
+    int n = 0;
+    for (json_t *e = arr->child; e; e = e->next, ++n) {
+        json_t *points = json_get(e, "points");
+        json_t *type = json_get(e, "type");
+        int     np = json_count(points);
+        if (np < 1 || np > 4 || !type || type->type != 's' || strcmp(type->str, hwTypes[np])) {
+            fprintf(stderr, "%s: an element of \"%s\" is \"%s\" with %d points\n", hwWhere, part,
+                    type && type->type == 's' ? type->str : "?", np);
+            exit(1);
+        }
+        fprintf(out, "    {%-14s, %2d, %5d, %3d, {", hwTypeNames[np], hw_number(e, "pieces", 1, 0, 255),
+                hw_number(e, "length", 100, 0, 65535), hw_number(e, "pixels", 1, 0, 65535));
+        for (json_t *p = points->child; p; p = p->next) {
+            fprintf(out, "{%3d, %3d}%s", hw_number(p, "x", 1, 0, 255), hw_number(p, "y", 1, 0, 255), p->next ? ", " : "");
+        }
+        fprintf(out, "}},\n");
+    }
+    return n;
+}
+
+static int hw_font(const char *fontFile, char **ranges, int numRanges, const char *charsetFile)
+{
+    for (int ri = 0; ri + 1 < numRanges; ri += 2) {
+        cpr_insert_range(&CPRanges, strtol(ranges[ri], 0, 0), strtol(ranges[ri + 1], 0, 0));
+    }
+    if (charsetFile) loadCharsetFile(charsetFile);
+
+    json_t *font = json_load(fontFile);
+    json_t *format = json_get(font, "format");
+    json_t *version = json_get(font, "formatVersion");
+    json_t *name = json_get(font, "name");
+    json_t *codePoints = json_get(font, "codePoints");
+    if (!format || format->type != 's' || !version || version->type != 'n') {
+        fprintf(stderr,
+                "%s has no \"format\" and \"formatVersion\": it is not a font of the hw-fonts editor or an old one.\n"
+                "Load an old font into the current editor and save it again.\n",
+                fontFile);
+        return 1;
+    }
+    if (strcmp(format->str, HW_FORMAT_NAME)) {
+        fprintf(stderr, "%s is of format \"%s\", not \"%s\"\n", fontFile, format->str, HW_FORMAT_NAME);
+        return 1;
+    }
+    if (version->num != HW_FORMAT_VERSION) {
+        fprintf(stderr, "%s is of format version %g, this program knows version %d\n", fontFile, version->num, HW_FORMAT_VERSION);
+        return 1;
+    }
+    if (!name || name->type != 's' || !name->str[0] || !codePoints || codePoints->type != 'o') {
+        fprintf(stderr, "%s: no \"name\" or \"codePoints\"\n", fontFile);
+        return 1;
+    }
+    int symbolOffsetX = hw_number(font, "symbolOffsetX", 1, 0, 255);
+    int symbolOffsetY = hw_number(font, "symbolOffsetY", 1, 0, 255);
+    int symbolSizeX = hw_number(font, "symbolSizeX", 1, 1, 256);
+    int symbolSizeY = hw_number(font, "symbolSizeY", 1, 1, 256);
+    int baseLine = hw_number(font, "baseLine", 1, 0, 255);
+    int xHeight = hw_number(font, "xHeight", 1, 0, 255);
+    int symbolSpace = hw_number(font, "symbolSpace", 1, 0, 255);
+    int spaceWidth = hw_number(font, "spaceWidth", 1, 0, 255);
+
+    int          count = 0;
+    hw_symbol_t *symbols = calloc(json_count(codePoints) + 1, sizeof(hw_symbol_t));
+    for (json_t *s = codePoints->child; s; s = s->next) {
+        uint32_t cp = strtoul(s->key, 0, 10);
+        if (CPRanges && !isInRange(cp)) continue;
+        symbols[count].codePoint = cp;
+        symbols[count++].symbol = s;
+        cpr_insert_output_cp(cp);
+    }
+    if (!count) {
+        fprintf(stderr, "No symbols of %s are in the given ranges\n", fontFile);
+        return 1;
+    }
+    qsort(symbols, count, sizeof(hw_symbol_t), hw_symbol_cmp);
+
+    char funcname[256], fontname[260];
+    snprintf(funcname, sizeof(funcname) - 2, "%s", name->str);
+    clearName(funcname);
+    if (!funcname[0] || isdigit((unsigned char)funcname[0])) {
+        memmove(funcname + 2, funcname, strlen(funcname) + 1);
+        memcpy(funcname, "hw", 2);
+    }
+    /* the name as a C string */
+    char cname[256];
+    int  ci = 0;
+    for (const char *c = name->str; *c && ci < 250; ++c) {
+        if (*c == '"' || *c == '\\') cname[ci++] = '\\';
+        if ((unsigned char)*c >= ' ') cname[ci++] = *c;
+    }
+    cname[ci] = 0;
+    snprintf(fontname, sizeof(fontname), "%s.c", funcname);
+    FILE *out = fopen(fontname, "w");
+    if (!out) {
+        fprintf(stderr, "Error opening font file %s for writing: %s\n", fontname, strerror(errno));
+        return 1;
+    }
+    fprintf(out, "#include \"dgx_hw_font.h\"\n");
+    fprintf(out, "/* %s: made by font2c from a file of format %s, version %d */\n", cname, HW_FORMAT_NAME, HW_FORMAT_VERSION);
+    fprintf(out, "static const dgx_hw_element_t elements[] = {\n");
+    int   total = 0;
+    int (*parts)[4] = calloc(count, sizeof(*parts));
+    int  *first = calloc(count, sizeof(int));
+    char  where[64];
+    for (int i = 0; i < count; ++i) {
+        snprintf(where, sizeof(where), "symbol %u (U+%04X)", symbols[i].codePoint, symbols[i].codePoint);
+        hwWhere = where;
+        fprintf(out, "/* %04X */\n", symbols[i].codePoint);
+        first[i] = total;
+        for (int k = 0; k < 4; ++k) {
+            parts[i][k] = hw_elements(out, symbols[i].symbol, hwParts[k]);
+            total += parts[i][k];
+            if (parts[i][k] > 255 || total > 65535) {
+                fprintf(stderr, "%s: too many elements\n", hwWhere);
+                return 1;
+            }
+        }
+    }
+    fprintf(out, "};\n\n");
+
+    typedef struct {
+        int width, height, xAdvance, xOffset, yOffset;
+    } hw_glyph_t;
+    hw_glyph_t *gl = calloc(count, sizeof(hw_glyph_t));
+    fprintf(out, "static const dgx_hw_symbol_t symbols[] = {\n");
+    for (int i = 0; i < count; ++i) {
+        json_t *s = symbols[i].symbol;
+        snprintf(where, sizeof(where), "symbol %u (U+%04X)", symbols[i].codePoint, symbols[i].codePoint);
+        hwWhere = where;
+        json_t *up = json_get(s, "upLeft");
+        int     hasUp = up && up->type == 'n';
+        int     width = hw_number(s, "width", 1, 0, 256), top = hw_number(s, "top", 1, -255, 255);
+        int     bottom = hw_number(s, "bottom", 1, -255, 255), left = hw_number(s, "left", 1, -255, 255);
+        int     lineLeft = hw_number(s, "lineLeft", 1, -255, 255), advance = hw_number(s, "advance", 1, 0, 1024);
+        /* the spaces of its own a symbol may have */
+        int spaceBefore = json_get(s, "spaceBefore") ? hw_number(s, "spaceBefore", 1, 0, 255) : 0;
+        int spaceAfter = json_get(s, "spaceAfter") ? hw_number(s, "spaceAfter", 1, 0, 255) : symbolSpace;
+        fprintf(out, "    {%d, %d, %d, %d, %3d, %4d, %4d, %3d, %3d, %3d, %3d, %3d, ", parts[i][0], parts[i][1], parts[i][2], parts[i][3],
+                width, top, bottom, left, hw_number(s, "right", 1, -255, 255), lineLeft, hw_number(s, "lineRight", 1, -255, 255),
+                hw_number(s, "lineWidth", 1, 0, 256));
+        if (hasUp) fprintf(out, "%3d, %3d, ", hw_number(s, "upLeft", 1, -255, 255), hw_number(s, "upRight", 1, -255, 255));
+        else fprintf(out, "DGX_HW_NONE, DGX_HW_NONE, ");
+        fprintf(out, "%3d, %2d, %2d}, /* %04X */\n", advance, spaceBefore, spaceAfter, symbols[i].codePoint);
+        gl[i] = (hw_glyph_t){width, bottom - top + 1, advance, spaceBefore + left - lineLeft, top};
+    }
+    fprintf(out, "};\n\n");
+    hwWhere = "the font";
+
+    /* what a font tells of all its glyphs together */
+    int    yOffsetLowest = gl[0].yOffset, yBottomMax = gl[0].yOffset + gl[0].height, xWidest = gl[0].width;
+    int    xOffsetLowest = gl[0].xOffset, xRightMax = gl[0].xOffset + gl[0].width;
+    double xWidthAverage = 0;
+    fprintf(out, "static const glyph_t glyphs[] = {\n");
+    for (int i = 0; i < count; ++i) {
+        fprintf(out, "    {{.elements = elements + %4d, .hw = symbols + %3d}, %3d, %3d, %3d, %3d, %4d}, /* %04X */\n", first[i], i,
+                gl[i].width, gl[i].height, gl[i].xAdvance, gl[i].xOffset, gl[i].yOffset, symbols[i].codePoint);
+        if (yOffsetLowest > gl[i].yOffset) yOffsetLowest = gl[i].yOffset;
+        if (yBottomMax < gl[i].yOffset + gl[i].height) yBottomMax = gl[i].yOffset + gl[i].height;
+        if (xWidest < gl[i].width) xWidest = gl[i].width;
+        if (xOffsetLowest > gl[i].xOffset) xOffsetLowest = gl[i].xOffset;
+        if (xRightMax < gl[i].xOffset + gl[i].width) xRightMax = gl[i].xOffset + gl[i].width;
+        xWidthAverage += gl[i].width;
+    }
+    fprintf(out, "};\n\n");
+
+    fprintf(out, "static const glyph_array_t glyph_ranges[] = {\n");
+    int numberOfRanges = 0, sidx = 0;
+    for (cp_ranges_t *r = SortedCharMap; r; r = r->next, ++numberOfRanges) {
+        fprintf(out, "    {0x%04x, %3d, glyphs + %3d},\n", r->first, r->number, sidx);
+        sidx += r->number;
+    }
+    fprintf(out, "    {0, 0, 0},\n};\n\n");
+
+    fprintf(out,
+            "static const dgx_hw_font_t hw = {\n"
+            "    .name = \"%s\",\n"
+            "    .format_version = %d,\n"
+            "    .base_line = %d,\n"
+            "    .x_height = %d,\n"
+            "    .symbol_space = %d,\n"
+            "    .space_width = %d,\n"
+            "    .symbol_offset_x = %d,\n"
+            "    .symbol_offset_y = %d,\n"
+            "    .symbol_size_x = %d,\n"
+            "    .symbol_size_y = %d,\n"
+            "};\n\n",
+            cname, HW_FORMAT_VERSION, baseLine, xHeight, symbolSpace, spaceWidth, symbolOffsetX, symbolOffsetY, symbolSizeX,
+            symbolSizeY);
+    fprintf(out,
+            "dgx_font_t *%s()\n{\n"
+            "    static dgx_font_t rval = {\n"
+            "        .glyph_ranges = glyph_ranges,\n"
+            "        .yAdvance = %d,\n"
+            "        .yOffsetLowest = %d,\n"
+            "        .xWidest = %d,\n"
+            "        .xWidthAverage = %d,\n"
+            "        .f_type = DGX_FONT_HW,\n"
+            "        .yBottomMax = %d,\n"
+            "        .xOffsetLowest = %d,\n"
+            "        .xRightMax = %d,\n"
+            "        .number_of_ranges = %d,\n"
+            "        .hw = &hw,\n"
+            "    };\n"
+            "    return &rval;\n}\n",
+            funcname, symbolSizeY, yOffsetLowest, xWidest, (int)(xWidthAverage / count + 0.5), yBottomMax, xOffsetLowest, xRightMax,
+            numberOfRanges);
+    fclose(out);
+
+    snprintf(fontname, sizeof(fontname), "%s.h", funcname);
+    out = fopen(fontname, "w");
+    if (!out) {
+        fprintf(stderr, "Error opening font header file %s for writing: %s\n", fontname, strerror(errno));
+        return 1;
+    }
+    fprintf(out, "#pragma once\n");
+    fprintf(out, "#include \"dgx_hw_font.h\"\n");
+    fprintf(out, "#ifdef __cplusplus\n// @formatter:off\nextern \"C\" {\n// @formatter:on\n#endif\n");
+    fprintf(out, "dgx_font_t *%s();\n", funcname);
+    fprintf(out, "#ifdef __cplusplus\n// @formatter:off\n}\n// @formatter:on\n#endif\n");
+    fclose(out);
+
+    printf("%s: %d symbols in %d ranges, %d elements, about %zu bytes on a 32-bit target\n", funcname, count, numberOfRanges, total,
+           total * (size_t)14 + count * (size_t)(30 + 20) + (numberOfRanges + 1) * (size_t)12);
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     int                i;
@@ -268,6 +687,13 @@ int main(int argc, char *argv[])
         default:
             show_usage(argv[0]);
             return 1;
+        }
+    }
+
+    if (argc - optind >= 1) {
+        size_t len = strlen(argv[optind]);
+        if (len > 5 && !strcmp(argv[optind] + len - 5, ".json")) {
+            return hw_font(argv[optind], argv + optind + 1, argc - optind - 1, charsetFile);
         }
     }
 
@@ -445,7 +871,8 @@ int main(int argc, char *argv[])
     }
     fprintf(fontOut, "};\n");
     fprintf(fontOut, "static const glyph_array_t glyph_ranges[] = {\n  ");
-    for (cp_ranges_t *r = SortedCharMap; r; r = r->next) {
+    int numberOfRanges = 0;
+    for (cp_ranges_t *r = SortedCharMap; r; r = r->next, ++numberOfRanges) {
         if (r != SortedCharMap) fprintf(fontOut, ",");
         fprintf(fontOut, " {0x%-4x, 0x%-4x, glyphs + %d }\n", r->first, r->number, r->gOffset);
     }
@@ -464,7 +891,8 @@ int main(int argc, char *argv[])
             ".f_type = DGX_FONT_BITMAP_LINES,\n\t\t"
             ".yBottomMax = %d,\n\t\t"
             ".xOffsetLowest = %d,\n\t\t"
-            ".xRightMax = %d\n\t"
+            ".xRightMax = %d,\n\t\t"
+            ".number_of_ranges = %d\n\t"
             "};\n\t"
             "return &rval;\n}\n",
             funcname,                                                                                           //
@@ -474,7 +902,8 @@ int main(int argc, char *argv[])
             xWidthAverage,                                                                                      //
             yBottomMax,                                                                                         //
             xOffsetLowest,                                                                                      //
-            xRightMax                                                                                           //
+            xRightMax,                                                                                          //
+            numberOfRanges                                                                                      //
     );
     fclose(fontOut);
     strcpy(fontname, funcname);

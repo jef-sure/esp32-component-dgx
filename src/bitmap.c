@@ -58,7 +58,7 @@ bool dgx_bw_bitmap_get_pixel(dgx_bw_bitmap_t *bmap, int x, int y)
     } else { // DGX_FONT_BITMAP_STREAM
         offset = y * bmap->width + x;
         bmask  = 0x80 >> (offset & 7);
-        offset = (offset + 7) / 8;
+        offset = offset / 8;
     }
     return !!(bmap->bitmap[offset] & bmask);
 }
@@ -74,7 +74,7 @@ void dgx_bw_bitmap_set_pixel(dgx_bw_bitmap_t *bmap, int x, int y, bool color)
     } else { // DGX_FONT_BITMAP_STREAM
         offset = y * bmap->width + x;
         bmask  = 0x80 >> (offset & 7);
-        offset = (offset + 7) / 8;
+        offset = offset / 8;
     }
     if (color) {
         bmap->bitmap[offset] |= bmask;

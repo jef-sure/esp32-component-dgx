@@ -16,6 +16,7 @@ managed_components/
 
 # IDE
 .vscode/
+.clangd
 .idea/
 *.swp
 *.swo

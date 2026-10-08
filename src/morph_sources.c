@@ -46,7 +46,7 @@ static bool dgx_morph_font_box(const dgx_font_t *font, int *left, int *top, int 
 
 dgx_bit_matrix_t *dgx_morph_glyph_matrix(dgx_font_t *font, uint32_t code_point)
 {
-    if (!font) return NULL;
+    if (!font || font->f_type == DGX_FONT_HW) return NULL; /* a handwritten font has pen paths, not pixels */
     int left, top, right, bottom;
     if (!dgx_morph_font_box(font, &left, &top, &right, &bottom)) return NULL;
     dgx_bit_matrix_t *m = dgx_matrix_init((uint16_t)(right - left), (uint16_t)(bottom - top));

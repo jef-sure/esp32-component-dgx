@@ -12,7 +12,7 @@ Default wiring uses a common ESP32 layout:
 - `RST`: GPIO 17
 - `Backlight`: connected to 3.3v
 
-The demo initializes the DGX SPI bus, creates an `ILI9341` screen in 16-bit color, switches the panel to landscape mode, and cycles through fill, text, line, rectangle, circle, and triangle scenes.
+The demo initializes the DGX SPI bus, creates an `ILI9341` screen in 16-bit color, keeps the panel in portrait mode (240x320), and cycles through fill, text, line, rectangle, circle, and triangle scenes.
 
 Build and flash it from this example directory:
 

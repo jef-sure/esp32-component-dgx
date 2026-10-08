@@ -137,7 +137,7 @@ void dgx_ssd1351_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_or
     }
     if (_scr->color_bits == 18) {
         adj_data[0] |= 0x80;
-        adj_data[0] &= 0x40;
+        adj_data[0] &= ~0x40;
     }  // else 16 bits
     if (dir_x == DgxScreenRightLeft) {
         adj_data[0] |= 0x02;

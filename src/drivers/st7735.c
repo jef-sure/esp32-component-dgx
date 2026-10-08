@@ -137,12 +137,14 @@ dgx_screen_t* dgx_st7735_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
     dgx_screen_with_bus_init_area(&scr->base, ST7735_CASET, ST7735_RASET, ST7735_RAMWR, 0,
                                   DGX_SCREEN_AREA_PROTO_STD16);
 //Initialize non-SPI GPIOs
-    dgx_gpio_set_direction(rst, GPIO_MODE_OUTPUT);
+    if (rst >= 0) {
+        dgx_gpio_set_direction(rst, GPIO_MODE_OUTPUT);
 //Reset the display
-    dgx_gpio_set_level(rst, 0);
-    dgx_delay(100);
-    dgx_gpio_set_level(rst, 1);
-    dgx_delay(100);
+        dgx_gpio_set_level(rst, 0);
+        dgx_delay(100);
+        dgx_gpio_set_level(rst, 1);
+        dgx_delay(100);
+    }
 //Send all the commands
     dgx_lcd_init(&scr->base, st_init_cmds);
     dgx_scr_init_slow_bus_optimized_funcs((dgx_screen_t*)scr);

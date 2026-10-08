@@ -65,6 +65,10 @@ dgx_font_symbol_morph_t *dgx_font_make_morph_struct( //
     int         scale                                //
 )
 {
+    if (font->f_type == DGX_FONT_HW) {
+        ESP_LOGE(TAG, "A handwritten font has no dots to morph");
+        return NULL;
+    }
     dgx_font_symbol_morph_t *ret = calloc(1, sizeof(*ret));
     if (!ret) {
         ESP_LOGE(TAG, "Memory allocation for dgx_font_symbol_morph_t failed");

@@ -32,6 +32,12 @@ void dgx_bw_fast_vline(dgx_screen_t *scr, int x, int y, int h, uint32_t color);
 void dgx_bw_set_area(dgx_screen_t *scr, uint16_t caset_lo, uint16_t caset_hi, uint16_t raset_lo, uint16_t raset_hi);
 void dgx_bw_wait_data(dgx_screen_t *scr);
 void dgx_bw_write_data(dgx_screen_t *scr, uint8_t *data, uint32_t lenbits);
+/**
+ * @brief Write one pixel at the current position of the area set with
+ * dgx_bw_set_area() and move on to the next one, the way dgx_bw_write_data()
+ * does for a whole run: left to right, top to bottom, wrapping inside the area.
+ * @param value Non-zero sets the pixel, zero clears it.
+ */
 void dgx_bw_write_value(dgx_screen_t *scr, uint32_t value);
 
 /**

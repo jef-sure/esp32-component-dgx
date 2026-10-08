@@ -59,7 +59,7 @@ static int dgx_gauge_value_for_step(const dgx_gauge_t *gauge, int step)
 {
     int range = gauge->max_value - gauge->min_value;
 
-    if (range <= 0) {
+    if (range <= 0 || gauge->sweep_degrees <= 0) {
         return gauge->min_value;
     }
     if (step < 0) {
@@ -83,7 +83,7 @@ void dgx_gauge_set_value(dgx_gauge_t *gauge, int value)
         next_value = value;
     }
     int range = gauge->max_value - gauge->min_value;
-    //
+    if (range <= 0) return;
     int next_active_steps = ((next_value - gauge->min_value) * gauge->sweep_degrees) / range;
 
     if (next_active_steps > gauge->active_steps) {

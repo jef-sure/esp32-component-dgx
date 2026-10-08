@@ -324,7 +324,7 @@ static inline uint32_t dgx_read_buf_value_24(uint8_t **lp, int idx)
 
 static inline uint32_t dgx_read_buf_value_32(uint8_t **lp, int idx)
 {
-    uint32_t value = (**lp << 24) | (*(*lp + 1) << 16) | (*(*lp + 2) << 8) | (*(*lp + 3));
+    uint32_t value = ((uint32_t)**lp << 24) | (*(*lp + 1) << 16) | (*(*lp + 2) << 8) | (*(*lp + 3));
     *lp += 4;
     return value;
 }

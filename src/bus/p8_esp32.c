@@ -66,7 +66,11 @@ static void dgx_p8_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint
     if (byte_len == 0) return;
     dgx_p8_wait_pending(bus);
     bus->transfer_pending = true;
-    esp_lcd_panel_io_tx_color(bus->io, -1, data, byte_len);
+    esp_err_t ret = esp_lcd_panel_io_tx_color(bus->io, -1, data, byte_len);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_lcd_panel_io_tx_color failed: %s", esp_err_to_name(ret));
+        bus->transfer_pending = false; // nothing was queued: no completion callback will come
+    }
 }
 
 static void dgx_p8_sync_write_func(struct _dgx_bus_protocols_t *_bus) {
