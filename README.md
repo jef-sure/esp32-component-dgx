@@ -23,6 +23,7 @@ written stroke by stroke by a pen or turns into another text.
   - [Flicker-free animation with a virtual screen](#flicker-free-animation-with-a-virtual-screen)
   - [Driving a monochrome panel](#driving-a-monochrome-panel)
   - [Building an arc gauge](#building-an-arc-gauge)
+  - [Stretching a texture onto a quad](#stretching-a-texture-onto-a-quad)
   - [Generating a custom font](#generating-a-custom-font)
   - [Morphing two glyphs](#morphing-two-glyphs)
   - [Writing a text by hand](#writing-a-text-by-hand)
@@ -93,14 +94,14 @@ DGX is a component, not a standalone firmware image. It is published in the
 as `jef-sure/dgx`. To add it to your own ESP-IDF project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.4.0"
+idf.py add-dependency "jef-sure/dgx^0.4.1"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.4.0"
+  jef-sure/dgx: "^0.4.1"
 ```
 
 The next build downloads it into `managed_components/`. To work on DGX itself,
@@ -112,7 +113,8 @@ ILI9341 graphics test, and there are the CYD morphing demos:
 `examples/morph_demo` (words, letter by letter), `examples/glyph_morph_demo`
 (one large symbol into the next) and `examples/life_morph_demo` (Conway's Game
 of Life). `examples/flip_clock_demo` is a split-flap clock for the same board,
-built on textured quads. `examples/hw_font_demo` writes a text by hand with a
+built on textured quads, and `examples/texture_demo` scales, turns and wobbles
+a textured card. `examples/hw_font_demo` writes a text by hand with a
 font of Bezier curves and `examples/hw_morph_demo` morphs such words one into
 another.
 
@@ -301,6 +303,76 @@ dgx_gauge_init(&gauge, scr,
 
 dgx_gauge_set_value(&gauge, 42); // redraws only the steps that changed
 ```
+
+### Stretching a texture onto a quad
+
+A texture is a virtual screen: draw anything into it once, then put it on the
+display at any size and in any four-cornered shape. This is how a picture is
+scaled, mirrored, tilted or folded without drawing it again.
+
+```c
+#include "drivers/vscreen.h"
+#include "dgx_draw.h"
+#include "dgx_font.h"
+#include "dgx_colors.h"
+#include "dgx_bits.h"
+#include "fonts/ArialRegular12.h"
+
+// 1. the texture: the same color depth as the screen it goes to
+dgx_screen_t *tex = dgx_vscreen_init(64, 24, 16, DgxScreenRGB);
+dgx_fill_rectangle(tex, 0, 0, tex->width, tex->height, DGX_NAVY(dgx_rgb_to_16));
+dgx_font_string_utf8_screen(tex, 6, 17, "DGX 0.4", DGX_WHITE(dgx_rgb_to_16),
+                            DgxOutputNormal, 1, ArialRegular12(), NULL, NULL);
+
+// 2. scaled three times into a rectangle
+dgx_draw_texture_rect(scr, 10, 10, 192, 72, tex, 0, 0, tex->width, tex->height);
+
+// 3. onto a quad: corners of the region in the order
+//    top-left, top-right, bottom-right, bottom-left
+const dgx_point_2d_t card[4] = {{40, 110}, {200, 100}, {220, 170}, {20, 180}};
+dgx_draw_texture_quad(scr, card, tex, 0, 0, tex->width, tex->height);
+
+// 4. a part of the texture, mirrored: swap the left and the right corners
+const dgx_point_2d_t half[4] = {{238, 10}, {206, 10}, {206, 82}, {238, 82}};
+dgx_draw_texture_quad(scr, half, tex, 0, 0, tex->width / 2, tex->height);
+
+dgx_screen_destroy(&tex);
+```
+
+To move the picture, move the corners. Scaling, rotation and a wobble are all
+the same thing, four corners counted anew for every frame:
+
+```c
+// corners of a w x h picture around (cx, cy): scaled, each swung on its own
+// by `wobble` pixels, then all turned by `angle`
+static void corners(dgx_point_2d_t quad[4], float cx, float cy, float w, float h,
+                    float scale, float angle, float wobble, float phase)
+{
+    static const float side_x[4] = {-1, 1, 1, -1}, side_y[4] = {-1, -1, 1, 1};
+    float c = cosf(angle), s = sinf(angle);
+    for (int i = 0; i < 4; ++i) {
+        float x = side_x[i] * w / 2 * scale + wobble * sinf(phase + i * 1.7f);
+        float y = side_y[i] * h / 2 * scale + wobble * cosf(phase * 1.3f + i * 2.3f);
+        quad[i].x = (int16_t)lroundf(cx + x * c - y * s);
+        quad[i].y = (int16_t)lroundf(cy + x * s + y * c);
+    }
+}
+
+// a frame: clear a virtual screen, draw the quad, send it to the display
+corners(quad, frame->width / 2, frame->height / 2, tex->width, tex->height,
+        1.0f + 0.5f * sinf(t * 2), t * 1.6f, 0, 0);
+dgx_fill_rectangle(frame, 0, 0, frame->width, frame->height, DGX_BLACK(dgx_rgb_to_16));
+dgx_draw_texture_quad(frame, quad, tex, 0, 0, tex->width, tex->height);
+dgx_vscreen_to_screen(scr, x, y, frame);
+```
+
+The quad must be convex. The mapping is affine, without perspective
+correction, and takes the nearest texel. A scaled or turned picture stays a
+rectangle and is drawn exactly; an uneven quad, a wobbling one, shows a
+slight bend along its diagonal, which suits a wobble well.
+[examples/texture_demo](examples/texture_demo) shows scaling, rotation and
+wobbling on a CYD, and [examples/flip_clock_demo](examples/flip_clock_demo)
+folds the halves of its digits this way.
 
 ### Generating a custom font
 
@@ -580,8 +652,9 @@ a curve is drawn on by `t` is described in
 
 `quad` is four `dgx_point_2d_t` vertices in the order of the region's corners:
 top-left, top-right, bottom-right, bottom-left. The texture needs the same
-color depth as the target screen; `examples/flip_clock_demo` uses both
-functions.
+color depth as the target screen; see
+[Stretching a texture onto a quad](#stretching-a-texture-onto-a-quad), and
+`examples/flip_clock_demo` uses both functions.
 
 ### Text and fonts
 
@@ -630,6 +703,7 @@ thickness of the pen are chosen at drawing, and letters are joined.
 | `dgx_hw_pace(font, k)` | How effort is counted: an element takes `length + k * pieces`, a dot and a move of the pen in the air as much as the hyphen of the font. |
 | `dgx_hw_writer_begin(writer, font, text, joined)` / `dgx_hw_writer_next(writer, stroke)` | The strokes of a text one by one in the order of writing, in cells: for a drawing of your own. |
 | `dgx_hw_line_begin(line, font)` / `dgx_hw_line_place(line, code_point, shift)` | Where each next symbol of a line stands. |
+| `dgx_hw_draw_text_xy(...)`, `dgx_hw_writing_begin_xy(...)`, `dgx_hw_morph_draw_xy(...)` | The same as their namesakes with `scale_x, scale_y` in place of `scale`: a text narrow and tall or wide and low. The pen stays round. |
 | `dgx_hw_morph_create(font, from, to, joined)` / `dgx_hw_morph_destroy(&morph)` | Plan the morph of a line into a line as a whole: the whole way of the pen into the whole way of the pen. |
 | `dgx_hw_morph_text_create(font, from, to, joined)` / `dgx_hw_morph_text_destroy(&text)` | Plan it letter by letter: `text->letters[i]` is a morph for every position, each led by its own `t`. |
 | `dgx_hw_morph_draw(morph, t, scr, x, y, scale, width, color)` | Draw the frame at `t` of 0 .. 1 on a cleared place. |
@@ -921,6 +995,7 @@ examples/morph_demo/     sequential CYD word-morphing demo
 examples/glyph_morph_demo/  CYD demo morphing one large symbol into the next
 examples/life_morph_demo/   CYD Game of Life with morphing generations
 examples/flip_clock_demo/   CYD split-flap clock drawn with textured quads
+examples/texture_demo/      CYD demo scaling, turning and wobbling a textured card
 examples/hw_font_demo/      CYD demo writing a text by hand with a font of Bezier curves
 examples/hw_morph_demo/     CYD demo morphing handwritten words one into another
 test/host/               host tests with ESP-IDF stubs

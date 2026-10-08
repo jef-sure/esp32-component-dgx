@@ -290,7 +290,7 @@ typedef struct {
     dgx_hw_writer_t writer;
     dgx_screen_t   *scr;
     int             x, y;
-    float           scale;
+    float           scale_x, scale_y;
     int             width;
     uint32_t        color;
     dgx_hw_pace_t   pace;
@@ -341,6 +341,25 @@ bool dgx_hw_writing_draw_to(dgx_hw_writing_t *writing, float effort);
  */
 void dgx_hw_draw_text(dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text, float scale, int width, uint32_t color,
                       bool joined);
+
+/**
+ * @brief The same with a size of its own along each axis.
+ *
+ * A text may be drawn narrow and tall or wide and low: @p scale_x is pixels
+ * in a cell across, @p scale_y pixels in a cell down. The pen stays round and
+ * @p width pixels thick, it is not stretched. The measures of a text,
+ * dgx_hw_text_box(), are in cells: multiply columns by @p scale_x and rows by
+ * @p scale_y. How letters are placed and joined and what effort they take
+ * does not depend on the sizes.
+ */
+void dgx_hw_draw_text_xy(dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text, float scale_x, float scale_y, int width,
+                         uint32_t color, bool joined);
+
+/**
+ * @brief dgx_hw_writing_begin() with a size of its own along each axis, see dgx_hw_draw_text_xy().
+ */
+void dgx_hw_writing_begin_xy(dgx_hw_writing_t *writing, dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text,
+                             float scale_x, float scale_y, int width, uint32_t color, bool joined, const dgx_hw_pace_t *pace);
 
 /*
  * Morphing. Every stroke is a cubic curve, so a text is a list of cubic
@@ -411,6 +430,12 @@ void dgx_hw_morph_shift(dgx_hw_morph_t *morph, float from_x, float from_y, float
 void dgx_hw_morph_draw(const dgx_hw_morph_t *morph, float t, dgx_screen_t *scr, int x, int y, float scale, int width, uint32_t color);
 
 /**
+ * @brief dgx_hw_morph_draw() with a size of its own along each axis, see dgx_hw_draw_text_xy().
+ */
+void dgx_hw_morph_draw_xy(const dgx_hw_morph_t *morph, float t, dgx_screen_t *scr, int x, int y, float scale_x, float scale_y,
+                          int width, uint32_t color);
+
+/**
  * @brief The box no frame of a morph leaves, in cells, as dgx_hw_text_box().
  *
  * It is the box of the points of all its curves: a Bezier curve does not
@@ -435,11 +460,15 @@ typedef struct {
  * @brief Plans the morph of a text into a text letter by letter.
  *
  * The symbol at a position of one text goes into the symbol at the same
- * position of the other one: their strokes are paired in the order of
- * writing. A stroke left without a pair, and every stroke of a symbol left
- * without a symbol, grows from the point where the pen of the other text is
- * after that position, or goes into it. All the letters are in the places of
- * their lines, so they are all drawn with the same x and y.
+ * position of the other one. Which stroke goes into which is chosen so that
+ * all their points together go the shortest way: the order of writing is not
+ * the order in which the parts of two symbols answer one another, and a
+ * stroke may be taken from its other end. A stroke left without a pair, and
+ * every stroke of a symbol left without a symbol, grows from the point where
+ * the pen of the other text is after that position, or goes into it. A symbol
+ * of more than 10 strokes is paired in the order of writing. All the letters
+ * are in the places of their lines, so they are all drawn with the same x
+ * and y.
  *
  * @param font,from,to,joined As for dgx_hw_morph_create(). A curve joining two
  *        letters belongs to the second of them.

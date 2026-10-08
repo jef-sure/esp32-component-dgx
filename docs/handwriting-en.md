@@ -82,6 +82,22 @@ must fit the width and all of them, a line height apart, the height.
 The box is that of the symbols themselves. The curves joining letters lie
 between them and do not widen it.
 
+### A size of its own along each axis
+
+A text may be narrow and tall or wide and low. `dgx_hw_draw_text_xy()`,
+`dgx_hw_writing_begin_xy()` and `dgx_hw_morph_draw_xy()` take two sizes in
+place of one: pixels in a cell across and pixels in a cell down.
+
+```c
+/* digits a third of the grid across and two thirds down */
+dgx_hw_draw_text_xy(scr, x, y, font0ss(), "08", 0.33f, 0.7f, 3, color, false);
+```
+
+The pen is not stretched: it stays round and as thick as it is given.
+Everything counted in cells stays as it is — the box of a text, the placing
+and joining of letters, the effort; columns are multiplied by one size and
+rows by the other. A curve takes the pieces of the larger of the two sizes.
+
 ## What a text is made of
 
 A text is turned into strokes in three steps, each of which can be used on its
@@ -438,7 +454,18 @@ dgx_hw_morph_text_t *text = dgx_hw_morph_text_create(font, "привет", "уч
 Here every position of the text is a morph of its own, `text->letters[i]`, and
 is led by its own `t`, so the letters can change one after another. The symbol
 at a position of one text goes into the symbol at the same position of the
-other; their strokes are paired in the order of writing.
+other.
+
+Which stroke goes into which is not taken from the order of writing. A symbol
+is drawn as a hand writes it, and that is not the order in which the parts of
+two symbols answer one another: «9» is written oval first and tail last, «7»
+top first, and paired by that order the top of one flies down to become the
+tail of the other. So the pairs are chosen so that all the points together go
+the shortest way, and a curve may be taken from its other end, which draws
+the same. For the digits of `font0ss` the points go 30% less on average than
+by the order of writing, and for «2» into «9» four times less. All the ways of
+pairing are gone through, which is cheap for a symbol of a few strokes; one of
+more than ten is paired in the order of writing.
 
 A stroke left without a pair, and every stroke of a symbol left without a
 symbol, grows from a point or shrinks into one. That point is where the pen of

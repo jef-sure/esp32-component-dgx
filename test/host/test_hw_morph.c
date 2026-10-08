@@ -68,6 +68,39 @@ static int strokes_of(dgx_font_t *font, const char *text, bool joined)
     return n;
 }
 
+/* the way all the points of a morph go */
+static float way_of(const dgx_hw_morph_t *m)
+{
+    float way = 0;
+    for (int i = 0; i < m->number; ++i) {
+        for (int k = 0; k < 4; ++k) way += hypotf(m->to[i].x[k] - m->from[i].x[k], m->to[i].y[k] - m->from[i].y[k]);
+    }
+    return way;
+}
+
+/* the same for the strokes of two symbols paired in the order of writing, what is left over going into the last point */
+static float way_in_order(dgx_font_t *font, const char *a, const char *b)
+{
+    dgx_hw_writer_t wa, wb;
+    dgx_hw_stroke_t sa, sb;
+    float           way = 0, ax = 0, ay = 0, bx = 0, by = 0;
+    dgx_hw_writer_begin(&wa, font, a, false);
+    dgx_hw_writer_begin(&wb, font, b, false);
+    for (;;) {
+        bool ha = dgx_hw_writer_next(&wa, &sa), hb = dgx_hw_writer_next(&wb, &sb);
+        if (!ha && !hb) break;
+        for (int k = 0; k < 4; ++k) {
+            /* the strokes of the digits used here are cubic curves, lines and dots: a dot is its point four times */
+            float pax = ha ? sa.x[sa.type == 4 ? k : (k < 2 ? 0 : sa.type - 1)] : ax, pay = ha ? sa.y[sa.type == 4 ? k : (k < 2 ? 0 : sa.type - 1)] : ay;
+            float pbx = hb ? sb.x[sb.type == 4 ? k : (k < 2 ? 0 : sb.type - 1)] : bx, pby = hb ? sb.y[sb.type == 4 ? k : (k < 2 ? 0 : sb.type - 1)] : by;
+            way += hypotf(pbx - pax, pby - pay);
+        }
+        if (ha) ax = sa.x[sa.type - 1], ay = sa.y[sa.type - 1];
+        if (hb) bx = sb.x[sb.type - 1], by = sb.y[sb.type - 1];
+    }
+    return way;
+}
+
 /* no frame leaves the box of the morph, but for half the pen */
 static bool in_box(const dgx_hw_morph_t *m, dgx_screen_t *s, int width)
 {
@@ -209,6 +242,66 @@ int main(void)
     dgx_hw_morph_text_destroy(&text);
     dgx_hw_morph_shift(NULL, 1, 1, 1, 1);
     dgx_hw_morph_text_shift(NULL, 1, 1, 1, 1);
+
+    /* a size of its own along each axis: the ends are the two texts drawn with those sizes */
+    m = dgx_hw_morph_create(font, "3", "8", false);
+    {
+        dgx_screen_t *digit = screen();
+        for (int end = 0; end < 2; ++end) {
+            dgx_fill_rectangle(digit, 0, 0, W, H, 0);
+            dgx_hw_draw_text_xy(digit, 30, 100, font, end ? "8" : "3", 0.33f, 0.7f, 3, 0xff, false);
+            dgx_fill_rectangle(s, 0, 0, W, H, 0);
+            dgx_hw_morph_draw_xy(m, end, s, 30, 100, 0.33f, 0.7f, 3, 0xff);
+            CHECK(same(s, digit));
+        }
+        dgx_fill_rectangle(digit, 0, 0, W, H, 0);
+        dgx_hw_morph_draw(m, 0.4f, digit, 30, 100, 0.5f, 3, 0xff);
+        dgx_fill_rectangle(s, 0, 0, W, H, 0);
+        dgx_hw_morph_draw_xy(m, 0.4f, s, 30, 100, 0.5f, 0.5f, 3, 0xff);
+        CHECK(apart(s, digit) == 0 && apart(digit, s) == 0 && ink(s) > 0);
+        dgx_screen_destroy(&digit);
+    }
+    dgx_hw_morph_destroy(&m);
+
+    /*
+     * Strokes are paired by the shortest way of their points, not by the order
+     * of writing: "9" is written oval first and tail last, "7" top first. The
+     * ends of a morph are still the two symbols, and no pair of digits goes a
+     * longer way than in the order of writing; those with "9" go a much shorter one.
+     */
+    {
+        char   a[2] = "0", b[2] = "0";
+        float  paired = 0, ordered = 0;
+        for (a[0] = '0'; a[0] <= '9'; ++a[0]) {
+            for (b[0] = '0'; b[0] <= '9'; ++b[0]) {
+                text = dgx_hw_morph_text_create(font, a, b, false);
+                CHECK(text && text->length == 1 && text->letters[0]);
+                CHECK(text->letters[0]->changes == (a[0] != b[0]));
+                float w = way_of(text->letters[0]), o = way_in_order(font, a, b);
+                /* a line is a curve with its points on thirds, which way_in_order has at the ends: a little slack */
+                CHECK(w <= o + 60);
+                if (a[0] == b[0]) CHECK(w == 0);
+                paired += w, ordered += o;
+                dgx_hw_morph_text_destroy(&text);
+            }
+        }
+        CHECK(paired < ordered * 0.8f);
+        text = dgx_hw_morph_text_create(font, "2", "9", false);
+        CHECK(way_of(text->letters[0]) < way_in_order(font, "2", "9") * 0.5f);
+        /* the ends are the digits themselves, whichever way their curves were taken */
+        dgx_screen_t *two = screen(), *nine = screen();
+        dgx_hw_draw_text(two, X, Y, font, "2", SCALE, 3, 0xff, false);
+        dgx_hw_draw_text(nine, X, Y, font, "9", SCALE, 3, 0xff, false);
+        dgx_fill_rectangle(s, 0, 0, W, H, 0);
+        dgx_hw_morph_draw(text->letters[0], 0, s, X, Y, SCALE, 3, 0xff);
+        CHECK(same(s, two));
+        dgx_fill_rectangle(s, 0, 0, W, H, 0);
+        dgx_hw_morph_draw(text->letters[0], 1, s, X, Y, SCALE, 3, 0xff);
+        CHECK(same(s, nine));
+        dgx_screen_destroy(&two);
+        dgx_screen_destroy(&nine);
+        dgx_hw_morph_text_destroy(&text);
+    }
 
     /* a clock: the positions that keep their symbol do not change, the others do */
     text = dgx_hw_morph_text_create(font, "12:34", "12:35", false);

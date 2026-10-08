@@ -1,5 +1,22 @@
 # Changes
 
+## 0.4.1 - 2026-10-08
+
+- `dgx_hw_morph_text_create()`: the strokes of two symbols are paired by the
+  shortest way of their points, not in the order of writing, and a stroke may
+  be taken from its other end. Symbols are drawn as a hand writes them, which
+  is not the order in which their parts answer one another: with the digits
+  of `font0ss` a curve flew across the whole digit in a third of the
+  transitions. The points now go 30% less on average
+- handwritten text with a size of its own along each axis:
+  `dgx_hw_draw_text_xy()`, `dgx_hw_writing_begin_xy()` and
+  `dgx_hw_morph_draw_xy()` take `scale_x, scale_y` in place of `scale`. The
+  pen stays round; the functions with one scale work as before
+- added `examples/texture_demo`: a textured card scaled, turned and wobbled on
+  a CYD
+- README: a tutorial on stretching a texture onto a quad, with the corners for
+  scaling, rotation and wobbling
+
 ## 0.4.0 - 2026-10-08
 
 - added `dgx_draw_bezier3()` and `dgx_draw_bezier4()`: thick quadratic and

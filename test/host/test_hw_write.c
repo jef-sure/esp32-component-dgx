@@ -1,5 +1,6 @@
 #include <math.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "check.h"
@@ -243,6 +244,55 @@ int main(void)
         dgx_hw_writing_begin(&w, scr, 5, 100, font, text, 0.4f, 3, 0xff, true, &pace);
         CHECK(!dgx_hw_writing_draw_to(&w, NAN) && !dgx_hw_writing_draw_to(&w, -5));
         CHECK(dgx_hw_writing_draw_to(&w, INFINITY));
+        dgx_screen_destroy(&scr);
+    }
+
+    /* a size of its own along each axis: the same sizes are the plain call, different ones stretch the text and not the pen */
+    {
+        dgx_screen_t *plain = dgx_vscreen_init(W, H, 8, DgxScreenRGB), *xy = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
+        dgx_hw_draw_text(plain, 5, 100, font, text, 0.4f, 3, 0xff, true);
+        dgx_hw_draw_text_xy(xy, 5, 100, font, text, 0.4f, 0.4f, 3, 0xff, true);
+        int differ = 0;
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) differ += dgx_get_pixel(plain, x, y) != dgx_get_pixel(xy, x, y);
+        }
+        CHECK(differ == 0);
+        dgx_screen_destroy(&plain);
+        dgx_screen_destroy(&xy);
+
+        /* digits as in the old clock: a third across, two thirds down */
+        int   left, top, right, bottom, pen = 3;
+        float sx = 0.33f, sy = 0.7f;
+        CHECK(dgx_hw_text_box(font, "08", &left, &top, &right, &bottom));
+        dgx_screen_t *scr = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
+        int           x0 = 20, y0 = 110;
+        dgx_hw_draw_text_xy(scr, x0, y0, font, "08", sx, sy, pen, 0xff, false);
+        int il = W, it = H, ir = -1, ib = -1;
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                if (!dgx_get_pixel(scr, x, y)) continue;
+                if (x < il) il = x;
+                if (x > ir) ir = x;
+                if (y < it) it = y;
+                if (y > ib) ib = y;
+            }
+        }
+        /* the ink is the box of the text, columns by one size and rows by the other, and half the pen around */
+        CHECK(abs(il - (x0 + (int)lroundf(left * sx))) <= pen && abs(ir - (x0 + (int)lroundf(right * sx))) <= pen);
+        CHECK(abs(it - (y0 + (int)lroundf(top * sy))) <= pen && abs(ib - (y0 + (int)lroundf(bottom * sy))) <= pen);
+        CHECK((ib - it) > 2 * (ir - il) / 2 && (ib - it) > 70 && (ir - il) < 70);
+        /* written by the pace it ends as the same picture */
+        dgx_screen_t    *paced = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
+        dgx_hw_writing_t w;
+        float            all = dgx_hw_text_effort(font, "08", false, &pace);
+        dgx_hw_writing_begin_xy(&w, paced, x0, y0, font, "08", sx, sy, pen, 0xff, false, &pace);
+        for (int i = 1; i <= 40; ++i) dgx_hw_writing_draw_to(&w, all * i / 40 + (i == 40));
+        differ = 0;
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) differ += dgx_get_pixel(paced, x, y) != dgx_get_pixel(scr, x, y);
+        }
+        CHECK(differ == 0 && ink(scr) > 200);
+        dgx_screen_destroy(&paced);
         dgx_screen_destroy(&scr);
     }
 

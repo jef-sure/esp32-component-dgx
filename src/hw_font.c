@@ -397,10 +397,17 @@ float dgx_hw_text_effort(dgx_font_t *font, const char *text, bool joined, const 
 void dgx_hw_writing_begin(dgx_hw_writing_t *w, dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text, float scale,
                           int width, uint32_t color, bool joined, const dgx_hw_pace_t *pace)
 {
+    dgx_hw_writing_begin_xy(w, scr, x, y, font, text, scale, scale, width, color, joined, pace);
+}
+
+void dgx_hw_writing_begin_xy(dgx_hw_writing_t *w, dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text, float scale_x,
+                             float scale_y, int width, uint32_t color, bool joined, const dgx_hw_pace_t *pace)
+{
     dgx_hw_writer_begin(&w->writer, font, text, joined);
     w->scr = scr;
     w->x = x, w->y = y;
-    w->scale = scale > 0 ? scale : 0;
+    w->scale_x = scale_x > 0 ? scale_x : 0;
+    w->scale_y = scale_y > 0 ? scale_y : 0;
     w->width = width;
     w->color = color;
     w->pace = pace ? *pace : (dgx_hw_pace_t){0, 0};
@@ -416,11 +423,12 @@ static bool dgx_hw_writing_stroke(dgx_hw_writing_t *w)
     dgx_point_2d_t  p[4] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
     if (!dgx_hw_writer_next(&w->writer, &s)) return false;
     for (int i = 0; i < s.type; ++i) {
-        p[i].x = dgx_hw_pixel(w->x + s.x[i] * w->scale);
-        p[i].y = dgx_hw_pixel(w->y + s.y[i] * w->scale);
+        p[i].x = dgx_hw_pixel(w->x + s.x[i] * w->scale_x);
+        p[i].y = dgx_hw_pixel(w->y + s.y[i] * w->scale_y);
     }
     /* any size at all may be asked for: the number is kept within what a curve takes */
-    float needed = ceilf(s.pieces * sqrtf(w->scale));
+    /* stretched one way more than the other, a curve takes the pieces of the larger size */
+    float needed = ceilf(s.pieces * sqrtf(w->scale_x > w->scale_y ? w->scale_x : w->scale_y));
     int   pieces = !(needed >= 1) ? 1 : needed > INT16_MAX ? INT16_MAX : (int)needed;
     if (s.type == DGX_HW_CURVE) {
         dgx_bezier4_begin(&w->curve, w->scr, p, pieces, w->width, w->color);
@@ -463,7 +471,13 @@ bool dgx_hw_writing_draw_to(dgx_hw_writing_t *w, float effort)
 void dgx_hw_draw_text(dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text, float scale, int width, uint32_t color,
                       bool joined)
 {
+    dgx_hw_draw_text_xy(scr, x, y, font, text, scale, scale, width, color, joined);
+}
+
+void dgx_hw_draw_text_xy(dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text, float scale_x, float scale_y, int width,
+                         uint32_t color, bool joined)
+{
     dgx_hw_writing_t w;
-    dgx_hw_writing_begin(&w, scr, x, y, font, text, scale, width, color, joined, 0);
+    dgx_hw_writing_begin_xy(&w, scr, x, y, font, text, scale_x, scale_y, width, color, joined, 0);
     dgx_hw_writing_draw_to(&w, INFINITY);
 }

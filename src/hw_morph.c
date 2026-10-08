@@ -165,6 +165,12 @@ done:
 
 void dgx_hw_morph_draw(const dgx_hw_morph_t *m, float t, dgx_screen_t *scr, int x, int y, float scale, int width, uint32_t color)
 {
+    dgx_hw_morph_draw_xy(m, t, scr, x, y, scale, scale, width, color);
+}
+
+void dgx_hw_morph_draw_xy(const dgx_hw_morph_t *m, float t, dgx_screen_t *scr, int x, int y, float scale_x, float scale_y, int width,
+                          uint32_t color)
+{
     if (!m) return;
     if (!(t > 0)) t = 0; /* and what is not a number */
     if (t > 1) t = 1;
@@ -175,8 +181,8 @@ void dgx_hw_morph_draw(const dgx_hw_morph_t *m, float t, dgx_screen_t *scr, int 
         /* what is not there yet, or not there any more, is not a dot */
         if ((t <= 0 && (m->nothing[i] & DGX_HW_MORPH_FROM_NOTHING)) || (t >= 1 && (m->nothing[i] & DGX_HW_MORPH_TO_NOTHING))) continue;
         for (int k = 0; k < 4; ++k) {
-            p[k].x = dgx_hw_pixel(x + (a->x[k] + (b->x[k] - a->x[k]) * t) * scale);
-            p[k].y = dgx_hw_pixel(y + (a->y[k] + (b->y[k] - a->y[k]) * t) * scale);
+            p[k].x = dgx_hw_pixel(x + (a->x[k] + (b->x[k] - a->x[k]) * t) * scale_x);
+            p[k].y = dgx_hw_pixel(y + (a->y[k] + (b->y[k] - a->y[k]) * t) * scale_y);
         }
         dgx_draw_bezier4(scr, p, 0, width, color);
     }
@@ -228,6 +234,62 @@ static bool dgx_hw_way_pen(const dgx_hw_way_t *way, size_t symbol, float *x, flo
     return true;
 }
 
+/* the way the four points of one curve go to become another; the other one may be taken from its end */
+static float dgx_hw_curve_way(const dgx_hw_curve_t *a, const dgx_hw_curve_t *b, bool turned)
+{
+    float way = 0;
+    for (int k = 0; k < 4; ++k) {
+        int at = turned ? 3 - k : k;
+        way += hypotf(b->x[at] - a->x[k], b->y[at] - a->y[k]);
+    }
+    return way;
+}
+
+/* a symbol of more strokes than this is paired in the order of writing: 2^n numbers are kept to choose the pairs */
+#define DGX_HW_MORPH_PAIRED_STROKES 10
+
+/*
+ * Which stroke of one symbol goes into which stroke of the other. Symbols are
+ * drawn as they are written, and the order of writing is not the order in
+ * which their parts answer one another: the oval of "9" is written first and
+ * its tail last, in "7" the top comes first. Paired by that order, a curve
+ * flies across the whole symbol. So the pairs are those with the shortest way
+ * of all the points together, and a curve may be taken from its other end,
+ * which draws the same.
+ *
+ * way[i * n + j] is the way of stroke i of the first symbol into stroke j of
+ * the second one; a symbol of fewer strokes is filled up with strokes that
+ * are not there. to[i] becomes the pair of i. All the ways of choosing are
+ * gone through by the sets of strokes taken so far: best[set] is the
+ * shortest way of pairing the first strokes with that set.
+ */
+static bool dgx_hw_morph_pairs(int n, const float *way, uint8_t *to)
+{
+    size_t   sets = (size_t)1 << n;
+    float   *best = malloc(sizeof(float) * sets);
+    uint8_t *last = malloc(sets);
+    if (!best || !last) {
+        free(best);
+        free(last);
+        return false;
+    }
+    for (size_t set = 1; set < sets; ++set) best[set] = INFINITY;
+    best[0] = 0;
+    for (size_t set = 0; set + 1 < sets; ++set) {
+        int i = __builtin_popcount((unsigned)set);
+        for (int j = 0; j < n; ++j) {
+            size_t with = set | ((size_t)1 << j);
+            if (with == set) continue;
+            float w = best[set] + way[i * n + j];
+            if (w < best[with]) best[with] = w, last[with] = (uint8_t)j;
+        }
+    }
+    for (size_t set = sets - 1; set; set &= ~((size_t)1 << last[set])) to[__builtin_popcount((unsigned)set) - 1] = last[set];
+    free(best);
+    free(last);
+    return true;
+}
+
 dgx_hw_morph_text_t *dgx_hw_morph_text_create(dgx_font_t *font, const char *from, const char *to, bool joined)
 {
     dgx_hw_way_t         a = {0}, b = {0};
@@ -248,18 +310,56 @@ dgx_hw_morph_text_t *dgx_hw_morph_text_create(dgx_font_t *font, const char *from
         if (!m) goto done;
         float ax = 0, ay = 0, bx = 0, by = 0;
         bool  pen_a = dgx_hw_way_pen(&a, i, &ax, &ay), pen_b = dgx_hw_way_pen(&b, i, &bx, &by);
+        /*
+         * The strokes of both symbols, each filled up to the same number: a stroke
+         * without a pair grows from where the pen of the other text is, or from its
+         * own start, and one that has nothing to become goes there.
+         */
         for (int k = 0; k < number; ++k) {
-            /* a stroke without a pair grows from where the pen of the other text is, or from its own start */
             if (k < na) m->from[k] = a.curves[of_a[k]];
-            else {
-                dgx_hw_curve_point(&m->from[k], pen_a ? ax : b.curves[of_b[k]].x[0], pen_a ? ay : b.curves[of_b[k]].y[0]);
-                m->nothing[k] = DGX_HW_MORPH_FROM_NOTHING;
-            }
+            else dgx_hw_curve_point(&m->from[k], ax, ay);
             if (k < nb) m->to[k] = b.curves[of_b[k]];
-            else {
-                dgx_hw_curve_point(&m->to[k], pen_b ? bx : a.curves[of_a[k]].x[0], pen_b ? by : a.curves[of_a[k]].y[0]);
-                m->nothing[k] = DGX_HW_MORPH_TO_NOTHING;
+            else dgx_hw_curve_point(&m->to[k], bx, by);
+        }
+        uint8_t pair[DGX_HW_MORPH_PAIRED_STROKES];
+        uint8_t turned[DGX_HW_MORPH_PAIRED_STROKES * DGX_HW_MORPH_PAIRED_STROKES];
+        float   way[DGX_HW_MORPH_PAIRED_STROKES * DGX_HW_MORPH_PAIRED_STROKES];
+        bool    paired = false;
+        if (number > 1 && number <= DGX_HW_MORPH_PAIRED_STROKES) {
+            for (int k = 0; k < number; ++k) {
+                for (int j = 0; j < number; ++j) {
+                    float straight = dgx_hw_curve_way(&m->from[k], &m->to[j], false);
+                    float back = dgx_hw_curve_way(&m->from[k], &m->to[j], true);
+                    /* a stroke that is not there has no way of its own, only that of its pair into the point */
+                    if (k >= na && !pen_a) straight = back = 0;
+                    if (j >= nb && !pen_b) straight = back = 0;
+                    turned[k * number + j] = back < straight;
+                    way[k * number + j] = back < straight ? back : straight;
+                }
             }
+            paired = dgx_hw_morph_pairs(number, way, pair);
+        }
+        if (paired) {
+            dgx_hw_curve_t *ordered = malloc(sizeof(dgx_hw_curve_t) * number);
+            if (!ordered) goto done;
+            for (int k = 0; k < number; ++k) {
+                const dgx_hw_curve_t *c = &m->to[pair[k]];
+                for (int p = 0; p < 4; ++p) {
+                    int at = turned[k * number + pair[k]] ? 3 - p : p;
+                    ordered[k].x[p] = c->x[at], ordered[k].y[p] = c->y[at];
+                }
+                if (pair[k] >= nb) m->nothing[k] |= DGX_HW_MORPH_TO_NOTHING;
+            }
+            memcpy(m->to, ordered, sizeof(dgx_hw_curve_t) * number);
+            free(ordered);
+        } else {
+            for (int k = nb; k < number; ++k) m->nothing[k] |= DGX_HW_MORPH_TO_NOTHING;
+        }
+        for (int k = na; k < number; ++k) m->nothing[k] |= DGX_HW_MORPH_FROM_NOTHING;
+        /* with no pen to grow from or go to, a stroke does it at its own start */
+        for (int k = 0; k < number; ++k) {
+            if ((m->nothing[k] & DGX_HW_MORPH_FROM_NOTHING) && !pen_a) dgx_hw_curve_point(&m->from[k], m->to[k].x[0], m->to[k].y[0]);
+            if ((m->nothing[k] & DGX_HW_MORPH_TO_NOTHING) && !pen_b) dgx_hw_curve_point(&m->to[k], m->from[k].x[0], m->from[k].y[0]);
         }
         dgx_hw_morph_done(m);
         if (m->changes) text->changed = i + 1;
