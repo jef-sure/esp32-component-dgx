@@ -57,6 +57,9 @@ struct dgx_morph_glow {
     uint32_t lut[256];
     uint16_t lut16_swapped[256]; /* 16-bit fast path: one store per pixel */
     bool has_frame;
+    dgx_morph_glow_filter_t filter; /* gets a copy of every frame right before it is shown */
+    void *filter_data;
+    uint8_t *shown;                 /* that copy */
 };
 
 dgx_morph_glow_t *dgx_morph_glow_create(int width, int height, int cell_width, uint8_t color_bits)
@@ -113,6 +116,7 @@ void dgx_morph_glow_destroy(dgx_morph_glow_t **glow)
         free((*glow)->xcell_offset);
         free((*glow)->glow_prev);
         free((*glow)->glow_next);
+        free((*glow)->shown);
         free(*glow);
         *glow = NULL;
     }
@@ -167,18 +171,85 @@ void dgx_morph_glow_dot(void *glow, const dgx_point_2d_t *point, uint8_t intensi
     if (glow && point) glow_collect(glow, point->x, point->y, intensity);
 }
 
+bool dgx_morph_glow_set_filter(dgx_morph_glow_t *glow, dgx_morph_glow_filter_t filter, void *user_data)
+{
+    if (!glow) return false;
+    glow->filter = NULL;
+    glow->filter_data = user_data;
+    if (!filter) {
+        free(glow->shown);
+        glow->shown = NULL;
+        return true;
+    }
+    if (!glow->shown) glow->shown = malloc((size_t)glow->width * glow->height);
+    if (!glow->shown) return false;
+    glow->filter = filter;
+    return true;
+}
+
+/* every pixel with half of its neighbours on each side: across in place, then down with the row above kept aside */
+void dgx_morph_glow_blur(void *user_data, uint8_t *brightness, int width, int height)
+{
+    int passes = user_data ? *(const int *)user_data : 1;
+    if (!brightness || width < 1 || height < 1 || passes < 1) return;
+    uint8_t *above = malloc((size_t)width);
+    if (!above) return;
+    for (; passes > 0; --passes) {
+        for (int y = 0; y < height; ++y) {
+            uint8_t *row = brightness + (size_t)y * width;
+            int      left = row[0];
+            for (int x = 0; x < width; ++x) {
+                int here = row[x], right = x + 1 < width ? row[x + 1] : here;
+                row[x] = (uint8_t)((left + 2 * here + right + 2) >> 2);
+                left = here;
+            }
+        }
+        memcpy(above, brightness, (size_t)width);
+        for (int y = 0; y < height; ++y) {
+            uint8_t       *row = brightness + (size_t)y * width;
+            const uint8_t *below = y + 1 < height ? row + width : row;
+            for (int x = 0; x < width; ++x) {
+                int here = row[x];
+                row[x] = (uint8_t)((above[x] + 2 * here + below[x] + 2) >> 2);
+                above[x] = (uint8_t)here;
+            }
+        }
+    }
+    free(above);
+}
+
 void dgx_morph_glow_present(dgx_morph_glow_t *glow, float t, dgx_screen_t *screen, int x, int y)
 {
     if (!glow) return;
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
+
     uint32_t blend = glow->has_frame ? (uint32_t)(256.0f * dgx_morph_smoothstep3(t)) : 256u;
     uint32_t inv = 256u - blend;
     size_t pixels = (size_t)glow->width * glow->height;
     uint8_t *out = ((dgx_vscreen_t *)glow->vscreen)->v_array;
     uint8_t *prev = glow->glow_prev;
     uint8_t *next = glow->glow_next;
-    if (glow->color_bits == 16) {
+    if (glow->filter) {
+        /*
+         * The frame is blended as ever, then a copy of it goes through the
+         * filter and only the copy is shown: the phosphor keeps the frame as
+         * the dots made it.
+         */
+        for (size_t i = 0; i < pixels; ++i) {
+            prev[i] = (uint8_t)((next[i] * blend + prev[i] * inv) >> 8);
+            next[i] = 0;
+        }
+        const uint8_t *shown = glow->shown;
+        memcpy(glow->shown, prev, pixels);
+        glow->filter(glow->filter_data, glow->shown, glow->width, glow->height);
+        if (glow->color_bits == 16) {
+            uint16_t *out16 = (uint16_t *)out;
+            for (size_t i = 0; i < pixels; ++i) out16[i] = glow->lut16_swapped[shown[i]];
+        } else {
+            for (size_t i = 0; i < pixels; ++i) out = dgx_fill_buf_value_24(out, 0, glow->lut[shown[i]]);
+        }
+    } else if (glow->color_bits == 16) {
         /*
          * Most of a glow frame is black, so the brightness maps are read a
          * word at a time (they come from calloc and are word-aligned) and a

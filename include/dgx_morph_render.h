@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "dgx_morph.h"
@@ -36,6 +37,42 @@ void dgx_morph_glow_reset(dgx_morph_glow_t *glow);
 
 /** dgx_morph_dot_func_t; pass the renderer as user_data. */
 void dgx_morph_glow_dot(void *glow, const dgx_point_2d_t *point, uint8_t intensity);
+
+/**
+ * @brief An extra filter of every frame right before it goes to the screen.
+ *
+ * @p brightness is the finished frame: what the dots have added up to,
+ * already blended with the phosphor, @p width x @p height bytes, row after
+ * row, 0 is black. The filter may change it in any way, blur it, say; what it
+ * leaves is mapped to colors and shown. It is a copy: nothing the filter does
+ * gets into the glow or into the frames that follow.
+ */
+typedef void (*dgx_morph_glow_filter_t)(void *user_data, uint8_t *brightness, int width, int height);
+
+/**
+ * @brief Sets the filter of the frames of a glow renderer; NULL removes it.
+ *
+ * A filter takes one more byte a pixel for the copy it works on.
+ *
+ * @return false when there is no memory for that copy; the frames are then
+ *         shown unfiltered.
+ */
+bool dgx_morph_glow_set_filter(dgx_morph_glow_t *glow, dgx_morph_glow_filter_t filter, void *user_data);
+
+/**
+ * @brief A ready filter: blurs the frame.
+ *
+ * Glyphs of a font turned into dots keep the steps of its one-bit picture;
+ * a blur smooths them out. A pass takes every pixel with half of its
+ * neighbours on each side, across and down; @p user_data points to an int
+ * with the number of passes, NULL is one pass.
+ *
+ * @code
+ * static const int passes = 2;
+ * dgx_morph_glow_set_filter(glow, dgx_morph_glow_blur, (void *)&passes);
+ * @endcode
+ */
+void dgx_morph_glow_blur(void *user_data, uint8_t *brightness, int width, int height);
 
 /**
  * @brief Blend the accumulated dots into the phosphor and blit to (x, y).

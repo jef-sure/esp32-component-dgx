@@ -244,8 +244,9 @@ Return N sources and a dot flies from each one with brightness `255/N`; the
 sources are marked as used. Return 0 and the dot appears from the center of the
 matrix with brightness increasing from 0 to 255. Return `DGX_MORPH_DEFER` and
 the cell is retried on the next pass, after every cell in the current pass has
-been assigned a source. There are at most 8 passes; a cell still deferred on
-the last pass appears from the center.
+been assigned a source. A cell may be deferred as many times as there are
+vectors to every cell of the grid, and 8 times at least; one still deferred
+on the last pass appears from the center.
 
 Inside the callback, `dgx_morph_was_set(ctx, x, y)` tells whether a cell was
 set in `from`, and `dgx_morph_is_used(ctx, x, y)` tells whether it has already
@@ -272,34 +273,77 @@ contribute to several births, and a surviving cell may also be a parent. A
 dying parent is marked used and does not fade separately; it flies into the
 new cell.
 
-#### Glyphs: A Neighbor, or an Expanding Ring
+#### Glyphs: The Nearest Source, Vector by Vector
 
 A pair of glyphs has no birth rule, so dotview-morphing turns the idea of
-"parents" into a geometric rule. On the first pass it looks for a free
-neighbor, checking the axes first (up, left, right, down), then the diagonals.
-If it finds one, the dot flies from it and that source is no longer free. A
-static dot may also be used as a source: it stays lit and launches a flight
-into the neighboring cell.
+"parents" into a geometric rule: a new dot flies in from the nearest dot of
+the old glyph that feeds nothing yet. A static dot may also be a source: it
+stays lit and launches a flight as well.
 
-If there is no free neighbor, the cell is deferred to the second pass. There,
-the search expands over square rings, starting at radius 2: axis positions
-first, then positions toward the corners. The second pass matters because it
-prevents a ring search from taking a source that would have been a neighbor of
-another new cell later in scan order.
+The search goes not cell by cell but vector by vector. A pass is one vector,
+the same for the whole grid: every new cell still without a source looks at
+the one cell that lies by that vector from it, and takes it if it is an unused
+dot of the old glyph. Then the next vector, again for the whole grid.
+
+The vectors go ring by ring, radius 1, then 2 and so on. On a ring the axes
+come first: up, down, right, left. Then one cell away from each axis toward
+the corners: from the top to the right and to the left, from the bottom to the
+right and to the left, from the right up and down, from the left up and down.
+Then two cells away in the same order, and so on to the corners. For radius 2,
+with `X` the new cell:
+
+```
+14  6  1  5 13
+11  .  .  .  9
+ 4  .  X  .  3
+12  .  .  . 10
+16  8  2  7 15
+```
+
+Two things follow. A line that has moved aside by a vector is found by that
+vector as a whole, each of its cells flying from its own cell of the old
+line, so the line moves instead of scattering. And the order in which the
+cells are asked decides nothing: two cells never look at the same cell on a
+pass, so none can take a source from another. Only the order of the vectors is
+a preference, and some order there has to be.
+
+It was not always so. At first there were two passes: neighbors, and then,
+cell after cell, all the rings at once; a cell early in the scan could take a
+source four cells away which a cell after it had three cells away. On the
+weather symbols of `WeatherIconsRegular27` the flights are now 17% shorter on
+average, 4.1 cells instead of 5.0, and those of four cells and more a fifth
+fewer.
 
 For example, suppose the source has one dot at (7, 5) and the target has one
-at (5, 2). There are no adjacent cells; on the second pass, the radius-3 ring
-finds (7, 5), turning what would have been an appearance from the center into
-a flight from (7, 5) to (5, 2).
+at (5, 2). Nothing is found on the rings of radius 1 and 2; on the ring of
+radius 3 the vector (2, 3) finds (7, 5), turning what would have been an
+appearance from the center into a flight from (7, 5) to (5, 2).
 
-The result is that no dot appears from nowhere while an unused source exists,
-so the morph looks like a flow. You can also use `dgx_morph_ring_find()` in
-your own callbacks.
+No dot appears from nowhere while an unused source exists, so the morph looks
+like a flow. Once the sources run out, the cells left appear from the center
+at once.
 
-The neighbor pass is linear. In the worst case, the ring pass scans out to the
-edge of the matrix for each target without a neighbor. With a typical number
-of free sources, rings are short. In any case, the plan is built once per
-transition, not once per frame.
+Asked through the callback, this is one call per waiting cell per vector. The
+planner does the same on rows of bits when it is given
+`dgx_morph_sources_cells` itself: the cells of a row still waiting, and the
+unused sources of the row a vector points to moved back by it, meet in one
+AND of two words. A ring on which no waiting cell has anything is passed
+without its vectors, which is seen from bits kept by rows and by columns, four
+looks a cell. A vector is passed over as well when it cannot lead from the box
+of the waiting cells into the box of the unused sources; the boxes shrink as
+the cells are served, and the search ends at the ring that is further than
+both.
+
+Timed on an ESP32 with the weather symbols a clock shows, 42 x 39 cells. Day
+and night of the same weather, or weather that follows one another, such as
+clouds and clouds with rain: 1.6 ms a plan on average, under 5 ms at most. Any
+weather to any other: 2.6 ms on average, 8 ms at most. Of that 0.5 ms is the
+plan without any search. The plan is built once per transition, not once per
+frame.
+
+In a callback of your own, `dgx_morph_scan_vector()` gives the vector of a
+pass, `dgx_morph_ring_at()` looks at the whole ring of one radius and
+`dgx_morph_ring_find()` at all the rings from a radius up.
 
 ### Frame: Where the Dots Are Now
 
@@ -387,6 +431,23 @@ screen: two bytes per pixel for 16-bit color and three for 18- or 24-bit color.
 A 240 × 240 image on a 16-bit screen therefore uses 230,400 bytes. That is a
 lot for an ESP32 without PSRAM, so the Game-of-Life project chooses the cell
 size based on available memory.
+
+A frame can be given one more filter right before it goes to the screen:
+
+```c
+static const int passes = 1;
+dgx_morph_glow_set_filter(glow, dgx_morph_glow_blur, (void *)&passes);
+```
+
+The filter gets a copy of the finished frame as a brightness map, one byte per
+pixel, and what it leaves is mapped to colors and shown. Nothing it does gets
+into the phosphor or into the frames that follow, so it can be switched on and
+off at any moment. `dgx_morph_glow_blur()` is a ready one. Glyphs of an
+outline font turned into dots keep the steps of its one-bit picture, weather
+symbols with their thin slanted lines most of all, and a pass or two of blur
+smooths them out. Your own filter is any function of the same signature. The
+copy costs one more byte per pixel; on a 216 × 203 frame one pass of blur
+takes the CYD glyph demo from 44 to 35 frames a second, two passes to 31.
 
 #### Sprite: A Dot as a Grayscale Matrix
 

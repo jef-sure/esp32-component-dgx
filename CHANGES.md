@@ -1,5 +1,33 @@
 # Changes
 
+## 0.4.2 - 2026-10-08
+
+- `dgx_morph_sources_cells()` searches vector by vector instead of cell by
+  cell. A pass is one vector, the same for the whole grid: every new cell
+  still without a source looks at the one cell that lies by that vector from
+  it. The vectors go ring by ring, on a ring from the axes toward the corners.
+  A line that has moved aside is found as a whole by its vector, and the
+  order of the cells decides nothing: no cell can take a source from another
+  on a pass. Before, each cell searched all the rings in its turn and could
+  take a source four cells away which the next cell had three cells away. On
+  the weather symbols the flights are 17% shorter on average
+- the planner does that search on rows of bits, skips the rings on which no
+  waiting cell has a source, and lets the rest appear at once when no source
+  is left. Both matrices are read once into words of bits, and a vector that
+  cannot lead from the box of the waiting cells into the box of the unused
+  sources is passed over. A plan between two weather symbols which follow one
+  another in real weather takes 1.6 ms on an ESP32 on average and under 5 ms
+  at most; between any two of them, 2.6 ms and 8 ms. A callback may defer a
+  cell as many times as there are vectors to every cell of the grid, not 8
+- added `dgx_morph_scan_vector()`, the vector of a pass, and
+  `dgx_morph_ring_at()`, the first unused cell on the ring of one radius
+- `dgx_morph_glow_set_filter()`: an extra filter of every frame of the glow
+  renderer right before it goes to the screen. It works on a copy of the
+  finished frame as a brightness map; nothing it does gets into the phosphor
+  or the following frames. `dgx_morph_glow_blur()` is a ready one: glyphs of a
+  font turned into dots keep the steps of its one-bit picture, a pass or two
+  of blur smooths them
+
 ## 0.4.1 - 2026-10-08
 
 - `dgx_hw_morph_text_create()`: the strokes of two symbols are paired by the

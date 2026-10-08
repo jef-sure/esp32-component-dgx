@@ -172,6 +172,218 @@ static void test_cells(void)
     expect_single_flight((const int[][2]){ { 1, 1 }, { 2, 1 } }, 2, (const int[][2]){ { 2, 2 } }, 1, 2, 1, 2, 2, 1);
 }
 
+/* count the cells of a morph that fly in from a given cell */
+static int flights_from(const dgx_morph_t *m, int x, int y, int *to_x)
+{
+    int n = 0;
+    for (size_t i = 0; i < m->number_of_segments; ++i) {
+        if (m->segments[i].start.x == x && m->segments[i].start.y == y && m->segments[i].start_intensity) {
+            ++n;
+            if (to_x) *to_x = m->segments[i].end.x;
+        }
+    }
+    return n;
+}
+
+/*
+ * All the new cells look at one radius before any of them looks at the next:
+ * a cell earlier in the scan does not take a source four cells away from a
+ * cell that has it three cells away.
+ */
+static void test_cells_by_radius(void)
+{
+    dgx_bit_matrix_t *from = dgx_matrix_init(12, 1), *to = dgx_matrix_init(12, 1);
+    dgx_matrix_set_point(from, 5, 0, true);
+    dgx_matrix_set_point(to, 1, 0, true); /* four cells from the source, first in the scan */
+    dgx_matrix_set_point(to, 8, 0, true); /* three cells from it */
+    dgx_morph_t *m = dgx_morph_create(from, to, dgx_morph_sources_cells, NULL);
+    int          to_x = -1;
+    CHECK(m && m->number_of_segments == 2 && m->number_of_fading_points == 0);
+    CHECK(flights_from(m, 5, 0, &to_x) == 1 && to_x == 8);
+    /* the other one has nothing left and appears from the center */
+    for (size_t i = 0; i < m->number_of_segments; ++i) {
+        if (m->segments[i].end.x == 1) CHECK(m->segments[i].start_intensity == 0 && m->segments[i].start.x == 6);
+    }
+    dgx_morph_destroy(&m);
+
+    /* two sources, two cells: each gets the nearer one whatever the scan order is */
+    dgx_matrix_set_point(from, 0, 0, true);
+    m = dgx_morph_create(from, to, dgx_morph_sources_cells, NULL);
+    CHECK(m && m->number_of_segments == 2);
+    CHECK(flights_from(m, 0, 0, &to_x) == 1 && to_x == 1);
+    CHECK(flights_from(m, 5, 0, &to_x) == 1 && to_x == 8);
+    dgx_morph_destroy(&m);
+    dgx_matrix_destroy(&from);
+    dgx_matrix_destroy(&to);
+
+    /* a source farther than eight rings is still found: a grid 40 cells across */
+    from = dgx_matrix_init(40, 3), to = dgx_matrix_init(40, 3);
+    dgx_matrix_set_point(from, 0, 1, true);
+    dgx_matrix_set_point(to, 39, 1, true);
+    m = dgx_morph_create(from, to, dgx_morph_sources_cells, NULL);
+    CHECK(m && m->number_of_segments == 1 && flights_from(m, 0, 1, &to_x) == 1 && to_x == 39);
+    dgx_morph_destroy(&m);
+    dgx_matrix_destroy(&from);
+    dgx_matrix_destroy(&to);
+}
+
+/* the vectors of the search: ring by ring, the axes first, then from each axis toward the corners */
+static void test_scan_vector(void)
+{
+    static const int ring1[8][2] = {{0, -1}, {0, 1}, {1, 0}, {-1, 0}, {1, -1}, {-1, -1}, {1, 1}, {-1, 1}};
+    static const int ring2[16][2] = {{0, -2}, {0, 2}, {2, 0}, {-2, 0}, {1, -2}, {-1, -2}, {1, 2}, {-1, 2},
+                                     {2, -1}, {2, 1}, {-2, -1}, {-2, 1}, {2, -2}, {-2, -2}, {2, 2}, {-2, 2}};
+    int              dx, dy;
+    for (int i = 0; i < 8; ++i) CHECK(dgx_morph_scan_vector(i, &dx, &dy) && dx == ring1[i][0] && dy == ring1[i][1]);
+    for (int i = 0; i < 16; ++i) CHECK(dgx_morph_scan_vector(8 + i, &dx, &dy) && dx == ring2[i][0] && dy == ring2[i][1]);
+    CHECK(!dgx_morph_scan_vector(-1, &dx, &dy) && dgx_morph_scan_vector(3, NULL, NULL));
+    /* every ring has each of its cells once, and the nearer ones come first */
+    int pass = 0;
+    for (int r = 1; r <= 9; ++r) {
+        static uint8_t seen[19][19];
+        memset(seen, 0, sizeof(seen));
+        int side = 0;
+        for (int i = 0; i < 8 * r; ++i, ++pass) {
+            CHECK(dgx_morph_scan_vector(pass, &dx, &dy));
+            int ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy;
+            CHECK((ax > ay ? ax : ay) == r);
+            CHECK(!seen[dy + 9][dx + 9]);
+            seen[dy + 9][dx + 9] = 1;
+            int off = ax < ay ? ax : ay;
+            CHECK(off >= side);
+            side = off;
+        }
+    }
+}
+
+static int same_as_cells(const dgx_morph_ctx_t *ctx, int x, int y, int pass, dgx_point_2d_t out[DGX_MORPH_MAX_SOURCES], void *user_data)
+{
+    return dgx_morph_sources_cells(ctx, x, y, pass, out, user_data);
+}
+
+static int segment_cmp(const void *a, const void *b)
+{
+    return memcmp(a, b, sizeof(dgx_morph_segment_t));
+}
+
+/* the planner's own quick search by vectors gives what asking the callback cell by cell, pass by pass, gives */
+static void check_same_plan(const dgx_bit_matrix_t *a, const dgx_bit_matrix_t *b)
+{
+    dgx_morph_t *quick = dgx_morph_create(a, b, dgx_morph_sources_cells, NULL);
+    dgx_morph_t *asked = dgx_morph_create(a, b, same_as_cells, NULL);
+    CHECK(quick && asked && quick->number_of_segments == asked->number_of_segments);
+    CHECK(quick->number_of_fading_points == asked->number_of_fading_points);
+    if (quick && asked && quick->number_of_segments == asked->number_of_segments) {
+        /* zeroed first: a segment has padding */
+        dgx_morph_segment_t *q = calloc(quick->number_of_segments + 1, sizeof(*q)), *c = calloc(quick->number_of_segments + 1, sizeof(*c));
+        for (size_t i = 0; i < quick->number_of_segments; ++i) {
+            q[i].start = quick->segments[i].start, q[i].end = quick->segments[i].end;
+            q[i].start_intensity = quick->segments[i].start_intensity, q[i].end_intensity = quick->segments[i].end_intensity;
+            c[i].start = asked->segments[i].start, c[i].end = asked->segments[i].end;
+            c[i].start_intensity = asked->segments[i].start_intensity, c[i].end_intensity = asked->segments[i].end_intensity;
+        }
+        qsort(q, quick->number_of_segments, sizeof(*q), segment_cmp);
+        qsort(c, quick->number_of_segments, sizeof(*c), segment_cmp);
+        CHECK(memcmp(q, c, quick->number_of_segments * sizeof(*q)) == 0);
+        free(q);
+        free(c);
+    }
+    dgx_morph_destroy(&quick);
+    dgx_morph_destroy(&asked);
+}
+
+static void test_cells_by_vector(void)
+{
+    /* a line moved aside by a vector is found by that vector as a whole: every cell flies the same way */
+    static const struct {
+        int step_x, step_y; /* how the line goes */
+        int move_x, move_y; /* how it is moved */
+    } lines[] = {{1, 0, 0, 2}, {1, 0, 0, -3}, {0, 1, 3, 0}, {0, 1, -2, 0}, {1, 1, 4, -4}, {1, -1, 2, 2}};
+    for (unsigned k = 0; k < sizeof(lines) / sizeof(lines[0]); ++k) {
+        dgx_bit_matrix_t *from = dgx_matrix_init(28, 28), *to = dgx_matrix_init(28, 28);
+        for (int i = 0; i < 9; ++i) {
+            int x = 10 + i * lines[k].step_x, y = 14 + i * lines[k].step_y;
+            dgx_matrix_set_point(from, x, y, true);
+            dgx_matrix_set_point(to, x + lines[k].move_x, y + lines[k].move_y, true);
+        }
+        dgx_morph_t *m = dgx_morph_create(from, to, dgx_morph_sources_cells, NULL);
+        CHECK(m && m->number_of_segments == 9 && m->number_of_static_points == 0 && m->number_of_fading_points == 0);
+        for (size_t i = 0; m && i < m->number_of_segments; ++i) {
+            const dgx_morph_segment_t *g = &m->segments[i];
+            CHECK(g->start_intensity == 255);
+            CHECK(g->end.x - g->start.x == lines[k].move_x && g->end.y - g->start.y == lines[k].move_y);
+        }
+        check_same_plan(from, to);
+        dgx_morph_destroy(&m);
+        dgx_matrix_destroy(&from);
+        dgx_matrix_destroy(&to);
+    }
+
+    /* random grids, wider than a word of bits too: the quick search and the callback agree */
+    unsigned seed = 7;
+    for (int round = 0; round < 60; ++round) {
+        int               w = round % 3 == 0 ? 37 : 9 + round % 7, h = 5 + round % 6;
+        dgx_bit_matrix_t *a = dgx_matrix_init((uint16_t)w, (uint16_t)h), *b = dgx_matrix_init((uint16_t)w, (uint16_t)h);
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                seed = seed * 1103515245u + 12345u;
+                if ((seed >> 16) % 5 == 0) dgx_matrix_set_point(a, x, y, true);
+                if ((seed >> 20) % (2 + round % 5) == 0) dgx_matrix_set_point(b, x, y, true);
+            }
+        }
+        check_same_plan(a, b);
+        check_same_plan(b, a);
+        dgx_matrix_destroy(&a);
+        dgx_matrix_destroy(&b);
+    }
+    /* and on glyphs */
+    dgx_font_t *font = TerminusTTFMedium12();
+    static const uint32_t pairs[][2] = {{'1', '8'}, {'A', 'W'}, {'.', 'M'}, {'i', ' '}, {' ', '%'}, {0x416, 0x449}};
+    for (unsigned k = 0; k < sizeof(pairs) / sizeof(pairs[0]); ++k) {
+        dgx_bit_matrix_t *a = dgx_morph_glyph_matrix(font, pairs[k][0]), *b = dgx_morph_glyph_matrix(font, pairs[k][1]);
+        check_same_plan(a, b);
+        dgx_matrix_destroy(&a);
+        dgx_matrix_destroy(&b);
+    }
+}
+
+static int ring_probe_radius, ring_probe_found;
+static dgx_point_2d_t ring_probe_cell;
+
+static int ring_probe(const dgx_morph_ctx_t *ctx, int x, int y, int pass, dgx_point_2d_t out[DGX_MORPH_MAX_SOURCES], void *user_data)
+{
+    (void)pass, (void)user_data;
+    dgx_point_2d_t cell[DGX_MORPH_MAX_SOURCES];
+    ring_probe_found = dgx_morph_ring_at(ctx, x, y, ring_probe_radius, cell);
+    ring_probe_cell = cell[0];
+    (void)out;
+    return 0;
+}
+
+/* the ring of exactly one radius: nothing nearer or farther is taken, the cells nearest to the axes come first */
+static void test_ring_at(void)
+{
+    dgx_bit_matrix_t *from = dgx_matrix_init(11, 11), *to = dgx_matrix_init(11, 11);
+    dgx_matrix_set_point(to, 5, 5, true);
+    dgx_matrix_set_point(from, 6, 5, true); /* radius 1 */
+    dgx_matrix_set_point(from, 8, 8, true); /* radius 3, a corner */
+    dgx_matrix_set_point(from, 4, 2, true); /* radius 3, next to the axis */
+    dgx_matrix_set_point(from, 5, 10, true); /* radius 5 */
+    static const int expect[6][3] = {{0, 0, 0}, {1, 6, 5}, {0, 0, 0}, {1, 4, 2}, {0, 0, 0}, {1, 5, 10}};
+    for (ring_probe_radius = 0; ring_probe_radius <= 5; ++ring_probe_radius) {
+        dgx_morph_t *m = dgx_morph_create(from, to, ring_probe, NULL);
+        CHECK(ring_probe_found == expect[ring_probe_radius][0]);
+        if (ring_probe_found) CHECK(ring_probe_cell.x == expect[ring_probe_radius][1] && ring_probe_cell.y == expect[ring_probe_radius][2]);
+        dgx_morph_destroy(&m);
+    }
+    ring_probe_radius = 40;
+    dgx_morph_t *m = dgx_morph_create(from, to, ring_probe, NULL);
+    CHECK(ring_probe_found == 0);
+    dgx_morph_destroy(&m);
+    dgx_matrix_destroy(&from);
+    dgx_matrix_destroy(&to);
+}
+
 static int always_defer(const dgx_morph_ctx_t *ctx, int x, int y, int pass,
                         dgx_point_2d_t out[DGX_MORPH_MAX_SOURCES], void *user_data)
 {
@@ -315,6 +527,10 @@ int main(void)
     test_draw();
     test_life_blinker();
     test_cells();
+    test_cells_by_radius();
+    test_ring_at();
+    test_scan_vector();
+    test_cells_by_vector();
     test_edge_cases();
     test_trail_end();
     test_glyphs();

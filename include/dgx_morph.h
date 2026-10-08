@@ -71,7 +71,9 @@ int dgx_morph_ctx_height(const dgx_morph_ctx_t *ctx);
  * @brief Choose where the dots of new cell (x, y) fly in from.
  *
  * Called in scan order for every cell set only in `to`; deferred cells are
- * called again with pass + 1 after all cells of the current pass.
+ * called again with pass + 1 after all cells of the current pass. A cell may
+ * be deferred as many times as there are vectors to every cell of the grid,
+ * see dgx_morph_scan_vector(), and 8 times at least.
  * Returned cells are marked used; brightness is split evenly between them.
  *
  * @return Number of cells written to out; 0 = appear from the grid center;
@@ -92,12 +94,46 @@ int dgx_morph_sources_life(
     dgx_point_2d_t out[DGX_MORPH_MAX_SOURCES], void *user_data);
 
 /**
- * Dot glyphs: one unused neighbor (axes first), otherwise, in the second
- * pass, the nearest unused cell on an expanding ring.
+ * Dot glyphs: a new cell flies in from the nearest unused cell of the old
+ * glyph, and the search goes vector by vector, not cell by cell. A pass is
+ * one vector, the same for the whole grid: every new cell still without a
+ * source looks at the one cell that lies by that vector from it, see
+ * dgx_morph_scan_vector(). A line that has moved by a vector is thus found as
+ * a whole, each of its cells flying from its own cell of the old line, and
+ * the order in which the cells are asked decides nothing: two cells never
+ * look at the same cell on a pass. With no unused cell left, the rest appear
+ * from the grid center.
  */
 int dgx_morph_sources_cells(
     const dgx_morph_ctx_t *ctx, int x, int y, int pass,
     dgx_point_2d_t out[DGX_MORPH_MAX_SOURCES], void *user_data);
+
+/**
+ * @brief The vector dgx_morph_sources_cells() looks by on a pass: from a new
+ * cell to the cell that may be its source.
+ *
+ * The vectors go ring by ring, radius 1, then 2 and so on; a square ring of
+ * radius r has 8 * r of them. On a ring: the axes first — up, down, right,
+ * left; then a cell away from each axis toward the corners — from the top to
+ * the right and to the left, from the bottom to the right and to the left,
+ * from the right up and down, from the left up and down; then two cells away
+ * in the same order, and so on to the corners.
+ *
+ * @param pass  From 0.
+ * @param dx,dy Out: the vector; either may be NULL.
+ * @return false for a negative pass.
+ */
+bool dgx_morph_scan_vector(int pass, int *dx, int *dy);
+
+/**
+ * @brief Find the first unused `from` cell on the square ring of exactly this
+ * radius around (x, y): axis points first, then toward the corners.
+ *
+ * @return 1 when found (written to out[0]), 0 otherwise.
+ */
+int dgx_morph_ring_at(
+    const dgx_morph_ctx_t *ctx, int x, int y, int radius,
+    dgx_point_2d_t out[DGX_MORPH_MAX_SOURCES]);
 
 /**
  * @brief Find the first unused `from` cell on rings of radius min_radius and up
