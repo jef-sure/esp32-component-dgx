@@ -283,6 +283,30 @@ int main(void)
     dgx_bezier_t none;
     dgx_bezier4_begin(&none, s, cubics[0], 0, 0, 0xff);
     CHECK(none.pieces == 0 && dgx_bezier_draw_to(&none, 0.5f));
+
+    /* a pen wider than anything: the squares of its width do not fit an int, and only the rows of the screen are gone through */
+    static const int wide[] = {46341, 100000, INT32_MAX};
+    for (unsigned i = 0; i < sizeof(wide) / sizeof(wide[0]); ++i) {
+        dgx_fill_rectangle(s, 0, 0, W, H, 0);
+        dgx_draw_bezier4(s, cubics[2], 0, wide[i], 0xff);
+        CHECK(ink(s) == W * H);
+    }
+    /* a disc cut by the top of the screen has the rows it would have on a screen that holds all of it */
+    dgx_screen_t *tall = dgx_vscreen_init(W, H + 100, 8, DgxScreenRGB);
+    for (int width = 40; width <= 61; width += 7) {
+        const dgx_point_2d_t above[4] = {{30, -12}, {50, -30}, {70, 5}, {90, -8}};
+        dgx_point_2d_t       moved[4];
+        for (int k = 0; k < 4; ++k) moved[k] = (dgx_point_2d_t){above[k].x, (int16_t)(above[k].y + 100)};
+        dgx_fill_rectangle(s, 0, 0, W, H, 0);
+        dgx_fill_rectangle(tall, 0, 0, W, H + 100, 0);
+        dgx_draw_bezier4(s, above, 6, width, 0xff);
+        dgx_draw_bezier4(tall, moved, 6, width, 0xff);
+        int differ = 0;
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x) differ += !dgx_get_pixel(s, x, y) != !dgx_get_pixel(tall, x, y + 100);
+        CHECK(differ == 0 && ink(s) > 0);
+    }
+    dgx_screen_destroy(&tall);
     dgx_screen_destroy(&s);
     CHECK_DONE();
 }

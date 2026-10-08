@@ -361,6 +361,49 @@ static int ring_probe(const dgx_morph_ctx_t *ctx, int x, int y, int pass, dgx_po
 }
 
 /* the ring of exactly one radius: nothing nearer or farther is taken, the cells nearest to the axes come first */
+/* the rings of cells that are not on the grid: asked about from a callback of one's own */
+static int off_grid_found;
+
+static int off_grid_probe(const dgx_morph_ctx_t *ctx, int x, int y, int pass, dgx_point_2d_t out[DGX_MORPH_MAX_SOURCES], void *user_data)
+{
+    (void)x, (void)y, (void)pass, (void)user_data;
+    static const int far[] = {-2000000000, -70000, -40, -3, 0, 5, 10, 11, 14, 60, 70000, 2000000000};
+    static const int radii[] = {1, 2, 3, 9, 12, 50, 100000, 2000000000};
+    dgx_point_2d_t   cell[DGX_MORPH_MAX_SOURCES];
+    for (unsigned i = 0; i < sizeof(far) / sizeof(far[0]); ++i) {
+        for (unsigned j = 0; j < sizeof(far) / sizeof(far[0]); ++j) {
+            for (unsigned k = 0; k < sizeof(radii) / sizeof(radii[0]); ++k) {
+                if (dgx_morph_ring_at(ctx, far[i], far[j], radii[k], cell)) {
+                    CHECK(cell[0].x == 6 && cell[0].y == 5);
+                    ++off_grid_found;
+                }
+            }
+            /* the source is found from anywhere but its own cell */
+            if (far[i] > -100 && far[i] < 100 && far[j] > -100 && far[j] < 100) {
+                CHECK(dgx_morph_ring_find(ctx, far[i], far[j], 1, cell) == !(far[i] == 6 && far[j] == 5));
+            }
+        }
+    }
+    /* the only source is at (6, 5): three cells left of the grid on its row it is on the ring of radius 9 */
+    CHECK(dgx_morph_ring_at(ctx, -3, 5, 9, out) == 1 && out[0].x == 6 && out[0].y == 5);
+    CHECK(dgx_morph_ring_at(ctx, -3, 5, 8, out) == 0);
+    CHECK(dgx_morph_ring_at(ctx, 6, 14, 9, out) == 1 && dgx_morph_ring_at(ctx, 6, -40, 45, out) == 1);
+    CHECK(dgx_morph_ring_find(ctx, 14, 14, 1, out) == 1 && out[0].x == 6 && out[0].y == 5);
+    return 0;
+}
+
+static void test_ring_off_grid(void)
+{
+    dgx_bit_matrix_t *from = dgx_matrix_init(11, 11), *to = dgx_matrix_init(11, 11);
+    dgx_matrix_set_point(to, 5, 5, true);
+    dgx_matrix_set_point(from, 6, 5, true);
+    dgx_morph_t *m = dgx_morph_create(from, to, off_grid_probe, NULL);
+    CHECK(m != NULL && off_grid_found > 0);
+    dgx_morph_destroy(&m);
+    dgx_matrix_destroy(&from);
+    dgx_matrix_destroy(&to);
+}
+
 static void test_ring_at(void)
 {
     dgx_bit_matrix_t *from = dgx_matrix_init(11, 11), *to = dgx_matrix_init(11, 11);
@@ -529,6 +572,7 @@ int main(void)
     test_cells();
     test_cells_by_radius();
     test_ring_at();
+    test_ring_off_grid();
     test_scan_vector();
     test_cells_by_vector();
     test_edge_cases();

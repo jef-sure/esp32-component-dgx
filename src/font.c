@@ -96,15 +96,7 @@ const glyph_t *dgx_font_find_glyph(uint32_t codePoint, dgx_font_t *font, int16_t
             }
         }
     }
-    if (g == 0 && fg) {
-        *xAdvance = fg->xAdvance;
-        return 0;
-    }
-    if (g == 0 && fg == 0) {
-        *xAdvance = 0;
-        return 0;
-    }
-    *xAdvance = g->xAdvance;
+    if (xAdvance) *xAdvance = g ? g->xAdvance : fg ? fg->xAdvance : 0;
     return g;
 }
 

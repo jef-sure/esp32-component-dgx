@@ -150,7 +150,10 @@ static inline uint32_t dgx_rol_nbits(uint32_t a, uint8_t bits, uint8_t n)
 
 static inline uint32_t dgx_ror_nbits(uint32_t a, uint8_t bits, uint8_t n)
 {
-    return (a << (bits - n)) | (a >> n);
+    /* the value is its lowest bits; what lies above must not come into it on turning */
+    uint32_t low = bits < 32 ? (1u << bits) - 1 : UINT32_MAX;
+    a &= low;
+    return ((a << (bits - n)) | (a >> n)) & low;
 }
 
 static inline uint8_t bit_reverse(uint8_t b)

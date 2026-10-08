@@ -166,6 +166,10 @@ void app_main(void)
     dgx_screen_t *frame = dgx_vscreen_init(FRAME_SIDE, FRAME_SIDE, 16, DgxScreenRGB);
     if (!card || !frame) {
         ESP_LOGE(TAG, "No memory for the texture and the frame");
+        dgx_screen_destroy(&card);
+        dgx_screen_destroy(&frame);
+        dgx_screen_destroy(&screen);
+        bus->dispose(bus);
         return;
     }
     draw_card(card);

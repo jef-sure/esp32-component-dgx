@@ -30,6 +30,8 @@ static bool dgx_hw_way_of(dgx_hw_way_t *way, dgx_font_t *font, const char *text,
     while (dgx_hw_writer_next(&w, &s)) ++way->number;
     way->length = 0;
     for (size_t idx = 0; text[idx]; ++way->length) decodeUTF8next(text, &idx);
+    /* symbols are numbered in 16 bits */
+    if (way->length > UINT16_MAX) return false;
     if (room < way->number) room = way->number;
     way->curves = malloc(sizeof(dgx_hw_curve_t) * (room ? room : 1));
     way->symbols = malloc(sizeof(uint16_t) * (room ? room : 1));
@@ -174,6 +176,9 @@ void dgx_hw_morph_draw_xy(const dgx_hw_morph_t *m, float t, dgx_screen_t *scr, i
     if (!m) return;
     if (!(t > 0)) t = 0; /* and what is not a number */
     if (t > 1) t = 1;
+    /* as a text is written: a size that is not above nothing is nothing */
+    if (!(scale_x > 0)) scale_x = 0;
+    if (!(scale_y > 0)) scale_y = 0;
     dgx_screen_progress_up(scr);
     for (int i = 0; i < m->number; ++i) {
         const dgx_hw_curve_t *a = &m->from[i], *b = &m->to[i];
@@ -325,7 +330,7 @@ dgx_hw_morph_text_t *dgx_hw_morph_text_create(dgx_font_t *font, const char *from
         uint8_t turned[DGX_HW_MORPH_PAIRED_STROKES * DGX_HW_MORPH_PAIRED_STROKES];
         float   way[DGX_HW_MORPH_PAIRED_STROKES * DGX_HW_MORPH_PAIRED_STROKES];
         bool    paired = false;
-        if (number > 1 && number <= DGX_HW_MORPH_PAIRED_STROKES) {
+        if (number >= 1 && number <= DGX_HW_MORPH_PAIRED_STROKES) {
             for (int k = 0; k < number; ++k) {
                 for (int j = 0; j < number; ++j) {
                     float straight = dgx_hw_curve_way(&m->from[k], &m->to[j], false);
@@ -337,7 +342,10 @@ dgx_hw_morph_text_t *dgx_hw_morph_text_create(dgx_font_t *font, const char *from
                     way[k * number + j] = back < straight ? back : straight;
                 }
             }
-            paired = dgx_hw_morph_pairs(number, way, pair);
+            /* a stroke alone has its pair, and may still be taken from its other end */
+            pair[0] = 0;
+            if (number > 1 && !dgx_hw_morph_pairs(number, way, pair)) goto done;
+            paired = true;
         }
         if (paired) {
             dgx_hw_curve_t *ordered = malloc(sizeof(dgx_hw_curve_t) * number);

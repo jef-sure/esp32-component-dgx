@@ -1,5 +1,37 @@
 # Changes
 
+## 0.4.3 - 2026-10-08
+
+- thick Bezier curves: a pen wider than 46340 overflowed an `int` and went
+  through every row of its disc, on the screen or not, which took tens of
+  seconds. The width is kept within 32767 and only the rows of the screen are
+  gone through
+- `dgx_font_find_glyph()` wrote the advance through a NULL pointer when it
+  was not asked for
+- `dgx_draw_line_mask()`: bits of the mask above `mask_bits` came into the
+  pattern as it turned
+- handwritten text written by a pen: a line and a dot are one piece at any
+  size; above size 1 a line was cut into several, which showed along its edge
+- morphing of handwritten text returns NULL for a text of more than 65535
+  symbols instead of a wrong plan
+- `dgx_morph_ring_at()` and `dgx_morph_ring_find()` read beyond the grid
+  when asked about a cell that is not on it; `dgx_morph_ring_find()` now
+  reaches the grid from such a cell. The number of passes a callback may
+  defer overflowed for a grid wider than 23170
+- morphing of handwritten text letter by letter: a symbol of one stroke may
+  be taken from its other end as well; NULL, as promised, when memory ends
+  while the strokes are paired. `dgx_hw_morph_draw_xy()` takes a size that is
+  not above nothing as nothing, as writing a text does
+- `examples/texture_demo` frees what it has taken when memory ends at the
+  start
+- `font2c`, handwritten fonts: the keys of `codePoints` must be code points
+  and may not repeat, since a table out of order breaks the search by
+  halving; the `.c` file is written aside and put in place when it is whole,
+  so a font that fails halfway leaves the old file; a font whose name gives
+  `hw`, `glyphs` or another name the written file uses itself gets `_font`
+  added; `*/` in a name no longer closes the comment; a short `\u`, a file
+  nested too deep and a number that is not one are refused
+
 ## 0.4.2 - 2026-10-08
 
 - `dgx_morph_sources_cells()` searches vector by vector instead of cell by

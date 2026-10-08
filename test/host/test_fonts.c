@@ -73,5 +73,9 @@ int main(void)
 
     /* words of examples/morph_demo */
     check_covers(TerminusTTFMedium12(), " приветучастникамсоревнований");
+
+    /* the advance is not always wanted */
+    CHECK(dgx_font_find_glyph('A', TerminusTTFMedium12(), NULL) != NULL);
+    CHECK(dgx_font_find_glyph(0x10FFFF, TerminusTTFMedium12(), NULL) == NULL);
     CHECK_DONE();
 }

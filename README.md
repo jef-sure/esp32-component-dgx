@@ -94,14 +94,14 @@ DGX is a component, not a standalone firmware image. It is published in the
 as `jef-sure/dgx`. To add it to your own ESP-IDF project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.4.2"
+idf.py add-dependency "jef-sure/dgx^0.4.3"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.4.2"
+  jef-sure/dgx: "^0.4.3"
 ```
 
 The next build downloads it into `managed_components/`. To work on DGX itself,

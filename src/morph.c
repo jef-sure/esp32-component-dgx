@@ -5,6 +5,7 @@
 
 /* a callback may put a cell off this many times at least; the planner allows as many as the grid is across */
 #define DGX_MORPH_MIN_PASSES 8
+#define DGX_MORPH_FAR (1 << 20)
 
 struct dgx_morph_ctx {
     const dgx_bit_matrix_t *from;
@@ -66,12 +67,14 @@ static bool dgx_morph_bits_any(const uint32_t *bits, int lo, int hi)
 /* whether the square ring of a radius around a cell has an unused cell at all: its four sides, each in one look */
 static bool dgx_morph_ring_has(const dgx_morph_ctx_t *ctx, int x, int y, int r)
 {
-    int left = x - r < 0 ? 0 : x - r, right = x + r >= ctx->width ? ctx->width - 1 : x + r;
-    int top = y - r + 1 < 0 ? 0 : y - r + 1, bottom = y + r - 1 >= ctx->height ? ctx->height - 1 : y + r - 1;
-    if (y - r >= 0 && dgx_morph_bits_any(ctx->rows + (size_t)(y - r) * ctx->row_words, left, right)) return true;
-    if (y + r < ctx->height && dgx_morph_bits_any(ctx->rows + (size_t)(y + r) * ctx->row_words, left, right)) return true;
-    if (x - r >= 0 && dgx_morph_bits_any(ctx->columns + (size_t)(x - r) * ctx->column_words, top, bottom)) return true;
-    if (x + r < ctx->width && dgx_morph_bits_any(ctx->columns + (size_t)(x + r) * ctx->column_words, top, bottom)) return true;
+    /* the cell may be off the grid: each side is taken only if it is on it; callers keep the numbers within DGX_MORPH_FAR */
+    int w = ctx->width, h = ctx->height;
+    int left = x - r < 0 ? 0 : x - r, right = x + r >= w ? w - 1 : x + r;
+    int top = y - r + 1 < 0 ? 0 : y - r + 1, bottom = y + r - 1 >= h ? h - 1 : y + r - 1;
+    if (y - r >= 0 && y - r < h && dgx_morph_bits_any(ctx->rows + (size_t)(y - r) * ctx->row_words, left, right)) return true;
+    if (y + r >= 0 && y + r < h && dgx_morph_bits_any(ctx->rows + (size_t)(y + r) * ctx->row_words, left, right)) return true;
+    if (x - r >= 0 && x - r < w && dgx_morph_bits_any(ctx->columns + (size_t)(x - r) * ctx->column_words, top, bottom)) return true;
+    if (x + r >= 0 && x + r < w && dgx_morph_bits_any(ctx->columns + (size_t)(x + r) * ctx->column_words, top, bottom)) return true;
     return false;
 }
 
@@ -101,6 +104,8 @@ int dgx_morph_ring_at(
     dgx_point_2d_t out[DGX_MORPH_MAX_SOURCES])
 {
     if (!ctx || radius < 1) return 0;
+    /* a cell off the grid may be asked about; one too far for any grid is not looked at */
+    if (x < -DGX_MORPH_FAR || x > DGX_MORPH_FAR || y < -DGX_MORPH_FAR || y > DGX_MORPH_FAR || radius > 2 * DGX_MORPH_FAR) return 0;
     int r = radius;
     /* most rings are empty, and that is seen without going around them */
     if (!dgx_morph_ring_has(ctx, x, y, r)) return 0;
@@ -130,7 +135,11 @@ int dgx_morph_ring_find(
     dgx_point_2d_t out[DGX_MORPH_MAX_SOURCES])
 {
     if (!ctx || !ctx->free_sources) return 0;
+    if (x < -DGX_MORPH_FAR || x > DGX_MORPH_FAR || y < -DGX_MORPH_FAR || y > DGX_MORPH_FAR) return 0;
     int max_radius = ctx->width > ctx->height ? ctx->width : ctx->height;
+    /* from a cell off the grid the rings are as much further as the cell is */
+    int off = dgx_morph_max_int(dgx_morph_max_int(-x, x - ctx->width + 1), dgx_morph_max_int(-y, y - ctx->height + 1));
+    if (off > 0) max_radius += off;
     for (int r = min_radius < 1 ? 1 : min_radius; r <= max_radius; ++r) {
         if (dgx_morph_ring_at(ctx, x, y, r, out)) return 1;
     }
@@ -177,7 +186,8 @@ bool dgx_morph_scan_vector(int pass, int *dx, int *dy)
 /* how many vectors the rings up to a radius have */
 static int dgx_morph_scan_vectors(int radius)
 {
-    return 4 * radius * (radius + 1);
+    int64_t vectors = 4 * (int64_t)radius * (radius + 1);
+    return vectors > INT32_MAX ? INT32_MAX : (int)vectors;
 }
 
 /*

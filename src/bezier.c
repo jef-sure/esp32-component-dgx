@@ -89,7 +89,10 @@ static void dgx_stroke_figure(dgx_stroke_t *s, int bx, int by, float len, float 
         if (top > bottom || rtop < top) top = rtop;
         if (top > bottom || rbottom > bottom) bottom = rbottom;
     }
-    int p = (d & 1) ^ 1; /* the chord of the disc in half pixels */
+    /* a pen of any width may be asked for: only the rows of the screen are gone through */
+    if (top < 0) top = 0;
+    if (bottom >= s->scr->height) bottom = s->scr->height - 1;
+    int64_t p = (d & 1) ^ 1; /* the chord of the disc in half pixels */
     for (int row = top; row <= bottom; ++row) {
         int left = 1, right = 0;
         if (row >= rtop && row <= rbottom) {
@@ -102,12 +105,14 @@ static void dgx_stroke_figure(dgx_stroke_t *s, int bx, int by, float len, float 
             right = dgx_stroke_floor(hi + DGX_STROKE_SLOP);
         }
         if (row >= ctop && row <= cbottom) {
-            int q = 2 * (row - cy) - s->ey;
-            int room = d * d - q * q;
+            int64_t q = 2 * (int64_t)(row - cy) - s->ey;
+            int64_t room = (int64_t)d * d - q * q;
+            /* the first row of a disc cut by the screen: the chord is found at once */
+            if (row == top && row > ctop) p = ((int64_t)sqrt((double)room) & ~(int64_t)1) | ((d & 1) ^ 1);
             while ((p + 2) * (p + 2) <= room) p += 2;
-            while (p * p > room) p -= 2;
-            int cl = cx + (s->ex - p) / 2;
-            int cr = cx + (s->ex + p) / 2;
+            while (p > 0 && p * p > room) p -= 2;
+            int cl = cx + (s->ex - (int)p) / 2;
+            int cr = cx + (s->ex + (int)p) / 2;
             if (left > right) {
                 left = cl, right = cr;
             } else {
@@ -155,7 +160,7 @@ static void dgx_bezier_begin(dgx_bezier_t *b, dgx_screen_t *scr, dgx_point_2d_t 
 {
     b->scr = scr;
     b->color = color;
-    b->width = width;
+    b->width = width > INT16_MAX ? INT16_MAX : width;
     b->x = (int)lroundf(b->kx[3]);
     b->y = (int)lroundf(b->ky[3]);
     b->ex = b->ey = 0;

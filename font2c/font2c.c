@@ -289,6 +289,7 @@ static char *json_string(void)
             else if (c == 't') c = '\t';
             else if (c == 'u') {
                 /* names and keys of a font are plain; anything else is of no use here */
+                if (end - jsonPos < 4) json_fail("a short \\u in a string");
                 jsonPos += 4;
                 c = '?';
             }
@@ -300,12 +301,15 @@ static char *json_string(void)
     return str;
 }
 
+static int jsonDepth; /* a font is a few levels deep; a file of brackets alone must not take the stack */
+
 static json_t *json_value(void)
 {
     json_t *v = calloc(1, sizeof(json_t));
     json_space();
     char c = *jsonPos;
     if (c == '{' || c == '[') {
+        if (++jsonDepth > 64) json_fail("nested too deep");
         char close = c == '{' ? '}' : ']';
         v->type = c == '{' ? 'o' : 'a';
         ++jsonPos;
@@ -331,6 +335,7 @@ static json_t *json_value(void)
             }
         }
         ++jsonPos;
+        --jsonDepth;
     } else if (c == '"') {
         v->type = 's';
         v->str = json_string();
@@ -394,6 +399,13 @@ static int json_count(json_t *arr)
 
 static const char *hwWhere = "the font"; /* for messages */
 
+static char hwUnfinished[300]; /* the file being written, till it is whole */
+
+static void hw_drop_unfinished(void)
+{
+    if (hwUnfinished[0]) remove(hwUnfinished);
+}
+
 /* a whole number from min to max; without one the font is not what this program can use */
 static int hw_number(json_t *obj, const char *key, double scale, int min, int max)
 {
@@ -403,7 +415,7 @@ static int hw_number(json_t *obj, const char *key, double scale, int min, int ma
         exit(1);
     }
     double n = v->num * scale;
-    int    r = (int)(n < 0 ? n - 0.5 : n + 0.5);
+    int    r = !(n >= min - 1.0 && n <= max + 1.0) ? max + 1 : (int)(n < 0 ? n - 0.5 : n + 0.5);
     if (r < min || r > max) {
         fprintf(stderr, "%s: \"%s\" is %g, it must be from %g to %g\n", hwWhere, key, v->num, min / scale, max / scale);
         exit(1);
@@ -501,7 +513,13 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
     int          count = 0;
     hw_symbol_t *symbols = calloc(json_count(codePoints) + 1, sizeof(hw_symbol_t));
     for (json_t *s = codePoints->child; s; s = s->next) {
-        uint32_t cp = strtoul(s->key, 0, 10);
+        char         *rest = 0;
+        unsigned long key = s->key && isdigit((unsigned char)s->key[0]) ? strtoul(s->key, &rest, 10) : 0;
+        if (!rest || *rest || key > 0x10FFFF) {
+            fprintf(stderr, "%s: \"%s\" in \"codePoints\" is not a code point\n", fontFile, s->key ? s->key : "");
+            return 1;
+        }
+        uint32_t cp = (uint32_t)key;
         if (CPRanges && !isInRange(cp)) continue;
         symbols[count].codePoint = cp;
         symbols[count++].symbol = s;
@@ -512,6 +530,12 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
         return 1;
     }
     qsort(symbols, count, sizeof(hw_symbol_t), hw_symbol_cmp);
+    for (int i = 1; i < count; ++i) {
+        if (symbols[i].codePoint == symbols[i - 1].codePoint) {
+            fprintf(stderr, "%s: code point %u is in \"codePoints\" twice\n", fontFile, symbols[i].codePoint);
+            return 1;
+        }
+    }
 
     char funcname[256], fontname[260];
     snprintf(funcname, sizeof(funcname) - 2, "%s", name->str);
@@ -519,6 +543,11 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
     if (!funcname[0] || isdigit((unsigned char)funcname[0])) {
         memmove(funcname + 2, funcname, strlen(funcname) + 1);
         memcpy(funcname, "hw", 2);
+    }
+    /* the name must not be one of those the written file uses itself */
+    static const char *const taken[] = {"hw", "elements", "symbols", "glyphs", "glyph_ranges", "rval", 0};
+    for (int i = 0; taken[i]; ++i) {
+        if (!strcmp(funcname, taken[i])) strcat(funcname, "_font");
     }
     /* the name as a C string */
     char cname[256];
@@ -528,14 +557,22 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
         if ((unsigned char)*c >= ' ') cname[ci++] = *c;
     }
     cname[ci] = 0;
+    /* the same for a comment, which the name must not close */
+    char comment[256];
+    snprintf(comment, sizeof(comment), "%s", cname);
+    for (char *c = comment; (c = strstr(c, "*/")) != 0;) c[1] = ' ';
+    /* written aside and put in place when all of it is there: a font that fails halfway leaves the old file */
     snprintf(fontname, sizeof(fontname), "%s.c", funcname);
-    FILE *out = fopen(fontname, "w");
+    snprintf(hwUnfinished, sizeof(hwUnfinished), "%s.tmp", fontname);
+    atexit(hw_drop_unfinished);
+    FILE *out = fopen(hwUnfinished, "w");
     if (!out) {
-        fprintf(stderr, "Error opening font file %s for writing: %s\n", fontname, strerror(errno));
+        fprintf(stderr, "Error opening font file %s for writing: %s\n", hwUnfinished, strerror(errno));
+        hwUnfinished[0] = 0;
         return 1;
     }
     fprintf(out, "#include \"dgx_hw_font.h\"\n");
-    fprintf(out, "/* %s: made by font2c from a file of format %s, version %d */\n", cname, HW_FORMAT_NAME, HW_FORMAT_VERSION);
+    fprintf(out, "/* %s: made by font2c from a file of format %s, version %d */\n", comment, HW_FORMAT_NAME, HW_FORMAT_VERSION);
     fprintf(out, "static const dgx_hw_element_t elements[] = {\n");
     int   total = 0;
     int (*parts)[4] = calloc(count, sizeof(*parts));
@@ -643,7 +680,11 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
             "    return &rval;\n}\n",
             funcname, symbolSizeY, yOffsetLowest, xWidest, (int)(xWidthAverage / count + 0.5), yBottomMax, xOffsetLowest, xRightMax,
             numberOfRanges);
-    fclose(out);
+    if (fclose(out) || rename(hwUnfinished, fontname)) {
+        fprintf(stderr, "Error writing font file %s: %s\n", fontname, strerror(errno));
+        return 1;
+    }
+    hwUnfinished[0] = 0;
 
     snprintf(fontname, sizeof(fontname), "%s.h", funcname);
     out = fopen(fontname, "w");

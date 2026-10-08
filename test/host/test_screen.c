@@ -71,6 +71,12 @@ int main(void)
     dgx_font_string_utf8_screen(s, 0, 9, "ab", 0xffff, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
     CHECK(calls == 1);
 
+    /* a dashed line: the pattern is the lowest bits of the mask, what lies above them never comes into it */
+    dgx_fill_rectangle(s, 0, 0, 20, 10, 0);
+    uint32_t turned = dgx_draw_line_mask(s, 0, 0, 11, 0, 0xffff, 0, 0xfffffff5u, 4);
+    for (int x = 0; x < 12; ++x) CHECK((dgx_get_pixel(s, x, 0) != 0) == !(x & 1));
+    CHECK(turned == 0x5u);
+
     dgx_screen_destroy(&s);
     CHECK_DONE();
 }

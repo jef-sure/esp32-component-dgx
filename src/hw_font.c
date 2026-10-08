@@ -430,6 +430,8 @@ static bool dgx_hw_writing_stroke(dgx_hw_writing_t *w)
     /* stretched one way more than the other, a curve takes the pieces of the larger size */
     float needed = ceilf(s.pieces * sqrtf(w->scale_x > w->scale_y ? w->scale_x : w->scale_y));
     int   pieces = !(needed >= 1) ? 1 : needed > INT16_MAX ? INT16_MAX : (int)needed;
+    /* a line and a dot are one piece at any size */
+    if (s.type == DGX_HW_LINE || s.type == DGX_HW_DOT) pieces = 1;
     if (s.type == DGX_HW_CURVE) {
         dgx_bezier4_begin(&w->curve, w->scr, p, pieces, w->width, w->color);
     } else {

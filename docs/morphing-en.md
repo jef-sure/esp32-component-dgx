@@ -246,7 +246,10 @@ matrix with brightness increasing from 0 to 255. Return `DGX_MORPH_DEFER` and
 the cell is retried on the next pass, after every cell in the current pass has
 been assigned a source. A cell may be deferred as many times as there are
 vectors to every cell of the grid, and 8 times at least; one still deferred
-on the last pass appears from the center.
+on the last pass appears from the center. That is a large number: 4 r (r + 1)
+for a grid r + 1 cells wide, hundreds of thousands of calls for one cell of a
+320 x 240 grid. A callback that defers should give its last answer as soon as
+it knows there will be no other.
 
 Inside the callback, `dgx_morph_was_set(ctx, x, y)` tells whether a cell was
 set in `from`, and `dgx_morph_is_used(ctx, x, y)` tells whether it has already
