@@ -575,11 +575,12 @@ static int hw_elements(FILE *out, json_t *symbol, const char *part)
  */
 typedef struct {
     double x0, y0, x1, y1;
+    int    element; /* of the symbol, main strokes and postponed ones counted together */
 } hw_piece_t;
 
 typedef struct {
     hw_piece_t *pieces;
-    int         n;
+    int         n, elements;
     int         lineLeft, lineWidth, spaceBefore, spaceAfter, hasUp, upLeft, upRight;
 } hw_ink_t;
 
@@ -592,6 +593,7 @@ typedef struct {
 #define HW_PAIRS_NAMED  20
 #define HW_ADVICE_NAMED 8
 #define HW_SPACE_MOST   255 /* of "spaceBefore" and "spaceAfter" */
+#define HW_PARTS_JOINED 3   /* strokes of a symbol whose lines come this close, in cells, are one part of it */
 
 static double hwPairLimit = -1; /* -g: below 0 it is the symbol space of the font */
 static double hwPairApart = -1; /* -t: how far apart the advice moves a pair; below 0 as far as the limit */
@@ -613,9 +615,10 @@ static void hw_ink(json_t *symbol, int symbolSpace, hw_ink_t *ink)
     free(ink->pieces);
     ink->pieces = calloc(elements * HW_CURVE_PIECES + 1, sizeof(hw_piece_t));
     ink->n = 0;
+    ink->elements = 0;
     for (int k = 1; k < 4; k += 2) {
         json_t *part = json_get(symbol, hwParts[k]);
-        for (json_t *e = part ? part->child : 0; e; e = e->next) {
+        for (json_t *e = part ? part->child : 0; e; e = e->next, ++ink->elements) {
             double  x[4], y[4];
             int     np = 0;
             json_t *points = json_get(e, "points");
@@ -639,7 +642,7 @@ static void hw_ink(json_t *symbol, int symbolSpace, hw_ink_t *ink)
                     qx = x[np - 1];
                     qy = y[np - 1];
                 }
-                ink->pieces[ink->n++] = (hw_piece_t){px, py, qx, qy};
+                ink->pieces[ink->n++] = (hw_piece_t){px, py, qx, qy, ink->elements};
                 px = qx;
                 py = qy;
             }
@@ -826,6 +829,71 @@ static int hw_pairs_find(const hw_symbol_t *symbols, hw_ink_t *ink, int count, i
     return found;
 }
 
+/*
+ * The least distance between two parts of a symbol, "limit" if not less or if
+ * the symbol is of one part. A part is the strokes that touch one another: a
+ * dot over a letter is a part of its own, and a pen thicker than its distance
+ * to the letter joins them.
+ */
+static double hw_parts_least(const hw_ink_t *ink, double limit)
+{
+    int     n = ink->elements;
+    double *apart = malloc((size_t)n * n * sizeof(double)), least = limit * limit;
+    int    *part = malloc(n * sizeof(int));
+    for (int i = 0; i < n * n; ++i) apart[i] = limit * limit;
+    for (int i = 0; i < n; ++i) part[i] = i;
+    for (int i = 0; i < ink->n; ++i) {
+        for (int j = i + 1; j < ink->n; ++j) {
+            int a = ink->pieces[i].element, b = ink->pieces[j].element;
+            if (a == b) continue;
+            double d = hw_piece_piece(&ink->pieces[i], &ink->pieces[j]);
+            if (d < apart[a * n + b]) apart[a * n + b] = apart[b * n + a] = d;
+        }
+    }
+    /* the elements that touch get the number of one part, till nothing changes */
+    for (int changed = 1; changed;) {
+        changed = 0;
+        for (int a = 0; a < n; ++a) {
+            for (int b = 0; b < n; ++b) {
+                if (part[b] > part[a] && apart[a * n + b] <= HW_PARTS_JOINED * HW_PARTS_JOINED) part[b] = part[a], changed = 1;
+            }
+        }
+    }
+    for (int a = 0; a < n; ++a) {
+        for (int b = 0; b < n; ++b) {
+            if (part[a] != part[b] && apart[a * n + b] < least) least = apart[a * n + b];
+        }
+    }
+    free(apart);
+    free(part);
+    return least;
+}
+
+/* Tells of the symbols whose own parts stand closer than "limit". */
+static void hw_parts(const char *fontName, const hw_symbol_t *symbols, const hw_ink_t *ink, int count, double limit)
+{
+    hw_pair_t *close = calloc(count, sizeof(hw_pair_t));
+    int        found = 0;
+    for (int i = 0; i < count; ++i) {
+        double least = hw_parts_least(&ink[i], limit);
+        if (least < limit * limit) close[found++] = (hw_pair_t){hw_root(least), i, i};
+    }
+    if (found) {
+        qsort(close, found, sizeof(hw_pair_t), hw_pair_cmp);
+        int shown = hwPairLimit < 0 && found > HW_PAIRS_NAMED ? HW_PAIRS_NAMED : found;
+        fprintf(stderr, "%s: %d symbol%s with parts of %s own closer than %g cells", fontName, found, found == 1 ? "" : "s",
+                found == 1 ? "its" : "their", limit);
+        fprintf(stderr, shown < found ? ", the closest %d:\n" : ":\n", shown);
+        for (int i = 0; i < shown; ++i) {
+            fprintf(stderr, i % 8 ? "   " : i ? "\n  " : "  ");
+            hw_put_symbol(stderr, symbols[close[i].a].codePoint);
+            fprintf(stderr, " %.1f", close[i].d);
+        }
+        fprintf(stderr, "\n  a part is moved in the editor; strokes within %d cells of one another are one part\n", HW_PARTS_JOINED);
+    }
+    free(close);
+}
+
 /* Tells of the pairs that stand too close and, when asked to, moves them apart in the font and in its file. */
 static void hw_pairs(const char *fontFile, const char *fontName, const hw_symbol_t *symbols, int count, int symbolSpace)
 {
@@ -835,6 +903,7 @@ static void hw_pairs(const char *fontFile, const char *fontName, const hw_symbol
     hw_ink_t  *ink = calloc(count, sizeof(hw_ink_t));
     hw_pair_t *close = 0;
     int        found = hw_pairs_find(symbols, ink, count, symbolSpace, limit, &close);
+    hw_parts(fontName, symbols, ink, count, limit);
     if (found) {
         int all = hwPairLimit >= 0 || hwPairFix, shown = !all && found > HW_PAIRS_NAMED ? HW_PAIRS_NAMED : found;
         fprintf(stderr, "%s: %d pair%s of symbols closer than %g cells between the lines of the pen", fontName, found,

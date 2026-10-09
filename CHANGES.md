@@ -1,5 +1,23 @@
 # Changes
 
+## 0.4.6 - 2026-10-09
+
+- `font2c` names the symbols of a handwritten font whose own parts stand
+  closer than the distance pairs are checked by, such as a dot over a letter
+  that a thick pen joins to it
+- `font0ss`: the dots stand further from their letters and from each other.
+  A dot over "i" was 8 cells from the letter and a pen of 9 cells joined
+  them at any size; the dots of "Ö" were 3 cells from it, the two dots of
+  "ö" 12 cells apart. The dots of "i", "j", "ё", "ä", "ö", "ü" are on one
+  line 22 cells above the lowercase letters, those of "Ё", "Ä", "Ö", "Ü" at
+  the top of the cell, and two dots of a letter are 18 cells apart. These
+  symbols are taller by 5 to 16 cells
+- `font0ss` has a minus sign, U+2212: a line of 50 cells at the middle of
+  the digits, 60 cells above the base line. The hyphen-minus "-" stays where
+  it is, in the middle of the lowercase letters, 31 cells lower: a name such
+  as "Ростов-на-Дону" comes with it. A number is to be written with "−" by
+  the code that prints it. The font has 154 symbols
+
 ## 0.4.5 - 2026-10-09
 
 - the handwritten font `font0ss`: more space around the punctuation that

@@ -94,14 +94,14 @@ DGX is a component, not a standalone firmware image. It is published in the
 as `jef-sure/dgx`. To add it to your own ESP-IDF project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.4.5"
+idf.py add-dependency "jef-sure/dgx^0.4.6"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.4.5"
+  jef-sure/dgx: "^0.4.6"
 ```
 
 The next build downloads it into `managed_components/`. To work on DGX itself,
@@ -434,7 +434,9 @@ in a line: closer than the symbol space of the font, counted between the
 lines the middle of the pen goes along, in cells. A pen takes its thickness
 off that distance, so such a pair may touch when written. With the pairs it
 tells what to change in the editor's file to move them apart: which
-`spaceBefore` or `spaceAfter` of a symbol, and to what.
+`spaceBefore` or `spaceAfter` of a symbol, and to what. By the same distance
+it names the symbols whose own parts stand too close, such as a dot over a
+letter that a thick pen joins to it; those are moved in the editor.
 
 | Option | Meaning | Without it |
 | --- | --- | --- |
@@ -741,7 +743,7 @@ morphs words one into another both ways.
 
 One such font is bundled: `font0ss()` from `fonts/font0ss.h`. It has the Latin
 alphabet with the German letters `ÄÖÜäöüß`, the Russian alphabet, digits and
-punctuation, 153 symbols in all, and nothing else: no accented letters of
+punctuation, 154 symbols in all, and nothing else: no accented letters of
 other languages, no Greek, no scripts written right to left. Drawing a
 handwritten alphabet is slow work and I am not going to draw more of them;
 if you need another one, draw it in the editor and send it over, co-authors
