@@ -226,6 +226,31 @@ static inline void dgx_screen_flush(dgx_screen_t *_scr)
 }
 
 /**
+ * @brief Take the pending dirty area and clear it, without update_screen().
+ *
+ * For a screen that is shown by its owner, such as a virtual screen copied
+ * to a display: open a batch with dgx_screen_progress_up(), draw, take the
+ * area that has changed and send only it. Outside a batch there is nothing
+ * to take, since every change is flushed at once. After it the closing
+ * dgx_screen_progress_down() has nothing left to send.
+ *
+ * @param _scr          Screen that was drawn on.
+ * @param left,top      Out: the top-left corner of the area.
+ * @param width,height  Out: its size.
+ * @return false when nothing has changed; the outputs are zeros then.
+ */
+static inline bool dgx_screen_take_dirty(dgx_screen_t *_scr, int *left, int *top, int *width, int *height)
+{
+    bool dirty = _scr->dirty_right > _scr->dirty_left;
+    *left   = dirty ? _scr->dirty_left : 0;
+    *top    = dirty ? _scr->dirty_top : 0;
+    *width  = dirty ? _scr->dirty_right - _scr->dirty_left : 0;
+    *height = dirty ? _scr->dirty_bottom - _scr->dirty_top : 0;
+    _scr->dirty_left = _scr->dirty_right = _scr->dirty_top = _scr->dirty_bottom = 0;
+    return dirty;
+}
+
+/**
  * @brief Mark an area as changed (inclusive bounds, clipped to the screen).
  *
  * Outside a batch the area is flushed at once; inside it is merged into the

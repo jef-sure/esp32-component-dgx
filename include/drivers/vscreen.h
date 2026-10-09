@@ -66,6 +66,28 @@ dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src);
 void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint16_t *lut, bool has_transparency);
 
 /**
+ * @brief Expand a rectangular region of an 8-bit indexed virtual screen into a 16-bit destination through a LUT.
+ *
+ * The same as dgx_vscreen8_to_screen16() for a part of the source, to send
+ * only what has changed: the pixels it puts are those the whole transfer puts
+ * in the same place. As with dgx_vscreen_region_to_screen(), @p x_dst and
+ * @p y_dst are where the corner of the region goes, not of the whole source:
+ * a region taken at (x_src, y_src) of a source shown at (x, y) goes to
+ * (x + x_src, y + y_src). The region is cut by the source and by the
+ * destination; nothing is done when nothing is left of it.
+ *
+ * @param _scr_dst         Destination 16-bit screen.
+ * @param x_dst,y_dst      Where the top-left corner of the region goes on the destination.
+ * @param _scr_src         Source 8-bit indexed virtual screen.
+ * @param x_src,y_src      Top-left corner of the region in the source.
+ * @param width,height     Size of the region.
+ * @param lut              256-entry RGB565 lookup table.
+ * @param has_transparency If true, index 0 is treated as transparent.
+ */
+void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width,
+                                     int height, uint16_t *lut, bool has_transparency);
+
+/**
  * @brief Copy the whole source virtual screen into a same-sized destination.
  * @return true on success, false if geometry/format are incompatible.
  */

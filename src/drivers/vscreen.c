@@ -794,7 +794,8 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
     dgx_screen_progress_down(_scr_dst);
 }
 
-void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint16_t *lut, bool has_transparency)
+void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width,
+                                     int height, uint16_t *lut, bool has_transparency)
 {
     dgx_vscreen_t *scr_src = (dgx_vscreen_t *)_scr_src;
     if (_scr_dst->color_bits != 16 || _scr_src->color_bits != 8) {
@@ -805,14 +806,21 @@ void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_
         ESP_LOGE(TAG, "vscreen8_to_screen16: source is not virtual");
         return;
     }
-    int bw  = _scr_src->width;
-    int bh  = _scr_src->height;
+    /* Whatever is cut off on one side has to move the origin on the other side too. */
+    int x_req = x_src;
+    int y_req = y_src;
+    DGX_INTERSECT_RECTANGLES(x_src, y_src, width, height, 0, 0, _scr_src->width, _scr_src->height);
+    if (width <= 0 || height <= 0) return;
+    x_dst += x_src - x_req;
+    y_dst += y_src - y_req;
+    int bw  = width;
+    int bh  = height;
     int rxd = x_dst;
     int ryd = y_dst;
     DGX_INTERSECT_RECTANGLES(rxd, ryd, bw, bh, 0, 0, _scr_dst->width, _scr_dst->height);
     if (bh <= 0 || bw <= 0) return;
-    int skip_x = rxd - x_dst;
-    int skip_y = ryd - y_dst;
+    int skip_x = x_src + rxd - x_dst;
+    int skip_y = y_src + ryd - y_dst;
     dgx_screen_progress_up(_scr_dst);
     if (_scr_dst->screen_subtype == DgxPhysicalScreenWithBus) {
         dgx_bus_protocols_t *bus             = ((dgx_screen_with_bus_t *)_scr_dst)->bus;
@@ -880,6 +888,11 @@ void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_
     }
     dgx_screen_touch(_scr_dst, rxd, rxd + bw - 1, ryd, ryd + bh - 1);
     dgx_screen_progress_down(_scr_dst);
+}
+
+void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint16_t *lut, bool has_transparency)
+{
+    dgx_vscreen8_region_to_screen16(_scr_dst, x_dst, y_dst, _scr_src, 0, 0, _scr_src->width, _scr_src->height, lut, has_transparency);
 }
 
 dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src)

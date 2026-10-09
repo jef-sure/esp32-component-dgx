@@ -94,14 +94,14 @@ DGX is a component, not a standalone firmware image. It is published in the
 as `jef-sure/dgx`. To add it to your own ESP-IDF project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.4.6"
+idf.py add-dependency "jef-sure/dgx^0.4.7"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.4.6"
+  jef-sure/dgx: "^0.4.7"
 ```
 
 The next build downloads it into `managed_components/`. To work on DGX itself,
@@ -252,6 +252,22 @@ dgx_screen_destroy(&frame);
 
 Use `dgx_vscreen_region_to_screen()` to push only the part that changed, or
 `dgx_vscreen_to_screen_oriented()` to rotate the buffer on the way out.
+
+The virtual screen itself knows which part that is. Keep a batch open on it,
+draw, and take the rectangle everything drawn since the last time lies in:
+
+```c
+dgx_screen_progress_up(frame);          /* once: changes are gathered while a batch is open */
+
+draw_something(frame);
+int left, top, width, height;
+if (dgx_screen_take_dirty(frame, &left, &top, &width, &height)) {
+    dgx_vscreen_region_to_screen(scr, left, top, frame, left, top, width, height);
+}
+```
+
+For an 8-bit screen shown through a LUT the same is done with
+`dgx_vscreen8_region_to_screen16()`.
 
 ### Driving a monochrome panel
 
@@ -835,6 +851,7 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_vscreen_region_to_screen(dst, x, y, src, x_src, y_src, w, h)` | Push a sub-region. |
 | `dgx_vscreen_to_screen_oriented(...)` / `dgx_vscreen_region_to_screen_oriented(...)` | Oriented variants. |
 | `dgx_vscreen8_to_screen16(dst, x, y, src, lut, has_transparency)` | Expand an 8-bit indexed screen into 16-bit through a LUT. |
+| `dgx_vscreen8_region_to_screen16(dst, x, y, src, x_src, y_src, w, h, lut, has_transparency)` | The same for a sub-region; `x`, `y` are where the corner of the region goes. |
 | `dgx_bw_init(width, height)` | Allocate a 1-bit monochrome RAM screen. |
 | `dgx_vscreen_2h_init(left, right)` | Compose two screens as one wide logical screen. |
 | `dgx_vscreen_is_linear(scr)` | True when the screen is a `dgx_vscreen_t` with row-major pixels in `v_array`. |
@@ -894,6 +911,7 @@ Declared in [include/dgx_screen.h](include/dgx_screen.h):
 | `dgx_screen_progress_down(scr)` | Close a batch; at depth `0` commits the pending dirty area. Returns the new depth. |
 | `dgx_screen_touch(scr, left, right, top, bottom)` | Mark an area as changed (inclusive, clipped). For code that writes pixels directly, e.g. into `v_array`. |
 | `dgx_screen_flush(scr)` | Commit the pending dirty area now. |
+| `dgx_screen_take_dirty(scr, &left, &top, &width, &height)` | Take the pending dirty area and clear it without committing; `false` when nothing has changed. For a virtual screen shown by parts: there is something to take only while a batch is open. |
 | `dgx_screen_destroy(&scr)` | Destroy a screen allocated by a driver or virtual screen constructor. |
 
 ```c

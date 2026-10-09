@@ -366,6 +366,38 @@ With `k = 6` and 1500 of effort a second the word «привет» takes 2 secon
 The same works for a single curve: `dgx_bezier4_begin()` prepares it and
 `dgx_bezier_draw_to(&curve, t)` draws it on until it is `t` complete.
 
+### To the display by parts
+
+A pen adds a few pixels a step, and the whole band need not go to the display
+for them. Everything a text is written with marks the place it has changed,
+and a virtual screen gathers those places into one rectangle while a batch is
+open on it. The rectangle is taken and only it is sent:
+
+```c
+dgx_screen_progress_up(band);   /* the batch stays open: the changes are gathered, not dropped */
+for (;;) {
+    bool finished = dgx_hw_writing_draw_to(&writing, tempo * seconds());
+    int  left, top, width, height;
+    if (dgx_screen_take_dirty(band, &left, &top, &width, &height)) {
+        dgx_vscreen8_region_to_screen16(screen, band_x + left, band_y + top, band, left, top, width, height, lut, false);
+    }
+    if (finished) break;
+    vTaskDelay(1);
+}
+dgx_screen_progress_down(band);
+```
+
+A frame of a morph is shown the same way: the rectangle after the band is
+cleared and the frame is drawn covers both what was erased and what was
+drawn.
+
+Timed on an ESP32 with an ILI9341 at 40 MHz, a band of 320 x 100. The whole
+band goes to the display in 16.7 ms. A step of the pen, a word written in 400
+steps, changes 24 pixels on average and goes in 0.09 ms, 0.1 ms at most. The
+place of one digit, 60 x 100, where a morph goes on: 3.2 ms. The time of a
+transfer goes by the number of pixels, about 0.52 us a pixel, and 30 us for
+the transfer itself however few they are.
+
 ### How it is made
 
 **The strokes.** `dgx_hw_writer_next()` is a small state machine that goes
@@ -578,4 +610,5 @@ the stack or wherever you put it. `font0ss` is 17 KB of flash.
 The host tests in `test/host` cover every step: `test_bezier` the curves and
 drawing by `t`, `test_hw_font` the glyphs, `test_hw_line` the placing,
 `test_hw_write` the order of writing, the effort and writing by pace,
-`test_hw_morph` both morphs.
+`test_hw_morph` both morphs, `test_region` the transfer of a part and that
+writing and a frame of a morph mark all they change.

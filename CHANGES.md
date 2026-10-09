@@ -1,5 +1,20 @@
 # Changes
 
+## 0.4.7 - 2026-10-09
+
+- added `dgx_vscreen8_region_to_screen16()`: a rectangular part of an 8-bit
+  virtual screen expanded into a 16-bit screen through a LUT, cut by the
+  source and by the destination. `dgx_vscreen8_to_screen16()` is that
+  function for the whole source and gives the same pixels as before
+- added `dgx_screen_take_dirty()`: takes the area a screen has changed in
+  since the last time and clears it, without `update_screen()`. With a batch
+  kept open on a virtual screen, only what was drawn is sent to the display:
+  a step of a pen instead of the whole band. Fill, circles, thick curves,
+  writing by a pen and frames of a handwritten morph were checked to mark
+  every pixel they change. On an ESP32 with an ILI9341 at 40 MHz a band of
+  320x100 takes 16.7 ms whole, a step of a pen 0.09 ms, the place of one
+  digit of 60x100 3.2 ms
+
 ## 0.4.6 - 2026-10-09
 
 - `font2c` names the symbols of a handwritten font whose own parts stand
