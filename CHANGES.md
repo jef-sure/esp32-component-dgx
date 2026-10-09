@@ -1,5 +1,26 @@
 # Changes
 
+## 0.4.5 - 2026-10-09
+
+- the handwritten font `font0ss`: more space around the punctuation that
+  has a dot on the base line. A period, a comma, a colon, a semicolon and
+  an ellipsis stand 12 cells further from both neighbours, an exclamation
+  and a question mark from the symbol before them. At a small size the dot
+  touched the foot of "1" and "2" and the tail of "9": "1.1" and
+  "1.9" read as one line. A text with these marks is wider now, 24 cells
+  for a period
+- `font0ss`: a lowercase letter after "Ф" and after an opening bracket stood
+  under them closer than a pen is thick ("Фи", "Фр" at 8.6 cells with a pen
+  of 9). "Ф" has 24 cells after it instead of 16, the bracket 18
+- `font2c` checks the pairs of symbols of a handwritten font: after
+  converting it names the pairs that stand closer in a line than the symbol
+  space of the font, by the distance between the lines of the pen in cells.
+  `-g cells` sets the distance and lists every such pair, `-g 0` turns the
+  check off. With the pairs it tells which `spaceBefore` or `spaceAfter` of a
+  symbol moves them apart, and how large it has to be; `-x` puts those spaces
+  into the file of the font, `-i` asks about each one, `-t cells` moves the
+  pairs further apart than the distance they are found by
+
 ## 0.4.4 - 2026-10-09
 
 - added `dgx_morph_sources_cells_within()`: the search by vectors kept

@@ -363,13 +363,17 @@ frame.
 
 The same on other chips, a plan in milliseconds, on average and at most:
 
-| chip | clock | weather that follows | any weather to any other | without search |
-| --- | --- | --- | --- | --- |
-| ESP32-P4, rev 1.3 | 360 MHz | 0.7, 1.9 | 1.2, 3.6 | 0.2 |
-| ESP32-S3, rev 0.2 | 240 MHz | 1.2, 3.4 | 2.1, 6.3 | 0.3 |
-| ESP32-D0WD-V3, rev 3.1 | 240 MHz | 1.6, 4.2 | 2.6, 7.8 | 0.5 |
-| ESP32-C3, rev 0.4 | 160 MHz | 1.8, 4.7 | 3.0, 9.0 | 0.5 |
-| ESP32-C6FH4, rev 0.2 | 160 MHz | 1.8, 4.8 | 3.0, 9.3 | 0.5 |
+| chip | clock | weather that follows | any weather to any other | without search | speed against the ESP32 |
+| --- | --- | --- | --- | --- | --- |
+| ESP32-P4, rev 1.3 | 360 MHz | 0.7, 1.9 | 1.2, 3.6 | 0.2 | 120% higher |
+| ESP32-S3, rev 0.2 | 240 MHz | 1.2, 3.4 | 2.1, 6.3 | 0.3 | 31% higher |
+| ESP32-D0WD-V3, rev 3.1 | 240 MHz | 1.6, 4.2 | 2.6, 7.8 | 0.5 | |
+| ESP32-C3, rev 0.4 | 160 MHz | 1.8, 4.7 | 3.0, 9.0 | 0.5 | 10% lower |
+| ESP32-C6FH4, rev 0.2 | 160 MHz | 1.8, 4.8 | 3.0, 9.3 | 0.5 | 11% lower |
+
+The speed in the last column is taken from the average time of a plan with
+the search over all the pairs of symbols timed; it changes by a few percent
+from one set of pairs to another. The ESP32-P4 here is an engineering sample.
 
 #### Within a Radius
 

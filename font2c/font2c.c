@@ -160,9 +160,16 @@ static void show_usage(const char *programName)
 {
     fprintf(stderr,
             "Usage: %s [-f charset_file] fontfile size [first last] .. [firstN lastN]\n"
-            "       %s [-f charset_file] fontfile.json [first last] .. [firstN lastN]\n"
+            "       %s [-f charset_file] [-g cells] [-t cells] [-x | -i] fontfile.json [first last] .. [firstN lastN]\n"
             "  -f charset_file: UTF-8 text file with characters to include\n"
-            "  fontfile.json: a handwritten font saved by the hw-fonts editor\n",
+            "  fontfile.json: a handwritten font saved by the hw-fonts editor\n"
+            "  -g cells: list every pair of its symbols that stand closer than this\n"
+            "            and the spaces that move them apart, 0 for no check; without\n"
+            "            it the closest of those closer than the symbol space of the\n"
+            "            font are named\n"
+            "  -t cells: how far apart the spaces move such a pair, if further than -g\n"
+            "  -x: put those spaces into fontfile.json and convert the font with them\n"
+            "  -i: the same, asking about each space\n",
             programName, programName);
 }
 
@@ -257,9 +264,21 @@ typedef struct _json {
     char         *str;
     double        num;
     struct _json *child, *next;
+    const char   *name, *from, *to; /* in the text: where its key begins, the value itself */
+    int           edit;             /* of jsonEdits, from 1, when the value is to be written anew */
 } json_t;
 
 static const char *jsonText, *jsonPos;
+
+/* what is to be changed in the text of the file: "lead" and a number in place of "len" bytes at "at" */
+typedef struct {
+    size_t at, len;
+    char  *lead;
+    int    value, order;
+} json_edit_t;
+
+static json_edit_t *jsonEdits;
+static int          jsonEditCount;
 
 static void json_fail(const char *what)
 {
@@ -307,6 +326,7 @@ static json_t *json_value(void)
 {
     json_t *v = calloc(1, sizeof(json_t));
     json_space();
+    v->from = jsonPos;
     char c = *jsonPos;
     if (c == '{' || c == '[') {
         if (++jsonDepth > 64) json_fail("nested too deep");
@@ -316,15 +336,18 @@ static json_t *json_value(void)
         json_t **tail = &v->child;
         json_space();
         while (*jsonPos != close) {
-            char *key = 0;
+            char       *key = 0;
+            const char *name = 0;
             if (v->type == 'o') {
                 json_space();
+                name = jsonPos;
                 key = json_string();
                 json_space();
                 if (*jsonPos++ != ':') json_fail("':' expected");
             }
             *tail = json_value();
             (*tail)->key = key;
+            (*tail)->name = name;
             tail = &(*tail)->next;
             json_space();
             if (*jsonPos == ',') {
@@ -355,6 +378,7 @@ static json_t *json_value(void)
         if (end == jsonPos) json_fail("a value expected");
         jsonPos = end;
     }
+    v->to = jsonPos;
     return v;
 }
 
@@ -395,6 +419,78 @@ static int json_count(json_t *arr)
     int n = 0;
     for (json_t *m = arr ? arr->child : 0; m; m = m->next) ++n;
     return n;
+}
+
+/*
+ * Gives a member of an object a whole number, in what was read and in the
+ * text of the file as json_save() writes it. A member the object has not is
+ * put after its last one, written the way that one is.
+ */
+static void json_set_number(json_t *obj, const char *key, int value)
+{
+    json_t *m = json_get(obj, key);
+    if (!m) {
+        /* the last member read from the file: those put here before have no place in the text */
+        json_t *last = obj->child && obj->child->name ? obj->child : 0;
+        while (last && last->next && last->next->name) last = last->next;
+        if (!last) {
+            fprintf(stderr, "Cannot put \"%s\" into an empty object\n", key);
+            exit(1);
+        }
+        const char *space = last->name, *colon = last->from;
+        while (space > jsonText && strchr(" \t\r\n", space[-1])) --space;
+        while (colon > last->name && colon[-1] != ':') --colon;
+        jsonEdits = realloc(jsonEdits, (jsonEditCount + 1) * sizeof(json_edit_t));
+        json_edit_t *e = &jsonEdits[jsonEditCount];
+        size_t       lead = 1 + (last->name - space) + 1 + strlen(key) + 2 + (last->from - colon) + 1;
+        e->lead = malloc(lead);
+        snprintf(e->lead, lead, ",%.*s\"%s\":%.*s", (int)(last->name - space), space, key, (int)(last->from - colon), colon);
+        e->at = last->to - jsonText;
+        e->len = 0;
+        e->order = jsonEditCount;
+        m = calloc(1, sizeof(json_t));
+        m->key = strdup(key);
+        m->edit = ++jsonEditCount;
+        json_t **tail = &last->next;
+        while (*tail) tail = &(*tail)->next;
+        *tail = m;
+    } else if (!m->edit) {
+        jsonEdits = realloc(jsonEdits, (jsonEditCount + 1) * sizeof(json_edit_t));
+        jsonEdits[jsonEditCount] = (json_edit_t){m->from - jsonText, m->to - m->from, strdup(""), 0, jsonEditCount};
+        m->edit = ++jsonEditCount;
+    }
+    m->type = 'n';
+    m->num = value;
+    jsonEdits[m->edit - 1].value = value;
+}
+
+static int json_edit_cmp(const void *a, const void *b)
+{
+    const json_edit_t *ea = a, *eb = b;
+    if (ea->at != eb->at) return ea->at < eb->at ? -1 : 1;
+    return ea->order - eb->order;
+}
+
+/* writes the text of the file with what json_set_number() has changed; aside first, so that a failure leaves the file whole */
+static int json_save(const char *path)
+{
+    char aside[1024];
+    if (snprintf(aside, sizeof(aside), "%s.tmp", path) >= (int)sizeof(aside)) return -1;
+    FILE *f = fopen(aside, "wb");
+    if (!f) return -1;
+    qsort(jsonEdits, jsonEditCount, sizeof(json_edit_t), json_edit_cmp);
+    size_t at = 0, size = strlen(jsonText);
+    for (int i = 0; i < jsonEditCount; ++i) {
+        fwrite(jsonText + at, 1, jsonEdits[i].at - at, f);
+        fprintf(f, "%s%d", jsonEdits[i].lead, jsonEdits[i].value);
+        at = jsonEdits[i].at + jsonEdits[i].len;
+    }
+    fwrite(jsonText + at, 1, size - at, f);
+    if (ferror(f) | fclose(f) || rename(aside, path)) {
+        remove(aside);
+        return -1;
+    }
+    return 0;
 }
 
 static const char *hwWhere = "the font"; /* for messages */
@@ -468,6 +564,317 @@ static int hw_elements(FILE *out, json_t *symbol, const char *part)
         fprintf(out, "}},\n");
     }
     return n;
+}
+
+/*
+ * Pairs of symbols that stand too close. A symbol is its main and postponed
+ * strokes, what is written of it apart from its neighbours, as straight
+ * pieces; the second symbol of a pair stands where a line puts it after the
+ * first. The distance is between the lines the middle of the pen goes along,
+ * in cells: a pen takes its thickness off it.
+ */
+typedef struct {
+    double x0, y0, x1, y1;
+} hw_piece_t;
+
+typedef struct {
+    hw_piece_t *pieces;
+    int         n;
+    int         lineLeft, lineWidth, spaceBefore, spaceAfter, hasUp, upLeft, upRight;
+} hw_ink_t;
+
+typedef struct {
+    double d;
+    int    a, b;
+} hw_pair_t;
+
+#define HW_CURVE_PIECES 32
+#define HW_PAIRS_NAMED  20
+#define HW_ADVICE_NAMED 8
+#define HW_SPACE_MOST   255 /* of "spaceBefore" and "spaceAfter" */
+
+static double hwPairLimit = -1; /* -g: below 0 it is the symbol space of the font */
+static double hwPairApart = -1; /* -t: how far apart the advice moves a pair; below 0 as far as the limit */
+static int    hwPairFix;        /* -x: 1, the file of the font is changed as advised; -i: 2, after asking */
+
+static void hw_ink(json_t *symbol, int symbolSpace, hw_ink_t *ink)
+{
+    json_t *up = json_get(symbol, "upLeft");
+    ink->lineLeft = hw_number(symbol, "lineLeft", 1, -255, 255);
+    ink->lineWidth = hw_number(symbol, "lineWidth", 1, 0, 256);
+    ink->spaceBefore = json_get(symbol, "spaceBefore") ? hw_number(symbol, "spaceBefore", 1, 0, 255) : 0;
+    ink->spaceAfter = json_get(symbol, "spaceAfter") ? hw_number(symbol, "spaceAfter", 1, 0, 255) : symbolSpace;
+    ink->hasUp = up && up->type == 'n';
+    if (ink->hasUp) {
+        ink->upLeft = hw_number(symbol, "upLeft", 1, -255, 255);
+        ink->upRight = hw_number(symbol, "upRight", 1, -255, 255);
+    }
+    int elements = json_count(json_get(symbol, "mainSegments")) + json_count(json_get(symbol, "postSegments"));
+    free(ink->pieces);
+    ink->pieces = calloc(elements * HW_CURVE_PIECES + 1, sizeof(hw_piece_t));
+    ink->n = 0;
+    for (int k = 1; k < 4; k += 2) {
+        json_t *part = json_get(symbol, hwParts[k]);
+        for (json_t *e = part ? part->child : 0; e; e = e->next) {
+            double  x[4], y[4];
+            int     np = 0;
+            json_t *points = json_get(e, "points");
+            /* an element that is not one is told of when the elements are written */
+            if (json_count(points) < 1 || json_count(points) > 4) continue;
+            for (json_t *p = points->child; p; p = p->next, ++np) {
+                x[np] = hw_number(p, "x", 1, 0, 255);
+                y[np] = hw_number(p, "y", 1, 0, 255);
+            }
+            int    pieces = np > 2 ? HW_CURVE_PIECES : 1;
+            double px = x[0], py = y[0];
+            for (int i = 1; i <= pieces; ++i) {
+                double t = (double)i / pieces, u = 1 - t, qx, qy;
+                if (np == 4) {
+                    qx = u * u * u * x[0] + 3 * u * u * t * x[1] + 3 * u * t * t * x[2] + t * t * t * x[3];
+                    qy = u * u * u * y[0] + 3 * u * u * t * y[1] + 3 * u * t * t * y[2] + t * t * t * y[3];
+                } else if (np == 3) {
+                    qx = u * u * x[0] + 2 * u * t * x[1] + t * t * x[2];
+                    qy = u * u * y[0] + 2 * u * t * y[1] + t * t * y[2];
+                } else {
+                    qx = x[np - 1];
+                    qy = y[np - 1];
+                }
+                ink->pieces[ink->n++] = (hw_piece_t){px, py, qx, qy};
+                px = qx;
+                py = qy;
+            }
+        }
+    }
+}
+
+/* distances are kept squared; the root is taken by hand, so that the program needs no library of its own for it */
+static double hw_root(double v)
+{
+    double r = v > 1 ? v : 1;
+    for (int i = 0; i < 60 && v > 0; ++i) r = (r + v / r) / 2;
+    return v > 0 ? r : 0;
+}
+
+static double hw_point_piece(double px, double py, const hw_piece_t *s)
+{
+    double dx = s->x1 - s->x0, dy = s->y1 - s->y0, len = dx * dx + dy * dy;
+    double t = len > 0 ? ((px - s->x0) * dx + (py - s->y0) * dy) / len : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    double ex = px - s->x0 - t * dx, ey = py - s->y0 - t * dy;
+    return ex * ex + ey * ey;
+}
+
+static double hw_side(const hw_piece_t *s, double px, double py)
+{
+    return (s->x1 - s->x0) * (py - s->y0) - (s->y1 - s->y0) * (px - s->x0);
+}
+
+static double hw_piece_piece(const hw_piece_t *a, const hw_piece_t *b)
+{
+    /* two pieces that cross; those that only touch are caught by their ends */
+    if (hw_side(a, b->x0, b->y0) * hw_side(a, b->x1, b->y1) < 0 && hw_side(b, a->x0, a->y0) * hw_side(b, a->x1, a->y1) < 0) return 0;
+    double d = hw_point_piece(a->x0, a->y0, b), e = hw_point_piece(a->x1, a->y1, b);
+    if (e < d) d = e;
+    if ((e = hw_point_piece(b->x0, b->y0, a)) < d) d = e;
+    if ((e = hw_point_piece(b->x1, b->y1, a)) < d) d = e;
+    return d;
+}
+
+static int hw_pair_cmp(const void *a, const void *b)
+{
+    const hw_pair_t *pa = a, *pb = b;
+    if (pa->d != pb->d) return pa->d < pb->d ? -1 : 1;
+    return pa->a != pb->a ? pa->a - pb->a : pa->b - pb->b;
+}
+
+static void hw_put_symbol(FILE *f, uint32_t cp)
+{
+    if (cp < 0x80) fprintf(f, "%c", (int)cp);
+    else if (cp < 0x800) fprintf(f, "%c%c", (int)(0xC0 | cp >> 6), (int)(0x80 | (cp & 63)));
+    else if (cp < 0x10000) fprintf(f, "%c%c%c", (int)(0xE0 | cp >> 12), (int)(0x80 | ((cp >> 6) & 63)), (int)(0x80 | (cp & 63)));
+    else fprintf(f, "%c%c%c%c", (int)(0xF0 | cp >> 18), (int)(0x80 | ((cp >> 12) & 63)), (int)(0x80 | ((cp >> 6) & 63)), (int)(0x80 | (cp & 63)));
+}
+
+/* the least distance, squared, between a and b standing after it "extra" cells further than a line puts it; "enough" if not less */
+static double hw_pair_least(const hw_ink_t *l, const hw_ink_t *r, int extra, double enough)
+{
+    /* where a line puts b after a, see dgx_hw_line_place() */
+    int shift = l->lineLeft + l->lineWidth + l->spaceAfter - r->lineLeft + r->spaceBefore;
+    if (l->hasUp && r->hasUp && shift < l->upRight + 1 + l->spaceAfter - r->upLeft + r->spaceBefore) {
+        shift = l->upRight + 1 + l->spaceAfter - r->upLeft + r->spaceBefore;
+    }
+    shift += extra;
+    double least = enough;
+    for (int j = 0; j < r->n && least > 0; ++j) {
+        hw_piece_t moved = r->pieces[j];
+        moved.x0 += shift;
+        moved.x1 += shift;
+        double from = moved.x0 < moved.x1 ? moved.x0 : moved.x1;
+        for (int i = 0; i < l->n; ++i) {
+            /* most of the first symbol is too far to the left to matter */
+            double gap = from - (l->pieces[i].x0 > l->pieces[i].x1 ? l->pieces[i].x0 : l->pieces[i].x1);
+            if (gap > 0 && gap * gap >= least) continue;
+            double d = hw_piece_piece(&l->pieces[i], &moved);
+            if (d < least) least = d;
+        }
+    }
+    return least;
+}
+
+/* "y", "n" or "q" to a question; the end of the input is "q" */
+static int hw_ask(void)
+{
+    char line[64];
+    fprintf(stderr, " [Y/n/q] ");
+    fflush(stderr);
+    if (!fgets(line, sizeof(line), stdin)) return 'q';
+    char c = (char)tolower((unsigned char)line[0]);
+    return c == 'n' || c == 'q' ? c : c == 'y' || c == '\n' || c == '\r' ? 'y' : 'n';
+}
+
+/*
+ * What to change in the file so that no pair is left: a pair moves apart by
+ * the space after its first symbol or the space before its second one. The
+ * space that serves the most pairs is taken first, as large as the worst of
+ * them needs to stand "apart" cells away, then the same among the pairs
+ * still left. With "fix" the spaces are put into the font, each after a
+ * question if it is 2. Returns how many were.
+ */
+static int hw_pairs_advice(const hw_symbol_t *symbols, const hw_ink_t *ink, int count, hw_pair_t *close, int found, double apart,
+                           int symbolSpace, int lines, int fix)
+{
+    int *need = calloc(found, sizeof(int)), *serves = calloc(2 * count, sizeof(int)), *most = calloc(2 * count, sizeof(int));
+    int  left = found, more = 0, changed = 0;
+    for (int p = 0; p < found; ++p) {
+        need[p] = 1;
+        while (need[p] < HW_SPACE_MOST && hw_pair_least(&ink[close[p].a], &ink[close[p].b], need[p], apart * apart) < apart * apart) {
+            ++need[p];
+        }
+    }
+    fprintf(stderr, "  to move them %g cells apart, in the file of the font:\n", apart);
+    while (left) {
+        memset(serves, 0, 2 * count * sizeof(int));
+        memset(most, 0, 2 * count * sizeof(int));
+        for (int p = 0; p < found; ++p) {
+            if (!need[p]) continue;
+            int sides[2] = {close[p].a, count + close[p].b};
+            for (int k = 0; k < 2; ++k) {
+                ++serves[sides[k]];
+                if (most[sides[k]] < need[p]) most[sides[k]] = need[p];
+            }
+        }
+        int best = 0;
+        for (int i = 1; i < 2 * count; ++i) {
+            if (serves[i] > serves[best] || (serves[i] == serves[best] && most[i] < most[best])) best = i;
+        }
+        int         after = best < count, symbol = after ? best : best - count, pairs = serves[best];
+        json_t     *s = symbols[symbol].symbol;
+        const char *key = after ? "spaceAfter" : "spaceBefore";
+        int         now = after ? ink[symbol].spaceAfter : ink[symbol].spaceBefore, space = now + most[best];
+        for (int p = 0; p < found; ++p) {
+            if (need[p] && (after ? close[p].a : close[p].b) == symbol) need[p] = 0, --left;
+        }
+        if (lines-- <= 0) {
+            ++more;
+            continue;
+        }
+        fprintf(stderr, "    ");
+        hw_put_symbol(stderr, symbols[symbol].codePoint);
+        fprintf(stderr, " (\"%u\"): %s %d -> %d, %d pair%s", symbols[symbol].codePoint, key, now, space, pairs, pairs == 1 ? "" : "s");
+        if (space > HW_SPACE_MOST) {
+            fprintf(stderr, ": more than the %d a space may be\n", HW_SPACE_MOST);
+            continue;
+        }
+        int answer = fix == 2 ? hw_ask() : 'y';
+        if (fix != 2) fprintf(stderr, "\n");
+        if (answer == 'q') fix = 0, lines = 0;
+        if (!fix || answer != 'y') continue;
+        json_set_number(s, key, space);
+        json_t *before = json_get(s, "spaceBefore"), *behind = json_get(s, "spaceAfter");
+        json_set_number(s, "advance", (before ? (int)before->num : 0) + ink[symbol].lineWidth + (behind ? (int)behind->num : symbolSpace));
+        ++changed;
+    }
+    if (more > 0) fprintf(stderr, "    and %d more\n", more);
+    free(need);
+    free(serves);
+    free(most);
+    return changed;
+}
+
+/* the pairs closer than "limit", the closest first; returns how many */
+static int hw_pairs_find(const hw_symbol_t *symbols, hw_ink_t *ink, int count, int symbolSpace, double limit, hw_pair_t **pairs)
+{
+    static char where[64];
+    hw_pair_t  *close = 0;
+    int         found = 0, room = 0;
+    for (int i = 0; i < count; ++i) {
+        snprintf(where, sizeof(where), "symbol %u (U+%04X)", symbols[i].codePoint, symbols[i].codePoint);
+        hwWhere = where;
+        hw_ink(symbols[i].symbol, symbolSpace, &ink[i]);
+    }
+    hwWhere = "the font";
+    for (int a = 0; a < count; ++a) {
+        for (int b = 0; b < count; ++b) {
+            double least = hw_pair_least(&ink[a], &ink[b], 0, limit * limit);
+            if (!(least < limit * limit) || !ink[a].n || !ink[b].n) continue;
+            if (found == room) close = realloc(close, (room = room * 2 + 64) * sizeof(hw_pair_t));
+            close[found++] = (hw_pair_t){hw_root(least), a, b};
+        }
+    }
+    if (found) qsort(close, found, sizeof(hw_pair_t), hw_pair_cmp);
+    *pairs = close;
+    return found;
+}
+
+/* Tells of the pairs that stand too close and, when asked to, moves them apart in the font and in its file. */
+static void hw_pairs(const char *fontFile, const char *fontName, const hw_symbol_t *symbols, int count, int symbolSpace)
+{
+    double limit = hwPairLimit < 0 ? symbolSpace : hwPairLimit;
+    if (!(limit > 0)) return;
+    double     apart = hwPairApart < limit ? limit : hwPairApart;
+    hw_ink_t  *ink = calloc(count, sizeof(hw_ink_t));
+    hw_pair_t *close = 0;
+    int        found = hw_pairs_find(symbols, ink, count, symbolSpace, limit, &close);
+    if (found) {
+        int all = hwPairLimit >= 0 || hwPairFix, shown = !all && found > HW_PAIRS_NAMED ? HW_PAIRS_NAMED : found;
+        fprintf(stderr, "%s: %d pair%s of symbols closer than %g cells between the lines of the pen", fontName, found,
+                found == 1 ? "" : "s", limit);
+        fprintf(stderr, shown < found ? ", the closest %d:\n" : ":\n", shown);
+        for (int i = 0; i < shown; ++i) {
+            fprintf(stderr, i % 8 ? "   " : i ? "\n  " : "  ");
+            hw_put_symbol(stderr, symbols[close[i].a].codePoint);
+            hw_put_symbol(stderr, symbols[close[i].b].codePoint);
+            fprintf(stderr, " %.1f", close[i].d);
+        }
+        fprintf(stderr, "\n");
+        int changed = hw_pairs_advice(symbols, ink, count, close, found, apart, symbolSpace, all ? found : HW_ADVICE_NAMED, hwPairFix);
+        if (changed) {
+            if (json_save(fontFile)) {
+                fprintf(stderr, "Error writing font file %s: %s\n", fontFile, strerror(errno));
+                exit(1);
+            }
+            free(close);
+            found = hw_pairs_find(symbols, ink, count, symbolSpace, limit, &close);
+            fprintf(stderr, "  %s: %d space%s changed, %d pair%s left closer than %g cells\n", fontFile, changed, changed == 1 ? "" : "s",
+                    found, found == 1 ? " is" : "s are", limit);
+        } else if (!hwPairFix) {
+            /* other limits to choose from: those a pen half and three quarters as thick as the symbol space closes */
+            fprintf(stderr, "  -g %g -x changes the file so, -i asks about each space; -t cells moves the pairs further apart", limit);
+            if (hwPairLimit < 0) {
+                fprintf(stderr, ";\n  closer than");
+                for (int k = 2; k <= 3; ++k) {
+                    int less = 0, cells = symbolSpace * k / 4;
+                    while (less < found && close[less].d < cells) ++less;
+                    fprintf(stderr, "%s %d cells: %d pair%s", k == 2 ? "" : ",", cells, less, less == 1 ? "" : "s");
+                }
+                fprintf(stderr, "; -g cells lists the pairs closer than that, -g 0 turns the check off");
+            }
+            fprintf(stderr, "\n");
+        }
+    }
+    for (int i = 0; i < count; ++i) free(ink[i].pieces);
+    free(ink);
+    free(close);
 }
 
 static int hw_font(const char *fontFile, char **ranges, int numRanges, const char *charsetFile)
@@ -561,6 +968,9 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
     char comment[256];
     snprintf(comment, sizeof(comment), "%s", cname);
     for (char *c = comment; (c = strstr(c, "*/")) != 0;) c[1] = ' ';
+    /* before anything is written: the pairs that stand too close may be moved apart in the font */
+    hw_pairs(fontFile, funcname, symbols, count, symbolSpace);
+
     /* written aside and put in place when all of it is there: a font that fails halfway leaves the old file */
     snprintf(fontname, sizeof(fontname), "%s.c", funcname);
     snprintf(hwUnfinished, sizeof(hwUnfinished), "%s.tmp", fontname);
@@ -720,10 +1130,27 @@ int main(int argc, char *argv[])
 
     const char *charsetFile = 0;
     int         opt;
-    while ((opt = getopt(argc, argv, "f:")) != -1) {
+    while ((opt = getopt(argc, argv, "f:g:t:xi")) != -1) {
         switch (opt) {
         case 'f':
             charsetFile = optarg;
+            break;
+        case 'g':
+        case 't': {
+            char  *rest = 0;
+            double cells = strtod(optarg, &rest);
+            if (rest == optarg || *rest || !(cells >= 0 && cells <= 1000)) {
+                show_usage(argv[0]);
+                return 1;
+            }
+            *(opt == 'g' ? &hwPairLimit : &hwPairApart) = cells;
+            break;
+        }
+        case 'x':
+            hwPairFix = 1;
+            break;
+        case 'i':
+            hwPairFix = 2;
             break;
         default:
             show_usage(argv[0]);

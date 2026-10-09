@@ -94,14 +94,14 @@ DGX is a component, not a standalone firmware image. It is published in the
 as `jef-sure/dgx`. To add it to your own ESP-IDF project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.4.4"
+idf.py add-dependency "jef-sure/dgx^0.4.5"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.4.4"
+  jef-sure/dgx: "^0.4.5"
 ```
 
 The next build downloads it into `managed_components/`. To work on DGX itself,
@@ -425,7 +425,27 @@ while (!dgx_hw_writing_draw_to(&writing, tempo * seconds_since_start())) wait_a_
 
 ```sh
 ./font2c path/to/font0-ss.json
+./font2c -g 20 path/to/font0-ss.json
+./font2c -g 10 -t 16 -x path/to/font0-ss.json
 ```
+
+Before converting, `font2c` names the pairs of symbols that stand too close
+in a line: closer than the symbol space of the font, counted between the
+lines the middle of the pen goes along, in cells. A pen takes its thickness
+off that distance, so such a pair may touch when written. With the pairs it
+tells what to change in the editor's file to move them apart: which
+`spaceBefore` or `spaceAfter` of a symbol, and to what.
+
+| Option | Meaning | Without it |
+| --- | --- | --- |
+| `-g cells` | A pair closer than this is too close; every such pair and the whole advice are listed. `-g 0` turns the check off | the symbol space of the font, the 20 closest pairs |
+| `-t cells` | How far apart the advice moves such a pair, if further than `-g` | as far as `-g` |
+| `-x` | Put the advised spaces into the file of the font and convert the font with them | the file is not changed |
+| `-i` | The same, asking about each space: `[Y/n/q]` | |
+
+Only those numbers change in the file, the rest of its text stays as it is.
+The advice is for all the pairs at once and does not know which of them a
+text has, so `-i` often serves better than `-x`.
 
 If you prefer a GUI workflow, another option is
 [FontCreator](https://github.com/Llerr/FontCreator), which generates embedded
