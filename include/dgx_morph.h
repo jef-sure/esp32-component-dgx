@@ -29,6 +29,13 @@ extern "C" {
  * they became a source, and every cell only in `to` asks a sources callback
  * where its dots fly in from. If `to` is empty, all dots fly into the grid
  * center and fade there.
+ *
+ * What becomes of an old cell that nobody took is a choice of the
+ * application, see dgx_morph_create_with(): by default it fades where it is
+ * (DGX_MORPH_ORPHANS_FADE); with DGX_MORPH_ORPHANS_MERGE it flies into the
+ * nearest cell of `to`, first along its own figure, then across the grid, and
+ * goes out there. The bottom bar of an "E" that becomes an "F" is thus swept
+ * into the foot of the stem instead of melting in place.
  */
 
 #define DGX_MORPH_MAX_SOURCES 8
@@ -52,7 +59,27 @@ typedef struct {
     size_t number_of_fading_points;
     int width;  ///< Grid size in cells: union of both matrices.
     int height;
+    /** Orphans on their way into a cell of `to`: 255 at the start, 0 at the end, fading late. Empty unless merging. */
+    dgx_morph_segment_t *merging;
+    size_t number_of_merging;
 } dgx_morph_t;
+
+/** What becomes of an old cell that is not in `to` and became nobody's source: an orphan. */
+typedef enum {
+    DGX_MORPH_ORPHANS_FADE = 0, /**< it fades where it is */
+    DGX_MORPH_ORPHANS_MERGE,    /**< it flies into the nearest cell of `to` and goes out there */
+} dgx_morph_orphans_t;
+
+/** Options of a plan; a NULL options pointer is the same as all zeros. */
+typedef struct {
+    dgx_morph_orphans_t orphans;
+    /**
+     * How far an orphan may go to merge, in cells: along its figure, then
+     * across the grid by the rings of dgx_morph_scan_vector(). 0 is no limit,
+     * and then nothing is left to fade while `to` has a cell at all.
+     */
+    int merge_radius;
+} dgx_morph_options_t;
 
 /** Planning state passed to a sources callback. */
 typedef struct dgx_morph_ctx dgx_morph_ctx_t;
@@ -181,6 +208,34 @@ dgx_morph_t *dgx_morph_create(
     void                    *user_data
 );
 
+/**
+ * @brief Plan a morph between two matrices, with options.
+ *
+ * As dgx_morph_create(), which is this function with NULL options. With
+ * DGX_MORPH_ORPHANS_MERGE an old cell that nobody took does not fade where
+ * it is but flies into the nearest cell of `to`, static or arriving, and
+ * goes out there; a cell of `to` may take in any number of them. The
+ * nearest is found in three steps, each orphan by the first that gives it
+ * one: a cell of `to` among the eight neighbours; the cell its neighbouring
+ * orphan flows into, wave after wave along the figure, so that a bar sweeps
+ * whole into the stem it touches instead of scattering to whatever is
+ * nearest by the rings; the nearest cell of `to` by the rings of
+ * dgx_morph_scan_vector(). What is still left, further than `merge_radius`
+ * by both ways, fades where it is. Such a flight keeps its brightness to the
+ * middle of the way and fades after it; `segments`, `static_points` and
+ * `fading_points` mean what they mean without the option, and with `to`
+ * empty everything flies into the center as before.
+ *
+ * @param options  NULL for the defaults: orphans fade.
+ */
+dgx_morph_t *dgx_morph_create_with(
+    const dgx_bit_matrix_t     *from,
+    const dgx_bit_matrix_t     *to,
+    dgx_morph_sources_func_t    sources,
+    void                       *user_data,
+    const dgx_morph_options_t  *options
+);
+
 void dgx_morph_destroy(dgx_morph_t **morph);
 
 /** Receives one dot in pixels. */
@@ -208,6 +263,8 @@ float dgx_morph_ease(dgx_morph_easing_t easing, float t);
  * Cell (cx, cy) maps to pixel (x + cx*cell_width + cell_width/2, ...).
  * With trail each flight emits a head and a lagging tail at half brightness
  * each; trails need an additive renderer. Dots outside the int16_t range are skipped.
+ * A merging orphan is drawn as a flight whose brightness stays full to the
+ * middle of the way and goes to zero by the end, where its tail meets it.
  */
 void dgx_morph_draw(
     const dgx_morph_t   *morph,

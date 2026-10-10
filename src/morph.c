@@ -251,6 +251,7 @@ void dgx_morph_destroy(dgx_morph_t **morph)
         free((*morph)->segments);
         free((*morph)->static_points);
         free((*morph)->fading_points);
+        free((*morph)->merging);
         free(*morph);
         *morph = NULL;
     }
@@ -317,11 +318,176 @@ static void dgx_morph_take(struct dgx_morph_ctx *ctx, int x, int y)
     --ctx->free_sources;
 }
 
+/* brightness of a merging orphan is full to here and goes to zero by the end */
+#define DGX_MORPH_MERGE_FADE_FROM 0.5f
+
+/* whether a cell is set in rows of bits of the grid */
+static inline bool dgx_morph_bit_at(const uint32_t *rows, int row_words, int w, int h, int x, int y)
+{
+    if (x < 0 || x >= w || y < 0 || y >= h) return false;
+    return (rows[(size_t)y * row_words + (x >> 5)] >> (x & 31)) & 1u;
+}
+
+/*
+ * The orphans, old cells nobody took that are not in `to`, fly into the
+ * nearest cell of `to` instead of fading where they are. A cell of `to` is
+ * not used up: any number of orphans may flow into it. Each orphan gets its
+ * cell by the first of three steps that gives it one.
+ *
+ * A. Along the figure. An orphan with a cell of `to` among its eight
+ *    neighbours takes it, the first by dgx_morph_axis_nx/ny. The rest take
+ *    the cell of a neighbouring orphan, wave after wave over the orphans
+ *    joined by sides and corners, so that the bottom bar of an "E" flows whole
+ *    into the cell of the stem it touches, and not its right part up into
+ *    the middle bar, which is nearer by the rings. An orphan reached by
+ *    several at once takes the first by the same order of neighbours.
+ * B. The nearest cell of `to` by the rings, vector after vector of
+ *    dgx_morph_scan_vector(): for a piece that is cut off, or one further
+ *    along the figure than the radius. Nothing is taken from anybody, so each
+ *    orphan is served on its own, in any order.
+ * C. What is left, further than the radius both ways, stays in `ctx->rows`
+ *    and fades where it is, as it does without the option.
+ *
+ * The radius bounds the way of a flight in cells, along the figure as well as
+ * across; 0 is no bound, and then nothing is left for C while `to` has a cell.
+ */
+static bool dgx_morph_merge_orphans(struct dgx_morph_ctx *ctx, const uint32_t *target, dgx_morph_t *m, int radius)
+{
+    int    w = ctx->width, h = ctx->height, rw = ctx->row_words;
+    size_t cells = (size_t)w * h, n_orphans = 0, n_goals = 0;
+    for (size_t i = 0; i < (size_t)h * rw; ++i) {
+        n_orphans += (size_t)__builtin_popcount(ctx->rows[i] & ~target[i]);
+        n_goals += (size_t)__builtin_popcount(target[i]);
+    }
+    if (!n_orphans || !n_goals) return true;
+
+    /* the cells of `to` as bits by rows and by columns: the same looks at rings as at the sources */
+    struct dgx_morph_ctx goals = *ctx;
+    goals.rows = (uint32_t *)target;
+    goals.columns = calloc((size_t)w * ctx->column_words, sizeof(uint32_t));
+    int32_t *goal = malloc(cells * sizeof(*goal)); /* the cell an orphan flows into, -1 for none yet */
+    uint8_t *wave = calloc(cells, 1);               /* 1 on the wave at hand, 2 on the next, 3 served by an earlier one */
+    int32_t *queue = malloc(n_orphans * sizeof(*queue));
+    m->merging = calloc(n_orphans, sizeof(*m->merging));
+    if (!goals.columns || !goal || !wave || !queue || !m->merging) goto fail;
+    memset(goal, 0xff, cells * sizeof(*goal));
+    for (int y = 0; y < h; ++y) {
+        for (int word = 0; word < rw; ++word) {
+            for (uint32_t left = target[(size_t)y * rw + word]; left; left &= left - 1) {
+                int x = word * 32 + __builtin_ctz(left);
+                goals.columns[(size_t)x * ctx->column_words + (y >> 5)] |= 1u << (y & 31);
+            }
+        }
+    }
+
+    /* A: an orphan next to a cell of `to` takes it, the first in the order of the neighbours */
+    size_t head = 0, tail = 0;
+    for (int y = 0; y < h; ++y) {
+        for (int word = 0; word < rw; ++word) {
+            for (uint32_t left = ctx->rows[(size_t)y * rw + word] & ~target[(size_t)y * rw + word]; left; left &= left - 1) {
+                int x = word * 32 + __builtin_ctz(left);
+                for (int k = 0; k < 8; ++k) {
+                    int nx = x + dgx_morph_axis_nx[k], ny = y + dgx_morph_axis_ny[k];
+                    if (!dgx_morph_bit_at(target, rw, w, h, nx, ny)) continue;
+                    goal[(size_t)y * w + x] = ny * w + nx;
+                    wave[(size_t)y * w + x] = 1;
+                    queue[tail++] = y * w + x;
+                    break;
+                }
+            }
+        }
+    }
+    /* the rest take the cell of a neighbouring orphan, wave after wave; a wave is a cell further along the figure */
+    for (int way = 1; head < tail && (!radius || way + 1 <= radius); ++way) {
+        size_t next = tail;
+        for (size_t at = head; at < next; ++at) {
+            int x = queue[at] % w, y = queue[at] / w;
+            for (int k = 0; k < 8; ++k) {
+                int nx = x + dgx_morph_axis_nx[k], ny = y + dgx_morph_axis_ny[k];
+                if (nx < 0 || nx >= w || ny < 0 || ny >= h || wave[(size_t)ny * w + nx]) continue;
+                if (!dgx_morph_bit_at(ctx->rows, rw, w, h, nx, ny) || dgx_morph_bit_at(target, rw, w, h, nx, ny)) continue;
+                wave[(size_t)ny * w + nx] = 2;
+                queue[tail++] = ny * w + nx;
+            }
+        }
+        /* a cell of the next wave takes the goal of its first neighbour on this one */
+        for (size_t at = next; at < tail; ++at) {
+            int x = queue[at] % w, y = queue[at] / w;
+            for (int k = 0; k < 8; ++k) {
+                int nx = x + dgx_morph_axis_nx[k], ny = y + dgx_morph_axis_ny[k];
+                if (nx < 0 || nx >= w || ny < 0 || ny >= h || wave[(size_t)ny * w + nx] != 1) continue;
+                goal[queue[at]] = goal[(size_t)ny * w + nx];
+                break;
+            }
+        }
+        for (size_t at = head; at < tail; ++at) wave[queue[at]] = at < next ? 3 : 1;
+        head = next;
+    }
+
+    /* B: an orphan the waves did not reach looks for the nearest cell of `to` by the rings */
+    int reach = dgx_morph_max_int(dgx_morph_max_int(w, h) - 1, 1);
+    if (radius && radius < reach) reach = radius;
+    for (int y = 0; y < h; ++y) {
+        for (int word = 0; word < rw; ++word) {
+            for (uint32_t left = ctx->rows[(size_t)y * rw + word] & ~target[(size_t)y * rw + word]; left; left &= left - 1) {
+                int x = word * 32 + __builtin_ctz(left);
+                if (goal[(size_t)y * w + x] >= 0) continue;
+                for (int r = 1; r <= reach && goal[(size_t)y * w + x] < 0; ++r) {
+                    if (!dgx_morph_ring_has(&goals, x, y, r)) continue;
+                    for (int pass = 0; pass < 8 * r; ++pass) {
+                        int dx, dy;
+                        dgx_morph_ring_vector(r, pass, &dx, &dy);
+                        if (!dgx_morph_bit_at(target, rw, w, h, x + dx, y + dy)) continue;
+                        goal[(size_t)y * w + x] = (y + dy) * w + x + dx;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /* the flights, in scan order; an orphan that flies is no longer an old cell to fade */
+    for (int y = 0; y < h; ++y) {
+        for (int word = 0; word < rw; ++word) {
+            for (uint32_t left = ctx->rows[(size_t)y * rw + word] & ~target[(size_t)y * rw + word]; left; left &= left - 1) {
+                int     x = word * 32 + __builtin_ctz(left);
+                int32_t g = goal[(size_t)y * w + x];
+                if (g < 0) continue;
+                m->merging[m->number_of_merging++] =
+                    (dgx_morph_segment_t){ { .x = (int16_t)x, .y = (int16_t)y }, { .x = (int16_t)(g % w), .y = (int16_t)(g / w) }, 255, 0 };
+                dgx_morph_take(ctx, x, y);
+            }
+        }
+    }
+    free(goals.columns);
+    free(goal);
+    free(wave);
+    free(queue);
+    return true;
+
+fail:
+    free(goals.columns);
+    free(goal);
+    free(wave);
+    free(queue);
+    return false;
+}
+
 dgx_morph_t *dgx_morph_create(
     const dgx_bit_matrix_t  *from,
     const dgx_bit_matrix_t  *to,
     dgx_morph_sources_func_t sources,
     void                    *user_data)
+{
+    return dgx_morph_create_with(from, to, sources, user_data, NULL);
+}
+
+dgx_morph_t *dgx_morph_create_with(
+    const dgx_bit_matrix_t    *from,
+    const dgx_bit_matrix_t    *to,
+    dgx_morph_sources_func_t   sources,
+    void                      *user_data,
+    const dgx_morph_options_t *options)
 {
     dgx_morph_t *m = calloc(1, sizeof(*m));
     if (!m) return NULL;
@@ -523,7 +689,11 @@ dgx_morph_t *dgx_morph_create(
             pending = next_pending;
         }
     }
-    /* an old cell that became nobody's source and is not in `to` fades where it is */
+    /* an old cell that became nobody's source and is not in `to` flies into the nearest cell of `to` if asked to */
+    if (options && options->orphans == DGX_MORPH_ORPHANS_MERGE) {
+        if (!dgx_morph_merge_orphans(&ctx, target, m, options->merge_radius < 0 ? 0 : options->merge_radius)) goto fail;
+    }
+    /* and fades where it is otherwise */
     for (int y = 0; y < h; ++y) {
         for (int word = 0; word < rw; ++word) {
             for (uint32_t left = ctx.rows[(size_t)y * rw + word] & ~target[(size_t)y * rw + word]; left; left &= left - 1) {
@@ -587,6 +757,20 @@ static bool dgx_morph_pixel(dgx_point_2d_t a, dgx_point_2d_t b, float t, int x, 
     return true;
 }
 
+/* the head of a flight where it is at t, and its tail at t_tail, at half the brightness each */
+static void dgx_morph_flight(const dgx_morph_segment_t *s, float t, float t_tail, uint8_t intensity, int x, int y, int cell, bool trail,
+                             dgx_morph_dot_func_t dot, void *user_data)
+{
+    dgx_point_2d_t head, tail;
+    bool           head_ok = dgx_morph_pixel(s->start, s->end, t, x, y, cell, &head);
+    if (trail) {
+        if (dgx_morph_pixel(s->start, s->end, t_tail, x, y, cell, &tail)) dot(user_data, &tail, (uint8_t)(intensity / 2));
+        if (head_ok) dot(user_data, &head, (uint8_t)(intensity / 2));
+    } else if (head_ok) {
+        dot(user_data, &head, intensity);
+    }
+}
+
 void dgx_morph_draw(
     const dgx_morph_t   *morph,
     float                t,
@@ -606,16 +790,14 @@ void dgx_morph_draw(
     for (size_t i = 0; i < morph->number_of_segments; ++i) {
         const dgx_morph_segment_t *s = &morph->segments[i];
         int v = s->start_intensity + (int)((s->end_intensity - s->start_intensity) * t);
-        uint8_t intensity = (uint8_t)(v < 0 ? 0 : (v > 255 ? 255 : v));
-        dgx_point_2d_t head, tail;
-        bool head_ok = dgx_morph_pixel(s->start, s->end, t, x, y, cell_width, &head);
-        if (trail) {
-            if (dgx_morph_pixel(s->start, s->end, t_tail, x, y, cell_width, &tail)) {
-                dot(user_data, &tail, (uint8_t)(intensity / 2));
-            }
-            if (head_ok) dot(user_data, &head, (uint8_t)(intensity / 2));
-        } else if (head_ok) {
-            dot(user_data, &head, intensity);
+        dgx_morph_flight(s, t, t_tail, (uint8_t)(v < 0 ? 0 : (v > 255 ? 255 : v)), x, y, cell_width, trail, dot, user_data);
+    }
+    /* an orphan on its way keeps its brightness to the middle of the way and goes out by the end */
+    if (morph->number_of_merging) {
+        float   s = (t - DGX_MORPH_MERGE_FADE_FROM) / (1.0f - DGX_MORPH_MERGE_FADE_FROM);
+        uint8_t merge = s <= 0.0f ? 255 : (uint8_t)(255.0f * (1.0f - s * s * (3.0f - 2.0f * s)));
+        for (size_t i = 0; i < morph->number_of_merging; ++i) {
+            dgx_morph_flight(&morph->merging[i], t, t_tail, merge, x, y, cell_width, trail, dot, user_data);
         }
     }
     for (size_t i = 0; i < morph->number_of_static_points; ++i) {

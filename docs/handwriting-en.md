@@ -196,9 +196,9 @@ ends. A straight line with evenly set points gives 1. This is what
 `pieces = 0` does, with `d` of half a pixel. The bound is safe but not tight:
 it gives about 20% more pieces than are really needed.
 
-A font does better. The editor tries the numbers one by one and keeps, for
-every curve, the smallest that holds half a cell on its own grid. At a scale
-it is
+The curves of a font have a tighter number. The editor tries the numbers one
+by one and keeps, for every curve, the smallest that holds half a cell on its
+own grid. At a scale it is
 
 ```
 n = ceil(pieces × √scale)
@@ -369,9 +369,9 @@ The same works for a single curve: `dgx_bezier4_begin()` prepares it and
 ### To the display by parts
 
 A pen adds a few pixels a step, and the whole band need not go to the display
-for them. Everything a text is written with marks the place it has changed,
-and a virtual screen gathers those places into one rectangle while a batch is
-open on it. The rectangle is taken and only it is sent:
+for them. Every drawing function the writing uses marks the place it has
+changed, and a virtual screen gathers those places into one rectangle while a
+batch is open on it. The rectangle is taken and only it is sent:
 
 ```c
 dgx_screen_progress_up(band);   /* the batch stays open: the changes are gathered, not dropped */
@@ -592,7 +592,7 @@ the stack or wherever you put it. `font0ss` is 17 KB of flash.
   are to be drawn in the [hw-fonts][gh-hw-fonts] editor by those who need
   them; a symbol the font does not have leaves an empty cell.
 - Lines are not smoothed. An 8-bit virtual screen leaves room for it.
-- A morph of several lines is not planned in any special way: the texts go as
+- A morph of several lines knows nothing special about lines: the texts go as
   one way of the pen.
 - At small sizes a thick pen hides small things: a comma is 10 cells long,
   2.5 pixels at a scale of 0.25, and looks like a dot.

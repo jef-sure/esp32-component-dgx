@@ -36,7 +36,7 @@ cell is either lit or not. We scan the whole matrix and calculate
 | `cell_case` | was | will be | what to draw |
 | --- | --- | --- | --- |
 | 0 | off | off | nothing |
-| 1 | on | off | fade the dot in place |
+| 1 | on | off | the dot fades in place or, at the choice of the application, flows into the nearest dot that stays |
 | 2 | off | on | a dot flies in from somewhere |
 | 3 | on | on | the dot stays where it is |
 
@@ -47,10 +47,14 @@ so the source has to be chosen. That is where the projects differ, which is
 why the framework makes this part a callback and keeps everything else
 common.
 
-Case 1 is checked afterward: a cell that does not survive may still have been
-a source for another cell's birth. If so, it has already "flown away" and
-should not also fade separately. If it was not used as a source, it simply
-fades out, without a "head" or "tail", linearly from 255 to 0 as `t` advances.
+Case 1 is checked after the sources have been chosen: a cell that does not
+survive may still have been a source for another cell's birth. If so, it has
+already "flown away" and should not also fade separately. If it was not used
+as a source, it is an orphan. By default it simply fades out, without a
+"head" or "tail", linearly from 255 to 0 as `t` advances. A second mode,
+`dgx_morph_create_with()` with `DGX_MORPH_ORPHANS_MERGE`, sends it into the
+nearest dot that stays on the screen instead; it is described below, in
+"Orphans Flow into the Dots That Stay".
 
 The framework's model is simple: a finite set of cells transitions to another
 finite set along straight segments. This works for cellular automata, dotted
@@ -246,17 +250,19 @@ matrix with brightness increasing from 0 to 255. Return `DGX_MORPH_DEFER` and
 the cell is retried on the next pass, after every cell in the current pass has
 been assigned a source. A cell may be deferred as many times as there are
 vectors to every cell of the grid, and 8 times at least; one still deferred
-on the last pass appears from the center. That is a large number: 4 r (r + 1)
-for a grid r + 1 cells wide, hundreds of thousands of calls for one cell of a
-320 x 240 grid. A callback that defers should give its last answer as soon as
-it knows there will be no other.
+on the last pass appears from the center. That can be a lot of passes:
+4 r (r + 1) for a grid r + 1 cells wide, hundreds of thousands of calls for
+one cell of a 320 x 240 grid if the callback defers it to the end. So a
+callback should give its last answer as soon as it knows there will be no
+other.
 
-A callback is a call per waiting cell per pass, and that is what it costs.
-The planner does the search of `dgx_morph_sources_cells` itself, on words of
-bits, when it is given that very function; asked through a callback that only
-calls it, the same search with the same plan takes 6 to 16 times longer on
-average and up to 50 times at worst. For the weather symbols on an ESP32 at
-240 MHz, a plan in milliseconds, on average and at most:
+The price of a callback is a call per waiting cell per pass. The built-in
+search for glyphs, `dgx_morph_sources_cells` (described below), the planner
+runs itself, on words of bits, when it is given that very function. The same
+search asked through a callback of your own that only calls it gives the same
+plan, but takes 6 to 16 times longer on average and up to 50 times at worst.
+For the weather symbols on an ESP32 at 240 MHz, a plan in milliseconds, on
+average and at most:
 
 | transitions | the planner itself | through a callback |
 | --- | --- | --- |
@@ -264,13 +270,15 @@ average and up to 50 times at worst. For the weather symbols on an ESP32 at
 | weather that follows | 1.6, 4.2 | 10, 65 |
 | any weather to any other | 2.6, 7.8 | 42, 412 |
 
-So a callback that defers pass after pass is for a search of another kind,
-not for a variation of this one; one that answers on its first or second
-pass, as `dgx_morph_sources_life` does, costs next to nothing.
+So a callback of your own that defers pass after pass makes sense for a
+search of another kind, not for a variation of this one. A callback that
+answers on its first or second pass, as `dgx_morph_sources_life` does, costs
+next to nothing.
 
 Inside the callback, `dgx_morph_was_set(ctx, x, y)` tells whether a cell was
 set in `from`, and `dgx_morph_is_used(ctx, x, y)` tells whether it has already
-been used. There are two built-in callbacks, one for each source project.
+been used. There are two built-in callbacks, one for each source project,
+and the second has a variant bounded by a radius.
 
 #### Game of Life: Every Live Neighbor Is a Parent
 
@@ -328,8 +336,8 @@ pass, so none can take a source from another. Only the order of the vectors is
 a preference, and some order there has to be.
 
 It was not always so. At first there were two passes: neighbors, and then,
-cell after cell, all the rings at once; a cell early in the scan could take a
-source four cells away which a cell after it had three cells away. On the
+cell after cell, all the rings at once. A cell early in the scan could take a
+source four cells away from it that a later cell had three cells away. On the
 weather symbols of `WeatherIconsRegular27` the flights are now 17% shorter on
 average, 4.1 cells instead of 5.0, and those of four cells and more a fifth
 fewer.
@@ -343,16 +351,17 @@ No dot appears from nowhere while an unused source exists, so the morph looks
 like a flow. Once the sources run out, the cells left appear from the center
 at once.
 
-Asked through the callback, this is one call per waiting cell per vector. The
-planner does the same on rows of bits when it is given
-`dgx_morph_sources_cells` itself: the cells of a row still waiting, and the
-unused sources of the row a vector points to moved back by it, meet in one
-AND of two words. A ring on which no waiting cell has anything is passed
-without its vectors, which is seen from bits kept by rows and by columns, four
-looks a cell. A vector is passed over as well when it cannot lead from the box
-of the waiting cells into the box of the unused sources; the boxes shrink as
-the cells are served, and the search ends at the ring that is further than
-both.
+Asked through the callback, this is one call per waiting cell per vector.
+When the planner is given `dgx_morph_sources_cells` itself, it does the same
+on rows of bits: the cells of a row still waiting, and the unused sources of
+the row a vector points to moved back by it, meet in one AND of two words. A
+ring on which no waiting cell has anything is passed without its vectors.
+Whether a ring is empty is seen from the bits, which are kept both by rows
+and by columns: four checks a cell, one per side of the ring. A vector is
+passed over as well when it cannot lead from the box of the waiting cells
+into the box of the unused sources. The boxes shrink as the cells are served,
+and the search ends at the ring that no longer reaches from one box to the
+other.
 
 Timed on an ESP32 with the weather symbols a clock shows, 42 x 39 cells. Day
 and night of the same weather, or weather that follows one another, such as
@@ -378,9 +387,9 @@ from one set of pairs to another. The ESP32-P4 here is an engineering sample.
 #### Within a Radius
 
 `dgx_morph_sources_cells_within` is the same search kept within a radius. A
-new cell that has no unused cell within it appears from the center of the
-grid at once, an old cell that nobody took fades where it is, and the rings
-beyond the radius are not gone through. The radius, in cells, is an `int`
+new cell that has no unused cell within that radius appears from the center
+of the grid at once; an old cell that nobody took fades where it is; the
+rings beyond the radius are not gone through at all. The radius, in cells, is an `int`
 that `user_data` points to; NULL or a radius below 1 is no limit.
 
 ```c
@@ -410,6 +419,64 @@ In a callback of your own, `dgx_morph_scan_vector()` gives the vector of a
 pass, `dgx_morph_ring_at()` looks at the whole ring of one radius and
 `dgx_morph_ring_find()` at all the rings from a radius up.
 
+#### Orphans Flow into the Dots That Stay
+
+The search for sources decides where the new dots fly in from. Case 1 is
+left, the orphan: an old dot that became nobody's source and is not lit in
+the new symbol. By default it fades where it is, and the transition E to F
+is the bottom bar of the E simply melting. A second mode is turned on by the
+options of `dgx_morph_create_with()`:
+
+```c
+dgx_morph_options_t options = { DGX_MORPH_ORPHANS_MERGE, 8 };
+morph = dgx_morph_create_with(from, to, dgx_morph_sources_cells, NULL, &options);
+```
+
+An orphan flies into the nearest dot that stays on the screen, static or
+arriving, and merges into it. The bottom bar of the E is swept to the left,
+into the foot of the stem of the F. A goal is not used up: any number of
+orphans may flow into one dot. The nearest is found in three steps; each
+orphan takes its goal from the first step that finds one for it.
+
+1. **Flow along the figure.** An orphan with a dot of the new symbol among
+   its eight neighbours takes it, with several the first in the order of the
+   neighbours: up, left, right, down, then the diagonals. The other orphans
+   take the goal of a neighbouring orphan, wave after wave from those already
+   assigned, cell by cell along the figure. So the bar of the E flows whole
+   into the cell of the stem it touches. Without this step its right part
+   would go up into the middle bar, which is nearer by the rings. A bar two
+   rows thick flows with each row into its own cell of the stem.
+2. **The nearest dot by the rings.** An orphan the wave did not reach, such
+   as a separate piece that disappears whole, looks for a dot of the new symbol by
+   the vectors of `dgx_morph_scan_vector()`, ring after ring. Goals are not
+   taken, so the order in which the orphans are served decides nothing.
+3. **The rest fades where it is**, as without the mode.
+
+`merge_radius` bounds the way on both steps, in cells along the figure and by
+the rings; 0 is no bound, and then nothing is left over while the new symbol
+has a dot at all. An empty new symbol is the special case it was before:
+everything flies into the center.
+
+Such flights live in their own array, `merging`, and are drawn unlike the
+others. The brightness is full to the middle of the way and then goes down by
+a smoothstep to zero at `t = 1`; a linear fade from the start would give the
+same melting, only in motion. Splitting the brightness among those that
+converge, as it is split among sources, is out of the question here: a line
+of ten cells would at once be ten times darker. At the end of the flight the
+brightnesses add up in the glow and give a flash at the goal, cut at 255;
+that is the merging, and the phosphor smooths it. The tail is as on any
+flight: it lags, and at `t = 1` it meets the head and the goal at zero
+brightness, so the last frame is the clean picture of the new symbol.
+`segments`, `static_points` and `fading_points` mean what they mean without
+the mode, and a plan without the mode stays the same bit for bit.
+
+The price on an ESP32, a plan between any two of the weather symbols a
+clock shows, 42 x 39 cells: 3.3 ms on average and 9.3 at most with the
+merge, 2.6 and 7.7 without. Such a pair has 57 orphans on average; with no
+limit all of them merge, within 8 cells 88% with a flight of 3.7 cells on
+average, within 4 cells 62% at 2.4 cells. Weather that follows one another:
+2.0 ms against 1.6, and within 8 cells everything merges.
+
 ### Frame: Where the Dots Are Now
 
 ```c
@@ -421,7 +488,9 @@ dgx_morph_draw(morph, t, x, y, cell_width, true, dgx_morph_glow_dot, glow);
 `dgx_morph_draw()` emits every dot to the renderer callback in pixel
 coordinates: cell (cx, cy) maps to `(x + cx * cell + cell / 2, y + cy * cell + cell / 2)`.
 Flights emit the head and, if enabled, the tail at half brightness each;
-static dots use 255; fading dots use `255 * (1 - t)`.
+static dots use 255; fading dots use `255 * (1 - t)`; merging orphans are
+the same flight with head and tail, but at 255 to the middle of the way and
+a smoothstep down to zero after it.
 
 Frames have no state; the morph is only read, and the application keeps time.
 Several morphs at different screen positions can therefore use the same `t`,
@@ -450,7 +519,7 @@ int64_t total_us = dgx_morph_text_duration_us(text, duration_us, delay_us);
 dgx_morph_text_destroy(&text);
 ```
 
-No synchronization is needed. One thing to keep in mind with glow is that a
+The morphs need no synchronization among themselves. One thing to keep in mind with glow is that a
 renderer has one frame blend for its entire image and accepts a single `t`.
 For letters with independent progress, it is simplest to create one glow
 renderer per letter, sized to that letter. The total memory is about the same
@@ -507,10 +576,10 @@ dgx_morph_glow_set_filter(glow, dgx_morph_glow_blur, (void *)&passes);
 The filter gets a copy of the finished frame as a brightness map, one byte per
 pixel, and what it leaves is mapped to colors and shown. Nothing it does gets
 into the phosphor or into the frames that follow, so it can be switched on and
-off at any moment. `dgx_morph_glow_blur()` is a ready one. Glyphs of an
-outline font turned into dots keep the steps of its one-bit picture, weather
-symbols with their thin slanted lines most of all, and a pass or two of blur
-smooths them out. Your own filter is any function of the same signature. The
+off at any moment. One filter comes ready, `dgx_morph_glow_blur()`, a blur.
+Glyphs of an outline font turned into dots keep the steps of its one-bit
+picture, weather symbols with their thin slanted lines most of all; a pass or
+two of blur smooths them out. Your own filter is any function of the same signature. The
 copy costs one more byte per pixel; on a 216 × 203 frame one pass of blur
 takes the CYD glyph demo from 44 to 35 frames a second, two passes to 31.
 
@@ -615,14 +684,15 @@ dgx_morph_t *morph = dgx_morph_create(from, to, dgx_morph_sources_cells, NULL);
 
 ## How the Projects Fit
 
-The first two projects, rewritten this way, are in the examples:
-`examples/glyph_morph_demo` and `examples/life_morph_demo`.
+Two of the three projects, rewritten this way, are in the examples:
+`examples/glyph_morph_demo` and `examples/life_morph_demo`; the third stays
+as it is.
 
 **[cyd-dotview-morphing][gh-dotview-morphing].** From roughly 800 lines in
 `main.c`, the cell matrix, segment vector, `create_cell_morphing()` with its
 ring search (about 300 lines), the glow code, and `collect_initial_glow()` go
-away. The first frame is now taken as-is, replacing the phosphor pre-warm.
-Another 316 lines of unused wrappers disappear. Display initialization, the
+away: no phosphor pre-warm is needed, because the first frame is taken as-is.
+Another 316 lines of unused wrappers go too. Display initialization, the
 symbol loop and timing remain.
 
 **[cyd-life-morphing][gh-life-morphing].** `LifeTransformation`,
@@ -652,11 +722,11 @@ linear index.
 
 **Neighbor order matters.** In dotview-morphing, neighbors are checked axes
 first; in Game of Life they are scanned row by row. When only one source is
-needed, the first match wins. With a shared order, CELLS chose a diagonal
+needed, the first match wins. With a shared order, `dgx_morph_sources_cells` chose a diagonal
 where the original chose the neighbor above. The callback now defines the
 order.
 
-**Static dots can also be sources.** The first CELLS version reserved static
+**Static dots can also be sources.** The first `dgx_morph_sources_cells` version reserved static
 dots, which changed the result from the original. There, a static dot stays
 lit and can also launch a flight into a neighboring cell.
 
@@ -709,10 +779,21 @@ Host tests live in `test/host`. They are built with gcc using ESP-IDF stubs
 and run under ASan/UBSan with `make -C test/host`. They cover:
 
 - a Life blinker: 6 flights at 85 brightness, one static dot, no fading dots;
-- CELLS: flight (7, 5) → (5, 2) via a ring, static source, axis neighbor before
-  diagonal, unused diagonal fades;
-- empty `from`: appearance from the center; endless `DGX_MORPH_DEFER` does
-  not loop forever;
+- `dgx_morph_sources_cells`: flight (7, 5) → (5, 2) via a ring, static
+  source, axis neighbor before diagonal, unused diagonal fades;
+- the search by vectors: the order of the vectors ring by ring, a line moved
+  aside flies by one vector, the planner's plan on words of bits matches the
+  plan through a callback on random grids and glyphs, with a radius and
+  without;
+- orphans: the bar of an E flows into the stem of an F, two rows thick as
+  well, a separate piece searches by the rings and fades beyond the radius,
+  the order of the neighbors, a plan without the mode does not change; on
+  every pair of `WeatherIconsRegular13` symbols, the digits and capitals of
+  `TerminusTTFMedium12` and the digits of `CasusDotView` merging takes
+  exactly the orphans and every flight ends in a cell of `to`; drawing with
+  the late fade;
+- empty `from`: appearance from the center; empty `to`: every dot flies into
+  the center from 255 to 0; endless `DGX_MORPH_DEFER` does not loop forever;
 - matrices of different sizes, `NULL`, and a dense checkerboard that grows
   the flight array;
 - drawing: cell-to-pixel mapping; two half-intensity stamps at the end of a

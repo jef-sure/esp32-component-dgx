@@ -94,14 +94,14 @@ DGX is a component, not a standalone firmware image. It is published in the
 as `jef-sure/dgx`. To add it to your own ESP-IDF project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.4.7"
+idf.py add-dependency "jef-sure/dgx^0.4.8"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.4.7"
+  jef-sure/dgx: "^0.4.8"
 ```
 
 The next build downloads it into `managed_components/`. To work on DGX itself,
@@ -492,7 +492,10 @@ the scaled matrix and that margin fit on screen.
 stores the flights, static dots and fading dots. `dgx_morph_sources_cells`
 chooses one available source for each new cell: an adjacent cell first, then
 an expanding ring. Use `dgx_morph_sources_life` instead when every live
-neighbor should contribute, as in Game of Life.
+neighbor should contribute, as in Game of Life. An old dot nobody took fades
+where it is; `dgx_morph_create_with()` with `DGX_MORPH_ORPHANS_MERGE` sends it
+into the nearest dot that stays instead, so the bottom bar of an "E" is swept
+into the stem of an "F".
 
 **4. Animate the transition.** On each frame, `dgx_morph_progress()` maps
 elapsed microseconds to `[0, 1]`. `dgx_morph_draw()` emits the dots at that
@@ -539,7 +542,7 @@ static void morph_glyphs(dgx_screen_t *screen, dgx_font_t *font)
     int height = from->height * cell + 2 * radius;
     int x = (screen->width - width) / 2;
     int y = (screen->height - height) / 2;
-    // CELLS uses a free neighbor first, then searches expanding rings.
+    // the nearest free cell of the old glyph, searched vector by vector, ring by ring
     morph = dgx_morph_create(from, to, dgx_morph_sources_cells, NULL);
     glow = dgx_morph_glow_create(width, height, cell, screen->color_bits);
     if (!morph || !glow) goto cleanup;
@@ -788,7 +791,7 @@ another; declared in [include/dgx_matrix_morph.h](include/dgx_matrix_morph.h),
 | --- | --- | --- |
 | Data | `dgx_bit_matrix_t`, `dgx_matrix_*()` | Packed 1-bit grid; inline `get_point`/`set_point`; `clear`, `clone`, `copy`, `equals`. |
 | Sources | `dgx_morph_glyph_matrix(font, cp)`, `dgx_matrix_from_bw_bitmap(bmap)` | Glyph of a dot or bitmap font as a matrix in the font-wide box; any 1-bpp bitmap as a matrix. |
-| Morph | `dgx_morph_create(from, to, sources, user_data)` | Plans flights in cell coordinates. `sources` decides where each new cell flies in from: `dgx_morph_sources_life` (all live neighbors) `dgx_morph_sources_cells` (the nearest free cell, searched vector by vector over the whole grid, so a line that moved flies as a whole), `dgx_morph_sources_cells_within` (the same no further than a radius, an `int` that `user_data` points to), or your own callback, which is many times slower when it defers pass after pass. Sides above 32767 cells are rejected. |
+| Morph | `dgx_morph_create(from, to, sources, user_data)` | Plans flights in cell coordinates. `sources` decides where each new cell flies in from: `dgx_morph_sources_life` (all live neighbors) `dgx_morph_sources_cells` (the nearest free cell, searched vector by vector over the whole grid, so a line that moved flies as a whole), `dgx_morph_sources_cells_within` (the same no further than a radius, an `int` that `user_data` points to), or your own callback, which is many times slower when it defers pass after pass. Sides above 32767 cells are rejected. `dgx_morph_create_with(..., &options)` takes a `dgx_morph_options_t`: with `DGX_MORPH_ORPHANS_MERGE` an old cell nobody took flies into the nearest cell of `to`, along its figure first, and goes out there instead of fading in place; `merge_radius` bounds the way, 0 is no limit. |
 | Text | `dgx_morph_text_create(font, from, to, length, sources, user_data)`, `dgx_morph_text_duration_us()` | One morph per letter between two UTF-8 strings; the shorter one is padded with spaces. `changed` tells how many letters actually move. |
 | Frame | `dgx_morph_draw(morph, t, x, y, cell, trail, dot, user_data)`, `dgx_morph_progress()` | Stateless: emits the dots of progress `t` in pixels through a `dgx_morph_dot_func_t`. |
 | Renderers | `dgx_morph_glow_*` / `dgx_morph_sprite_*` | Additive glow with phosphor persistence and its own vscreen, or an intensity-scaled dot sprite. Both map brightness to colors through a replaceable 256-entry LUT in the screen format (16, 18 or 24 bits). |

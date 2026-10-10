@@ -7,6 +7,7 @@
 #include "dgx_morph_sources.h"
 #include "fonts/CasusDotView.h"
 #include "fonts/TerminusTTFMedium12.h"
+#include "fonts/WeatherIconsRegular13.h"
 
 typedef struct {
     int count;
@@ -590,6 +591,361 @@ static void test_text(void)
     CHECK(dgx_morph_text_create(NULL, "a", "b", 0, NULL, NULL) == NULL);
 }
 
+/* a matrix from rows of text, '#' a set cell */
+static dgx_bit_matrix_t *picture(const char *const *rows, int height)
+{
+    dgx_bit_matrix_t *m = dgx_matrix_init((uint16_t)strlen(rows[0]), (uint16_t)height);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; rows[y][x]; ++x) dgx_matrix_set_point(m, x, y, rows[y][x] == '#');
+    }
+    return m;
+}
+
+static const dgx_morph_options_t merge_all = { DGX_MORPH_ORPHANS_MERGE, 0 };
+static const dgx_morph_options_t fade_all = { DGX_MORPH_ORPHANS_FADE, 0 };
+
+/* how many merging flights of a morph end in a cell */
+static int merging_into(const dgx_morph_t *m, int x, int y)
+{
+    int n = 0;
+    for (size_t i = 0; i < m->number_of_merging; ++i) {
+        const dgx_morph_segment_t *g = &m->merging[i];
+        if (g->end.x == x && g->end.y == y && g->start_intensity == 255 && g->end_intensity == 0) ++n;
+    }
+    return n;
+}
+
+/* the plans of two morphs are the same but for the orphans */
+static void check_same_but_orphans(const dgx_morph_t *a, const dgx_morph_t *b)
+{
+    CHECK(a && b && a->number_of_segments == b->number_of_segments && a->number_of_static_points == b->number_of_static_points);
+    if (!a || !b || a->number_of_segments != b->number_of_segments || a->number_of_static_points != b->number_of_static_points) return;
+    for (size_t i = 0; i < a->number_of_segments; ++i) {
+        CHECK(memcmp(&a->segments[i].start, &b->segments[i].start, sizeof(dgx_point_2d_t)) == 0);
+        CHECK(memcmp(&a->segments[i].end, &b->segments[i].end, sizeof(dgx_point_2d_t)) == 0);
+        CHECK(a->segments[i].start_intensity == b->segments[i].start_intensity && a->segments[i].end_intensity == b->segments[i].end_intensity);
+    }
+    CHECK(memcmp(a->static_points, b->static_points, a->number_of_static_points * sizeof(dgx_point_2d_t)) == 0);
+}
+
+/* the bottom bar of an E sweeps whole into the foot of the stem of an F */
+static void test_merge_e_to_f(void)
+{
+    static const char *const e[] = { "####", "#...", "###.", "#...", "####" };
+    static const char *const f[] = { "####", "#...", "###.", "#...", "#..." };
+    dgx_bit_matrix_t *from = picture(e, 5), *to = picture(f, 5);
+    dgx_morph_t *fade = dgx_morph_create(from, to, dgx_morph_sources_cells, NULL);
+    dgx_morph_t *merge = dgx_morph_create_with(from, to, dgx_morph_sources_cells, NULL, &merge_all);
+    CHECK(fade && fade->number_of_fading_points == 3 && fade->number_of_merging == 0 && fade->merging == NULL);
+    CHECK(merge && merge->number_of_merging == 3 && merge->number_of_fading_points == 0);
+    CHECK(merge && merging_into(merge, 0, 4) == 3);
+    for (size_t i = 0; merge && i < merge->number_of_merging; ++i) CHECK(merge->merging[i].start.y == 4 && merge->merging[i].start.x == (int)i + 1);
+    check_same_but_orphans(fade, merge);
+    dgx_morph_destroy(&fade);
+    dgx_morph_destroy(&merge);
+
+    /* a bar two rows thick: each row flows into its own cell of the stem */
+    static const char *const e2[] = { "####", "#...", "###.", "#...", "####", "####" };
+    static const char *const f2[] = { "####", "#...", "###.", "#...", "#...", "#..." };
+    dgx_matrix_destroy(&from), dgx_matrix_destroy(&to);
+    from = picture(e2, 6), to = picture(f2, 6);
+    merge = dgx_morph_create_with(from, to, dgx_morph_sources_cells, NULL, &merge_all);
+    CHECK(merge && merge->number_of_merging == 6 && merge->number_of_fading_points == 0);
+    CHECK(merge && merging_into(merge, 0, 4) == 3 && merging_into(merge, 0, 5) == 3);
+    for (size_t i = 0; merge && i < merge->number_of_merging; ++i) CHECK(merge->merging[i].start.y == merge->merging[i].end.y);
+    dgx_morph_destroy(&merge);
+    dgx_matrix_destroy(&from), dgx_matrix_destroy(&to);
+}
+
+/* a piece cut off from everything finds the nearest cell of `to` by the rings, within the radius only */
+static void test_merge_apart(void)
+{
+    dgx_bit_matrix_t *from = row("#..#"), *to = row("#...");
+    dgx_morph_t *m = dgx_morph_create_with(from, to, dgx_morph_sources_cells, NULL, &merge_all);
+    CHECK(m && m->number_of_merging == 1 && m->number_of_fading_points == 0 && m->number_of_static_points == 1);
+    CHECK(m && merging_into(m, 0, 0) == 1 && m->merging[0].start.x == 3);
+    dgx_morph_destroy(&m);
+    dgx_morph_options_t near = { DGX_MORPH_ORPHANS_MERGE, 2 };
+    m = dgx_morph_create_with(from, to, dgx_morph_sources_cells, NULL, &near);
+    CHECK(m && m->number_of_merging == 0 && m->number_of_fading_points == 1 && m->fading_points[0].x == 3);
+    dgx_morph_destroy(&m);
+    near.merge_radius = 3;
+    m = dgx_morph_create_with(from, to, dgx_morph_sources_cells, NULL, &near);
+    CHECK(m && m->number_of_merging == 1 && m->number_of_fading_points == 0);
+    dgx_morph_destroy(&m);
+    dgx_matrix_destroy(&from), dgx_matrix_destroy(&to);
+
+    /* the radius bounds the way along the figure as well: a bar of four, the stem at its left */
+    static const char *const bar[] = { "#....", "#####" };
+    static const char *const stem[] = { "#....", "#...." };
+    from = picture(bar, 2), to = picture(stem, 2);
+    near.merge_radius = 2;
+    m = dgx_morph_create_with(from, to, dgx_morph_sources_cells, NULL, &near);
+    CHECK(m && m->number_of_merging == 2 && m->number_of_fading_points == 2);
+    CHECK(m && merging_into(m, 0, 1) == 2);
+    for (size_t i = 0; m && i < m->number_of_fading_points; ++i) CHECK(m->fading_points[i].x >= 3);
+    dgx_morph_destroy(&m);
+    near.merge_radius = 1;
+    m = dgx_morph_create_with(from, to, dgx_morph_sources_cells, NULL, &near);
+    CHECK(m && m->number_of_merging == 1 && m->number_of_fading_points == 3);
+    dgx_morph_destroy(&m);
+    dgx_matrix_destroy(&from), dgx_matrix_destroy(&to);
+}
+
+/* with a cell of `to` above and one to the left, the one above is taken: the order of the neighbours */
+static void test_merge_neighbour_order(void)
+{
+    static const char *const a[] = { ".#.", "##.", "..." };
+    static const char *const b[] = { ".#.", "#..", "..." };
+    dgx_bit_matrix_t *from = picture(a, 3), *to = picture(b, 3);
+    dgx_morph_t *m = dgx_morph_create_with(from, to, dgx_morph_sources_cells, NULL, &merge_all);
+    CHECK(m && m->number_of_merging == 1 && merging_into(m, 1, 0) == 1);
+    dgx_morph_destroy(&m);
+    /* a wave reaching a cell from above and from the left: the one above wins too */
+    static const char *const c[] = { ".##", "###", "..." };
+    static const char *const d[] = { "..#", "#..", "..." };
+    dgx_matrix_destroy(&from), dgx_matrix_destroy(&to);
+    from = picture(c, 3), to = picture(d, 3);
+    m = dgx_morph_create_with(from, to, dgx_morph_sources_cells, NULL, &merge_all);
+    /* (1, 0) takes (2, 0) to its right, (1, 1) takes (0, 1) to its left, (2, 1) takes (2, 0) above; nobody waits for a wave */
+    CHECK(m && m->number_of_merging == 3 && merging_into(m, 2, 0) == 2 && merging_into(m, 0, 1) == 1);
+    dgx_morph_destroy(&m);
+    dgx_matrix_destroy(&from), dgx_matrix_destroy(&to);
+    /* now a wave: a bar between two stems, the middle cell reached from the left and from the right at once */
+    static const char *const e[] = { "#....", "#....", "#####", "....." };
+    static const char *const f[] = { "#....", "#....", "....#", "....." };
+    from = picture(e, 4), to = picture(f, 4);
+    m = dgx_morph_create_with(from, to, dgx_morph_sources_cells, NULL, &merge_all);
+    /* (0, 2) and (1, 2) are next to the stem at (0, 1), (3, 2) next to (4, 2); (2, 2) is a wave from (1, 2) or from (3, 2): left before right */
+    CHECK(m && m->number_of_merging == 4 && merging_into(m, 0, 1) == 3 && merging_into(m, 4, 2) == 1);
+    dgx_morph_destroy(&m);
+    dgx_matrix_destroy(&from), dgx_matrix_destroy(&to);
+}
+
+static void check_plans_equal(const dgx_morph_t *a, const dgx_morph_t *b)
+{
+    check_same_but_orphans(a, b);
+    CHECK(a && b && a->number_of_fading_points == b->number_of_fading_points && a->number_of_merging == b->number_of_merging);
+    if (a && b && a->number_of_fading_points == b->number_of_fading_points) {
+        CHECK(memcmp(a->fading_points, b->fading_points, a->number_of_fading_points * sizeof(dgx_point_2d_t)) == 0);
+    }
+}
+
+/* by default, and with the fade option, the plan is what it was */
+static void test_merge_default_unchanged(void)
+{
+    static const struct { dgx_font_t *(*font)(void); uint32_t a, b; } pairs[] = {
+        { WeatherIconsRegular13, 0xf002, 0xf008 }, { WeatherIconsRegular13, 0xf00d, 0xf02e }, { WeatherIconsRegular13, 0xf0c8, 0xf021 },
+        { CasusDotView, '0', '1' }, { CasusDotView, '8', '3' }, { CasusDotView, 'E', 'F' },
+    };
+    for (unsigned k = 0; k < sizeof(pairs) / sizeof(pairs[0]); ++k) {
+        dgx_font_t *font = pairs[k].font();
+        dgx_bit_matrix_t *a = dgx_morph_glyph_matrix(font, pairs[k].a), *b = dgx_morph_glyph_matrix(font, pairs[k].b);
+        CHECK(a && b);
+        dgx_morph_t *plain = dgx_morph_create(a, b, dgx_morph_sources_cells, NULL);
+        dgx_morph_t *null_options = dgx_morph_create_with(a, b, dgx_morph_sources_cells, NULL, NULL);
+        dgx_morph_t *fade = dgx_morph_create_with(a, b, dgx_morph_sources_cells, NULL, &fade_all);
+        check_plans_equal(plain, null_options);
+        check_plans_equal(plain, fade);
+        CHECK(plain && plain->number_of_merging == 0 && fade && fade->number_of_merging == 0 && fade->merging == NULL);
+        dgx_morph_destroy(&plain), dgx_morph_destroy(&null_options), dgx_morph_destroy(&fade);
+        dgx_matrix_destroy(&a), dgx_matrix_destroy(&b);
+    }
+}
+
+/* on every pair of symbols: merging takes exactly the orphans, the rest of the plan stays, every flight ends in `to` */
+static void check_merge_invariant(dgx_font_t *font, const uint32_t *codes, int n)
+{
+    dgx_morph_options_t within = { DGX_MORPH_ORPHANS_MERGE, 4 };
+    long orphans = 0, merged = 0, merged_within = 0;
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < n; ++j) {
+            if (i == j) continue;
+            dgx_bit_matrix_t *a = dgx_morph_glyph_matrix(font, codes[i]), *b = dgx_morph_glyph_matrix(font, codes[j]);
+            dgx_morph_t *fade = dgx_morph_create(a, b, dgx_morph_sources_cells, NULL);
+            dgx_morph_t *merge = dgx_morph_create_with(a, b, dgx_morph_sources_cells, NULL, &merge_all);
+            dgx_morph_t *near = dgx_morph_create_with(a, b, dgx_morph_sources_cells, NULL, &within);
+            CHECK(a && b && fade && merge && near);
+            if (a && b && fade && merge && near) {
+                check_same_but_orphans(fade, merge);
+                check_same_but_orphans(fade, near);
+                CHECK(merge->number_of_merging + merge->number_of_fading_points == fade->number_of_fading_points);
+                CHECK(near->number_of_merging + near->number_of_fading_points == fade->number_of_fading_points);
+                /* with no limit nothing is left to fade while `to` has a cell */
+                CHECK(b->number_of_set_cells == 0 || merge->number_of_fading_points == 0);
+                for (size_t k = 0; k < merge->number_of_merging; ++k) {
+                    const dgx_morph_segment_t *g = &merge->merging[k];
+                    CHECK(dgx_matrix_get_point(b, g->end.x, g->end.y) && dgx_matrix_get_point(a, g->start.x, g->start.y));
+                    CHECK(!dgx_matrix_get_point(b, g->start.x, g->start.y));
+                    CHECK(g->start_intensity == 255 && g->end_intensity == 0);
+                }
+                for (size_t k = 0; k < near->number_of_merging; ++k) {
+                    const dgx_morph_segment_t *g = &near->merging[k];
+                    CHECK(dgx_matrix_get_point(b, g->end.x, g->end.y));
+                    CHECK(abs(g->end.x - g->start.x) <= within.merge_radius && abs(g->end.y - g->start.y) <= within.merge_radius);
+                }
+                /* a fading cell of the limited plan is an orphan of the plain one */
+                for (size_t k = 0; k < near->number_of_fading_points; ++k) {
+                    const dgx_point_2d_t *p = &near->fading_points[k];
+                    bool found = false;
+                    for (size_t q = 0; q < fade->number_of_fading_points && !found; ++q) found = fade->fading_points[q].x == p->x && fade->fading_points[q].y == p->y;
+                    CHECK(found);
+                }
+                orphans += (long)fade->number_of_fading_points;
+                merged += (long)merge->number_of_merging;
+                merged_within += (long)near->number_of_merging;
+            }
+            dgx_morph_destroy(&fade), dgx_morph_destroy(&merge), dgx_morph_destroy(&near);
+            dgx_matrix_destroy(&a), dgx_matrix_destroy(&b);
+        }
+    }
+    CHECK(orphans > 0 && merged == orphans && merged_within <= merged && merged_within > 0);
+}
+
+static void test_merge_invariant(void)
+{
+    /* every weather symbol into every other */
+    dgx_font_t *font = WeatherIconsRegular13();
+    uint32_t codes[40];
+    int n = 0;
+    for (const glyph_array_t *r = font->glyph_ranges; r && r->number; ++r) {
+        for (int i = 0; i < r->number && n < 40; ++i) codes[n++] = r->first + (uint32_t)i;
+    }
+    CHECK(n == 27);
+    check_merge_invariant(font, codes, n);
+
+    /* the digits, the Latin capitals and the Russian capitals of a bitmap font, each set into itself */
+    font = TerminusTTFMedium12();
+    for (n = 0; n < 10; ++n) codes[n] = (uint32_t)('0' + n);
+    check_merge_invariant(font, codes, 10);
+    for (n = 0; n < 26; ++n) codes[n] = (uint32_t)('A' + n);
+    check_merge_invariant(font, codes, 26);
+    for (n = 0; n < 32; ++n) codes[n] = 0x410 + (uint32_t)n;
+    check_merge_invariant(font, codes, 32);
+    /* and the digits of a dot font */
+    for (n = 0; n < 10; ++n) codes[n] = (uint32_t)('0' + n);
+    check_merge_invariant(CasusDotView(), codes, 10);
+}
+
+/* the letters the demo starts with: the bar of a bitmap E sweeps whole into the foot of the stem of the F */
+static void test_merge_letters(void)
+{
+    dgx_font_t *font = TerminusTTFMedium12();
+    dgx_bit_matrix_t *e = dgx_morph_glyph_matrix(font, 'E'), *f = dgx_morph_glyph_matrix(font, 'F');
+    dgx_morph_t *m = dgx_morph_create_with(e, f, dgx_morph_sources_cells, NULL, &merge_all);
+    CHECK(m && e && f && m->number_of_segments == 0 && m->number_of_fading_points == 0 && m->number_of_merging > 0);
+    if (m && e && f && m->number_of_merging) {
+        /* the orphans are the bottom bar: one row, all but the stem */
+        int row = m->merging[0].start.y, stem = 0;
+        while (stem < e->width && !dgx_matrix_get_point(f, stem, row)) ++stem;
+        CHECK(stem < e->width);
+        for (size_t i = 0; i < m->number_of_merging; ++i) {
+            CHECK(m->merging[i].start.y == row && m->merging[i].start.x > stem);
+            /* and every one of them ends in the foot of the stem, the cell the bar touches */
+            CHECK(m->merging[i].end.x == stem && m->merging[i].end.y == row);
+        }
+        CHECK((int)m->number_of_merging == e->number_of_set_cells - f->number_of_set_cells);
+    }
+    dgx_morph_destroy(&m);
+    /* within one cell the bar's near end merges and the rest fades */
+    dgx_morph_options_t one = { DGX_MORPH_ORPHANS_MERGE, 1 };
+    m = dgx_morph_create_with(e, f, dgx_morph_sources_cells, NULL, &one);
+    CHECK(m && m->number_of_merging == 1 && m->number_of_fading_points == (size_t)(e->number_of_set_cells - f->number_of_set_cells - 1));
+    dgx_morph_destroy(&m);
+    dgx_matrix_destroy(&e), dgx_matrix_destroy(&f);
+
+    /* 8 to 3: the left side of the 8 goes to the ends of the rows of the 3, nothing fades; 0 to 1: nothing fades either */
+    static const uint32_t pairs[][2] = { { '8', '3' }, { '0', '1' }, { 'B', 'P' }, { 0x428, 0x41f } }; /* Ш -> П */
+    for (unsigned k = 0; k < sizeof(pairs) / sizeof(pairs[0]); ++k) {
+        dgx_bit_matrix_t *a = dgx_morph_glyph_matrix(font, pairs[k][0]), *b = dgx_morph_glyph_matrix(font, pairs[k][1]);
+        m = dgx_morph_create_with(a, b, dgx_morph_sources_cells, NULL, &merge_all);
+        CHECK(m && m->number_of_fading_points == 0 && m->number_of_merging > 0);
+        for (size_t i = 0; m && i < m->number_of_merging; ++i) {
+            const dgx_morph_segment_t *g = &m->merging[i];
+            CHECK(dgx_matrix_get_point(b, g->end.x, g->end.y) && !dgx_matrix_get_point(b, g->start.x, g->start.y));
+            /* a letter is one figure: no orphan flies further than a few cells */
+            CHECK(abs(g->end.x - g->start.x) <= 4 && abs(g->end.y - g->start.y) <= 4);
+        }
+        dgx_morph_destroy(&m);
+        dgx_matrix_destroy(&a), dgx_matrix_destroy(&b);
+    }
+}
+
+static int at_x, at_y;
+static int at_intensity, at_count;
+
+static void at_cell(void *user_data, const dgx_point_2d_t *p, uint8_t intensity)
+{
+    (void)user_data;
+    ++at_count;
+    if (p->x == at_x && p->y == at_y) at_intensity += intensity;
+}
+
+/* a merging flight is drawn full to the middle of the way and goes out by the end, where its tail meets it */
+static void test_merge_draw(void)
+{
+    dgx_bit_matrix_t *from = row("#..#"), *to = row("#...");
+    dgx_morph_t *m = dgx_morph_create_with(from, to, dgx_morph_sources_cells, NULL, &merge_all);
+    CHECK(m && m->number_of_merging == 1 && m->number_of_static_points == 1);
+    dots_t d = { 0 };
+    dgx_morph_draw(m, 0.25f, 0, 0, 4, false, collect, &d);
+    CHECK(d.count == 2); /* the static dot and the head */
+    /* the head: from cell 3 toward cell 0, a quarter of the way: 2 + 12 - 3 = 11 */
+    at_x = 11, at_y = 2, at_intensity = 0, at_count = 0;
+    dgx_morph_draw(m, 0.25f, 0, 0, 4, false, at_cell, NULL);
+    CHECK(at_intensity == 255);
+    at_x = 2 + 12 - 9, at_intensity = 0;
+    dgx_morph_draw(m, 0.75f, 0, 0, 4, false, at_cell, NULL);
+    CHECK(at_intensity > 0 && at_intensity < 255);
+    /* at the end: in the cell of `to`, where the static dot is, with nothing added to it */
+    at_x = 2, at_intensity = 0, at_count = 0;
+    dgx_morph_draw(m, 1.0f, 0, 0, 4, false, at_cell, NULL);
+    CHECK(at_count == 2 && at_intensity == 255);
+    at_intensity = 0, at_count = 0;
+    dgx_morph_draw(m, 1.0f, 0, 0, 4, true, at_cell, NULL);
+    CHECK(at_count == 3 && at_intensity == 255);
+    /* and with a tail halfway: head and tail apart, half each */
+    at_x = 2 + 12 - 6, at_intensity = 0;
+    dgx_morph_draw(m, 0.5f, 0, 0, 4, true, at_cell, NULL);
+    CHECK(at_intensity == 127);
+    dgx_morph_destroy(&m);
+    dgx_matrix_destroy(&from), dgx_matrix_destroy(&to);
+}
+
+/* into nothing: everything flies into the center as before, no orphan merges */
+static void test_merge_to_empty(void)
+{
+    dgx_bit_matrix_t *from = row("#.##.");
+    dgx_morph_t *m = dgx_morph_create_with(from, NULL, dgx_morph_sources_cells, NULL, &merge_all);
+    CHECK(m && m->number_of_segments == 3 && m->number_of_merging == 0 && m->number_of_fading_points == 0);
+    for (size_t i = 0; m && i < m->number_of_segments; ++i) {
+        CHECK(m->segments[i].end.x == 2 && m->segments[i].start_intensity == 255 && m->segments[i].end_intensity == 0);
+    }
+    dgx_morph_destroy(&m);
+    dgx_bit_matrix_t *empty = dgx_matrix_init(5, 1);
+    m = dgx_morph_create_with(from, empty, dgx_morph_sources_cells, NULL, &merge_all);
+    CHECK(m && m->number_of_segments == 3 && m->number_of_merging == 0);
+    dgx_morph_destroy(&m);
+    /* from nothing: nothing to merge */
+    m = dgx_morph_create_with(NULL, from, dgx_morph_sources_cells, NULL, &merge_all);
+    CHECK(m && m->number_of_segments == 3 && m->number_of_merging == 0 && m->merging == NULL);
+    dgx_morph_destroy(&m);
+    /* a negative radius is no limit */
+    dgx_morph_options_t minus = { DGX_MORPH_ORPHANS_MERGE, -3 };
+    dgx_bit_matrix_t *to = row("#....");
+    m = dgx_morph_create_with(from, to, dgx_morph_sources_cells, NULL, &minus);
+    CHECK(m && m->number_of_merging == 2 && m->number_of_fading_points == 0);
+    dgx_morph_destroy(&m);
+    /* a callback of one's own, and no callback: the orphans merge the same */
+    m = dgx_morph_create_with(from, to, NULL, NULL, &merge_all);
+    CHECK(m && m->number_of_merging == 2);
+    dgx_morph_destroy(&m);
+    m = dgx_morph_create_with(from, to, always_defer, NULL, &merge_all);
+    CHECK(m && m->number_of_merging == 2);
+    dgx_morph_destroy(&m);
+    dgx_matrix_destroy(&from), dgx_matrix_destroy(&empty), dgx_matrix_destroy(&to);
+}
+
 int main(void)
 {
     test_classification();
@@ -608,5 +964,13 @@ int main(void)
     test_int16_guard();
     test_timing();
     test_text();
+    test_merge_e_to_f();
+    test_merge_apart();
+    test_merge_neighbour_order();
+    test_merge_default_unchanged();
+    test_merge_invariant();
+    test_merge_letters();
+    test_merge_draw();
+    test_merge_to_empty();
     CHECK_DONE();
 }

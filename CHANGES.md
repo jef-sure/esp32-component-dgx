@@ -1,5 +1,37 @@
 # Changes
 
+## 0.4.8 - 2026-10-10
+
+- added `dgx_morph_create_with()`, `dgx_morph_create()` with options: a
+  second way for an old cell that nobody took as a source and that is not
+  in `to`. By default such a cell fades where it is, as before; with
+  `DGX_MORPH_ORPHANS_MERGE` it flies into the nearest cell of `to`, static
+  or arriving, and goes out there, so the bottom bar of an "E" is swept into
+  the foot of the stem of an "F" instead of melting in place. The nearest
+  cell is found along the figure first: a cell next to a cell of `to` takes
+  it, the others take the cell of a neighbouring orphan, wave after wave, so
+  a bar flows whole into the stem it touches and not partly up into a nearer
+  bar; a piece cut off from everything looks by the rings of
+  `dgx_morph_scan_vector()`. `merge_radius` bounds the way both ways, 0 is
+  no limit. The flights are in a new array `merging` at the end of
+  `dgx_morph_t`; `dgx_morph_draw()` draws them full to the middle of the way
+  and fading by smoothstep to nothing at the end, where the tail meets the
+  head, so the last frame is the clean `to`. `segments`, `static_points` and
+  `fading_points` are what they were, and a plan without the option is the
+  same bit for bit. On an ESP32 a plan between any two weather symbols
+  takes 3.3 ms on average and 9.3 ms at most with the merge, against 2.6 and
+  7.7 without; within 8 cells 3.2 and 7.8, with 88% of the orphans merging
+  and a flight of 3.7 cells on average. Weather that follows one another
+  takes 2.0 ms against 1.6, and every orphan finds a cell within 8. A frame
+  costs the same: `examples/glyph_morph_demo` on a CYD runs at 67 frames a
+  second either way
+- `examples/glyph_morph_demo` has the mode and the radius as defines at the
+  top of `main.c`, merging within 8 cells by default, and shows three
+  sequences in turn, each with a renderer of its own: digits, beginning with
+  E, F, 8, 3, 0, 1 to compare the modes on; the weather symbols a clock
+  shows, each by day and then by night, 42x39 cells at 5 px a cell, 45 frames a second;
+  the letters
+
 ## 0.4.7 - 2026-10-09
 
 - added `dgx_vscreen8_region_to_screen16()`: a rectangular part of an 8-bit
