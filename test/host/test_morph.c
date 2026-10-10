@@ -871,6 +871,61 @@ static void test_merge_letters(void)
     }
 }
 
+/*
+ * A letter gets its two dots: every cell of the letter stays, so the only
+ * sources there are stay as well. The dots bud off the tops of the letter at
+ * full brightness, and nothing comes from the center; back, the dots are
+ * orphans and fade, or flow into the cells they came from.
+ */
+static void test_dots_over_letter(void)
+{
+    dgx_font_t *font = TerminusTTFMedium12();
+    static const uint32_t pairs[][2] = { { 'u', 0xfc }, { 'a', 0xe4 }, { 'o', 0xf6 }, { 'U', 0xdc }, { 0x435, 0x451 } }; /* the last is е -> ё */
+    for (unsigned k = 0; k < sizeof(pairs) / sizeof(pairs[0]); ++k) {
+        dgx_bit_matrix_t *a = dgx_morph_glyph_matrix(font, pairs[k][0]), *b = dgx_morph_glyph_matrix(font, pairs[k][1]);
+        dgx_morph_t *m = dgx_morph_create(a, b, dgx_morph_sources_cells, NULL);
+        CHECK(a && b && m && b->number_of_set_cells > a->number_of_set_cells);
+        if (a && b && m) {
+            CHECK((int)m->number_of_static_points == a->number_of_set_cells && m->number_of_fading_points == 0);
+            CHECK((int)m->number_of_segments == b->number_of_set_cells - a->number_of_set_cells);
+            for (size_t i = 0; i < m->number_of_segments; ++i) {
+                const dgx_morph_segment_t *g = &m->segments[i];
+                /* from a cell that stays, each from its own, and not from far */
+                CHECK(g->start_intensity == 255 && g->end_intensity == 255);
+                CHECK(dgx_matrix_get_point(a, g->start.x, g->start.y) && dgx_matrix_get_point(b, g->start.x, g->start.y));
+                CHECK(abs(g->end.x - g->start.x) <= 3 && abs(g->end.y - g->start.y) <= 3);
+                for (size_t j = 0; j < i; ++j) CHECK(m->segments[j].start.x != g->start.x || m->segments[j].start.y != g->start.y);
+            }
+        }
+        dgx_morph_destroy(&m);
+        /* and back */
+        m = dgx_morph_create(b, a, dgx_morph_sources_cells, NULL);
+        CHECK(m && m->number_of_segments == 0 && m->number_of_merging == 0 &&
+              (int)m->number_of_fading_points == b->number_of_set_cells - a->number_of_set_cells);
+        dgx_morph_destroy(&m);
+        m = dgx_morph_create_with(b, a, dgx_morph_sources_cells, NULL, &merge_all);
+        CHECK(m && m->number_of_segments == 0 && m->number_of_fading_points == 0 &&
+              (int)m->number_of_merging == b->number_of_set_cells - a->number_of_set_cells);
+        for (size_t i = 0; m && i < m->number_of_merging; ++i) {
+            const dgx_morph_segment_t *g = &m->merging[i];
+            CHECK(dgx_matrix_get_point(a, g->end.x, g->end.y) && abs(g->end.x - g->start.x) <= 2 && abs(g->end.y - g->start.y) <= 2);
+        }
+        dgx_morph_destroy(&m);
+        dgx_matrix_destroy(&a), dgx_matrix_destroy(&b);
+    }
+    /* u to ü cell by cell: each dot of two cells takes the two top cells of the stem next to it */
+    dgx_bit_matrix_t *a = dgx_morph_glyph_matrix(font, 'u'), *b = dgx_morph_glyph_matrix(font, 0xfc);
+    dgx_morph_t *m = dgx_morph_create(a, b, dgx_morph_sources_cells, NULL);
+    static const int flights[4][4] = { { 4, 4, 3, 3 }, { 0, 4, 1, 3 }, { 4, 5, 3, 2 }, { 0, 5, 1, 2 } };
+    CHECK(m && m->number_of_segments == 4);
+    for (size_t i = 0; m && i < m->number_of_segments && i < 4; ++i) {
+        const dgx_morph_segment_t *g = &m->segments[i];
+        CHECK(g->start.x == flights[i][0] && g->start.y == flights[i][1] && g->end.x == flights[i][2] && g->end.y == flights[i][3]);
+    }
+    dgx_morph_destroy(&m);
+    dgx_matrix_destroy(&a), dgx_matrix_destroy(&b);
+}
+
 static int at_x, at_y;
 static int at_intensity, at_count;
 
@@ -970,6 +1025,7 @@ int main(void)
     test_merge_default_unchanged();
     test_merge_invariant();
     test_merge_letters();
+    test_dots_over_letter();
     test_merge_draw();
     test_merge_to_empty();
     CHECK_DONE();

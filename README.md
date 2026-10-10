@@ -94,14 +94,14 @@ DGX is a component, not a standalone firmware image. It is published in the
 as `jef-sure/dgx`. To add it to your own ESP-IDF project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.4.8"
+idf.py add-dependency "jef-sure/dgx^0.4.9"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.4.8"
+  jef-sure/dgx: "^0.4.9"
 ```
 
 The next build downloads it into `managed_components/`. To work on DGX itself,
@@ -111,8 +111,9 @@ check the repository out under `components/` instead (a git submodule at
 The repository also has examples to build: `examples/screen_demo` is a general
 ILI9341 graphics test, and there are the CYD morphing demos:
 `examples/morph_demo` (words, letter by letter), `examples/glyph_morph_demo`
-(one large symbol into the next) and `examples/life_morph_demo` (Conway's Game
-of Life). `examples/flip_clock_demo` is a split-flap clock for the same board,
+(one large symbol into the next), `examples/weather_morph_demo` (the weather
+symbols of a clock in the order weather takes) and `examples/life_morph_demo`
+(Conway's Game of Life). `examples/flip_clock_demo` is a split-flap clock for the same board,
 built on textured quads, and `examples/texture_demo` scales, turns and wobbles
 a textured card. `examples/hw_font_demo` writes a text by hand with a
 font of Bezier curves and `examples/hw_morph_demo` morphs such words one into
@@ -794,8 +795,8 @@ another; declared in [include/dgx_matrix_morph.h](include/dgx_matrix_morph.h),
 | Morph | `dgx_morph_create(from, to, sources, user_data)` | Plans flights in cell coordinates. `sources` decides where each new cell flies in from: `dgx_morph_sources_life` (all live neighbors) `dgx_morph_sources_cells` (the nearest free cell, searched vector by vector over the whole grid, so a line that moved flies as a whole), `dgx_morph_sources_cells_within` (the same no further than a radius, an `int` that `user_data` points to), or your own callback, which is many times slower when it defers pass after pass. Sides above 32767 cells are rejected. `dgx_morph_create_with(..., &options)` takes a `dgx_morph_options_t`: with `DGX_MORPH_ORPHANS_MERGE` an old cell nobody took flies into the nearest cell of `to`, along its figure first, and goes out there instead of fading in place; `merge_radius` bounds the way, 0 is no limit. |
 | Text | `dgx_morph_text_create(font, from, to, length, sources, user_data)`, `dgx_morph_text_duration_us()` | One morph per letter between two UTF-8 strings; the shorter one is padded with spaces. `changed` tells how many letters actually move. |
 | Frame | `dgx_morph_draw(morph, t, x, y, cell, trail, dot, user_data)`, `dgx_morph_progress()` | Stateless: emits the dots of progress `t` in pixels through a `dgx_morph_dot_func_t`. |
-| Renderers | `dgx_morph_glow_*` / `dgx_morph_sprite_*` | Additive glow with phosphor persistence and its own vscreen, or an intensity-scaled dot sprite. Both map brightness to colors through a replaceable 256-entry LUT in the screen format (16, 18 or 24 bits). |
-| Filter | `dgx_morph_glow_set_filter(glow, filter, user_data)`, `dgx_morph_glow_blur` | One more pass over a copy of every finished glow frame right before it is shown; it does not get into the phosphor. The ready blur smooths the steps of glyphs turned into dots. |
+| Renderers | `dgx_morph_glow_*` / `dgx_morph_sprite_*` | Additive glow with phosphor persistence, two bytes a pixel at any color depth, or an intensity-scaled dot sprite. Both map brightness to colors through a replaceable 256-entry LUT in the screen format (16, 18 or 24 bits). |
+| Filter | `dgx_morph_glow_set_filter(glow, filter, user_data)`, `dgx_morph_glow_blur` | One more pass over a copy of every finished glow frame right before it is shown; it does not get into the phosphor. The ready blur smooths the steps of glyphs turned into dots; in one pass it works row by row and needs no copy. |
 
 [Morphing two glyphs](#morphing-two-glyphs) walks through all of it.
 
@@ -1037,6 +1038,7 @@ font2c/                  offline TTF/BDF -> C font generator
 examples/screen_demo/    minimal end-to-end example
 examples/morph_demo/     sequential CYD word-morphing demo
 examples/glyph_morph_demo/  CYD demo morphing one large symbol into the next
+examples/weather_morph_demo/  CYD demo morphing the weather symbols of a clock, in two orders
 examples/life_morph_demo/   CYD Game of Life with morphing generations
 examples/flip_clock_demo/   CYD split-flap clock drawn with textured quads
 examples/texture_demo/      CYD demo scaling, turning and wobbling a textured card

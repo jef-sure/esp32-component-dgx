@@ -554,17 +554,19 @@ color follows the time of day and weather color follows the temperature, the
 table can be recalculated on the fly. Dots can glow copper, white, blue or
 red without changing their paths.
 
-The renderer owns its virtual screen. `present()` blends the frame and draws
-it on the screen at (ox, oy). `dgx_morph_glow_reset()` clears the phosphor
+The renderer keeps no frame of colors. `present()` blends the frame and draws
+it on the screen at (ox, oy), mapping brightness to colors through the table
+on the way. A display gets the frame row by row through the buffer it sends
+from; a virtual screen gets it right into its pixels. `dgx_morph_glow_reset()` clears the phosphor
 when you want to start fresh. There is no need to recreate the renderer
 between morphs; its retained phosphor is what smooths transitions between
 generations.
 
-Memory usage is two brightness maps at one byte per pixel, plus the virtual
-screen: two bytes per pixel for 16-bit color and three for 18- or 24-bit color.
-A 240 × 240 image on a 16-bit screen therefore uses 230,400 bytes. That is a
-lot for an ESP32 without PSRAM, so the Game-of-Life project chooses the cell
-size based on available memory.
+Memory usage is two brightness maps at one byte per pixel, the phosphor and
+the frame being collected, and nothing else the size of a frame, at any color
+depth. A 240 × 240 image therefore uses 115,200 bytes. That is still a lot
+for an ESP32 without PSRAM, so the Game-of-Life project chooses the cell size
+based on available memory.
 
 A frame can be given one more filter right before it goes to the screen:
 
@@ -580,7 +582,11 @@ off at any moment. One filter comes ready, `dgx_morph_glow_blur()`, a blur.
 Glyphs of an outline font turned into dots keep the steps of its one-bit
 picture, weather symbols with their thin slanted lines most of all; a pass or
 two of blur smooths them out. Your own filter is any function of the same signature. The
-copy costs one more byte per pixel; on a 216 × 203 frame one pass of blur
+copy costs one more byte per pixel. The blur in one pass does not need it: it
+looks one row up and one row down, so it is made row by row on the way to the
+screen and takes four rows of the frame; the result is the same as on a copy.
+The number of passes may be changed on the go, the copy appears when there
+are more than one. On a 216 × 203 frame one pass of blur
 takes the CYD glyph demo from 44 to 35 frames a second, two passes to 31.
 
 #### Sprite: A Dot as a Grayscale Matrix

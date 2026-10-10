@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -7,6 +8,9 @@
 #include "dgx_font.h"
 #include "dgx_morph_render.h"
 #include "drivers/vscreen.h"
+#include "esp_log.h"
+
+static const char TAG[] = "DGX MORPH";
 
 static inline uint32_t dgx_morph_div255(uint32_t n)
 {
@@ -44,14 +48,15 @@ static inline uint8_t *dgx_morph_put_color(uint8_t color_bits, uint8_t *lp, uint
 
 /* a brightness map read four pixels at a time */
 typedef uint32_t __attribute__((may_alias)) dgx_glow_word_t;
+/* a 16-bit pixel in the buffer a screen sends from */
+typedef uint16_t __attribute__((may_alias)) dgx_glow_color16_t;
 
 struct dgx_morph_glow {
-    dgx_screen_t *vscreen;
     int width, height;
     int radius;
     int *rlut;          /* falloff by squared distance */
     int *xcell_offset;  /* max |dx| per |dy| */
-    uint8_t *glow_prev;
+    uint8_t *glow_prev; /* the frame on the screen, kept as the phosphor */
     uint8_t *glow_next;
     uint8_t color_bits;
     uint32_t lut[256];
@@ -60,6 +65,8 @@ struct dgx_morph_glow {
     dgx_morph_glow_filter_t filter; /* gets a copy of every frame right before it is shown */
     void *filter_data;
     uint8_t *shown;                 /* that copy */
+    uint8_t *rows;                  /* four rows instead of it for dgx_morph_glow_blur() in one pass: three blurred across, one to show */
+    int row_of[3];                  /* which rows of the frame the three are */
 };
 
 dgx_morph_glow_t *dgx_morph_glow_create(int width, int height, int cell_width, uint8_t color_bits)
@@ -75,12 +82,11 @@ dgx_morph_glow_t *dgx_morph_glow_create(int width, int height, int cell_width, u
     int rlut_limit = g->radius * g->radius;
     size_t pixels = (size_t)width * (size_t)height;
 
-    g->vscreen = dgx_vscreen_init(width, height, color_bits, DgxScreenRGB);
     g->rlut = malloc((size_t)rlut_limit * sizeof(*g->rlut));
     g->xcell_offset = malloc((size_t)(g->radius + 1) * sizeof(*g->xcell_offset));
     g->glow_prev = calloc(pixels, 1);
     g->glow_next = calloc(pixels, 1);
-    if (!g->vscreen || !g->rlut || !g->xcell_offset || !g->glow_prev || !g->glow_next) {
+    if (!g->rlut || !g->xcell_offset || !g->glow_prev || !g->glow_next) {
         dgx_morph_glow_destroy(&g);
         return NULL;
     }
@@ -111,12 +117,12 @@ void dgx_morph_glow_set_lut(dgx_morph_glow_t *glow, const uint32_t *lut)
 void dgx_morph_glow_destroy(dgx_morph_glow_t **glow)
 {
     if (glow && *glow) {
-        dgx_screen_destroy(&(*glow)->vscreen);
         free((*glow)->rlut);
         free((*glow)->xcell_offset);
         free((*glow)->glow_prev);
         free((*glow)->glow_next);
         free((*glow)->shown);
+        free((*glow)->rows);
         free(*glow);
         *glow = NULL;
     }
@@ -171,22 +177,6 @@ void dgx_morph_glow_dot(void *glow, const dgx_point_2d_t *point, uint8_t intensi
     if (glow && point) glow_collect(glow, point->x, point->y, intensity);
 }
 
-bool dgx_morph_glow_set_filter(dgx_morph_glow_t *glow, dgx_morph_glow_filter_t filter, void *user_data)
-{
-    if (!glow) return false;
-    glow->filter = NULL;
-    glow->filter_data = user_data;
-    if (!filter) {
-        free(glow->shown);
-        glow->shown = NULL;
-        return true;
-    }
-    if (!glow->shown) glow->shown = malloc((size_t)glow->width * glow->height);
-    if (!glow->shown) return false;
-    glow->filter = filter;
-    return true;
-}
-
 /* every pixel with half of its neighbours on each side: across in place, then down with the row above kept aside */
 void dgx_morph_glow_blur(void *user_data, uint8_t *brightness, int width, int height)
 {
@@ -218,6 +208,160 @@ void dgx_morph_glow_blur(void *user_data, uint8_t *brightness, int width, int he
     free(above);
 }
 
+/* how many times dgx_morph_glow_blur() goes over a frame with this user_data */
+static int glow_blur_passes(const void *user_data)
+{
+    return user_data ? *(const int *)user_data : 1;
+}
+
+/*
+ * What a filter needs besides the glow itself. dgx_morph_glow_blur() in one
+ * pass looks one row up and one down, so its frame is made row by row on the
+ * way to the screen and four rows are enough; any other filter gets a copy
+ * of the whole frame.
+ */
+static bool glow_filter_room(dgx_morph_glow_t *glow)
+{
+    if (glow->filter == dgx_morph_glow_blur && glow_blur_passes(glow->filter_data) < 1) return true;
+    if (glow->filter == dgx_morph_glow_blur && glow_blur_passes(glow->filter_data) == 1) {
+        if (!glow->rows) glow->rows = malloc((size_t)glow->width * 4);
+        return glow->rows != NULL;
+    }
+    if (!glow->shown) glow->shown = malloc((size_t)glow->width * glow->height);
+    return glow->shown != NULL;
+}
+
+bool dgx_morph_glow_set_filter(dgx_morph_glow_t *glow, dgx_morph_glow_filter_t filter, void *user_data)
+{
+    if (!glow) return false;
+    free(glow->shown);
+    free(glow->rows);
+    glow->shown = glow->rows = NULL;
+    glow->filter = filter;
+    glow->filter_data = user_data;
+    if (!filter) return true;
+    if (!glow_filter_room(glow)) glow->filter = NULL;
+    return glow->filter != NULL;
+}
+
+/* a row of the frame as dgx_morph_glow_blur() in one pass leaves it; rows asked for in turn are each blurred across once */
+static const uint8_t *glow_blurred_row(dgx_morph_glow_t *g, int y)
+{
+    int            w = g->width;
+    const uint8_t *across[3];
+    for (int k = 0; k < 3; ++k) {
+        int at = y + k - 1;
+        if (at < 0) at = 0;
+        if (at > g->height - 1) at = g->height - 1;
+        uint8_t *row = g->rows + (size_t)(at % 3) * w;
+        if (g->row_of[at % 3] != at) {
+            const uint8_t *frame = g->glow_prev + (size_t)at * w;
+            int            left = frame[0];
+            for (int x = 0; x < w; ++x) {
+                int here = frame[x], right = x + 1 < w ? frame[x + 1] : here;
+                row[x] = (uint8_t)((left + 2 * here + right + 2) >> 2);
+                left = here;
+            }
+            g->row_of[at % 3] = at;
+        }
+        across[k] = row;
+    }
+    uint8_t *shown = g->rows + (size_t)3 * w;
+    for (int x = 0; x < w; ++x) shown[x] = (uint8_t)((across[0][x] + 2 * across[1][x] + across[2][x] + 2) >> 2);
+    return shown;
+}
+
+/* brightness into colors as a screen keeps or sends them */
+static inline void glow_colors(const dgx_morph_glow_t *g, uint8_t *to, const uint8_t *row, int count)
+{
+    if (g->color_bits == 16) {
+        /* most of a frame is black: where the row is word-aligned, four black pixels are one look */
+        dgx_glow_color16_t *out = (dgx_glow_color16_t *)to;
+        const uint16_t      black = g->lut16_swapped[0];
+        int                 i = 0;
+        for (; i < count && ((uintptr_t)(row + i) & 3u); ++i) out[i] = g->lut16_swapped[row[i]];
+        for (; i + 4 <= count; i += 4) {
+            if (*(const dgx_glow_word_t *)(row + i) == 0) {
+                out[i] = out[i + 1] = out[i + 2] = out[i + 3] = black;
+                continue;
+            }
+            out[i] = g->lut16_swapped[row[i]];
+            out[i + 1] = g->lut16_swapped[row[i + 1]];
+            out[i + 2] = g->lut16_swapped[row[i + 2]];
+            out[i + 3] = g->lut16_swapped[row[i + 3]];
+        }
+        for (; i < count; ++i) out[i] = g->lut16_swapped[row[i]];
+    } else {
+        for (int i = 0; i < count; ++i) to = dgx_fill_buf_value_24(to, 0, g->lut[row[i]]);
+    }
+}
+
+/*
+ * The frame goes to the screen as colors straight from its brightness, so no
+ * frame of colors is kept: a pixel of the glow is a byte of the phosphor and
+ * a byte of the frame being collected. A display gets it row by row through
+ * the buffer it sends from, a virtual screen right into its pixels. `map` is
+ * the brightness to show; NULL is the phosphor blurred on the way.
+ */
+static void glow_send(dgx_morph_glow_t *g, dgx_screen_t *scr, int x_dst, int y_dst, const uint8_t *map)
+{
+    if (scr->color_bits != g->color_bits) {
+        ESP_LOGE(TAG, "glow color bits %d != screen %d", g->color_bits, scr->color_bits);
+        return;
+    }
+    /* the part of the frame that is on the screen */
+    int left = x_dst < 0 ? -x_dst : 0, top = y_dst < 0 ? -y_dst : 0;
+    int right = scr->width - x_dst < g->width ? scr->width - x_dst : g->width;
+    int bottom = scr->height - y_dst < g->height ? scr->height - y_dst : g->height;
+    if (left >= right || top >= bottom) return;
+    int    width = right - left;
+    size_t pixel_bytes = g->color_bits == 16 ? 2 : 3;
+    g->row_of[0] = g->row_of[1] = g->row_of[2] = -1;
+    dgx_screen_progress_up(scr);
+    if (dgx_vscreen_is_linear(scr)) {
+        uint8_t *pixels = ((dgx_vscreen_t *)scr)->v_array;
+        for (int y = top; y < bottom; ++y) {
+            const uint8_t *row = (map ? map + (size_t)y * g->width : glow_blurred_row(g, y)) + left;
+            glow_colors(g, pixels + pixel_bytes * ((size_t)(y_dst + y) * scr->width + x_dst + left), row, width);
+        }
+    } else if (scr->set_area && scr->write_area) {
+        /* a screen without a buffer of its own gets a scanline for the duration of the call */
+        uint8_t *buffer = scr->draw_buffer, *own = NULL;
+        size_t   buffer_pixels = scr->draw_buffer_len / pixel_bytes, filled = 0;
+        if (!buffer || !buffer_pixels) {
+            buffer = own = malloc((size_t)width * pixel_bytes);
+            buffer_pixels = (size_t)width;
+        }
+        if (buffer) {
+            scr->set_area(scr, (uint16_t)(x_dst + left), (uint16_t)(x_dst + right - 1), (uint16_t)(y_dst + top), (uint16_t)(y_dst + bottom - 1));
+            /* what was sent before may still be on its way to the panel from this buffer */
+            if (scr->wait_buffer) scr->wait_buffer(scr);
+            for (int y = top; y < bottom; ++y) {
+                const uint8_t *row = (map ? map + (size_t)y * g->width : glow_blurred_row(g, y)) + left;
+                for (int todo = width; todo > 0;) {
+                    if (filled == buffer_pixels) {
+                        scr->write_area(scr, buffer, (uint32_t)(8u * filled * pixel_bytes));
+                        if (scr->wait_buffer) scr->wait_buffer(scr);
+                        filled = 0;
+                    }
+                    int count = buffer_pixels - filled < (size_t)todo ? (int)(buffer_pixels - filled) : todo;
+                    glow_colors(g, buffer + filled * pixel_bytes, row, count);
+                    filled += (size_t)count;
+                    row += count;
+                    todo -= count;
+                }
+            }
+            if (filled) {
+                scr->write_area(scr, buffer, (uint32_t)(8u * filled * pixel_bytes));
+                if (scr->wait_buffer) scr->wait_buffer(scr);
+            }
+            free(own);
+        }
+    }
+    dgx_screen_touch(scr, x_dst + left, x_dst + right - 1, y_dst + top, y_dst + bottom - 1);
+    dgx_screen_progress_down(scr);
+}
+
 void dgx_morph_glow_present(dgx_morph_glow_t *glow, float t, dgx_screen_t *screen, int x, int y)
 {
     if (!glow) return;
@@ -227,71 +371,46 @@ void dgx_morph_glow_present(dgx_morph_glow_t *glow, float t, dgx_screen_t *scree
     uint32_t blend = glow->has_frame ? (uint32_t)(256.0f * dgx_morph_smoothstep3(t)) : 256u;
     uint32_t inv = 256u - blend;
     size_t pixels = (size_t)glow->width * glow->height;
-    uint8_t *out = ((dgx_vscreen_t *)glow->vscreen)->v_array;
     uint8_t *prev = glow->glow_prev;
     uint8_t *next = glow->glow_next;
-    if (glow->filter) {
-        /*
-         * The frame is blended as ever, then a copy of it goes through the
-         * filter and only the copy is shown: the phosphor keeps the frame as
-         * the dots made it.
-         */
-        for (size_t i = 0; i < pixels; ++i) {
+    /*
+     * Most of a glow frame is black, so the brightness maps are read a word
+     * at a time (they come from calloc and are word-aligned) and a black word
+     * is passed by.
+     */
+    const dgx_glow_word_t *next4 = (const dgx_glow_word_t *)next;
+    const dgx_glow_word_t *prev4 = (const dgx_glow_word_t *)prev;
+    size_t                 words = pixels / 4;
+    for (size_t w = 0; w < words; ++w) {
+        if ((next4[w] | prev4[w]) == 0) continue;
+        for (size_t i = w * 4, end = i + 4; i < end; ++i) {
             prev[i] = (uint8_t)((next[i] * blend + prev[i] * inv) >> 8);
             next[i] = 0;
         }
-        const uint8_t *shown = glow->shown;
-        memcpy(glow->shown, prev, pixels);
-        glow->filter(glow->filter_data, glow->shown, glow->width, glow->height);
-        if (glow->color_bits == 16) {
-            uint16_t *out16 = (uint16_t *)out;
-            for (size_t i = 0; i < pixels; ++i) out16[i] = glow->lut16_swapped[shown[i]];
-        } else {
-            for (size_t i = 0; i < pixels; ++i) out = dgx_fill_buf_value_24(out, 0, glow->lut[shown[i]]);
-        }
-    } else if (glow->color_bits == 16) {
-        /*
-         * Most of a glow frame is black, so the brightness maps are read a
-         * word at a time (they come from calloc and are word-aligned) and a
-         * black word costs four stores instead of four blends.
-         */
-        uint16_t           *out16 = (uint16_t *)out;
-        const uint16_t      black = glow->lut16_swapped[0];
-        const dgx_glow_word_t *next4 = (const dgx_glow_word_t *)next;
-        const dgx_glow_word_t *prev4 = (const dgx_glow_word_t *)prev;
-        size_t              words = pixels / 4;
-        for (size_t w = 0; w < words; ++w) {
-            size_t i = w * 4;
-            if ((next4[w] | prev4[w]) == 0) {
-                out16[i]     = black;
-                out16[i + 1] = black;
-                out16[i + 2] = black;
-                out16[i + 3] = black;
-                continue;
-            }
-            for (size_t end = i + 4; i < end; ++i) {
-                uint8_t v = (uint8_t)((next[i] * blend + prev[i] * inv) >> 8);
-                out16[i]  = glow->lut16_swapped[v];
-                prev[i]   = v;
-                next[i]   = 0;
-            }
-        }
-        for (size_t i = words * 4; i < pixels; ++i) {
-            uint8_t v = (uint8_t)((next[i] * blend + prev[i] * inv) >> 8);
-            out16[i]  = glow->lut16_swapped[v];
-            prev[i]   = v;
-            next[i]   = 0;
-        }
-    } else {
-        for (size_t i = 0; i < pixels; ++i) {
-            uint8_t v = (uint8_t)((next[i] * blend + prev[i] * inv) >> 8);
-            out = dgx_fill_buf_value_24(out, 0, glow->lut[v]);
-            prev[i] = v;
-            next[i] = 0;
-        }
+    }
+    for (size_t i = words * 4; i < pixels; ++i) {
+        prev[i] = (uint8_t)((next[i] * blend + prev[i] * inv) >> 8);
+        next[i] = 0;
     }
     glow->has_frame = true;
-    if (screen) dgx_vscreen_to_screen(screen, x, y, glow->vscreen);
+
+    /*
+     * A filter never touches the phosphor: it works on a copy of the frame,
+     * or, the blur in one pass, on rows made of it on the way to the screen.
+     * Its user_data is read anew every frame, so what it needs may change;
+     * with no memory for that the frame is shown unfiltered.
+     */
+    const uint8_t *map = prev;
+    if (glow->filter && glow_filter_room(glow)) {
+        if (glow->filter != dgx_morph_glow_blur || glow_blur_passes(glow->filter_data) > 1) {
+            memcpy(glow->shown, prev, pixels);
+            glow->filter(glow->filter_data, glow->shown, glow->width, glow->height);
+            map = glow->shown;
+        } else if (glow_blur_passes(glow->filter_data) == 1) {
+            map = NULL;
+        }
+    }
+    if (screen) glow_send(glow, screen, x, y, map);
 }
 
 /* ------------------------------------------------------------------ */

@@ -15,8 +15,9 @@ extern "C" {
  *
  * Each dot is a disc of radius max(cell*3/4, 2) with smoothstep falloff,
  * summed into an 8-bit brightness map. present() blends it with the previous
- * frame, maps brightness through a 256-entry LUT into an owned vscreen and
- * blits that to the screen.
+ * frame and sends it to the screen, mapping brightness through a 256-entry
+ * LUT on the way. No frame of colors is kept: the renderer takes two bytes a
+ * pixel, the two brightness maps, at any color depth.
  */
 typedef struct dgx_morph_glow dgx_morph_glow_t;
 
@@ -52,10 +53,14 @@ typedef void (*dgx_morph_glow_filter_t)(void *user_data, uint8_t *brightness, in
 /**
  * @brief Sets the filter of the frames of a glow renderer; NULL removes it.
  *
- * A filter takes one more byte a pixel for the copy it works on.
+ * A filter takes one more byte a pixel for the copy it works on. The
+ * exception is dgx_morph_glow_blur() in one pass, which is made row by row on
+ * the way to the screen and takes four rows of the frame; what is shown is
+ * the same. @p user_data is read anew for every frame, so the number of its
+ * passes may change on the go, and the copy is made when it is first needed.
  *
- * @return false when there is no memory for that copy; the frames are then
- *         shown unfiltered.
+ * @return false when there is no memory for what the filter needs; the
+ *         frames are then shown unfiltered.
  */
 bool dgx_morph_glow_set_filter(dgx_morph_glow_t *glow, dgx_morph_glow_filter_t filter, void *user_data);
 

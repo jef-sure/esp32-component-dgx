@@ -1,5 +1,28 @@
 # Changes
 
+## 0.4.9 - 2026-10-10
+
+- the glow renderer keeps no frame of colors any more: `dgx_morph_glow_present()`
+  maps brightness to colors on the way to the screen, row by row through the
+  buffer a display sends from, or right into the pixels of a virtual screen.
+  A glow takes 2 bytes a pixel instead of 4 for 16-bit color and instead of 5
+  for 18- and 24-bit color; what is shown is the same, byte for byte. An
+  18-bit display now gets the frame in transfers of rows and not pixel by
+  pixel;
+- `dgx_morph_glow_blur()` in one pass no longer takes a copy of the frame: it
+  is made row by row on the way to the screen, on four rows, with the same
+  result. With the blur on, a glow takes 2 bytes a pixel instead of 5 for
+  16-bit color. More passes and filters of one's own get the copy as before,
+  made when it is first needed;
+- added `examples/weather_morph_demo`: the weather symbols a clock shows,
+  one large symbol into the next, in two orders shown in turn. In the first
+  every step is one a clock makes, the weather turning into a neighbouring
+  one or the day into the night; in the second each weather goes by day and
+  then by night;
+- a host test of a letter getting its two dots, u to ü and the like: the
+  dots bud off the cells of the letter that stay, each from a cell of its
+  own, and flow back into them with `DGX_MORPH_ORPHANS_MERGE`.
+
 ## 0.4.8 - 2026-10-10
 
 - added `dgx_morph_create_with()`, `dgx_morph_create()` with options: a
