@@ -2,7 +2,12 @@
 
 #include <string.h>
 
+#include "sdkconfig.h"
+
 #include "bus/dgx_bus_protocols.h"
+
+/* the short transfers of an SPI bus are its own: without that bus there is nothing to link them with */
+#if CONFIG_DGX_ENABLE_SPI
 #include "bus/dgx_spi_esp32.h"
 #include "bus/dgx_spi_esp32_priv.h"
 
@@ -55,6 +60,7 @@ static void dgx_screen_with_bus_set_area_window_spi(dgx_screen_with_bus_t *sbus,
     }
     dgx_spi_area_send(bus, false, &sbus->wcmd_send, 1);
 }
+#endif /* CONFIG_DGX_ENABLE_SPI */
 
 void dgx_screen_with_bus_set_area_window(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
 {
@@ -68,10 +74,12 @@ void dgx_screen_with_bus_set_area_window(dgx_screen_with_bus_t *sbus, uint16_t l
         return;
     }
 
+#if CONFIG_DGX_ENABLE_SPI
     if (bus->bus_type == DGX_BUS_SPI) {
         dgx_screen_with_bus_set_area_window_spi(sbus, left, right, top, bottom, false);
         return;
     }
+#endif
 
     if (sbus->cached_area.left != left || sbus->cached_area.right != right) {
         if (sbus->area_protocol == DGX_SCREEN_AREA_PROTO_STD8) {
@@ -121,10 +129,12 @@ void dgx_screen_with_bus_set_area_window_full(dgx_screen_with_bus_t *sbus, uint1
         return;
     }
 
+#if CONFIG_DGX_ENABLE_SPI
     if (bus->bus_type == DGX_BUS_SPI) {
         dgx_screen_with_bus_set_area_window_spi(sbus, left, right, top, bottom, true);
         return;
     }
+#endif
 
     if (sbus->area_protocol == DGX_SCREEN_AREA_PROTO_STD8) {
         uint8_t xdata[2] = {(uint8_t)left, (uint8_t)right};

@@ -433,42 +433,66 @@ static inline uint32_t dgx_color_bits_to_bytes(uint8_t color_bits)
     return (color_bits + 7u) >> 3;
 }
 
-#define DGX_FILL_BUFFER(color_bits, bpointer, idx, pic, color)              \
-    do {                                                                    \
-        switch (color_bits) {                                               \
-        case 1:                                                             \
-            for (int i = 0; i < pic; ++i)                                   \
-                bpointer = dgx_fill_buf_value_1(bpointer, idx + i, color);  \
-            break;                                                          \
-        case 4:                                                             \
-            for (int i = 0; i < pic; ++i)                                   \
-                bpointer = dgx_fill_buf_value_4(bpointer, idx + i, color);  \
-            break;                                                          \
-        case 8:                                                             \
-            for (int i = 0; i < pic; ++i)                                   \
-                bpointer = dgx_fill_buf_value_8(bpointer, i, color);        \
-            break;                                                          \
-        case 12:                                                            \
-            for (int i = 0; i < pic; ++i)                                   \
-                bpointer = dgx_fill_buf_value_12(bpointer, idx + i, color); \
-            break;                                                          \
-        case 16:                                                            \
-            for (int i = 0; i < pic; ++i)                                   \
-                bpointer = dgx_fill_buf_value_16(bpointer, i, color);       \
-            break;                                                          \
-        case 18:                                                            \
-        case 24:                                                            \
-            for (int i = 0; i < pic; ++i)                                   \
-                bpointer = dgx_fill_buf_value_24(bpointer, i, color);       \
-            break;                                                          \
-        case 32:                                                            \
-            for (int i = 0; i < pic; ++i)                                   \
-                bpointer = dgx_fill_buf_value_32(bpointer, i, color);       \
-            break;                                                          \
-        default:                                                            \
-            return;                                                         \
-        }                                                                   \
-    } while (0)
+/**
+ * @brief Fill a run of 16-bit pixels with one color; for a row of a screen, where a call would cost as much as a short row.
+ *
+ * Two pixels are one 4-byte word, so a run goes by words; one shorter than
+ * 8 pixels is faster byte by byte than with the words set up (measured on an
+ * ESP32). Words are written at their own boundaries only.
+ *
+ * @param lp    Where the run starts.
+ * @param count Number of pixels.
+ * @param color The color; its high byte goes first, as to a display.
+ */
+static inline void dgx_fill_pixels_16(uint8_t *lp, uint32_t count, uint32_t color)
+{
+    const uint8_t hi = (uint8_t)(color >> 8), lo = (uint8_t)color;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    if (count >= 8u && !((uintptr_t)lp & 1u)) {
+        typedef uint32_t __attribute__((may_alias)) dgx_pixel_word_t;
+        if ((uintptr_t)lp & 2u) {
+            lp[0] = hi, lp[1] = lo;
+            lp += 2, --count;
+        }
+        uint32_t          word = (uint32_t)hi | (uint32_t)lo << 8;
+        dgx_pixel_word_t *wp   = (dgx_pixel_word_t *)(void *)lp;
+        word |= word << 16;
+        for (uint32_t pairs = count >> 1; pairs; --pairs) *wp++ = word;
+        if (!(count & 1u)) return;
+        lp    = (uint8_t *)wp;
+        count = 1;
+    }
+#endif
+    for (; count; --count, lp += 2) lp[0] = hi, lp[1] = lo;
+}
+
+/**
+ * @brief Fill rows of 16-bit pixels that lie one under another, as a rectangle of a screen does.
+ *
+ * @param row    Where the first row starts.
+ * @param pitch  Bytes from a row to the next one.
+ * @param width  Pixels in a row.
+ * @param height Number of rows.
+ * @param color  The color.
+ */
+void dgx_fill_rows_16(uint8_t *row, size_t pitch, uint32_t width, uint32_t height, uint32_t color);
+
+/**
+ * @brief Fill a run of pixels in a buffer with one color.
+ *
+ * The buffer holds pixels as DGX keeps them everywhere: as they go to a
+ * display, the high byte of a pixel first. Long runs are written by words
+ * where the bytes of a pixel repeat (8, 16, 18 and 24 bits), so a run costs
+ * a pixel several times less than a pixel set alone.
+ *
+ * @param color_bits Pixel depth in bits; an unsupported depth leaves the buffer as it is.
+ * @param buffer     Where the first pixel of the run starts: the byte it is in, for depths below 8 bits.
+ * @param first      Index of the first pixel in its row; it tells where in a byte, or in the
+ *                   three bytes two 12-bit pixels share, the run starts. 0 for a buffer filled from its start.
+ * @param count      Number of pixels.
+ * @param color      The color.
+ */
+void dgx_fill_pixels(uint8_t color_bits, uint8_t *buffer, uint32_t first, uint32_t count, uint32_t color);
 
 #ifdef __cplusplus
 // @formatter:off

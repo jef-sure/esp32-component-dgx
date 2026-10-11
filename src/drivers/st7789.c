@@ -119,7 +119,7 @@ static uint8_t* dgx_st7789_adj_colmod(dgx_screen_with_bus_t *scr, const struct _
     return adj_data;
 }
 
-DRAM_ATTR static const dgx_lcd_init_cmd_t st_init_cmds[] = { { ST7789_SWRESET, 0, 0, 150, { 0 } }, //
+static const dgx_lcd_init_cmd_t st_init_cmds[] = { { ST7789_SWRESET, 0, 0, 150, { 0 } }, //
         { ST7789_SLPOUT, 0, 0, 255, { 0 } }, //
         { ST7789_COLMOD, dgx_st7789_adj_colmod, 1, 10, { 0x55 } }, // Bits per Pixel: 3 - 12, 5 - 16, 6 - 18
         { ST7789_MADCTL, dgx_st7789_adj_madctl, 1, 0, { 0x00 | 0x00 } }, // MY=0, MX=0, MV=0, ML=0, MH=0 | 00 - RGB, 08 - BGR

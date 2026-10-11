@@ -93,7 +93,7 @@ static void dgx_gc9a01_set_area(dgx_screen_t *_scr, uint16_t left, uint16_t righ
     dgx_screen_with_bus_set_area_window_full(scr, left, right, top, bottom);
 }
 
-DRAM_ATTR static const dgx_lcd_init_cmd_t gc9a01_init_cmds[] = {
+static const dgx_lcd_init_cmd_t gc9a01_init_cmds[] = {
     {0xEF,          0,                     0,    0,   {0}                                                                     },
     {0xEB,          0,                     1,    0,   {0x14}                                                                  },
     {0xFE,          0,                     0,    0,   {0}                                                                     },

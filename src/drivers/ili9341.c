@@ -100,7 +100,7 @@ static uint8_t *dgx_ili9341_adj_colmod(dgx_screen_with_bus_t *scr, const struct 
     return adj_data;
 }
 
-DRAM_ATTR static const dgx_lcd_init_cmd_t st_init_cmds[] = {
+static const dgx_lcd_init_cmd_t st_init_cmds[] = {
     //
     {ILI9341_SWRESET,  0,                      0,    150, {0}                                                                                       }, // Soft Reset
     {ILI9341_DISPOFF,  0,                      0,    0,   {0}                                                                                       }, // Display Off
@@ -128,7 +128,7 @@ DRAM_ATTR static const dgx_lcd_init_cmd_t st_init_cmds[] = {
  * (see https://github.com/Bodmer/TFT_eSPI/issues/1172).
  */
 /*
-DRAM_ATTR static const dgx_lcd_init_cmd_t st_init_cmds_tft[] __attribute__((unused)) = {
+static const dgx_lcd_init_cmd_t st_init_cmds_tft[] __attribute__((unused)) = {
     //
     {0xEF,             0,                      3,    0,   {0x03, 0x80, 0x02}                                                                        }, // Undocumented
     {0xCF,             0,                      3,    0,   {0x00, 0XC1, 0X30}                                                                        }, // Power control B

@@ -2,7 +2,7 @@ file(GLOB dgx_font_sources
 	"${COMPONENT_DIR}/src/fonts/*.c"
 )
 
-set(srcs "src/drivers/dgx_lcd_init.c" "src/dgx_bus_optimized_funcs.c" "src/dgx_spi_area_protocol.c" "src/draw.c" "src/bezier.c" "src/font.c" "src/hw_font.c" "src/hw_morph.c" "src/font_morph.c" "src/orientation.c" "src/bitmap.c" "src/gauge.c" "src/texture.c")
+set(srcs "src/drivers/dgx_lcd_init.c" "src/dgx_bus_optimized_funcs.c" "src/dgx_spi_area_protocol.c" "src/draw.c" "src/pixels.c" "src/bezier.c" "src/font.c" "src/hw_font.c" "src/hw_morph.c" "src/font_morph.c" "src/orientation.c" "src/bitmap.c" "src/gauge.c" "src/texture.c")
 
 list(APPEND srcs ${dgx_font_sources})
 
@@ -16,6 +16,10 @@ endif()
 
 if(CONFIG_DGX_ENABLE_P8)
 	list(APPEND srcs "src/bus/p8_esp32.c")
+endif()
+
+if(CONFIG_DGX_ENABLE_DSI)
+	list(APPEND srcs "src/bus/dsi_esp32.c" "src/bus/fb_area.c")
 endif()
 
 if(CONFIG_DGX_ENABLE_SPI_ST7735)
@@ -32,6 +36,10 @@ endif()
 
 if(CONFIG_DGX_ENABLE_SPI_ILI_9341)
 	list(APPEND srcs "src/drivers/ili9341.c")
+endif()
+
+if(CONFIG_DGX_ENABLE_JD9165)
+	list(APPEND srcs "src/drivers/jd9165.c")
 endif()
 
 if(CONFIG_DGX_ENABLE_ST7920)
@@ -79,7 +87,7 @@ endif()
 idf_component_register(
 	SRCS "${srcs}"
 	REQUIRES ${dgx_requires}
-	PRIV_REQUIRES esp_lcd
+	PRIV_REQUIRES esp_lcd esp_mm
 	INCLUDE_DIRS "include"
 )
 #target_compile_options(${COMPONENT_LIB} PRIVATE -Ofast)

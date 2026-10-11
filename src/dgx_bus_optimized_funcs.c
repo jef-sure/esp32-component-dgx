@@ -77,7 +77,7 @@ static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, in
     uint32_t pic = dgx_bytes_to_color_points(scr->color_bits, draw_buffer_len);
     if (pic > fill_scr_size) pic = fill_scr_size;
     if (scr->wait_buffer) scr->wait_buffer(scr);
-    DGX_FILL_BUFFER(scr->color_bits, lp, 0, pic, color); // index inside the buffer, not on the screen
+    dgx_fill_pixels(scr->color_bits, lp, 0, pic, color); // index inside the buffer, not on the screen
     uint32_t pic_lenbits = dgx_color_points_to_bytes(scr->color_bits, pic) * 8u;
     scr->set_area(scr, x, x + w - 1, y, y + h - 1);
     while (fill_scr_size != 0) {
@@ -105,7 +105,7 @@ static void dgx_scr_set_pixel_sb(dgx_screen_t *scr, int x, int y, uint32_t color
     uint8_t  draw_buffer[4] = { 0 };
     uint8_t *lp             = draw_buffer;
     if (scr->wait_buffer) scr->wait_buffer(scr);
-    DGX_FILL_BUFFER(scr->color_bits, lp, 0, 1, color);
+    dgx_fill_buf_value(scr->color_bits, lp, 0, color);
     scr->set_area(scr, x, x, y, y);
     scr->write_area(scr, draw_buffer, dgx_color_points_to_bytes(scr->color_bits, 1) * 8u);
     // draw_buffer lives on the stack: an asynchronous bus must finish with it before we return
@@ -142,6 +142,43 @@ static void dgx_scr_with_bus_destroy(struct _dgx_screen_t **pscr)
     }
 }
 
+/*
+ * Figures made of pixels and rectangles: every screen draws them with these,
+ * a display behind a bus and a virtual screen alike, each through its own
+ * set_pixel() and fill_rectangle(). So a figure has the same pixels wherever
+ * it is drawn.
+ */
+
+/* a row of pixels from xa to xb, either may be the left one; one pixel is not worth a rectangle */
+static inline void dgx_scr_row_run(dgx_screen_t *scr, int xa, int xb, int y, uint32_t color)
+{
+    if (xa == xb) {
+        scr->set_pixel(scr, xa, y, color);
+    } else if (xa < xb) {
+        scr->fill_rectangle(scr, xa, y, xb - xa + 1, 1, color);
+    } else {
+        scr->fill_rectangle(scr, xb, y, xa - xb + 1, 1, color);
+    }
+}
+
+/* a column of pixels from ya to yb */
+static inline void dgx_scr_column_run(dgx_screen_t *scr, int x, int ya, int yb, uint32_t color)
+{
+    if (ya == yb) {
+        scr->set_pixel(scr, x, ya, color);
+    } else if (ya < yb) {
+        scr->fill_rectangle(scr, x, ya, 1, yb - ya + 1, color);
+    } else {
+        scr->fill_rectangle(scr, x, yb, 1, ya - yb + 1, color);
+    }
+}
+
+/*
+ * A line by Bresenham's algorithm. The pixels that lie in one row of a
+ * shallow line, or in one column of a steep one, go as one rectangle. The
+ * line is always walked from its upper end, so it has the same pixels
+ * whichever end it is given from.
+ */
 static void dgx_scr_line_sb(dgx_screen_t *scr, int x1, int y1, int x2, int y2, uint32_t color)
 {
     int area_left   = DGX_MIN(x1, x2);
@@ -149,208 +186,183 @@ static void dgx_scr_line_sb(dgx_screen_t *scr, int x1, int y1, int x2, int y2, u
     int area_top    = DGX_MIN(y1, y2);
     int area_bottom = DGX_MAX(y1, y2);
     if (area_bottom < 0 || area_top >= scr->height || area_left >= scr->width || area_right < 0) return;
-    int dx = x2 - x1;
-    int dy = y2 - y1;
-    if (dx == 0 && dy == 0) {
+    if (x1 == x2 && y1 == y2) {
         scr->set_pixel(scr, x1, y1, color);
         return;
     }
-    if (dx == 0 || dy == 0) {
-        if (dx < 0) {
-            x1 = x2;
-            dx = -dx;
-        }
-        if (dy < 0) {
-            y1 = y2;
-            dy = -dy;
-        }
-        scr->fill_rectangle(scr, x1, y1, dx + 1, dy + 1, color);
+    if (x1 == x2 || y1 == y2) {
+        scr->fill_rectangle(scr, area_left, area_top, area_right - area_left + 1, area_bottom - area_top + 1, color);
         return;
     }
-    int sy = dy < 0 ? -1 : 1;
-    int sx = dx < 0 ? -1 : 1;
-    dx     = DGX_ABS(dx);
-    dy     = DGX_ABS(dy);
-    ++dx;
-    ++dy;
+    if (y1 > y2) {
+        DGX_INT_SWAP(x1, x2);
+        DGX_INT_SWAP(y1, y2);
+    }
+    int adx = DGX_ABS(x2 - x1);
+    int ady = y2 - y1;
+    int sx  = x1 < x2 ? 1 : -1;
+    int err = adx - ady;
     dgx_screen_progress_up(scr);
-    if (dx == dy) {
-        while (1) {
-            scr->set_pixel(scr, x1, y1, color);
-            if (x1 == x2) break;
-            x1 += sx;
-            y1 += sy;
-        };
-        dgx_screen_progress_down(scr);
-        return;
-    }
-    int err;
-    if (dx > dy) {
-        err = dy;
-        dy *= 2;
-        dx *= 2;
-        int sp = x1;
-        while (1) {
-            err += dy;
-            if (err >= dx || x1 == x2) {
-                scr->fill_rectangle(scr, (x1 > sp ? sp : x1), y1, (x1 > sp ? x1 - sp : sp - x1) + 1, 1, color);
-                if (x1 == x2) break;
-                sp = x1 + sx;
-                err -= dx;
-                y1 += sy;
+    if (adx == ady) {
+        /* the diagonal: a pixel a row, nothing to join */
+        for (; y1 <= y2; ++y1, x1 += sx) scr->set_pixel(scr, x1, y1, color);
+    } else if (adx > ady) {
+        /* shallow: every step goes along x, and a row ends where the line goes down */
+        int run = x1;
+        for (int steps = adx; steps; --steps) {
+            int e2 = 2 * err;
+            err -= ady;
+            if (e2 <= adx) {
+                dgx_scr_row_run(scr, run, x1, y1, color);
+                err += adx;
+                ++y1;
+                run = x1 + sx;
             }
             x1 += sx;
         }
+        dgx_scr_row_run(scr, run, x1, y1, color);
     } else {
-        err = dx;
-        dy *= 2;
-        dx *= 2;
-        int sp = y1;
-        while (1) {
-            err += dx;
-            if (err >= dy || y1 == y2) {
-                scr->fill_rectangle(scr, x1, (y1 > sp ? sp : y1), 1, (y1 > sp ? y1 - sp : sp - y1) + 1, color);
-                if (y1 == y2) break;
-                sp = y1 + sy;
-                err -= dy;
+        /* steep: every step goes down, and a column ends where the line goes to the side */
+        int run = y1;
+        for (int steps = ady; steps; --steps) {
+            int e2 = 2 * err;
+            err += adx;
+            if (e2 >= -ady) {
+                dgx_scr_column_run(scr, x1, run, y1, color);
+                err -= ady;
                 x1 += sx;
+                run = y1 + 1;
             }
-            y1 += sy;
+            ++y1;
         }
+        dgx_scr_column_run(scr, x1, run, y1, color);
     }
     dgx_screen_progress_down(scr);
 }
 
-static void dgx_scr_circle_emit_outline_spans(dgx_screen_t *scr, int x, int y, int yoff, int xstart, int xend, uint32_t color)
+/*
+ * The points (xa..xb, yoff) of the upper right eighth of a circle and their
+ * seven reflections: four rows and four columns. A run that starts on an
+ * axis meets its reflection there, and the two go as one.
+ *
+ * The order matters to a display that takes a window: its columns and its
+ * rows are set by two commands, and one that has not changed is not sent
+ * again. So the runs follow one another with the columns or the rows kept:
+ * of the eight only the first and the fifth set both.
+ */
+static void dgx_scr_circle_runs(dgx_screen_t *scr, int x, int y, int yoff, int xa, int xb, uint32_t color)
 {
-    int rw = xend - xstart + 1;
-
-    if (rw <= 0) return;
-
-    scr->fill_rectangle(scr, x + xstart, y + yoff, rw, 1, color);
-    scr->fill_rectangle(scr, x - xend, y + yoff, rw, 1, color);
-    if (yoff != 0) {
-        scr->fill_rectangle(scr, x + xstart, y - yoff, rw, 1, color);
-        scr->fill_rectangle(scr, x - xend, y - yoff, rw, 1, color);
+    if (xa == 0) {
+        dgx_scr_row_run(scr, x - xb, x + xb, y - yoff, color);
+        dgx_scr_row_run(scr, x - xb, x + xb, y + yoff, color);    /* the same columns */
+        dgx_scr_column_run(scr, x - yoff, y - xb, y + xb, color);
+        dgx_scr_column_run(scr, x + yoff, y - xb, y + xb, color); /* the same rows */
+        return;
     }
-
-    scr->fill_rectangle(scr, x + yoff, y + xstart, 1, rw, color);
-    scr->fill_rectangle(scr, x + yoff, y - xend, 1, rw, color);
-    if (yoff != 0) {
-        scr->fill_rectangle(scr, x - yoff, y + xstart, 1, rw, color);
-        scr->fill_rectangle(scr, x - yoff, y - xend, 1, rw, color);
-    }
+    dgx_scr_row_run(scr, x + xa, x + xb, y - yoff, color);
+    dgx_scr_row_run(scr, x - xb, x - xa, y - yoff, color);    /* the same row */
+    dgx_scr_row_run(scr, x - xb, x - xa, y + yoff, color);    /* the same columns */
+    dgx_scr_row_run(scr, x + xa, x + xb, y + yoff, color);    /* the same row */
+    dgx_scr_column_run(scr, x + yoff, y + xa, y + xb, color);
+    dgx_scr_column_run(scr, x - yoff, y + xa, y + xb, color); /* the same rows */
+    dgx_scr_column_run(scr, x - yoff, y - xb, y - xa, color); /* the same column */
+    dgx_scr_column_run(scr, x + yoff, y - xb, y - xa, color); /* the same rows */
 }
 
+/*
+ * A circle by the midpoint algorithm: one eighth is walked, from the top to
+ * the diagonal, and every point of it is reflected into the other seven.
+ * The points of the eighth that lie in one row go as one run.
+ */
 static void dgx_scr_circle_sb(dgx_screen_t *scr, int x, int y, int r, uint32_t color)
 {
     if (r < 0) return;
-    int area_left   = x - r;
-    int area_right  = x + r;
-    int area_top    = y - r;
-    int area_bottom = y + r;
-    if (area_bottom < 0 || area_top >= scr->height || area_left >= scr->width || area_right < 0) return;
+    if (y + r < 0 || y - r >= scr->height || x - r >= scr->width || x + r < 0) return;
     if (r == 0) {
         scr->set_pixel(scr, x, y, color);
         return;
     }
-    int xs           = 0;
-    int ys           = r;
-    int dx           = 2;
-    int dy           = 4 * r - 2;
-    int error        = 0;
-    int run_start_xs = 0;
-    int prev_ys      = ys;
-    int prev_xs      = xs;
+    int f   = 1 - r;
+    int ddx = 1;
+    int ddy = -2 * r;
+    int xs  = 0;
+    int ys  = r;
+    int run = 0; /* the first point of the row the walk is in */
     dgx_screen_progress_up(scr);
-    while (ys > 0) {
-        prev_xs = xs;
-        if (dx < dy) {
-            ++xs;
-            error -= dx;
-            dx += 4;
-            if (-error > dy / 2) {
-                --ys;
-                error += dy;
-                dy -= 4;
-            }
-        } else if (dy < dx) {
+    while (xs < ys) {
+        int row = ys;
+        int end = xs;
+        if (f >= 0) {
             --ys;
-            error += dy;
-            dy -= 4;
-            if (error > dx / 2) {
-                ++xs;
-                error -= dx;
-                dx += 4;
-            }
-        } else {
-            ++xs;
-            --ys;
-            error += dy - dx;
-            dx += 4;
-            dy -= 4;
+            ddy += 2;
+            f += ddy;
         }
-        if (ys != prev_ys) {
-            dgx_scr_circle_emit_outline_spans(scr, x, y, prev_ys, run_start_xs, prev_xs, color);
-            run_start_xs = xs;
-            prev_ys      = ys;
+        ++xs;
+        ddx += 2;
+        f += ddx;
+        if (ys != row) {
+            dgx_scr_circle_runs(scr, x, y, row, run, end, color);
+            run = xs;
         }
     }
-    dgx_scr_circle_emit_outline_spans(scr, x, y, 0, run_start_xs, xs, color);
+    dgx_scr_circle_runs(scr, x, y, ys, run, xs, color);
     dgx_screen_progress_down(scr);
 }
 
+/*
+ * A solid circle by the same walk, filled by rows. A row at the height of a
+ * point of the eighth reaches as far to the sides as that point lies from
+ * the top; rows that reach equally far, as those near the middle do, go as
+ * one rectangle. A row of the cap is done when the walk leaves it.
+ *
+ * Rows and not columns: where a screen is memory, a row is one piece of it
+ * and a column is a pixel in every row it crosses. To a display that takes a
+ * window it is all the same.
+ */
 static void dgx_scr_solid_circle_sb(dgx_screen_t *scr, int x, int y, int r, uint32_t color)
 {
     if (r < 0) return;
-    int area_left   = x - r;
-    int area_right  = x + r;
-    int area_top    = y - r;
-    int area_bottom = y + r;
-    if (area_bottom < 0 || area_top >= scr->height || area_left >= scr->width || area_right < 0) return;
+    if (y + r < 0 || y - r >= scr->height || x - r >= scr->width || x + r < 0) return;
     if (r == 0) {
         scr->set_pixel(scr, x, y, color);
         return;
     }
-    int xs    = 0;
-    int ys    = r;
-    int dx    = 2;
-    int dy    = 4 * r - 2;
-    int error = 0;
-    int px    = xs;
+    int f    = 1 - r;
+    int ddx  = 1;
+    int ddy  = -2 * r;
+    int xs   = 0;
+    int ys   = r;
+    int band = 0; /* the nearest to the middle of the rows that reach ys to each side */
     dgx_screen_progress_up(scr);
-    scr->fill_rectangle(scr, x, y - ys, 1, 2 * ys + 1, color);
-    while (ys > 0) {
-        if (dx < dy) {
-            ++xs;
-            error -= dx;
-            dx += 4;
-            if (-error > dy / 2) {
+    while (1) {
+        int  reach = ys;
+        int  end   = xs;
+        bool more  = xs < ys;
+        if (more) {
+            if (f >= 0) {
                 --ys;
-                error += dy;
-                dy -= 4;
+                ddy += 2;
+                f += ddy;
             }
-        } else if (dy < dx) {
-            --ys;
-            error += dy;
-            dy -= 4;
-            if (error > dx / 2) {
-                ++xs;
-                error -= dx;
-                dx += 4;
-            }
-        } else {
             ++xs;
-            --ys;
-            error += dy - dx;
-            dx += 4;
-            dy -= 4;
+            ddx += 2;
+            f += ddx;
+            if (ys == reach) continue;
         }
-        if (px != xs) {
-            scr->fill_rectangle(scr, x + xs, y - ys, 1, 2 * ys + 1, color);
-            scr->fill_rectangle(scr, x - xs, y - ys, 1, 2 * ys + 1, color);
-            px = xs;
+        /* the rows from band to end reach `reach` to each side: above and below the middle, or across it */
+        if (band == 0) {
+            scr->fill_rectangle(scr, x - reach, y - end, 2 * reach + 1, 2 * end + 1, color);
+        } else {
+            scr->fill_rectangle(scr, x - reach, y - end, 2 * reach + 1, end - band + 1, color);
+            scr->fill_rectangle(scr, x - reach, y + band, 2 * reach + 1, end - band + 1, color);
         }
+        /* the row of the cap the walk has left reaches as far as the walk came in it; the middle row is filled already */
+        if (end > 0 && reach > 0) {
+            scr->fill_rectangle(scr, x - end, y - reach, 2 * end + 1, 1, color);
+            scr->fill_rectangle(scr, x - end, y + reach, 2 * end + 1, 1, color);
+        }
+        if (!more) break;
+        band = xs;
     }
     dgx_screen_progress_down(scr);
 }

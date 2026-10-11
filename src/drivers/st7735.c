@@ -91,7 +91,7 @@ static uint8_t* dgx_st7735_adj_colmod(dgx_screen_with_bus_t *scr, const struct _
     return adj_data;
 }
 
-DRAM_ATTR static const dgx_lcd_init_cmd_t st_init_cmds[] = {
+static const dgx_lcd_init_cmd_t st_init_cmds[] = {
 //
         { ST7735_SWRESET, 0, 0, 150, { 0 } }, //
         { ST7735_SLPOUT, 0, 0, 255, { 0 } }, //

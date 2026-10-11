@@ -61,7 +61,7 @@ typedef struct _dgx_ssd1306_t
     gpio_num_t           rst;
 } dgx_ssd1306_t;
 
-DRAM_ATTR static const lcd_init_cmd_t st_init_cmds[] = {
+static const lcd_init_cmd_t st_init_cmds[] = {
     //
     {SSD1306_CMD_DISPLAY_OFF,            0,    0, {0}   }, //
     {SSD1306_CMD_SET_MUX_RATIO,          1,    0, {31}  }, //

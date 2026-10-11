@@ -48,9 +48,10 @@ written stroke by stroke by a pen or turns into another text.
 
 ## What's in the box
 
-- Panel drivers for ST7735, ST7789, ILI9341, GC9A01, SSD1351, SSD1306, ST7565R
-  and ST7920.
-- SPI, I2C and 8-bit parallel (I80) transports for ESP32.
+- Panel drivers for ST7735, ST7789, ILI9341, GC9A01, SSD1351, SSD1306, ST7565R,
+  ST7920 and JD9165.
+- SPI, I2C and 8-bit parallel (I80) transports for ESP32, and MIPI-DSI for
+  ESP32-P4.
 - A color RAM-backed virtual screen and a 1-bit monochrome virtual screen.
   They are useful on their own, as staging buffers for animation, or as shadow
   buffers behind monochrome controllers.
@@ -75,13 +76,15 @@ plain `dgx_screen_t *` for RAM-only screens, or a `dgx_screen_with_bus_t *`
 for hardware panels. The drawing and font code never touches SPI, I2C or P8
 directly — it only goes through the screen vtable. Monochrome panels keep a
 RAM page buffer and flush it to the controller, and the ST7920 driver reuses
-the color virtual screen the same way.
+the color virtual screen the same way. A MIPI-DSI display is sent a frame
+buffer all the time; its bus takes the window and the pixels a driver sends,
+as a display with memory of its own does, and puts them into that buffer.
 
 ```text
 application
   └─ dgx_draw.h / dgx_font.h / dgx_hw_font.h / dgx_gauge.h / dgx_morph.h
         └─ dgx_screen_t  (vtable)
-              ├─ dgx_screen_with_bus_t  → bus backend (SPI / I2C / P8)
+              ├─ dgx_screen_with_bus_t  → bus backend (SPI / I2C / P8 / DSI)
               ├─ dgx_bw_vscreen_t       → 1-bit RAM buffer
               ├─ dgx_vscreen_t          → color RAM buffer
               └─ vscreen_2h             → composes two child screens
@@ -94,14 +97,14 @@ DGX is a component, not a standalone firmware image. It is published in the
 as `jef-sure/dgx`. To add it to your own ESP-IDF project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.4.9"
+idf.py add-dependency "jef-sure/dgx^0.5.0"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.4.9"
+  jef-sure/dgx: "^0.5.0"
 ```
 
 The next build downloads it into `managed_components/`. To work on DGX itself,
@@ -117,7 +120,8 @@ symbols of a clock in the order weather takes) and `examples/life_morph_demo`
 built on textured quads, and `examples/texture_demo` scales, turns and wobbles
 a textured card. `examples/hw_font_demo` writes a text by hand with a
 font of Bezier curves and `examples/hw_morph_demo` morphs such words one into
-another.
+another. `examples/dsi_demo` is the graphics test for a 7-inch MIPI-DSI
+display on an ESP32-P4 board.
 
 Either way, enable only the pieces you need in `menuconfig`, under the **DGX**
 menu. Drivers automatically pull in the transports they require.
@@ -196,15 +200,17 @@ wire.
 | SSD1306 | mono OLED | SPI, I2C | `dgx_ssd1306_init(bus, resolution, is_ext_vcc, rst)` | `CONFIG_DGX_ENABLE_SSD1306` |
 | ST7565R | mono LCD | SPI | `dgx_st7565r_init(bus, rst)` | `CONFIG_DGX_ENABLE_ST7565R` |
 | ST7920 | mono LCD | SPI, I2C, P8 | `dgx_st7920_init(bus, rst, cs)` | `CONFIG_DGX_ENABLE_ST7920` |
+| JD9165 | color TFT, 1024x600 | DSI | `dgx_jd9165_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_JD9165` |
 
 Common parameters:
 
-- `bus` — a `dgx_bus_protocols_t *` from `dgx_spi_init()`, `dgx_i2c_init()` or
-  `dgx_p8_init()`.
+- `bus` — a `dgx_bus_protocols_t *` from `dgx_spi_init()`, `dgx_i2c_init()`,
+  `dgx_p8_init()` or `dgx_dsi_init()`.
 - `rst` — reset GPIO, or `GPIO_NUM_NC` if the panel has no reset line.
 - `backlight` (ILI9341 only) — backlight GPIO, or `GPIO_NUM_NC` if it is not
   under software control.
-- `color_bits` — pixel depth; `16` (RGB565) is the usual choice.
+- `color_bits` — pixel depth; `16` (RGB565) is the usual choice. JD9165
+  takes `16` or `24`.
 - `cbo` — channel order, `DgxScreenRGB` or `DgxScreenBGR`.
 
 Color panels and ST7920 also expose an orientation setter
@@ -213,6 +219,20 @@ controller's scan direction. A few drivers add extras: ILI9341 has
 `dgx_ili9341_backlight()`, GC9A01 has `dgx_gc9a01_display_off()` /
 `dgx_gc9a01_display_on()`, SSD1351 has `dgx_ssd1351_brightness()`, and SSD1306
 has `dgx_ssd1306_contrast()`.
+
+JD9165 is a display on MIPI-DSI, for ESP32-P4 with PSRAM: the chip sends it
+a frame buffer of 1.2 MB for 16-bit color, 1.8 MB for 24-bit, and drawing
+changes that buffer. The commands such a controller is set up with belong to
+the glass it drives; the driver has those of the 7-inch panel of the Guition
+JC1060P470 board, taken from the firmware the board comes with. Its orientation setter is carried out by the bus where
+pixels are put, so all eight orientations work, 600x1024 with `swap_xy`.
+A pixel and a rectangle are put straight into that buffer, as on a virtual
+screen, and a pixel can be read back. What is drawn outside a batch is
+brought out to the display at once; a batch (`dgx_screen_progress_up()` /
+`dgx_screen_progress_down()`) is brought out as it goes and at its end, which
+is ten times faster for pixels set one by one. The backlight is a GPIO of the board and is left to the
+application. [examples/dsi_demo](examples/dsi_demo) has the settings of a
+board and what the size of the PSRAM cache costs and gives.
 
 For SSD1306, pick a geometry from `ssd1306_resolution_t`: `SSD1306_128X32`,
 `SSD1306_128X64`, `SSD1306_96X16`, `SSD1306_64X48` or `SSD1306_72X40`.
@@ -672,7 +692,7 @@ Declared in [include/dgx_draw.h](include/dgx_draw.h):
 | --- | --- |
 | `dgx_set_pixel(scr, x, y, color)` | Set one pixel. |
 | `dgx_get_pixel(scr, x, y)` | Read one pixel: virtual screens and panels drawn through a virtual back screen only; see [Known gaps](#known-gaps). |
-| `dgx_draw_line(scr, x1, y1, x2, y2, color)` | Single-pixel line. |
+| `dgx_draw_line(scr, x1, y1, x2, y2, color)` | Single-pixel line by Bresenham's algorithm; the same pixels whichever end it is given from. |
 | `dgx_draw_line_thick(scr, x1, y1, x2, y2, width, color)` | Thick line with caps. |
 | `dgx_draw_bezier3(scr, points, pieces, width, color)` | Thick quadratic Bezier curve by three `dgx_point_2d_t` points, drawn by `pieces` straight pieces; 0 finds their number from the points, within half a pixel of the curve. |
 | `dgx_draw_bezier4(scr, points, pieces, width, color)` | Thick cubic Bezier curve by four points. |
@@ -681,12 +701,16 @@ Declared in [include/dgx_draw.h](include/dgx_draw.h):
 | `dgx_bezier_length(b)` | Length of a prepared curve in pixels, to share time between curves. |
 | `dgx_draw_line_mask(scr, x1, y1, x2, y2, color, bg, mask, mask_bits)` | Dashed/dotted line; returns the rotated mask to continue the pattern. |
 | `dgx_fill_rectangle(scr, x, y, w, h, color)` | Filled rectangle. |
-| `dgx_draw_circle(scr, x, y, r, color)` | Circle outline. |
-| `dgx_solid_circle(scr, x, y, r, color)` | Filled circle. |
+| `dgx_draw_circle(scr, x, y, r, color)` | Circle outline by the midpoint algorithm. |
+| `dgx_solid_circle(scr, x, y, r, color)` | Filled circle, the same outline filled by rows. |
 | `dgx_draw_triangle_solid(scr, x0, y0, x1, y1, x2, y2, color)` | Filled triangle. |
 | `dgx_draw_polygon4_solid(scr, x0..y3, color)` | Filled simple quadrilateral (convex or concave). |
 | `dgx_draw_texture_quad(scr, quad, texture, tx, ty, tw, th)` | Stretch a region of a virtual screen onto a convex quadrilateral (affine, nearest texel). |
 | `dgx_draw_texture_rect(scr, x, y, w, h, texture, tx, ty, tw, th)` | Scale a region of a virtual screen into a rectangle. |
+
+Lines and circles are one code for every screen, made of the pixels and the
+rectangles a screen draws itself: a figure has the same pixels on a display,
+on a virtual screen and on a monochrome one.
 
 How a Bezier curve is split into straight pieces, how a piece is drawn and how
 a curve is drawn on by `t` is described in
@@ -883,9 +907,21 @@ Declared under [include/bus/](include/bus):
 | `dgx_spi_init(host_id, dma_chan, mosi, miso, sclk, cs, dc, clock_speed_hz, cpolpha_mode)` | SPI master bus. |
 | `dgx_i2c_init(i2c_num, i2c_address, sda, sclk, clock_speed_hz)` | I2C master bus. |
 | `dgx_p8_init(d0..d7, wr, rd, cs, dc, pclk_hz)` | 8-bit parallel (I80) bus. |
+| `dgx_dsi_init(bus_id, data_lanes, lane_bit_rate_mbps, phy_ldo_chan, phy_ldo_mv)` | MIPI-DSI bus of ESP32-P4. `phy_ldo_chan` and `phy_ldo_mv` name the regulator of the chip that powers the DSI PHY, 3 and 2500 on the usual boards; -1 when it is powered otherwise. |
 
 Each returns a `dgx_bus_protocols_t *` to hand to a driver constructor. A
 driver pulls in only the transports it needs; enable them in `menuconfig`.
+
+[include/bus/dgx_dsi_esp32.h](include/bus/dgx_dsi_esp32.h) also has what a
+driver of another DSI display is written with: `dgx_dsi_video_setup()` makes
+the frame buffer from the size and the timing of the picture,
+`dgx_dsi_video_start()` starts sending it after the commands of the display,
+`dgx_dsi_orientation()` sets how the screen lies on the panel and
+`dgx_dsi_screen_functions()` gives the screen its drawing functions, those
+that write straight into the frame buffer among them. The window and the pixels go
+through the bus as to any display, with the commands 0x2A, 0x2B and 0x2C of
+the MIPI display command set; [src/drivers/jd9165.c](src/drivers/jd9165.c)
+is such a driver in full.
 
 ### Flush control and batching
 
@@ -966,6 +1002,7 @@ in the transports they require.
 | `CONFIG_DGX_ENABLE_SPI` | `bus/spi_esp32.c` | SPI transport |
 | `CONFIG_DGX_ENABLE_I2C` | `bus/i2c_esp32.c` | I2C transport |
 | `CONFIG_DGX_ENABLE_P8` | `bus/p8_esp32.c` | 8-bit parallel (I80) transport |
+| `CONFIG_DGX_ENABLE_DSI` | `bus/dsi_esp32.c`, `bus/fb_area.c` | MIPI-DSI transport; chips that have it (ESP32-P4) |
 | `CONFIG_DGX_ENABLE_SPI_ST7735` | `drivers/st7735.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SPI_ST7789` | `drivers/st7789.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SPI_GC9A01` | `drivers/gc9a01.c` | needs SPI or P8 |
@@ -974,6 +1011,7 @@ in the transports they require.
 | `CONFIG_DGX_ENABLE_SSD1306` | `drivers/ssd1306.c` | needs SPI or I2C; selects `V_BW_SCREEN` |
 | `CONFIG_DGX_ENABLE_ST7565R` | `drivers/st7565r.c` | needs SPI; selects `V_BW_SCREEN` |
 | `CONFIG_DGX_ENABLE_ST7920` | `drivers/st7920.c` | needs SPI/I2C/P8; selects `VSCREEN` |
+| `CONFIG_DGX_ENABLE_JD9165` | `drivers/jd9165.c` | needs DSI |
 | `CONFIG_DGX_ENABLE_V_BW_SCREEN` | `bw_screen.c` | 1-bit virtual screen |
 | `CONFIG_DGX_ENABLE_VSCREEN` | `drivers/vscreen.c` | color RAM-backed screen |
 | `CONFIG_DGX_ENABLE_VSCREEN_2H` | `drivers/vscreen_2h.c` | needs `VSCREEN` |
@@ -989,9 +1027,10 @@ once.
 
 A couple of practical limitations are worth knowing up front:
 
-- **Pixel readback works only from RAM.** `get_pixel()` reads virtual screens
-  and panels that draw into a virtual back screen first (ST7920, SSD1306,
-  ST7565R). Direct panels (ILI9341, ST7789, ...) return 0: many SPI modules
+- **Pixel readback works only from RAM.** `get_pixel()` reads virtual screens,
+  panels that draw into a virtual back screen first (ST7920, SSD1306,
+  ST7565R) and a DSI display, whose frame buffer is memory of the chip
+  (JD9165). Direct panels (ILI9341, ST7789, ...) return 0: many SPI modules
   have no MISO line at all, and where RAMRD works it is far too slow. If you
   need to read what you drew, draw into a `vscreen` and push it with
   `dgx_vscreen_to_screen()`.
@@ -1015,8 +1054,9 @@ A couple of practical limitations are worth knowing up front:
 ## Host tests
 
 The platform-independent code (matrices, morphing, renderers, virtual and page
-screens, fonts, textured quads, Bezier curves, handwritten fonts with their
-writing and morphing) has host tests built with gcc against small ESP-IDF
+screens, fills, lines and circles, the frame buffer of the DSI bus, fonts,
+textured quads, Bezier curves, handwritten fonts with their writing and
+morphing) has host tests built with gcc against small ESP-IDF
 stubs and run under ASan/UBSan:
 
 ```sh
@@ -1027,7 +1067,7 @@ make -C test/host
 
 ```
 include/                 public headers
-  bus/                   transport interfaces (SPI, I2C, P8)
+  bus/                   transport interfaces (SPI, I2C, P8, DSI)
   drivers/               panel drivers + virtual screens
   fonts/                 generated font headers
 src/                     implementations matching include/
@@ -1036,6 +1076,7 @@ src/                     implementations matching include/
   fonts/                 generated font sources (glob-built)
 font2c/                  offline TTF/BDF -> C font generator
 examples/screen_demo/    minimal end-to-end example
+examples/dsi_demo/       the same kind of test for a 7-inch MIPI-DSI display on ESP32-P4
 examples/morph_demo/     sequential CYD word-morphing demo
 examples/glyph_morph_demo/  CYD demo morphing one large symbol into the next
 examples/weather_morph_demo/  CYD demo morphing the weather symbols of a clock, in two orders

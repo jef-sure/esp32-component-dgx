@@ -13,6 +13,11 @@ config DGX_ENABLE_P8
     depends on SOC_LCD_I80_SUPPORTED
     default n
 
+config DGX_ENABLE_DSI
+    bool "Enable MIPI-DSI transport backend"
+    depends on SOC_MIPI_DSI_SUPPORTED
+    default n
+
 config DGX_ENABLE_SPI_ST7735
     bool "Enable ST7735 panel driver"
     depends on DGX_ENABLE_SPI || DGX_ENABLE_P8
@@ -36,6 +41,11 @@ config DGX_ENABLE_SPI_ILI_9341
 config DGX_ENABLE_SSD1351
     bool "Enable SSD1351 panel driver"
     depends on DGX_ENABLE_SPI || DGX_ENABLE_P8
+    default n
+
+config DGX_ENABLE_JD9165
+    bool "Enable JD9165 panel driver"
+    depends on DGX_ENABLE_DSI
     default n
 
 config DGX_ENABLE_SSD1306

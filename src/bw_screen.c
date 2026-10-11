@@ -211,6 +211,29 @@ void dgx_bw_fast_vline(dgx_screen_t *scr_, int x, int y, int h, uint32_t color)
 void dgx_bw_fill_rectangle(dgx_screen_t *scr_, int x, int y, int w, int h, uint32_t color)
 {
     dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)scr_;
+    /* a column and a row first: lines and circles are made of them, and each has a shorter way than a rectangle */
+    if (w == 1) {
+        dgx_bw_fast_vline(scr_, x, y, h, color);
+        return;
+    }
+    if (h == 1) {
+        if (y < 0 || y >= scr->base.height) return;
+        if (x < 0) {
+            w += x;
+            x = 0;
+        }
+        if (x + w > scr->base.width) w = scr->base.width - x;
+        if (w <= 0) return;
+        const uint8_t mask = (uint8_t)(1u << (y & 7));
+        uint8_t      *pb   = scr->v_array + (y >> 3) * scr->base.width + x;
+        if (color) {
+            for (int i = 0; i < w; ++i) pb[i] |= mask;
+        } else {
+            for (int i = 0; i < w; ++i) pb[i] &= (uint8_t)~mask;
+        }
+        dgx_screen_touch(scr_, x, x + w - 1, y, y);
+        return;
+    }
     if (w < 0 || x + w < 0 || x >= scr->base.width || h < 0 || y + h < 0 || y >= scr->base.height) return;
     if (x < 0) {
         w = x + w;

@@ -61,7 +61,7 @@ static uint8_t *dgx_ssd1351_adj_madctl(dgx_screen_with_bus_t *scr, const struct 
     return adj_data;
 }
 
-DRAM_ATTR static const dgx_lcd_init_cmd_t st_init_cmds[] = {
+static const dgx_lcd_init_cmd_t st_init_cmds[] = {
     //
     {SSD1351_CMD_COMMANDLOCK, 0, 1, 0, {0x12}},                          //
     {SSD1351_CMD_COMMANDLOCK, 0, 1, 0, {0xB1}},                          //

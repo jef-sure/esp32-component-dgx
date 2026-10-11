@@ -137,6 +137,63 @@ static void dgx_vscreen_screen_destroy(dgx_screen_t **_pscr)
 static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, int h, uint32_t color)
 {
     dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
+    /*
+     * A row and a column first. Lines and circles are made of them, and for
+     * one of a few pixels the checks a rectangle needs cost more than the
+     * pixels; a column taken as rows of one pixel costs several times more.
+     * Depths where pixels share bytes go the common way.
+     */
+    const uint8_t bits = _scr->color_bits;
+    if ((h == 1 || w == 1) && bits >= 8 && bits != 12) {
+        const size_t bytes = bits == 18 ? 3u : bits / 8u;
+        const size_t pitch = (size_t)_scr->width * bytes;
+        if (h == 1) {
+            if (y < 0 || y >= _scr->height) return;
+            if (x < 0) {
+                w += x;
+                x = 0;
+            }
+            if (x + w > _scr->width) w = _scr->width - x;
+            if (w <= 0) return;
+            uint8_t *lp = scr->v_array + (size_t)y * pitch + (size_t)x * bytes;
+            if (bits == 8) {
+                memset(lp, (int)color, (size_t)w);
+            } else if (bits != 16) {
+                dgx_fill_pixels(bits, lp, 0, (uint32_t)w, color);
+            } else if (w < 8) {
+                const uint8_t hi = (uint8_t)(color >> 8), lo = (uint8_t)color;
+                for (int k = 0; k < w; ++k, lp += 2) lp[0] = hi, lp[1] = lo;
+            } else {
+                dgx_fill_pixels_16(lp, (uint32_t)w, color);
+            }
+            dgx_screen_touch(_scr, x, x + w - 1, y, y);
+            return;
+        }
+        if (x < 0 || x >= _scr->width) return;
+        if (y < 0) {
+            h += y;
+            y = 0;
+        }
+        if (y + h > _scr->height) h = _scr->height - y;
+        if (h <= 0) return;
+        uint8_t *lp = scr->v_array + (size_t)y * pitch + (size_t)x * bytes;
+        switch (bytes) {
+        case 1:
+            for (int k = 0; k < h; ++k, lp += pitch) lp[0] = (uint8_t)color;
+            break;
+        case 2:
+            for (int k = 0; k < h; ++k, lp += pitch) lp[0] = (uint8_t)(color >> 8), lp[1] = (uint8_t)color;
+            break;
+        case 3:
+            for (int k = 0; k < h; ++k, lp += pitch) lp[0] = (uint8_t)(color >> 16), lp[1] = (uint8_t)(color >> 8), lp[2] = (uint8_t)color;
+            break;
+        default:
+            for (int k = 0; k < h; ++k, lp += pitch) dgx_fill_buf_value_32(lp, 0, color);
+            break;
+        }
+        dgx_screen_touch(_scr, x, x, y, y + h - 1);
+        return;
+    }
     if (w < 0 || x + w < 0 || x >= _scr->width || h < 0 || y + h < 0 || y >= _scr->height) return;
     if (x < 0) {
         w = x + w;
@@ -156,6 +213,22 @@ static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, 
     if (x == 0 && w == _scr->width && y == 0 && h == _scr->height && color == 0) {
         uint32_t asize = dgx_color_points_to_bytes(_scr->color_bits, _scr->width * _scr->height);
         memset(scr->v_array, 0, asize);
+    } else if (_scr->color_bits == 16 && w < 8) {
+        /*
+         * Short rows: the runs of a line, the caps of a circle, a column. Two bytes a pixel
+         * set in place cost less than a fill by words set up for each row.
+         */
+        const uint8_t hi    = (uint8_t)(color >> 8), lo = (uint8_t)color;
+        const size_t  pitch = (size_t)_scr->width * 2u;
+        uint8_t      *row   = scr->v_array + (size_t)y * pitch + (size_t)x * 2u;
+        for (int i = 0; i < h; ++i, row += pitch) {
+            uint8_t *lp = row;
+            for (int k = 0; k < w; ++k, lp += 2) lp[0] = hi, lp[1] = lo;
+        }
+    } else if (_scr->color_bits == 16) {
+        /* longer rows by words, all the rows in one call */
+        const size_t pitch = (size_t)_scr->width * 2u;
+        dgx_fill_rows_16(scr->v_array + (size_t)y * pitch + (size_t)x * 2u, pitch, (uint32_t)w, (uint32_t)h, color);
     } else {
         for (int i = 0; i < h; ++i) {
             uint32_t offset = DGX_VSCR_OFFSET(scr, x, y + i);
@@ -164,173 +237,15 @@ static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, 
                 continue;
             }
             uint8_t *lp = DGX_VSCR_PTR(scr, offset);
-            DGX_FILL_BUFFER(_scr->color_bits, lp, offset, w, color);
+            if (_scr->color_bits == 8) {
+                memset(lp, (int)color, (size_t)w); // a byte a pixel: nothing to work out
+                continue;
+            }
+            dgx_fill_pixels(_scr->color_bits, lp, offset, (uint32_t)w, color);
         }
     }
     dgx_screen_touch(_scr, x, x + w - 1, y, y + h - 1);
 }
-static void dgx_vscreen_line(dgx_screen_t *_scr, int x1, int y1, int x2, int y2, uint32_t color)
-{
-    int area_left   = DGX_MIN(x1, x2);
-    int area_right  = DGX_MAX(x1, x2);
-    int area_top    = DGX_MIN(y1, y2);
-    int area_bottom = DGX_MAX(y1, y2);
-    if (area_bottom < 0 || area_top >= _scr->height || area_left >= _scr->width || area_right < 0) return;
-    int dx = x2 - x1;
-    int dy = y2 - y1;
-    if (dx == 0 && dy == 0) {
-        _scr->set_pixel(_scr, x1, y1, color);
-        return;
-    }
-    if (dx == 0 || dy == 0) {
-        if (dx < 0) {
-            x1 = x2;
-            dx = -dx;
-        }
-        if (dy < 0) {
-            y1 = y2;
-            dy = -dy;
-        }
-        _scr->fill_rectangle(_scr, x1, y1, dx + 1, dy + 1, color);
-        return;
-    }
-    int sy = dy < 0 ? -1 : 1;
-    int sx = dx < 0 ? -1 : 1;
-    dx     = DGX_ABS(dx);
-    dy     = DGX_ABS(dy);
-    ++dx;
-    ++dy;
-    dgx_screen_progress_up(_scr);
-    if (dx == dy) {
-        while (1) {
-            _scr->set_pixel(_scr, x1, y1, color);
-            if (x1 == x2) break;
-            x1 += sx;
-            y1 += sy;
-        };
-        dgx_screen_progress_down(_scr);
-        return;
-    }
-    int err;
-    if (dx > dy) {
-        err = dy;
-        dy *= 2;
-        dx *= 2;
-        int sp = x1;
-        while (1) {
-            err += dy;
-            if (err >= dx || x1 == x2) {
-                _scr->fill_rectangle(_scr, (x1 > sp ? sp : x1), y1, (x1 > sp ? x1 - sp : sp - x1) + 1, 1, color);
-                if (x1 == x2) break;
-                sp = x1 + sx;
-                err -= dx;
-                y1 += sy;
-            }
-            x1 += sx;
-        }
-    } else {
-        err = dx;
-        dy *= 2;
-        dx *= 2;
-        int sp = y1;
-        while (1) {
-            err += dx;
-            if (err >= dy || y1 == y2) {
-                _scr->fill_rectangle(_scr, x1, (y1 > sp ? sp : y1), 1, (y1 > sp ? y1 - sp : sp - y1) + 1, color);
-                if (y1 == y2) break;
-                sp = y1 + sy;
-                err -= dy;
-                x1 += sx;
-            }
-            y1 += sy;
-        }
-    }
-    dgx_screen_progress_down(_scr);
-}
-
-static void dgx_vscreen_circle(dgx_screen_t *_scr, int x0, int y0, int r, uint32_t color)
-{
-    int f           = 1 - r;
-    int ddF_x       = 1;
-    int ddF_y       = -2 * r;
-    int x           = 0;
-    int y           = r;
-    int area_left   = x0 - r;
-    int area_right  = x0 + r;
-    int area_top    = y0 - r;
-    int area_bottom = y0 + r;
-    if (area_bottom < 0 || area_top >= _scr->height || area_left >= _scr->width || area_right < 0) return;
-    if (r == 0) {
-        _scr->set_pixel(_scr, x0, y0, color);
-        return;
-    }
-
-    dgx_screen_progress_up(_scr);
-
-    _scr->set_pixel(_scr, x0, y0 + r, color);
-    _scr->set_pixel(_scr, x0, y0 - r, color);
-    _scr->set_pixel(_scr, x0 + r, y0, color);
-    _scr->set_pixel(_scr, x0 - r, y0, color);
-
-    while (x < y) {
-        if (f >= 0) {
-            y--;
-            ddF_y += 2;
-            f += ddF_y;
-        }
-        x++;
-        ddF_x += 2;
-        f += ddF_x;
-
-        _scr->set_pixel(_scr, x0 + x, y0 + y, color);
-        _scr->set_pixel(_scr, x0 - x, y0 + y, color);
-        _scr->set_pixel(_scr, x0 + x, y0 - y, color);
-        _scr->set_pixel(_scr, x0 - x, y0 - y, color);
-        _scr->set_pixel(_scr, x0 + y, y0 + x, color);
-        _scr->set_pixel(_scr, x0 - y, y0 + x, color);
-        _scr->set_pixel(_scr, x0 + y, y0 - x, color);
-        _scr->set_pixel(_scr, x0 - y, y0 - x, color);
-    }
-    dgx_screen_progress_down(_scr);
-}
-
-static void dgx_vscreen_solid_circle(dgx_screen_t *_scr, int x0, int y0, int r, uint32_t color)
-{
-    int f           = 1 - r;
-    int ddF_x       = 1;
-    int ddF_y       = -2 * r;
-    int x           = 0;
-    int y           = r;
-    int area_left   = x0 - r;
-    int area_right  = x0 + r;
-    int area_top    = y0 - r;
-    int area_bottom = y0 + r;
-    if (area_bottom < 0 || area_top >= _scr->height || area_left >= _scr->width || area_right < 0) return;
-    if (r == 0) {
-        _scr->set_pixel(_scr, x0, y0, color);
-        return;
-    }
-
-    dgx_screen_progress_up(_scr);
-
-    _scr->fill_rectangle(_scr, x0 - r, y0, 2 * r + 1, 1, color);
-    while (x < y) {
-        if (f >= 0) {
-            y--;
-            ddF_y += 2;
-            f += ddF_y;
-        }
-        x++;
-        ddF_x += 2;
-        f += ddF_x;
-        _scr->fill_rectangle(_scr, x0 - x, y0 + y, 2 * x + 1, 1, color);
-        _scr->fill_rectangle(_scr, x0 - x, y0 - y, 2 * x + 1, 1, color);
-        _scr->fill_rectangle(_scr, x0 - y, y0 + x, 2 * y + 1, 1, color);
-        _scr->fill_rectangle(_scr, x0 - y, y0 - x, 2 * y + 1, 1, color);
-    }
-    dgx_screen_progress_down(_scr);
-}
-
 // Initialize the display
 dgx_screen_t *dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_color_order_t cbo)
 {
@@ -351,18 +266,18 @@ dgx_screen_t *dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_co
     scr->base.swap_xy         = false;
     scr->base.screen_name     = "V-SCREEN";
     scr->base.screen_submodel = 0;
+    // must be set before dgx_scr_init_slow_bus_optimized_funcs(), which takes subtype 0 for a screen with a bus
     scr->base.screen_subtype  = DgxVirtualScreen;
-    scr->base.circle          = dgx_vscreen_circle;
+    // lines and circles are those of every screen, made of the pixels and the rectangles of this one
+    dgx_scr_init_slow_bus_optimized_funcs(&scr->base);
     scr->base.destroy         = dgx_vscreen_screen_destroy;
     scr->base.set_pixel       = dgx_vscreen_set_pixel;
     scr->base.fill_rectangle  = dgx_vscreen_fill_rectangle;
-    scr->base.draw_line       = dgx_vscreen_line;
     scr->base.get_pixel       = dgx_vscreen_get_pixel;
     scr->base.set_area        = dgx_vscreen_set_area;
     scr->base.read_area       = dgx_vscreen_read_area;
     scr->base.write_area      = dgx_vscreen_write_area;
     scr->base.wait_buffer     = dgx_vscreen_wait_buffer_dummy;
-    scr->base.solid_circle    = dgx_vscreen_solid_circle;
     scr->base.update_screen   = dgx_vscreen_update_area;
 
     uint32_t asize = dgx_color_points_to_bytes(color_bits, width * height);

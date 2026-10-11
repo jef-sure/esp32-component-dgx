@@ -1,5 +1,61 @@
 # Changes
 
+## 0.5.0 - 2026-10-11
+
+- added a MIPI-DSI bus for ESP32-P4, `dgx_dsi_init()`
+  (`CONFIG_DGX_ENABLE_DSI`). A display on it is sent a frame buffer in PSRAM
+  all the time. For a driver the bus is a display with memory of its own: it
+  takes the window and the pixels that follow, as an SPI display does, and
+  puts them into the frame buffer in the byte order that buffer has. The
+  orientation is carried out by the bus where pixels are put, so all eight
+  work with any display, and a pixel can be read back. A pixel and a
+  rectangle go straight into the frame buffer. What is drawn is brought out
+  of the cache of the chip when the screen is updated, and on the way when a
+  batch is long, so it shows in the order it is drawn;
+- added a driver of JD9165, `dgx_jd9165_init()` (`CONFIG_DGX_ENABLE_JD9165`):
+  1024x600 on two DSI lanes, 16 or 24 bits a pixel, with the commands of the
+  7-inch panel of the Guition JC1060P470 board;
+- added `examples/dsi_demo` for that board: a test card, ramps of colors that
+  show 16-bit color against 24-bit, lines, circles, triangles. Its README has
+  what the size of the PSRAM cache costs in internal RAM and gives in speed;
+- lines and circles are one code for every screen now, made of the pixels and
+  the rectangles a screen draws itself, so a figure has the same pixels on a
+  display, on a color virtual screen and on a monochrome one. A line is
+  Bresenham's and has the same pixels whichever end it is given from; before,
+  a third of the lines depended on the direction, and a pixel could lie 0.86
+  of a pixel off the true line, now it is 0.5 at most. A circle is the
+  midpoint one, walked for an eighth and reflected; the outline used to send
+  every pixel to a display twice. A solid circle is filled by rows, rows of
+  one width as one rectangle. **The pixels of lines have changed**, those of
+  circles on displays and monochrome screens at radii 4, 11, 134 and 373;
+- a color and a monochrome virtual screen take a row and a column of one
+  pixel a short way of their own inside `fill_rectangle()`: lines and circles
+  are made of them, and the checks a rectangle needs cost more than a few
+  pixels. A 16-bit virtual screen is filled by 4-byte words;
+- `DGX_FILL_BUFFER` is removed. `dgx_fill_pixels()` fills a run of pixels in
+  a buffer for every depth, by words where the bytes of a pixel repeat;
+  `dgx_fill_pixels_16()` and `dgx_fill_rows_16()` are the 16-bit case for a
+  row and for rows one under another;
+- the tables of commands a display is set up with are no longer kept in RAM:
+  `dgx_lcd_init()` sends their data through the buffer of the bus. With an
+  ILI9341 that is 576 bytes of RAM back; the display is sent the same bytes;
+- fixed: a build without the SPI bus did not link, the window code of a
+  display always took functions of that bus;
+- measured on an ESP32 at 240 MHz against 0.4.9, RAM use the same but for
+  the 576 bytes: on an ILI9341 over SPI the outline of a circle is 3.2-3.6
+  times faster and a solid circle 1.25-1.3 times, lines, fills and text are
+  as they were. On a 16-bit virtual screen a fill of 320x240 takes 350 us
+  instead of 1016, a column of 100 pixels 2 us instead of 22, a steep line is
+  1.8 times faster, a solid circle up to 2.7 times. On an 8-bit one a steep
+  line is 2.5 times faster, circles 1.8-1.9 times, text 1.1 times. On a
+  monochrome screen lines are 1.4 times faster, the outline of a circle up to
+  5.4 times. Nothing measured is slower;
+- host tests: `test_fb_area`, the frame buffer of the DSI bus against a model
+  that places every pixel on its own; `test_pixels`, a run filled at once
+  against pixels set one by one for every depth; `test_fill`, a rectangle of
+  a virtual screen against the same; `test_circle`, lines and circles against
+  the algorithms as the textbooks give them.
+
 ## 0.4.9 - 2026-10-10
 
 - the glow renderer keeps no frame of colors any more: `dgx_morph_glow_present()`

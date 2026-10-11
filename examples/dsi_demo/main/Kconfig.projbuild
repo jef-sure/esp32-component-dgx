@@ -1,0 +1,11 @@
+menu "DGX DSI demo"
+
+config EXAMPLE_LCD_COLOR_BITS
+    int "Bits a pixel: 16 or 24"
+    default 16
+    help
+        16 is RGB565: a frame buffer of 1.2 MB. 24 has 256 levels of every
+        color and a frame buffer of 1.8 MB; the ramps of the demo show the
+        difference.
+
+endmenu
