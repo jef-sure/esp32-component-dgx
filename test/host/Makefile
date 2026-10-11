@@ -3,7 +3,7 @@
 
 ROOT    := ../..
 CC      ?= gcc
-CFLAGS  ?= -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
+CFLAGS  ?= -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer
 # -Wno-format: ESP32 logs print size_t with %u, which is 32-bit only there.
 CFLAGS  += -std=gnu11 -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-format
 CPPFLAGS += -Istubs -I$(ROOT)/include -I$(ROOT)/src -include stubs/esp_log.h

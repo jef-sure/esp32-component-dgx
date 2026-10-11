@@ -164,6 +164,55 @@ static void test_direct(uint8_t pixel_bytes, bool swap_rb, bool mirror_x, bool m
     CHECK(!dgx_fb_area_take_dirty(&area, &from, &length));
 }
 
+/*
+ * Long rows of 16-bit pixels are moved by words. Every way the buffer and the
+ * frame buffer can lie against the boundaries of a word, lengths around the
+ * one words start from, buffers at odd addresses too, the screen mirrored.
+ */
+#define LW 83
+#define LH 4
+static void test_long_rows(void)
+{
+    static _Alignas(8) uint8_t long_fb[LW * LH * 2 + 32], long_model[LW * LH * 2 + 32], pixels[LW * LH * 2 + 32];
+    for (int mirror = 0; mirror < 2; ++mirror) {
+        for (int fb_at = 0; fb_at < 4; ++fb_at) {
+            for (int data_at = 0; data_at < 4; ++data_at) {
+                dgx_fb_area_t area;
+                memset(long_fb, 0xa5, sizeof(long_fb));
+                dgx_fb_area_init(&area, long_fb + 8 + fb_at, LW, LH, 2, false);
+                dgx_fb_area_orientation(&area, mirror, false, false);
+                for (int round = 0; round < 300; ++round) {
+                    int left = rnd(0, LW - 1), right = rnd(left, LW - 1), top = rnd(0, LH - 1), bottom = rnd(top, LH - 1);
+                    int count = (right - left + 1) * (bottom - top + 1);
+                    uint8_t *data = pixels + 8 + data_at, *lp = data;
+                    memcpy(long_model, long_fb, sizeof(long_fb));
+                    for (int y = top; y <= bottom; ++y) {
+                        for (int x = left; x <= right; ++x) {
+                            uint32_t color = (uint32_t)rnd(0, 0xffff);
+                            lp[0] = (uint8_t)(color >> 8), lp[1] = (uint8_t)color, lp += 2;
+                            int      px = mirror ? LW - 1 - x : x;
+                            uint8_t *p  = long_model + 8 + fb_at + (y * LW + px) * 2;
+                            p[0] = (uint8_t)color, p[1] = (uint8_t)(color >> 8);
+                        }
+                    }
+                    set_window(&area, left, right, top, bottom, DGX_FB_AREA_WRITE);
+                    for (int sent = 0; sent < count;) {
+                        int piece = rnd(1, count - sent);
+                        CHECK(dgx_fb_area_data(&area, data + sent * 2, (uint32_t)piece * 2));
+                        sent += piece;
+                    }
+                    if (memcmp(long_fb, long_model, sizeof(long_fb)) != 0) {
+                        fprintf(stderr, "long rows: frame buffer at +%d, buffer at +%d, mirror %d, window %d..%d x %d..%d differ\n", fb_at, data_at,
+                                mirror, left, right, top, bottom);
+                        ++check_failures;
+                        memcpy(long_fb, long_model, sizeof(long_fb));
+                    }
+                }
+            }
+        }
+    }
+}
+
 /* a window larger than the screen is cut, a command of the display is left to it */
 static void test_bounds(void)
 {
@@ -195,6 +244,7 @@ int main(void)
         test_windows(bits & 16 ? 3 : 2, bits & 8, bits & 4, bits & 2, bits & 1);
         test_direct(bits & 16 ? 3 : 2, bits & 8, bits & 4, bits & 2, bits & 1);
     }
+    test_long_rows();
     test_bounds();
     CHECK_DONE();
 }

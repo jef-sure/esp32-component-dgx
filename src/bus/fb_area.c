@@ -123,6 +123,65 @@ static inline uint16_t dgx_fb_area_swap_565(uint16_t color)
     return (uint16_t)((color & 0x07e0u) | (color >> 11) | ((color & 0x1fu) << 11));
 }
 
+/* a word of a pixel buffer: the buffers are bytes, and are moved by words where that is faster */
+typedef uint32_t __attribute__((may_alias)) dgx_fb_word_t;
+
+/* From this many pixels on a run of 16-bit pixels is moved by words: measured on an ESP32-P4 */
+#define DGX_FB_AREA_WORDS_FROM 16u
+
+/* the two bytes of each of the two pixels in a word exchanged */
+static inline uint32_t dgx_fb_area_swap_word(uint32_t word)
+{
+    return ((word & 0x00ff00ffu) << 8) | ((word >> 8) & 0x00ff00ffu);
+}
+
+/*
+ * 16-bit pixels of a buffer, the high byte first, into pixels of the frame
+ * buffer that follow one another, the low byte first. Two pixels are one
+ * word, and their bytes are exchanged in it at once: a third faster than
+ * byte by byte on a long run. Words are read and written at their own
+ * boundaries only, so when the buffer and the frame buffer start at
+ * different halves of a word, a pixel is carried from one word to the next.
+ */
+static void dgx_fb_area_write_words(uint8_t *to, const uint8_t *data, uint32_t count)
+{
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    if (count >= DGX_FB_AREA_WORDS_FROM && !(((uintptr_t)to | (uintptr_t)data) & 1u)) {
+        if ((uintptr_t)to & 2u) {
+            to[0] = data[1], to[1] = data[0];
+            to += 2, data += 2, --count;
+        }
+        dgx_fb_word_t *wp = (dgx_fb_word_t *)(void *)to;
+        if (!((uintptr_t)data & 2u)) {
+            const dgx_fb_word_t *rp = (const dgx_fb_word_t *)(const void *)data;
+            for (uint32_t pairs = count >> 1; pairs; --pairs) *wp++ = dgx_fb_area_swap_word(*rp++);
+            data = (const uint8_t *)rp;
+            count &= 1u;
+        } else {
+            /* the first pixel waits for the one that shares its word in the frame buffer */
+            uint32_t             carry = (uint32_t)data[1] | (uint32_t)data[0] << 8;
+            const dgx_fb_word_t *rp    = (const dgx_fb_word_t *)(const void *)(data + 2);
+            --count;
+            for (uint32_t pairs = count >> 1; pairs; --pairs) {
+                uint32_t word = dgx_fb_area_swap_word(*rp++);
+                *wp++         = carry | word << 16;
+                carry         = word >> 16;
+            }
+            data = (const uint8_t *)rp;
+            to   = (uint8_t *)wp;
+            to[0] = (uint8_t)carry, to[1] = (uint8_t)(carry >> 8);
+            wp    = (dgx_fb_word_t *)(void *)(to + 2); /* only as a place: the pixel left over goes by bytes */
+            count &= 1u;
+        }
+        to = (uint8_t *)wp;
+    }
+#endif
+    for (; count; --count, data += 2, to += 2) {
+        to[0] = data[1];
+        to[1] = data[0];
+    }
+}
+
 void dgx_fb_area_write(dgx_fb_area_t *area, const uint8_t *data, uint32_t pixels)
 {
     while (pixels) {
@@ -132,8 +191,12 @@ void dgx_fb_area_write(dgx_fb_area_t *area, const uint8_t *data, uint32_t pixels
         dgx_fb_area_touch(area, to, step, count);
         pixels -= count;
         if (area->pixel_bytes == 2) {
-            if (!area->swap_rb) {
+            if (!area->swap_rb && step == 2) {
                 /* the buffer has the high byte first, the frame buffer the low one */
+                dgx_fb_area_write_words(to, data, count);
+                data += (size_t)count * 2u;
+            } else if (!area->swap_rb) {
+                /* mirrored or turned: a pixel at a time */
                 for (; count; --count, data += 2, to += step) {
                     to[0] = data[1];
                     to[1] = data[0];

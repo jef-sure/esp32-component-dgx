@@ -45,7 +45,7 @@ idf.py flash monitor
 | 512 KB | 197 KB | 0.9 ms | 0.7 ms | 0.19 ms | 9.5 ms |
 
 A pixel set inside a batch takes 0.45 us, a pixel set alone 4.7 us, a whole
-virtual screen sent to the display 38 ms.
+virtual screen sent to the display 34 ms.
 
 What is cheap on such a display and what is not: a row is one piece of the
 memory the display is sent from, a column is a pixel in every row it

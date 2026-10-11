@@ -1,5 +1,17 @@
 # Changes
 
+## 0.5.1 - 2026-10-11
+
+- the DSI bus moves rows of 16-bit pixels into the frame buffer by 4-byte
+  words, two pixels at once with their bytes exchanged in the word, where a
+  row is 16 pixels or longer and the screen is not mirrored or turned. On an
+  ESP32-P4 a whole virtual screen of 1024x600 goes to the display in 34 ms
+  instead of 38, a part of 320x100 in 1.1 ms instead of 1.3. A pixel written
+  as one 16-bit value was measured too and is slower than two bytes;
+- host tests stop at the first report of the sanitizer of undefined behaviour:
+  a word written at a wrong boundary is an exception on an ESP32 and only a
+  line of text on a PC.
+
 ## 0.5.0 - 2026-10-11
 
 - added a MIPI-DSI bus for ESP32-P4, `dgx_dsi_init()`
