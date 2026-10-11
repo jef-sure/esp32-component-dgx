@@ -46,6 +46,18 @@ typedef void (*dgx_bus_sync_write_func)(struct _dgx_bus_protocols_t *bus);
  */
 typedef void (*dgx_bus_dispose_bus_func)(struct _dgx_bus_protocols_t *bus);
 
+/**
+ * @brief Put rows of pixels straight into a rectangle of the display, when the bus has a faster way than its window.
+ *
+ * @param left,top     The rectangle on the screen, inside it.
+ * @param width,height Its size in pixels.
+ * @param rows         The pixels as DGX keeps them in a buffer, row after row.
+ * @param pitch        Bytes from the start of a row to the start of the next one.
+ * @return false when the bus has not done it: the pixels are to be sent through the window then.
+ */
+typedef bool (*dgx_bus_write_rows_func)(struct _dgx_bus_protocols_t *bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
+                                        const uint8_t *rows, uint32_t pitch);
+
 typedef struct _dgx_bus_protocols_t {
     enum dgx_bus_type bus_type;
     const char *bus_name;
@@ -59,6 +71,7 @@ typedef struct _dgx_bus_protocols_t {
     dgx_bus_dispose_bus_func dispose;
     size_t buffer_len;
     uint8_t *buffer;
+    dgx_bus_write_rows_func write_rows; /*!< NULL for a bus that has only its window */
 } dgx_bus_protocols_t;
 
 #ifdef __cplusplus

@@ -14,6 +14,14 @@ left" is somewhere else, change `EXAMPLE_LCD_DIR_X`, `EXAMPLE_LCD_DIR_Y` and
 `EXAMPLE_LCD_SWAP_XY` at the top of `main/main.c`; if the colors are named
 wrong, pass `DgxScreenBGR` to `dgx_jd9165_init()`.
 
+The last scene is bars moving sideways in a band of the screen. It is there to
+show tearing: the display is sent the frame buffer all the time, also while
+the band is being written into it, and now and then a bar is seen broken.
+`CONFIG_EXAMPLE_LCD_TWO_FRAMES` gives the display a second frame buffer
+(`DgxDsiTwoFrames` in the last argument of `dgx_jd9165_init()`): a batch of
+drawing is then shown whole at a frame boundary and nothing tears, for one
+more frame of PSRAM, 1.2 MB at 16 bits.
+
 What the board gives:
 
 - DSI: 2 data lanes at 750 Mbit/s, the PHY powered by regulator channel 3 of

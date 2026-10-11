@@ -41,6 +41,13 @@ typedef void (*demo_step_fn_t)(dgx_screen_t *screen);
 
 #define EXAMPLE_LCD_COLOR_BITS CONFIG_EXAMPLE_LCD_COLOR_BITS
 
+/* What the display may spend to show a picture whole: nothing, or one more frame buffer in PSRAM */
+#ifdef CONFIG_EXAMPLE_LCD_TWO_FRAMES
+#define EXAMPLE_LCD_FRAMES DgxDsiTwoFrames
+#else
+#define EXAMPLE_LCD_FRAMES DgxDsiOneFrame
+#endif
+
 static inline uint32_t demo_rgb(uint8_t r, uint8_t g, uint8_t b)
 {
     return EXAMPLE_LCD_COLOR_BITS == 24 ? dgx_rgb_to_24(r, g, b) : dgx_rgb_to_16(r, g, b);
@@ -179,6 +186,34 @@ static void demo_color_bars(dgx_screen_t *screen)
     }
 }
 
+/*
+ * Bars moving sideways in a band of the screen: a picture that tears if it does. With one frame buffer a bar is
+ * seen broken now and then, where the display was reading the band while it was sent; with two it never is.
+ */
+static void demo_moving_bars(dgx_screen_t *screen, uint32_t run_ms)
+{
+    const int     top = screen->height / 3, height = screen->height / 3, pitch = 128, width = 40, step = 4;
+    dgx_screen_t *band = dgx_vscreen_init(screen->width, height, screen->color_bits, DgxScreenRGB);
+    if (!band) return;
+    dgx_screen_progress_up(screen);
+    dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, DGX_BLACK(demo_rgb));
+    demo_text(screen, 16, 44, EXAMPLE_LCD_FRAMES == DgxDsiTwoFrames ? "two frame buffers" : "one frame buffer", DGX_WHITE(demo_rgb));
+    dgx_screen_progress_down(screen);
+    int64_t start = esp_timer_get_time();
+    int     frames = 0, offset = 0;
+    while (esp_timer_get_time() - start < (int64_t)run_ms * 1000) {
+        for (int x = offset - pitch; x < band->width; x += pitch) dgx_fill_rectangle(band, x, 0, width, height, DGX_BLACK(demo_rgb));
+        offset = (offset + step) % pitch;
+        for (int x = offset - pitch; x < band->width; x += pitch) dgx_fill_rectangle(band, x, 0, width, height, DGX_CYAN(demo_rgb));
+        dgx_vscreen_to_screen(screen, 0, top, band);
+        ++frames;
+        /* one frame buffer: not faster than the display shows; with two the bus waits for the display itself */
+        if (EXAMPLE_LCD_FRAMES == DgxDsiOneFrame) vTaskDelay(1);
+    }
+    ESP_LOGI(TAG, "moving bars: %d frames a second", (int)(frames * 1000LL / run_ms));
+    dgx_screen_destroy(&band);
+}
+
 static void demo_run_step(dgx_screen_t *screen, const char *name, demo_step_fn_t step, uint32_t hold_ms)
 {
     int64_t start_us = esp_timer_get_time();
@@ -203,7 +238,7 @@ void app_main(void)
         return;
     }
 
-    dgx_screen_t *screen = dgx_jd9165_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, EXAMPLE_LCD_COLOR_BITS, DgxScreenRGB);
+    dgx_screen_t *screen = dgx_jd9165_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, EXAMPLE_LCD_COLOR_BITS, DgxScreenRGB, EXAMPLE_LCD_FRAMES);
     if (!screen) {
         ESP_LOGE(TAG, "dgx_jd9165_init failed");
         return;
@@ -218,5 +253,6 @@ void app_main(void)
         demo_run_step(screen, "circles", demo_circles, 2500);
         demo_run_step(screen, "triangles", demo_triangles, 2500);
         demo_run_step(screen, "color bars", demo_color_bars, 2500);
+        demo_moving_bars(screen, 6000);
     }
 }

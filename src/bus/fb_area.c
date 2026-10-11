@@ -311,6 +311,18 @@ void dgx_fb_area_fill(dgx_fb_area_t *area, uint16_t x, uint16_t y, uint16_t widt
     }
 }
 
+void dgx_fb_area_to_panel(const dgx_fb_area_t *area, int left, int right, int top, int bottom, uint16_t *x0, uint16_t *y0, uint16_t *x1,
+                          uint16_t *y1)
+{
+    /* two opposite corners are enough: mirroring and swapping keep a rectangle a rectangle */
+    uint32_t ax = area->swap_xy ? (uint32_t)top : (uint32_t)left, ay = area->swap_xy ? (uint32_t)left : (uint32_t)top;
+    uint32_t bx = area->swap_xy ? (uint32_t)bottom : (uint32_t)right, by = area->swap_xy ? (uint32_t)right : (uint32_t)bottom;
+    if (area->mirror_x) ax = area->fb_width - 1u - ax, bx = area->fb_width - 1u - bx;
+    if (area->mirror_y) ay = area->fb_height - 1u - ay, by = area->fb_height - 1u - by;
+    *x0 = (uint16_t)(ax < bx ? ax : bx), *x1 = (uint16_t)(ax < bx ? bx : ax);
+    *y0 = (uint16_t)(ay < by ? ay : by), *y1 = (uint16_t)(ay < by ? by : ay);
+}
+
 bool dgx_fb_area_command(dgx_fb_area_t *area, uint8_t command)
 {
     switch (command) {

@@ -325,6 +325,22 @@ dgx_screen_t *dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_co
     } while (0)
 
 /*
+ * A display behind a bus that has a faster way than its window takes a
+ * rectangle of a virtual screen as it lies in memory: whole bytes a pixel,
+ * the same depth on both sides, the rectangle inside both screens. Returns
+ * false when the pixels have to go through the window.
+ */
+static bool dgx_vscreen_rows_to_bus(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_vscreen_t *scr_src, int x_src, int y_src, int width, int height)
+{
+    if (_scr_dst->screen_subtype != DgxPhysicalScreenWithBus || _scr_dst->color_bits % 8u != 0) return false;
+    dgx_bus_protocols_t *bus = ((dgx_screen_with_bus_t *)_scr_dst)->bus;
+    if (!bus->write_rows) return false;
+    const uint32_t bip = dgx_color_points_to_bytes(scr_src->base.color_bits, 1);
+    return bus->write_rows(bus, (uint16_t)x_dst, (uint16_t)y_dst, (uint16_t)width, (uint16_t)height,
+                           DGX_VSCR_PTR(scr_src, DGX_VSCR_OFFSET(scr_src, x_src, y_src)), (uint32_t)scr_src->base.width * bip);
+}
+
+/*
  * Append a run of whole pixels to the transfer buffer, sending the buffer
  * whenever it fills up. A virtual screen keeps its pixels in the byte order
  * of the wire, so this is a plain copy. Returns the new write position.
@@ -592,7 +608,9 @@ void dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_scr
     int skip_x = x1 - x_dst;
     int skip_y = y1 - y_dst;
     dgx_screen_progress_up(_scr_dst);
-    if (_scr_dst->screen_subtype == DgxPhysicalScreenWithBus) {
+    if (dgx_vscreen_rows_to_bus(_scr_dst, x1, y1, scr_src, skip_x, skip_y, bw, bh)) {
+        /* the bus has taken the pixels as they lie in memory */
+    } else if (_scr_dst->screen_subtype == DgxPhysicalScreenWithBus) {
         dgx_bus_protocols_t *bus             = ((dgx_screen_with_bus_t *)_scr_dst)->bus;
         uint8_t             *draw_buffer     = bus->buffer;
         size_t               draw_buffer_len = bus->buffer_len;
@@ -667,6 +685,11 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
     if (width <= 0 || height <= 0) return;
     x_src += x_dst - x_req;
     y_src += y_dst - y_req;
+    if (dgx_vscreen_rows_to_bus(_scr_dst, x_dst, y_dst, scr_src, x_src, y_src, width, height)) {
+        /* the bus has taken the pixels as they lie in memory */
+        dgx_screen_touch(_scr_dst, x_dst, x_dst + width - 1, y_dst, y_dst + height - 1);
+        return;
+    }
     uint8_t *draw_buffer;
     size_t   draw_buffer_len;
     if (_scr_dst->screen_subtype == DgxPhysicalScreenWithBus) {

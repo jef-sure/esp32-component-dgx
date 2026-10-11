@@ -18,6 +18,24 @@ config DGX_ENABLE_DSI
     depends on SOC_MIPI_DSI_SUPPORTED
     default n
 
+config DGX_DSI_HARDWARE_COPY
+    bool "Move and fill pixels of a DSI display by the hardware of the chip"
+    depends on DGX_ENABLE_DSI && SOC_DMA2D_SUPPORTED
+    default y
+    help
+        Large pieces go past the processor, several times as fast: a part
+        of a 16-bit virtual screen put to the display and, with two frame
+        buffers, what one of them lacks of the other by the 2D DMA; a
+        rectangle filled with a color by the pixel processing accelerator
+        (PPA). It costs 0.8 KB of RAM.
+
+        The accelerator has a public interface. The 2D DMA is driven
+        through a private interface of IDF, esp_private/dma2d.h, and one
+        field of a register of the chip is set directly, for IDF 6.0.3 and
+        later do not set it for 16-bit pixels. Should an IDF not build with
+        it, or the 2D DMA and the accelerator be wanted for something else,
+        turn this off: the processor does all of it then.
+
 config DGX_ENABLE_SPI_ST7735
     bool "Enable ST7735 panel driver"
     depends on DGX_ENABLE_SPI || DGX_ENABLE_P8

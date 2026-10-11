@@ -160,6 +160,24 @@ static void test_direct(uint8_t pixel_bytes, bool swap_rb, bool mirror_x, bool m
         CHECK(dgx_fb_area_get_pixel(&area, (uint16_t)left, (uint16_t)top) == color);
         CHECK(dgx_fb_area_get_pixel(&area, (uint16_t)right, (uint16_t)bottom) == color);
         CHECK(area.left == 1 && area.right == 3 && area.top == 2 && area.bottom == 4 && area.x == 1 && area.y == 2);
+        /* where the rectangle lies on the panel: the bounds of where its pixels went */
+        uint16_t x0, y0, x1, y1;
+        int      px0 = FW, py0 = FH, px1 = -1, py1 = -1;
+        for (int y = top; y <= bottom; ++y) {
+            for (int x = left; x <= right; ++x) {
+                int at = (int)(model_pixel(&area, x, y) - model) / pixel_bytes, px = at % FW, py = at / FW;
+                if (px < px0) px0 = px;
+                if (px > px1) px1 = px;
+                if (py < py0) py0 = py;
+                if (py > py1) py1 = py;
+            }
+        }
+        dgx_fb_area_to_panel(&area, left, right, top, bottom, &x0, &y0, &x1, &y1);
+        CHECK(x0 == px0 && y0 == py0 && x1 == px1 && y1 == py1);
+        /* and one pixel of it */
+        int at = (int)(model_pixel(&area, right, top) - model) / pixel_bytes;
+        dgx_fb_area_point_to_panel(&area, right, top, &x0, &y0);
+        CHECK(x0 == at % FW && y0 == at / FW);
     }
     CHECK(!dgx_fb_area_take_dirty(&area, &from, &length));
 }

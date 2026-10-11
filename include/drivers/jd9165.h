@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 #include "bus/dgx_bus_protocols.h"
+#include "bus/dgx_dsi_esp32.h"
 #include "driver/gpio.h"
 
 /**
@@ -20,9 +21,11 @@ extern "C" {
  * @param rst        Reset GPIO (use GPIO_NUM_NC if the panel has no reset line).
  * @param color_bits Pixel depth in bits: 16 (RGB565) or 24.
  * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR).
+ * @param frames     DgxDsiOneFrame: drawing shows at once, no memory beyond one frame, a moving picture may tear.
+ *                   DgxDsiTwoFrames: a batch of drawing is shown whole, for one more frame of PSRAM. See dgx_dsi_frames_t.
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */
-dgx_screen_t *dgx_jd9165_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo);
+dgx_screen_t *dgx_jd9165_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo, dgx_dsi_frames_t frames);
 
 /**
  * @brief Set how the screen lies on the panel (rotation/mirroring).

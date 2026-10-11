@@ -108,6 +108,24 @@ uint32_t dgx_fb_area_get_pixel(const dgx_fb_area_t *area, uint16_t x, uint16_t y
 void dgx_fb_area_fill(dgx_fb_area_t *area, uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint32_t color);
 
 /**
+ * @brief Where a rectangle of the screen lies on the panel.
+ *
+ * @param left,right,top,bottom The rectangle in screen coordinates, both ends included, inside the screen.
+ * @param x0,y0                 Out: its first column and row on the panel.
+ * @param x1,y1                 Out: its last column and row on the panel.
+ */
+void dgx_fb_area_to_panel(const dgx_fb_area_t *area, int left, int right, int top, int bottom, uint16_t *x0, uint16_t *y0, uint16_t *x1,
+                          uint16_t *y1);
+
+/** @brief Where a pixel of the screen lies on the panel; it has to be inside the screen. */
+static inline void dgx_fb_area_point_to_panel(const dgx_fb_area_t *area, int x, int y, uint16_t *px, uint16_t *py)
+{
+    uint32_t ax = area->swap_xy ? (uint32_t)y : (uint32_t)x, ay = area->swap_xy ? (uint32_t)x : (uint32_t)y;
+    *px = (uint16_t)(area->mirror_x ? area->fb_width - 1u - ax : ax);
+    *py = (uint16_t)(area->mirror_y ? area->fb_height - 1u - ay : ay);
+}
+
+/**
  * @brief Take a command if it is one of the window: set the columns or the rows, write or read the memory.
  * @return false when the command is not for the frame buffer and has to go to the display.
  */

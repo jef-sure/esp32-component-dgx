@@ -1,5 +1,67 @@
 # Changes
 
+## 0.5.2 - 2026-10-12
+
+- **`dgx_jd9165_init()` takes one more argument**, `frames`, the way the
+  display is updated. A display on the DSI bus reads its frame buffer all the
+  time, also while it is drawn into, so a picture that changes over much of
+  the screen may be seen half updated for a frame. There is no way around it
+  that suits every program, so the program chooses one of three.
+  `DgxDsiOneFrame` is what there was: one frame buffer, drawing shows at
+  once. `DgxDsiTwoFrames` draws into a second frame buffer and shows a batch
+  whole from the next frame on; nothing tears, for one more frame of PSRAM
+  and at most a batch a frame. `DgxDsiOneFrameAfterScan` keeps one frame
+  buffer and starts what is put to the display when the scan of the display
+  is out of its rows: a compromise, a picture that comes from a virtual
+  screen is whole, a batch drawn on the display itself is not shown as one.
+  `dgx_dsi_video_setup()`, which a driver calls, takes the same argument;
+- a part of a 16-bit virtual screen goes to a DSI display by the 2D DMA of
+  the chip when it is 16 KB or more and the screen is not turned. The DMA
+  exchanges the bytes of the pixels on the way and writes twice as fast as
+  the display reads. On an ESP32-P4 a whole screen of 1024x600 goes in 8 ms
+  instead of 34, a part of 320x100 in 0.5 ms instead of 1.1. A bus may now
+  have a function `write_rows` for that; a virtual screen offers its rows to
+  it before it sends them through the window;
+- a large rectangle on a DSI display is filled by the pixel processing
+  accelerator of the chip, in any orientation, 16 and 24 bits: the whole
+  screen in 3.5 ms instead of 16.4, 100x100 in 0.13 ms instead of 0.18, a
+  column of the height of the screen in 0.15 ms instead of 0.5. Short runs
+  stay with the processor, text and lines take the time they took;
+- `CONFIG_DGX_DSI_HARDWARE_COPY`, on by default, turns the two off; they
+  cost 0.8 KB of RAM. Bars moving over the whole screen through a virtual
+  screen: 44 frames a second instead of 20 with one frame buffer, 43 instead
+  of 20 with two and none broken; in a band of 200 rows 61 instead of 46
+  with two. Behind the scan the DMA and the accelerator stay ahead of it, so
+  with `DgxDsiOneFrameAfterScan` such a part or rectangle is seen whole, the
+  whole screen as well, on one frame buffer;
+- with two frame buffers the one drawing goes into lacks what the last batch
+  drew. The bus keeps that by tiles of 32x8 pixels, two maps of a bit a tile,
+  600 bytes for 1024x600, and copies a tile when something is first drawn in
+  it or read from it, the rest before the batch is shown, large pieces of
+  the rest by the 2D DMA. What a rectangle or a window sent whole covers is
+  not copied; a window that is left before it is full gets what its pixels
+  did not reach. The work of a batch against one rectangle around all that
+  was drawn: a line from corner to corner erased and drawn 1.9 ms instead of
+  21, two squares of 48x48 far apart 0.3 ms instead of 5.9, 2000 pixels all
+  over the screen 7.4 ms instead of 16.7, strips of nine bars 17 ms instead
+  of 32; a gradient of 256x100 set pixel by pixel 14.3 ms instead of 12.9,
+  which is what a look at the maps costs for every pixel;
+- the 2D DMA is driven through a private interface of IDF,
+  `esp_private/dma2d.h`, and one field of a register of the chip is set
+  directly: IDF 6.0.3 and later set up the exchange of bytes for pixels of
+  3 bytes only, and a transfer of 16-bit pixels never ends there. Checked
+  with IDF 5.5.4, 6.0.3 and 6.1;
+- where the driver of IDF has it, in 5.5.5, 6.0.3 and 6.1, the bus is told
+  where the display takes a frame buffer by `on_frame_buf_complete`; there,
+  and with the older `on_refresh_done` on chips of a revision below 3, a
+  batch finished in the last 2 ms of a frame does not wait a frame more.
+  Which of the two the IDF has is found out from its header when the
+  component is built, not from its version;
+- `docs/dsi-display-en.md` and `docs/dsi-display-ru.md`: what was measured
+  on a display on the DSI bus and why its updates are made the way they are;
+- `examples/dsi_demo`: bars moving sideways, a scene that shows tearing, and
+  `CONFIG_EXAMPLE_LCD_TWO_FRAMES` to see it gone.
+
 ## 0.5.1 - 2026-10-11
 
 - the DSI bus moves rows of 16-bit pixels into the frame buffer by 4-byte

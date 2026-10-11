@@ -97,14 +97,14 @@ DGX is a component, not a standalone firmware image. It is published in the
 as `jef-sure/dgx`. To add it to your own ESP-IDF project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.5.1"
+idf.py add-dependency "jef-sure/dgx^0.5.2"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.5.1"
+  jef-sure/dgx: "^0.5.2"
 ```
 
 The next build downloads it into `managed_components/`. To work on DGX itself,
@@ -200,7 +200,7 @@ wire.
 | SSD1306 | mono OLED | SPI, I2C | `dgx_ssd1306_init(bus, resolution, is_ext_vcc, rst)` | `CONFIG_DGX_ENABLE_SSD1306` |
 | ST7565R | mono LCD | SPI | `dgx_st7565r_init(bus, rst)` | `CONFIG_DGX_ENABLE_ST7565R` |
 | ST7920 | mono LCD | SPI, I2C, P8 | `dgx_st7920_init(bus, rst, cs)` | `CONFIG_DGX_ENABLE_ST7920` |
-| JD9165 | color TFT, 1024x600 | DSI | `dgx_jd9165_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_JD9165` |
+| JD9165 | color TFT, 1024x600 | DSI | `dgx_jd9165_init(bus, rst, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9165` |
 
 Common parameters:
 
@@ -230,9 +230,56 @@ A pixel and a rectangle are put straight into that buffer, as on a virtual
 screen, and a pixel can be read back. What is drawn outside a batch is
 brought out to the display at once; a batch (`dgx_screen_progress_up()` /
 `dgx_screen_progress_down()`) is brought out as it goes and at its end, which
-is ten times faster for pixels set one by one. The backlight is a GPIO of the board and is left to the
-application. [examples/dsi_demo](examples/dsi_demo) has the settings of a
-board and what the size of the PSRAM cache costs and gives.
+is ten times faster for pixels set one by one.
+
+The display reads its frame buffer all the time, also while it is drawn
+into, so a picture that changes over much of the screen may be seen half
+updated for a frame (tearing). There is no way around it that suits every
+program, so the constructor takes one in its last argument, `frames`:
+
+| `frames` | Frame buffers | Tearing | Cost |
+| --- | --- | --- | --- |
+| `DgxDsiOneFrame` | 1 | possible | none: drawing shows at once |
+| `DgxDsiTwoFrames` | 2 | none | one more frame of PSRAM, 1.2 MB for 1024x600 at 16 bits; at most a batch a frame |
+| `DgxDsiOneFrameAfterScan` | 1 | none for a virtual screen put to the display and for a large filled rectangle | a wait of up to a frame for each of them |
+
+With two frame buffers drawing goes into the one the display is not reading
+and a batch is shown whole, from the next frame on. Drawing that follows a
+batch waits until the display has taken it, so a primitive drawn outside a
+batch (`dgx_screen_progress_up()` / `dgx_screen_progress_down()`) is a batch
+of its own and takes a frame: put what belongs to one picture into a batch.
+After a batch the other frame buffer lacks what the batch drew. The bus
+keeps that by tiles of 32x8 pixels and copies a tile when something is first
+drawn in it or read from it, and the rest before the next batch is shown;
+what a rectangle or a window sent whole covers is not copied at all. So a
+line from corner to corner costs the tiles it goes through and not the
+screen, and a picture sent again every frame costs nothing.
+
+Large pieces go past the processor. A part of a 16-bit virtual screen of
+16 KB or more goes to the display by the 2D DMA of the chip, which exchanges
+the bytes of the pixels on the way: a whole screen of 1024x600 in 8 ms
+instead of 34. The screen has to lie on the panel as it is, not mirrored or
+turned; otherwise, and for 24-bit color, the processor moves the pixels as
+before. A large rectangle is filled by the pixel processing accelerator: the
+whole screen in 3.5 ms instead of 16, in any orientation and color depth.
+`CONFIG_DGX_DSI_HARDWARE_COPY` turns both off.
+
+Both write faster than the display reads, and `DgxDsiOneFrameAfterScan` uses
+that: it starts them when the scan of the display is out of the rows, they
+stay ahead of the scan, and the part or the rectangle is seen whole on one
+frame buffer, the whole screen as well. It is a compromise. A picture that
+comes from a virtual screen has no tearing. Drawing on the display itself is
+held back only where it is a large rectangle, and a batch is not shown as
+one: of many tall rectangles some appear a frame later than the others. The
+wait does not set the pace either, so a program that updates more often
+than the display shows frames has to hold itself back.
+
+What was measured on the way and why it is made so is in
+[docs/dsi-display-en.md](docs/dsi-display-en.md)
+([Russian](docs/dsi-display-ru.md)). The backlight is a GPIO of the board
+and is left to the application. [examples/dsi_demo](examples/dsi_demo) has
+the settings of a board and what the size of the PSRAM cache costs and
+gives.
 
 For SSD1306, pick a geometry from `ssd1306_resolution_t`: `SSD1306_128X32`,
 `SSD1306_128X64`, `SSD1306_96X16`, `SSD1306_64X48` or `SSD1306_72X40`.
@@ -1087,7 +1134,8 @@ examples/hw_font_demo/      CYD demo writing a text by hand with a font of Bezie
 examples/hw_morph_demo/     CYD demo morphing handwritten words one into another
 test/host/               host tests with ESP-IDF stubs
 docs/                    morphing articles and handwritten text guides (English and Russian),
-                         the format of handwritten fonts (Russian)
+                         the format of handwritten fonts (Russian),
+                         notes on a display on the DSI bus (English and Russian)
 Kconfig                  feature toggles
 CMakeLists.txt           ESP-IDF component build
 ```

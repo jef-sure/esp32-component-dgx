@@ -8,4 +8,13 @@ config EXAMPLE_LCD_COLOR_BITS
         color and a frame buffer of 1.8 MB; the ramps of the demo show the
         difference.
 
+config EXAMPLE_LCD_TWO_FRAMES
+    bool "Two frame buffers: a picture is shown whole, without tearing"
+    default n
+    help
+        With one frame buffer drawing goes into the frame the display is
+        reading, and the moving bars of the demo are seen broken now and
+        then. With two, a batch of drawing is shown whole at a frame
+        boundary, for one more frame of PSRAM.
+
 endmenu

@@ -127,7 +127,7 @@ static const dgx_lcd_init_cmd_t jd9165_init_cmds[] = {
 };
 
 // Initialize the display
-dgx_screen_t *dgx_jd9165_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo)
+dgx_screen_t *dgx_jd9165_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo, dgx_dsi_frames_t frames)
 {
     if (!bus || bus->bus_type != DGX_BUS_DSI) {
         ESP_LOGE(TAG, "the display needs a bus made by dgx_dsi_init()");
@@ -151,7 +151,7 @@ dgx_screen_t *dgx_jd9165_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
     scr->base.scr.screen_subtype  = DgxPhysicalScreenWithBus;
     dgx_screen_with_bus_init_area(&scr->base, JD9165_CASET, JD9165_RASET, JD9165_RAMWR, JD9165_RAMRD, DGX_SCREEN_AREA_PROTO_STD16);
     // the frame buffer first: it is black until something is drawn. The display itself knows the order of colors.
-    if (!dgx_dsi_video_setup(bus, &jd9165_video, color_bits, false)) {
+    if (!dgx_dsi_video_setup(bus, &jd9165_video, color_bits, false, frames)) {
         free(scr);
         return NULL;
     }
