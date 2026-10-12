@@ -11,10 +11,10 @@ LDLIBS  += -lm
 
 LIB_SRCS := $(addprefix $(ROOT)/src/, matrix.c morph.c morph_sources.c morph_render.c \
               font.c pixels.c hw_font.c hw_morph.c font_morph.c bitmap.c draw.c bezier.c texture.c orientation.c drivers/vscreen.c \
-              bw_screen.c dgx_bus_optimized_funcs.c bus/fb_area.c bus/fb_tiles.c) stubs/bus_stub.c \
+              bw_screen.c dgx_bus_optimized_funcs.c bus/fb_area.c bus/fb_tiles.c bus/fb_flip.c) stubs/bus_stub.c \
             $(wildcard $(ROOT)/src/fonts/*.c)
 
-TESTS := test_fb_area test_fb_tiles test_pixels test_fill test_circle test_matrix test_morph test_render test_fonts test_screen test_region test_bw test_texture test_bezier test_hw_font test_hw_line test_hw_write test_hw_morph
+TESTS := test_fb_area test_fb_tiles test_fb_flip test_pixels test_fill test_circle test_matrix test_morph test_render test_fonts test_screen test_region test_bw test_texture test_bezier test_hw_font test_hw_line test_hw_write test_hw_morph
 BUILD := build
 
 all: $(addprefix run-, $(TESTS))

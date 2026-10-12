@@ -16,6 +16,7 @@ written stroke by stroke by a pen or turns into another text.
 
 - [What's in the box](#whats-in-the-box)
 - [How it fits together](#how-it-fits-together)
+- [Drawing from several tasks](#drawing-from-several-tasks)
 - [Getting started](#getting-started)
 - [A minimal example](#a-minimal-example)
 - [Supported panels](#supported-panels)
@@ -90,6 +91,93 @@ application
               └─ vscreen_2h             → composes two child screens
 ```
 
+## Drawing from several tasks
+
+DGX has no task of its own and no lock of its own, and nothing in it is
+global. All it keeps is in the objects a program makes: a screen with its
+bus, a virtual screen, a morph, a writer of handwriting. So what may run at
+the same time follows from what each object keeps between calls.
+
+| Object | What it keeps between calls | What follows |
+| --- | --- | --- |
+| The screen of a display and its bus | the window being written and the place in it, in the controller or, for MIPI-DSI, in the bus; the one transfer buffer of the bus; transfers under way; how deep in batches the screen is and what is changed but not shown yet | one task at a time |
+| A virtual screen | its pixels, how deep in batches it is, what is changed | one task writes it at a time; any number of virtual screens may be written at the same time |
+| A font | nothing, it is read only | shared freely |
+| A morph, a glow renderer, a writer or a morph of handwriting | its own progress and memory | one task an object |
+| Several displays | nothing in common | they do not hinder each other; each takes one task at a time |
+
+Why a screen takes one task at a time: a primitive is "set a window, then
+send pixels into it", often in several pieces through the one buffer of the
+bus. Two tasks that do it at once send their pixels into each other's
+windows. Nothing guards against that, on any bus.
+
+A program with several sources of pictures has two ways.
+
+**One task draws, the others send it messages.** The task that owns the
+display is the only one that calls DGX for it, so nothing is shared and
+there is no mutex: a mutex guards data, and here no data has two owners. A
+source sends what has changed, or a virtual screen it has drawn in, and
+does not touch that screen until it is told the picture was taken. The
+drawing task puts what came in the time of a frame into one batch and keeps
+the pace of the display as any single drawing task does. This way also lets
+a program keep clear of inversion of priorities: no source waits for another
+source, only for the drawing task, so give that task a priority above the
+tasks that prepare pictures. It is the way to choose when pictures are to
+come evenly.
+
+**Every task draws itself, under a mutex of the program.** It works as
+well, and is less to write when each task has a part of the screen of its
+own.
+
+- Lock a batch, not a primitive. What is drawn between
+  `dgx_screen_progress_up()` and `dgx_screen_progress_down()` is shown
+  together, so the mutex goes around the two. The depth of batches is kept
+  by the screen, not by the task: two tasks that open batches on one screen
+  without a mutex make one batch of them.
+- Draw into a virtual screen without the lock, send it with the lock: each
+  task has a virtual screen of its own and takes the mutex only for
+  `dgx_vscreen_to_screen()`.
+- A mutex, not a binary semaphore. A task of low priority that is put aside
+  while it holds the lock keeps all the others waiting; a mutex of FreeRTOS
+  raises its priority meanwhile, a semaphore does not.
+
+The two ways measured on an ESP32-P4 with a MIPI-DSI display and two frame
+buffers, three sources, 10 seconds. The cells tell how many times the next
+picture of a source came after one, two and three frames of the display:
+all in one column is even motion.
+
+| Three sources | Each draws itself under a mutex | Messages to one task that draws |
+| --- | --- | --- |
+| A part of 320x100 each, a picture a frame | 609, 0, 0 | 607, 0, 0 |
+| A band of 1024x168 each, little redrawn, a picture a frame | 608, 0 to 1, 0 | 604 to 606, 0 to 1, 0 |
+| A band of 1024x168 each, redrawn whole, a picture every second frame | 1 to 53, 198 to 302, 1 to 53 | 1, 302, 0 |
+
+In either way no drawing call may be made from an interrupt handler: they
+wait for transfers.
+
+What a drawing call may wait for, with the lock held if there is one:
+
+| Bus | What a drawing call waits for |
+| --- | --- |
+| SPI, I2C, 8-bit parallel | the transfer of the pixels, as long as the bus takes for them |
+| MIPI-DSI, one frame buffer | nothing but a transfer or a fill by the hardware of the chip, when the piece is large |
+| MIPI-DSI, two frame buffers | the same, and the display: the first drawing after a finished picture may wait until the display has taken it, up to a frame, 16 ms on the JD9165 panel |
+| MIPI-DSI, behind the scan | the same as with one frame buffer, and the scan of the display to leave the rows, up to a frame |
+
+With two frame buffers the DSI bus does one thing for several tasks: what
+they draw in the time of one frame is shown by one change of the frame
+buffers, whoever drew it. It does not know which task draws and does not
+care. Who draws when, how often and how evenly is the program's business;
+`dgx_dsi_frame_us()` and `dgx_dsi_frame_ended()` tell it what it needs of
+the display for that. How a drawing task keeps an even pace is worked out
+and measured in [docs/dsi-display-en.md](docs/dsi-display-en.md), "How a
+program keeps the pace".
+
+DGX uses interrupts in one place, the DSI bus: where a frame ends it counts
+the frame and starts the copy a picture still lacks, and it is told when a
+transfer by the 2D DMA is done. Those handlers touch only the bus, and no
+code of the program is called from them.
+
 ## Getting started
 
 DGX is a component, not a standalone firmware image. It is published in the
@@ -97,14 +185,14 @@ DGX is a component, not a standalone firmware image. It is published in the
 as `jef-sure/dgx`. To add it to your own ESP-IDF project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.5.2"
+idf.py add-dependency "jef-sure/dgx^0.5.3"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.5.2"
+  jef-sure/dgx: "^0.5.3"
 ```
 
 The next build downloads it into `managed_components/`. To work on DGX itself,
@@ -240,20 +328,44 @@ program, so the constructor takes one in its last argument, `frames`:
 | `frames` | Frame buffers | Tearing | Cost |
 | --- | --- | --- | --- |
 | `DgxDsiOneFrame` | 1 | possible | none: drawing shows at once |
-| `DgxDsiTwoFrames` | 2 | none | one more frame of PSRAM, 1.2 MB for 1024x600 at 16 bits; at most a batch a frame |
+| `DgxDsiTwoFrames` | 2 | none | one more frame of PSRAM, 1.2 MB for 1024x600 at 16 bits |
 | `DgxDsiOneFrameAfterScan` | 1 | none for a virtual screen put to the display and for a large filled rectangle | a wait of up to a frame for each of them |
 
 With two frame buffers drawing goes into the one the display is not reading
-and a batch is shown whole, from the next frame on. Drawing that follows a
-batch waits until the display has taken it, so a primitive drawn outside a
+and a batch is shown whole, from the next frame on. The end of a batch does
+not show it at once: it tells that there is a picture to show, and the
+display takes it where its frame ends. Until then the batches that follow go
+into the same picture, so what is drawn in the time of a frame is shown
+together by one change of the frame buffers, whoever drew it: on an ESP32-P4
+three tasks with a part of 320x100 each put 61 pictures a second each, where
+they got 20 when the frames went to them in turn. The display is not a
+pace-maker: a program that draws more often than frames are shown gets the
+last of what it drew into every frame and has to hold itself back, and which
+of several tasks draws when is its business too. `dgx_dsi_frame_us()` tells
+how long a frame of the display takes, 16.4 ms here, and
+`dgx_dsi_frame_ended()` when the last one ended: by the two a program starts
+a picture so as to finish it a little before a frame ends, and it moves
+evenly; `demo_pace()` of `examples/dsi_demo` is that in full. A primitive drawn outside a
 batch (`dgx_screen_progress_up()` / `dgx_screen_progress_down()`) is a batch
-of its own and takes a frame: put what belongs to one picture into a batch.
+of its own and may be shown without the next one: put what belongs to one
+picture into a batch. Tasks still have to draw on a screen one at a time, see
+[Drawing from several tasks](#drawing-from-several-tasks).
+`dgx_dsi_counters()` tells what the display has done:
+frames sent, changes of the frame buffers, batches, batches that joined a
+picture, the waits.
+
 After a batch the other frame buffer lacks what the batch drew. The bus
-keeps that by tiles of 32x8 pixels and copies a tile when something is first
-drawn in it or read from it, and the rest before the next batch is shown;
+keeps that by tiles of 32x4 pixels and copies a tile when something is first
+drawn in it or read from it, and the rest when the next picture is finished;
 what a rectangle or a window sent whole covers is not copied at all. So a
 line from corner to corner costs the tiles it goes through and not the
-screen, and a picture sent again every frame costs nothing.
+screen, and a picture sent again every frame costs nothing. A large piece of
+that rest is copied later still, at 16 bits a pixel: after the display has
+taken the picture, by the 2D DMA ahead of its scan, started from the
+interrupt that tells the end of the frame. Until then another task may draw over the piece, and then
+it is not copied at all: three tasks with a band of 1024x168 each, little
+of it redrawn, get 61 pictures a second each, and less than 1 MB is copied
+in 10 seconds where 411 were.
 
 Large pieces go past the processor. A part of a 16-bit virtual screen of
 16 KB or more goes to the display by the 2D DMA of the chip, which exchanges
@@ -263,6 +375,25 @@ turned; otherwise, and for 24-bit color, the processor moves the pixels as
 before. A large rectangle is filled by the pixel processing accelerator: the
 whole screen in 3.5 ms instead of 16, in any orientation and color depth.
 `CONFIG_DGX_DSI_HARDWARE_COPY` turns both off.
+
+From what size on a piece goes past the processor and how much room the bus
+leaves before the scan of the display is decided by numbers that depend on
+the chip, its memory and the display. The bus
+starts with those of the board it was written on. `dgx_dsi_bench()` measures
+them on the board at hand: in memory of its own while the display runs, so
+nothing on the screen changes. It takes 0.07 s, so it is not for every
+start: the numbers are a flat structure of 40 bytes, `dgx_dsi_tuning_t`,
+which a program keeps, in NVS for one, and gives to the bus by
+`dgx_dsi_tune()`. `examples/dsi_demo` does that.
+
+The size of the tiles is a matter of what a program draws. They are 32x4:
+against 32x8, the fastest for the demos of DGX, that is 0 to 3% slower
+there, which is not seen, and 6% faster for text of bitmap fonts and 28%
+faster for pixels set here and there. A program
+that wants another size says so by `dgx_dsi_tiles(bus, width, height)`,
+once, before the constructor of the display. The call works later as well,
+between two batches, but a change costs a wait for the display of 11 ms and
+more and is not for changing the size as a program goes.
 
 Both write faster than the display reads, and `DgxDsiOneFrameAfterScan` uses
 that: it starts them when the scan of the display is out of the rows, they
@@ -967,8 +1098,15 @@ the frame buffer from the size and the timing of the picture,
 `dgx_dsi_screen_functions()` gives the screen its drawing functions, those
 that write straight into the frame buffer among them. The window and the pixels go
 through the bus as to any display, with the commands 0x2A, 0x2B and 0x2C of
-the MIPI display command set; [src/drivers/jd9165.c](src/drivers/jd9165.c)
-is such a driver in full.
+the MIPI display command set. The bus answers those itself from
+`dgx_dsi_video_start()` on; before it everything goes to the display, so a
+controller that has registers of its own under those numbers gets them.
+[src/drivers/jd9165.c](src/drivers/jd9165.c) is such a driver in full.
+
+For a program the same header has `dgx_dsi_show()`, `dgx_dsi_counters()`,
+`dgx_dsi_frame_us()`, `dgx_dsi_frame_ended()`, `dgx_dsi_tiles()`, and `dgx_dsi_bench()`,
+`dgx_dsi_tune()` and `dgx_dsi_tuning()` with the structure
+`dgx_dsi_tuning_t`.
 
 ### Flush control and batching
 
@@ -1049,7 +1187,7 @@ in the transports they require.
 | `CONFIG_DGX_ENABLE_SPI` | `bus/spi_esp32.c` | SPI transport |
 | `CONFIG_DGX_ENABLE_I2C` | `bus/i2c_esp32.c` | I2C transport |
 | `CONFIG_DGX_ENABLE_P8` | `bus/p8_esp32.c` | 8-bit parallel (I80) transport |
-| `CONFIG_DGX_ENABLE_DSI` | `bus/dsi_esp32.c`, `bus/fb_area.c` | MIPI-DSI transport; chips that have it (ESP32-P4) |
+| `CONFIG_DGX_ENABLE_DSI` | `bus/dsi_esp32.c`, `bus/fb_area.c`, `bus/fb_tiles.c`, `bus/fb_flip.c` | MIPI-DSI transport; chips that have it (ESP32-P4) |
 | `CONFIG_DGX_ENABLE_SPI_ST7735` | `drivers/st7735.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SPI_ST7789` | `drivers/st7789.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SPI_GC9A01` | `drivers/gc9a01.c` | needs SPI or P8 |
@@ -1101,7 +1239,8 @@ A couple of practical limitations are worth knowing up front:
 ## Host tests
 
 The platform-independent code (matrices, morphing, renderers, virtual and page
-screens, fills, lines and circles, the frame buffer of the DSI bus, fonts,
+screens, fills, lines and circles, the frame buffer of the DSI bus and the
+way its two frame buffers change places, fonts,
 textured quads, Bezier curves, handwritten fonts with their writing and
 morphing) has host tests built with gcc against small ESP-IDF
 stubs and run under ASan/UBSan:

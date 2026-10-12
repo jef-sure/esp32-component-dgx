@@ -22,6 +22,14 @@ the band is being written into it, and now and then a bar is seen broken.
 drawing is then shown whole at a frame boundary and nothing tears, for one
 more frame of PSRAM, 1.2 MB at 16 bits.
 
+At its first start the example measures the board by `dgx_dsi_bench()`: from
+what size on a piece goes past the processor and how much room the bus
+leaves before the scan of the display are numbers that depend on the chip,
+its memory and the display. Nothing shows on the screen meanwhile. The
+numbers are kept in NVS, namespace `dgx`, key `dsi_tuning`, and at the next
+starts the bus gets them from there. With another panel or another color
+depth the numbers kept are not taken, and the board is measured again.
+
 What the board gives:
 
 - DSI: 2 data lanes at 750 Mbit/s, the PHY powered by regulator channel 3 of

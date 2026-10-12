@@ -5,9 +5,10 @@
 A note on how the MIPI-DSI bus for the ESP32-P4 is made in DGX, what was
 measured on it, and why the screen is updated the way it is.
 
-It describes the code of version 0.5.2: the bus `src/bus/dsi_esp32.c`, the
+It describes the code of version 0.5.3: the bus `src/bus/dsi_esp32.c`, the
 frame buffer core `src/bus/fb_area.c`, the tile maps `src/bus/fb_tiles.c`,
-the driver `src/drivers/jd9165.c`.
+the change of the two buffers `src/bus/fb_flip.c`, the driver
+`src/drivers/jd9165.c`.
 
 Every number here is either measured on the board or marked as calculated. A
 KB is 1024 bytes.
@@ -27,7 +28,7 @@ KB is 1024 bytes.
 | PSRAM | 32 MB, HEX mode, 200 MHz |
 | Second-level cache | 256 KB, a line of 64 bytes, unless said otherwise |
 | Optimization | `CONFIG_COMPILER_OPTIMIZATION_PERF=y` |
-| IDF | measurements under 5.5.4 and 6.1, each table says which; checks also under 5.5.5, 6.0.1 and 6.0.3 |
+| IDF | measurements under 5.5.4, 6.0.1 and 6.1, each table says which; checks also under 5.5.5 and 6.0.3 |
 
 The Espressif component `espressif/esp_lcd_jd9165` is not used in DGX. Only a
 diagnostic bench used it, to show the panel with the factory table before the
@@ -50,7 +51,7 @@ revision 3 or later.
   send pixels into it one after another. More below.
 - **Batch**: a set of changes of the screen that are shown together: windows
   with pixels, filled rectangles, single pixels. More below.
-- **Tile**: a cell of a fixed grid the bus cuts the panel into, 32x8 pixels.
+- **Tile**: a cell of a fixed grid the bus cuts the panel into, 32x4 pixels.
   Needed with two buffers only. More below.
 - **Virtual screen**: a screen of DGX that lives in memory and is put to a
   display whole or in part (`dgx_vscreen_to_screen()`).
@@ -88,8 +89,9 @@ anywhere on the screen.
 
 Showing is the business of a function of the screen, `update_screen()`: "show
 what has been drawn". For the DSI bus that is bringing data out of the cache,
-and with two buffers changing the buffers too. One call of `update_screen()`
-shows one batch.
+and with two buffers telling the driver that a picture is ready as well: the
+buffers themselves change at the end of a frame. One call of
+`update_screen()` ends one batch.
 
 The list of changes is kept nowhere. What is left of a batch is where it has
 drawn, and that is kept in two ways:
@@ -186,6 +188,17 @@ buffer.
 | 0x2C, 0x3C | writes pixels into the window from its start or from where it stopped |
 | 0x2E, 0x3E | reads pixels of the window the same way |
 | any other | sends it to the panel over DSI |
+
+The bus takes the commands of the window itself only after
+`dgx_dsi_video_start()`. Before that a driver sets its controller up, and
+the same numbers may be registers of the controller: JD9165 has the
+registers 0x2A, 0x2B and 0x2C on its page 1. In the releases 0.5.0 to 0.5.2
+the bus took them for commands of the window from the moment it got a frame
+buffer, which is before the table of commands, and those three registers
+did not reach the panel. The panel worked all the same. Now they reach it:
+at the debug level of the log the bus writes every command it has sent.
+On build 159, with them already, the scenes of the bench were looked at
+with the eyes, and no change in the picture itself was noticed.
 
 A panel driver on this bus is made of the same parts as a driver of any
 display of DGX: a constructor `dgx_jd9165_init()`, a table of initialization
@@ -427,7 +440,7 @@ dgx_screen_t *scr = dgx_jd9165_init(bus, rst, 16, DgxScreenRGB, DgxDsiTwoFrames)
 | Strategy | Buffers | Tearing | Cost |
 | --- | --- | --- | --- |
 | `DgxDsiOneFrame` | 1 | possible | none |
-| `DgxDsiTwoFrames` | 2 | none | one more buffer in PSRAM, at most a batch a frame |
+| `DgxDsiTwoFrames` | 2 | none | one more buffer in PSRAM |
 | `DgxDsiOneFrameAfterScan` | 1 | none for a virtual screen put to the display and for a large fill | a wait of up to a frame for every such transfer and fill |
 
 ### One buffer
@@ -447,18 +460,20 @@ From here on the buffer that goes to the display now is called the shown one,
 and the other the hidden one.
 
 1. Drawing goes into the hidden buffer.
-2. At the end of a batch the bus asks the driver to show this buffer from the
-   next frame on.
-3. The first drawing of the next batch waits until the change has happened.
-   After that the buffers change roles.
+2. At the end of a batch the bus asks the driver to show this buffer from
+   the next frame on. The picture is ready and not shown yet.
+3. The first drawing of the next batch looks whether the display has taken
+   the picture. If it has, the buffers change roles. If not, the batch is
+   either drawn into the same picture or waits for the change, see "Several
+   tasks".
 
 The cost:
 
 - one more buffer in PSRAM, 1.23 MB at 16 bits;
-- at most one batch a frame. A drawing function called without
-  `dgx_screen_progress_up()` is a batch of its own, and the one after it
-  waits for a frame. So in this mode everything that has to appear together
-  has to be put into a batch;
+- a drawing function called without `dgx_screen_progress_up()` is a batch of
+  its own, and it may get on the screen without the one after it. Everything
+  that has to appear together has to be put into a batch;
+- the bus does not set the pace, see "Several tasks";
 - the update rate can only be 60, 30, 20 or 15 times a second, by how many
   frames a batch takes. That is a property of any strategy without tearing:
   every frame shown is whole. Values in between are possible only with
@@ -467,6 +482,482 @@ The cost:
   that one drew into the other buffer. It has to be copied in. From here on
   that is called the catch-up copy; see "The cost of copying" and "The
   catch-up copy by tiles".
+
+#### Several tasks
+
+At first the first drawing after a batch always waited for the change: a
+batch a frame. But a program may be made of several tasks that know nothing
+of one another: each has a part of the screen of its own, and they draw in
+turn under a common mutex. Then every change of the buffers went to one task.
+Three tasks got a third of the frames each, 20.4 pictures a second, see the
+table below.
+
+Now the end of a batch does not show the picture, it only asks the driver to
+show it from the next frame on. The IDF driver chooses the buffer for the
+next frame at the end of the current one and takes the one it was asked for
+last. As long as the frame has not ended, the request can be replaced by
+another. Everything is built on that.
+
+Say buffer A is on the screen. The first task has finished its batch in
+buffer B, and the bus has asked the driver to show B. Until the frame ends B
+stays hidden. Now a batch of the second task comes. Where is it to be drawn?
+
+- Not into A: A is on the screen, and what is half-drawn would be seen.
+- Into B it may go, while B is hidden. But if the frame ends in the middle
+  of the drawing, the display changes to B and shows the batch half-drawn.
+
+So the bus removes that danger first and draws afterwards:
+
+1. It asks the driver to stay with A. Now the end of the frame spoils
+   nothing: A stays on the screen.
+2. It checks that the request was not late: no frame has ended meanwhile,
+   and more than 2 ms are left of the current one. If a frame ended at that
+   very moment, the display may have taken B already, and B must not be
+   drawn into. Then the bus asks for B again, waits until B is on the
+   screen, and the batch goes into A, as it would with one task.
+3. It draws the batch of the second task into B. The batch of the first
+   task lies there already.
+4. At the end of the batch it asks the driver to show B again.
+
+At the end of the frame the display changes to B, and both tasks are on the
+screen at once. A third task, if it comes before the frame ends, is added
+the same way. Everything several tasks drew in the time of a frame is shown
+by one change of the buffers.
+
+What happens to a batch that comes when a picture is ready:
+
+| What the batch finds | What happens to it | Why |
+| --- | --- | --- |
+| The display has taken the picture | the buffers change roles, the batch is drawn at once | nothing to wait for |
+| The display has not taken the picture, there is time enough before the frame ends | the batch is drawn into the same picture | this is the joining |
+| Little time is left before the frame ends | it waits for the change | a batch that is being drawn when a frame ends keeps the whole picture back a frame |
+| The picture has missed one end of a frame already | it waits for the change | a ready picture does not wait longer than one extra frame |
+| A frame ended at the moment the bus was asking the driver for a buffer | it waits for the change | whether the display took the picture is not known at that moment |
+
+The details.
+
+- The bus does not ask who draws. A batch of the same task gets into the
+  picture just as a batch of another one does.
+- The bus does not set the pace. A program that draws more often than the
+  display shows frames gets the last of what it drew into every frame and
+  drew the rest for nothing: it has to hold itself back. How long a frame
+  takes the bus tells it, see "The time of a frame". In release 0.5.2 the
+  pace came by itself, for every batch waited for the change.
+- Nor does the bus set the order of the tasks. If every task has to get into
+  every frame, the program sees to that.
+- "Time enough" means: more is left before the frame ends than the longest of
+  the last batches took, and 2 ms more. The bus times a batch itself, from
+  the first drawing to `update_screen()`. A long batch is forgotten by an
+  eighth with every batch that follows. There is one estimate for the bus: a
+  rare long batch among frequent short ones gets forgotten.
+- The 2 ms are room for inaccuracy: the end of a frame is foretold from the
+  time of the last one, and the interrupt may have come late.
+- The wait for the change happens inside a drawing function, that is under
+  the mutex of the application, if there is one. It was so before as well.
+- Drawing from several tasks at once is still not possible, the screen is not
+  made for it. The mutex stays with the application. What a screen keeps,
+  why it takes one task at a time and how to build a program with several
+  tasks that draw is told in the README, section
+  [Drawing from several tasks](../README.md#drawing-from-several-tasks).
+- The maps of tiles change places not at the end of a batch but when the
+  buffers change roles. At the end of a batch the hidden buffer only gets
+  what it lacks.
+
+A known weakness. If the task is put aside for longer than a frame twice in a
+row, right between its calls to the driver, the display may go back to the
+picture before for one frame: it took B, the request to stay with A came
+late, and the repeated request to show B came late as well. Nothing
+half-drawn is seen then.
+
+The bus cannot mend that, but a program can make it rare: it is a matter of
+the priorities of the tasks.
+
+- A task that draws is held up for a frame and longer only by a task of a
+  higher priority that computes that long without a pause. The drawing task
+  needs a priority not lower than such tasks have.
+- Tasks of equal priority FreeRTOS runs in turn, a tick each. With a tick of
+  1 ms, as in the examples of DGX, it takes 16 ready tasks to make a frame.
+  With a tick of 10 ms, the default of IDF, two are enough.
+- If several tasks draw under one mutex, all of them need the priority. A
+  task of a low priority that is put aside in the middle of a batch holds
+  the mutex, and the others wait with it. A mutex of FreeRTOS raises its
+  priority to that of the waiting task meanwhile, a semaphore does not.
+- The estimate of how long a batch takes depends on the same: a batch that
+  was put aside takes longer than expected, and a ready picture misses the
+  end of a frame.
+
+#### The copy after the change
+
+The joining of batches ran into the catch-up copy. A ready picture had to be
+whole at the moment the driver is told of it, and it is told at the end of
+every batch: the bus has no other moment. So already at the end of the first
+batch of a frame the hidden buffer was given all it lacked. With three tasks
+that have bands of 1024x168 those are the bands of the other two tasks, about
+590 KB a frame, 357 MB in 10 seconds. A few milliseconds later those tasks
+redrew their bands whole, and the copy turned out to be wasted. The first
+batch of a frame with the copy took about 10 ms, and the third no longer
+fitted into the frame.
+
+The first thought was to copy just before the frame ends, by a timer. But the
+code of a timer does not run in a task that draws, and the bus would need a
+lock of its own between the two. The condition itself was loosened instead.
+The display reads a buffer row after row, and what has to be whole is not the
+picture at the moment the driver is told, but a row at the moment the scan
+comes to it. The 2D DMA copies twice as fast as the scan reads, so a copy
+started in the blanking stays ahead of the scan. It is the same means as in
+the strategy behind the scan, only put to the catch-up copy.
+
+How it is made.
+
+1. At the end of a batch the large pieces that are lacked are not copied, if
+   by the measured speed of the DMA they are sure to be ahead of the scan.
+   The bus keeps them as a list, up to six, and in the maps of tiles they
+   stay marked as lacked. What is small, and what is large but would not be
+   in time, is copied at once, as before.
+2. If the next batch goes into the same picture and redraws a piece whole,
+   it does not have to be copied any more: at the end of that batch the list
+   is made anew.
+3. When the display has taken the picture, the interrupt of the end of the
+   frame puts the first piece into the queue of the 2D DMA, and the handler
+   of the end of a copy puts the next one. The pieces go one at a time, from
+   the top down. The hardware copies: there is neither a task nor a lock for
+   it.
+4. After the change drawing goes into the buffer the copy reads from. A batch
+   that is about to write over a piece not copied yet waits for that piece.
+5. A task that waits for the change copies the pieces itself, if it can
+   before the frame ends. Then there is nothing to wait for after the change.
+
+The details.
+
+- Who owns the list. Before the driver is told the bus sets a mark. Only one
+  can take it, by an atomic exchange: either the interrupt of the end of the
+  frame, which then starts the copy, or a task that draws into the same
+  picture or copies the pieces itself.
+- The top of the screen. The display reads the first rows of a frame as soon
+  as the one before has ended: it comes to row 4 in 0.7 ms. Nothing gets
+  ahead of the scan there, so of a piece that starts at the upper edge the
+  first 8 rows are copied at once.
+- Why one at a time. The queue of the DMA takes two pieces at once, and each
+  goes half as fast: 83 KB/ms against the 77 KB/ms of the scan.
+- A transfer by the DMA and a fill by the PPA that a task starts during the
+  copy slow it down the same way. The bus reckons beforehand whether the
+  pieces stay ahead of the scan at that speed. If they do, only one who
+  writes over a piece waits. If not, a transfer and a fill wait until the
+  whole copy is over.
+- The cache. The DMA writes to memory past the cache, so before the driver is
+  told the bus brings out of the cache and makes it forget the rows under the
+  pieces. That costs 8 to 19 us a piece whatever its size.
+- Reading. A pixel read from a ready picture where a piece is not copied yet
+  brings its tile by the processor, as any tile that is lacked.
+- Which piece will be in time. A piece starts when the pieces above it are
+  done. It has to start before the scan comes to its first row and to end
+  before the scan has passed its last one, by the measured speed with a
+  quarter to spare. Until a speed is measured all pieces are copied at once.
+- 24 bits. A row is half as long again in bytes there, the scan reads bytes
+  half as fast again, and the DMA copies as it did. Pieces fell behind the
+  scan even with the check: 1 to 5 in 300 batches. So at 24 bits the copy
+  after the change is off, everything is copied at the end of a batch.
+- The safety net. A piece that is not copied in a quarter of a second is
+  copied by the task, and a warning is left in the log. On the bench it did
+  not come to that.
+
+What of this the bus measures itself, and what is set by a number in the
+code:
+
+| Quantity | Where it comes from |
+| --- | --- |
+| The speed of a copy by the 2D DMA | measured on every piece of 64 KB and more left for later and copied undisturbed; the slowest of the last ones is reckoned with. On the bench from 117 to 170 KB/ms, the counter `copy_kb_a_ms`. Until a piece has been measured, the number of the measuring of the board is taken, if the program gave it |
+| The speed of the scan | from the period of a frame, which the bus measures, and the number of rows of a frame with the blanking |
+| The length of a batch | measured on every batch |
+| How many times a second transfer slows a copy down | set: 2.5 times. Twice was measured |
+| How many rows the display reads beforehand | set: 6 |
+| The room for starting a copy | set: 0.4 ms. 16 to 37 us were measured. The measuring of the board gives 0.12 to 0.15 ms |
+| The room before the end of a frame | set: 2 ms |
+| The thresholds from which a piece goes by the DMA and the PPA, and the speeds of writing by the processor in the strategy behind the scan | set by numbers taken on this board. The measuring of the board takes them again |
+
+The numbers that are set were taken on an ESP32-P4 of revision 1.3 with
+PSRAM at 200 MHz and a panel of 1024x600. The bus itself adjusts only the
+first three. The thresholds, the speeds of writing and the room for
+starting a copy are taken for another chip, another memory or another
+display by `dgx_dsi_bench()`, see "Measuring the board". Three numbers of
+this table nobody measures: the slowing by a second transfer, the rows the display
+reads beforehand, and the room before the end of a frame.
+
+What this changed in the work time of a batch. Two buffers, IDF 6.0.1, the
+rows are those of "The working time of a batch", measured the same way. The
+other rows of that table did not change.
+
+| Batch | Release 0.5.2 | With the copy after the change |
+| --- | --- | --- |
+| A square 48x48 after a batch that filled the whole screen | 8.49 ms | 0.56 ms |
+| A band of 200 rows, even batches in one place, odd ones in another | 5.49 ms | 2.79 ms |
+| 320x100 from a virtual screen, in two places the same way | 1.09 ms | 0.55 ms |
+| A bar 40x548, in two places the same way | 1.03 ms | 0.28 ms |
+| A square 64x64, in two places the same way | 0.28 ms | 0.15 ms |
+
+The cost in memory: the list of pieces, their descriptors and transfers take
+0.85 KB of internal RAM, only with two buffers and only when the option of
+the DMA and the PPA is on.
+
+#### Three tasks on the bench
+
+The bench starts three tasks. Each redraws moving bars in a virtual screen of
+its own and puts it to the display under a common mutex. What is counted is
+how many pictures a second each task has put. IDF 6.0.1.
+
+- Scenes 7 and 8: bands of 1024x168 one under another, the bars are erased
+  and drawn whole every time.
+- Scenes 9 and 10: parts of 320x100 side by side.
+- Scenes 11 and 12: the same bands of 1024x168, but only the edges of the
+  bars are redrawn, so a task spends little on its picture, while the whole
+  band goes to the display.
+- In the scenes 7, 9 and 11 the tasks keep the pace of the display by their
+  own clock, a picture a frame. In the scenes 8, 10 and 12 they sleep 7, 14
+  and 21 ms after every picture instead.
+
+| Scene | Release 0.5.2 | Joining, the copy at once | Joining, the copy after the change |
+| --- | --- | --- | --- |
+| 7. Three bands of 1024x168, at the pace of the display | 20.4, 20.3, 20.3 | 34.8, 35.2, 34.8 | 40.2, 41.9, 40.1 |
+| 8. The same with pauses | 20.4, 20.3, 20.2 | 37.0, 30.6, 24.2 | 42.1, 30.6, 23.3 |
+| 9. Three parts of 320x100, at the pace of the display | 20.4, 20.4, 20.4 | 61.0, 61.0, 61.0 | 61.0, 61.0, 61.0 |
+| 10. The same with pauses | 20.4, 20.4, 20.3 | 61.0, 60.9, 40.6 | 121.8, 60.9, 45.5 |
+| 11. Three bands of 1024x168, little redrawn, at the pace of the display | 20.4, 20.3, 20.3 | 40.6, 40.8, 40.5 | 60.6, 60.8, 60.5 |
+| 12. The same with pauses | 20.4, 20.4, 20.0 | 47.8, 33.2, 30.2 | 59.2, 39.5, 30.8 |
+
+What is behind the numbers.
+
+- Before the change every change of the buffers went to one task, hence 20.4
+  for all of them in every scene.
+- Scene 11 shows the limit of the bus: all three bands of the whole width get
+  into every frame. The counters over its 10 seconds: 615 frames, 611 of
+  them showed something new, 1825 batches, 1214 of them went into a ready
+  picture, no end of a frame missed. 0.7 MB of catch-up copy against 411 MB
+  with the copy at once, nearly all of it after the change: nearly always
+  all three tasks were in time to redraw their own.
+- The scenes 7 and 8 are held not by the bus but by the redrawing itself: the
+  processor draws the bars in PSRAM, and two of the three tasks share a core.
+- Scene 10: the first task sleeps 7 ms and draws 121.8 pictures a second,
+  two a frame. The bus does not hold it back, and every second picture of
+  it does not get to the screen. The variant with the copy at once still
+  held back a task that draws twice in one frame, hence 61.0 in the middle
+  column.
+- In the scenes 10 and 12 the third task sleeps 21 ms after every picture and
+  cannot draw more often than 46 times a second.
+- In no scene did a piece fall behind the scan: the counter
+  `copied_late_behind` stayed zero.
+
+The scenes 1 to 6, where one task draws, did not change: 42.3, 60.9, 34.8,
+60.9, 60.9 and 60.9 against 42.7, 60.9, 34.7, 60.9, 60.9 and 60.8 in release
+0.5.2.
+
+The check of correctness. A model of the display on the host,
+`test/host/test_fb_flip.c`: the display there takes at the end of a frame
+the buffer it was asked for last, tasks draw batches in turn, every call takes a random
+time, and a frame may end in any of them. It is checked that a frame never
+starts from a buffer that is being drawn into, that with one task without
+pauses every frame shows something new, and that with three tasks batches
+of each get into every frame. The maps of tiles
+with pieces left for later are checked by `test/host/test_fb_tiles.c`. On the
+board: random batches against a model, drawn by three tasks in turn, see "How
+it was checked". The scenes 7 to 10 were looked at with the copy at once and
+look right to the eye. With the copy after the change and the numbers of
+the measuring of the board all twelve scenes were looked at on build 159.
+The scenes 1, 2, 4 to 6 and 8 to 10 look right, in scene 11 all three bands
+move evenly. Scene 3 jerks a little. In scene 7 the top band moves evenly,
+the two lower ones a little unevenly. Scene 12 jerks a little. Where that
+comes from see "The time of a frame", "Evenness".
+
+#### Counters
+
+How many pictures a program made does not tell what the display showed:
+behind the scan the bench updated a band 487 times a second at 60.9 frames.
+So the bus counts. `dgx_dsi_counters()` gives the counters as they are, the
+program takes the difference over a second.
+
+| Counter | What it counts |
+| --- | --- |
+| `frames` | frames sent to the display. Counted with two buffers and behind the scan |
+| `batches` | batches in which something was drawn |
+| `flips` | changes of the buffers, that is frames that showed something new |
+| `joined` | batches that went into a picture already ready |
+| `kept_back` | ends of frames a ready picture missed because of a batch being drawn into it |
+| `flip_waits`, `flip_wait_us` | how many times a batch waited for the change and how many microseconds in all |
+| `scan_waits`, `scan_wait_us` | behind the scan: how many times a write waited for the scan and how many microseconds in all |
+| `copied_bytes` | bytes of the catch-up copy, all of them |
+| `copied_late_bytes` | of them, copied after the change, ahead of the scan |
+| `copied_late_behind` | pieces of such a copy that ended when the scan had passed their last row already. It has to stay zero |
+| `copy_waits`, `copy_wait_us` | how many times drawing waited for such a piece and how many microseconds in all |
+| `copy_kb_a_ms` | not a count: the speed of a copy by the 2D DMA in KB/ms, as the bus has measured it. 0 until it has |
+
+All counters are 32-bit and go round. Bytes written by the processor, the DMA
+and the PPA are not counted.
+
+#### The time of a frame
+
+No more pictures a second can be shown than the display has frames. How long
+a frame takes the bus tells: `dgx_dsi_frame_us()` gives microseconds, 16417
+on the bench, which is 60.9 frames a second. When the last frame ended
+`dgx_dsi_frame_ended()` tells. By those two numbers a program keeps the pace
+of the display itself, see "How a program keeps the pace" below.
+
+The bus does the rest. A batch finished before the end of a frame is shown
+from the next frame on. Batches of several tasks get into one picture. What
+a picture lacks is copied after the change.
+
+Where the number comes from.
+
+| When | What is given | On the bench |
+| --- | --- | --- |
+| Right after the display is started | reckoned from the timings of the panel: the pixels of a row with the blanking, times the rows of a frame with the blanking, divided by the pixel clock | 1344 × 635 / 52 MHz = 16412 us |
+| After 32 frames, half a second | the time of 16 frames in a row, divided by 16 | 16417 us |
+| After 256 frames | the time of 256 frames in a row, divided by 256. Renewed every 256 frames | 16417 us |
+
+The reckoning is 0.03% off the measurement: the real pixel clock is a
+little lower than the one asked for. The measurement was checked by the
+counter `frames`: 600 frames took 9850437 us, 16417.4 a frame.
+
+The bus counts frames with two frame buffers and behind the scan. With one
+buffer it does not, and the number stays the reckoned one.
+
+What this does not give.
+
+- More than a microsecond of precision. 16417 for 16417.4 makes a frame of
+  difference in 11 minutes: once in 11 minutes two pictures of the program
+  fall into one frame, and the display does not show the first of them.
+- A wait. The bus tells when a frame ended, but it does not wait for the end
+  of a frame itself and does not wake a program. A program sleeps itself.
+
+Evenness. A picture moves evenly when every next one comes after the same
+number of frames. The bench counts that for every source: how many frames
+of the display went by from one picture of it to the next. Two buffers, 10
+seconds a scene. The scenes 3, 7, 11 and 12 were counted on build 160 and
+looked at on build 159. The scenes 13 and 14 were counted and looked at on
+build 192.
+
+| Source | Pictures a second | After 1 frame | After 2 frames | After 3 frames | To the eye |
+| --- | --- | --- | --- | --- | --- |
+| Scene 3, bars by primitives | 34.8 | 86 | 262 | 0 | jerks a little |
+| Scene 7, the top band, a step of 2 pixels | 40.0 | 192 | 206 | 2 | even |
+| Scene 7, the middle band, a step of 3 pixels | 42.5 | 243 | 183 | 0 | a little uneven |
+| Scene 7, the bottom band, a step of 4 pixels | 40.0 | 196 | 199 | 5 | a little uneven |
+| Scene 11, each of the three bands | 60.9 | 609 to 610 | 0 | 0 | even |
+| Scene 12, the top band | 58.5 | 562 | 24 | 0 | jerks a little |
+| Scene 12, the middle band | 39.0 | 179 | 203 | 8 | jerks a little |
+| Scene 12, the bottom band | 30.8 | 20 | 275 | 13 | jerks a little |
+| Scene 14: as 3, but a picture every second frame | 30.5 | 39 | 227 | 38 | right |
+| Scene 13: as 7, but every second frame, the top band | 30.5 | 17 | 271 | 17 | right |
+| Scene 13, the middle band | 30.4 | 0 | 304 | 0 | right |
+| Scene 13, the bottom band | 30.4 | 66 | 171 | 67 | jerks slightly |
+
+- It is uneven where a source cannot make a picture a frame: gaps of one
+  frame and of two come mixed. The bus chooses nothing here, it shows a
+  ready picture in the nearest frame.
+- The top band of scene 7 comes as mixed as the lower ones and looks even:
+  its bars move 2 pixels a picture, those of the lower ones 3 and 4.
+- A program can even it out: ask for a picture not every frame but every
+  second one, that is, reckon the time by twice `dgx_dsi_frame_us()`. Scene
+  14 is scene 3 at such a pace, scene 13 is scene 7. To the eye scene 14 and
+  the two upper bands of scene 13 move right.
+- It does not come out quite even so. The bottom band of scene 13 has gaps
+  of one frame and of three 66 times each of 304, and that is seen. Its
+  batch ends at the very end of a frame and gets now into this frame, now
+  into the next. That is the phase a program does not know.
+- The phase differs from run to run: it depends on where in a frame the
+  scene started. On build 160 all the gaps of scene 14 were two frames, and
+  the bottom band of scene 13 had 46 uneven ones of each kind.
+
+How a program keeps the pace. A program has to hold itself back, and
+sleeping for the time of a frame is not enough for that: where in a frame
+its picture is finished stays a matter of chance. A picture has to be
+aimed: finished a little before a frame ends. A program has all it takes.
+
+1. How long its picture takes it measures itself: from the start of the
+   drawing to the end of the batch. It reckons with the longest of the last
+   ones.
+2. The frame the picture is to get into it chooses itself: the one after
+   the last, or the one after that when a picture with room does not fit a
+   frame.
+3. It starts "the time of a picture plus 4 ms" before the end of that
+   frame. The ends of frames it knows: the end of the last one plus a whole
+   number of frame times.
+
+```c
+int64_t ended;
+if (dgx_dsi_frame_ended(bus, &ended)) {
+    /* to be finished 4 ms before the next frame ends */
+    int64_t from = ended + dgx_dsi_frame_us(bus) - 4000 - picture_takes_us;
+    while (esp_timer_get_time() < from) vTaskDelay(1);
+}
+```
+
+In full, with the choice of the frame and with what to do when late, it is
+the function `demo_pace()` of the example `dsi_demo`, a dozen and a half
+lines. With one buffer the bus does not count frames, the call returns
+`false`, and the pace is kept by the clock.
+
+Three ways were compared on the bench, build 194, two buffers, 10 seconds a
+scene. The cells tell how many times the next picture of a source came
+after one, two and three frames.
+
+| Source | By its own clock | Started right after a frame ended | Finished 4 ms before a frame ends |
+| --- | --- | --- | --- |
+| One task, bars by primitives, a picture every second frame | 76, 153, 75 | 76, 154, 74 | 0, 302, 1 |
+| Three tasks, parts of 320x100, a picture a frame | 609, 0, 0 | 609, 0, 0 | 583 to 608, 0 to 13, 0 |
+| Three tasks, bands little redrawn, a picture a frame | 608, 0 to 1, 0 | 589 to 596, 7 to 10, 0 | 431 to 442, 83 to 87, 0 to 2 |
+| Three tasks, bands redrawn whole, every second frame | 2 to 67, 170 to 300, 2 to 67 | 51 to 72, 160 to 202, 51 to 72 | 35 to 48, 193 to 224, 42 to 59 |
+
+- One task. By the clock evenness is chance: in four runs of one and the
+  same scene 1, 3, 77 and 151 gaps of 304 were uneven. Starting right after
+  a frame has ended is bad every time: a picture of this scene takes 17 to
+  18 ms, about a frame, and its end falls on the end of a frame by itself.
+  Aiming the end of a picture gives exactly two frames between pictures.
+- Several tasks that know nothing of each other and draw under a common
+  mutex. Aiming the end does not suit them: all of them aim at one and the
+  same moment and draw in turn, and the time of a picture has the wait for
+  the mutex in it. The light bands make 52 pictures a second so instead of
+  61. As long as all of it fits a frame, such tasks do better to start right
+  after a frame has ended, or to keep the pace by the clock.
+- The heavy bands do not fit two frames with room, and no way makes them
+  even.
+- The recipe above is for a program where one task draws the whole picture.
+  Several sources come down to that case, see below.
+- Two scenes were looked at with the eyes on build 194: three light bands
+  started after a frame has ended move right, three heavy bands by the
+  clock look better than on build 192.
+
+Several sources without a mutex. A mutex guards data, and here one can do
+without shared data: one task draws, the others send it messages. On the
+bench those are the scenes 23 to 26, build 195. Every source redraws its
+virtual screen, puts a message "ready" into a queue and does not touch the
+screen until it gets the answer that the picture was taken. The task of the
+display takes from the queue all that has come, puts it to the display as
+one batch and aims the end of that batch 4 ms before the end of a frame, as
+any single drawing task does. Its priority is above that of the sources.
+
+| Three sources | Each draws itself under a mutex, the pace by the clock | Messages to one task that draws |
+| --- | --- | --- |
+| Parts of 320x100, a picture a frame | 609, 0, 0 | 607, 0, 0 |
+| Bands little redrawn, a picture a frame | 608, 0 to 1, 0 | 604 to 606, 0 to 1, 0 |
+| Bands redrawn whole, every second frame | 1 to 53, 198 to 302, 1 to 53 | 1, 302, 0 |
+| Bands redrawn whole, a picture a frame | 192 to 243, 183 to 206, 0 to 5 | two of them 0 to 2, 302 to 303, 0; the third 196, 205, 0 |
+
+- The heavy bands every second frame became even for all three sources: 302
+  gaps of 303 are two frames. Under a mutex no way gave that.
+- There are no waits for the display at all, and batches do not join, for
+  there is nothing to join: one batch comes in a frame. 0.5 MB of catch-up
+  copy in 10 seconds with the light bands.
+- The last row shows the limit. A source cannot make a picture a frame, and
+  there are no wonders: two sources that share a core settled on an even two
+  frames by themselves, and the third, alone on its core, makes 40 pictures
+  a second and comes mixed. The pace for such sources is the program's to
+  choose: every second frame, as in the row above.
+- This way lets a program keep clear of inversion of priorities. The sources
+  do not wait for each other, each waits for the drawing task only. That is
+  why its priority is above that of the sources: with a lower one it would
+  itself be what a more important task waits for.
+- So the question of how several sources hold themselves back comes down to
+  one drawing task. The way with a mutex still works, but how even it is
+  depends on how the tasks happen to share the time.
 
 ### Behind the scan
 
@@ -538,7 +1029,9 @@ window: from its leaving the last row to its entering the first. If the
 writing does not fit that gap, the bus does not wait at all and writes at
 once, as with `DgxDsiOneFrame`. The writing speed in the code is taken with
 room, 28 KB/ms; the one measured on a whole screen is 36 KB/ms. A band of up
-to 165 rows of the full width fits.
+to 165 rows of the full width fits. For another board `dgx_dsi_bench()` takes
+this speed, see "Measuring the board": on the bench it gets 34 KB/ms and
+gives the bus a quarter less, 24 to 25.
 
 This condition is stricter than it has to be. The scan and the writing go the
 same way, and writing may start as soon as the scan has passed the first row
@@ -570,7 +1063,8 @@ wait is over at once, and a program can update the same band several times a
 frame: on the bench without a pause of its own a band of 80 rows was updated
 487 times a second, and the picture blurred. A program has to keep itself
 from updating more often than the display shows frames. With two buffers
-that is not needed: there the bus waits for the buffers to change.
+the bus does not set the pace either, but the picture does not blur for
+that: what is shown is the last of what was drawn by the end of the frame.
 
 #### What came of it
 
@@ -666,9 +1160,10 @@ whole screen and a copy of 27 ms. A list of rectangles does not save a
 diagonal: a line is drawn by pixels, and a list of any sensible length
 overflows.
 
-It is made by tiles. The panel is cut into tiles of 32x8 pixels, a bit a
+It is made by tiles. The panel is cut into tiles of 32x4 pixels, a bit a
 tile. There are two maps. Each has a 32-bit word for a row of tiles, for
-1024x600 that is 75 words, 600 bytes together. If a panel is wider than 1024
+1024x600 that is 150 words, 1200 bytes together. At first a tile was 32x8;
+how the size changed see in "The size of a tile". If a panel is wider than 1024
 pixels, a tile is made wider, for a row to fit a word.
 
 | Map | What is marked in it |
@@ -768,7 +1263,143 @@ Why the low tile is faster.
 - On the line and on the gradient the difference is small: nearly the same
   pixels are copied there.
 
-The low tile costs 448 bytes of internal RAM. It was chosen.
+The low tile costs 448 bytes of internal RAM. It was chosen then.
+
+Below 8 rows the height was not measured then. A tile of one line of the
+cache, 32x1, suggests itself: 64 bytes are copied for a pixel, not 512.
+Later the sizes were compared anew, in two ways. The code is the same, the
+size is given by the call `dgx_dsi_tiles()`. Two buffers, 16 bits, IDF
+6.0.1.
+
+The scenes of the bench. The time one batch works in milliseconds; the last
+three rows hold something else, each says what.
+
+| What a batch draws | 32x8 | 32x4 | 32x2 | 32x1 | 64x1 |
+| --- | --- | --- | --- | --- | --- |
+| 2000 separate pixels over an area of 800x400 | 7.50 | 5.39 | 3.70 | 2.86 | 3.38 |
+| A line from corner to corner: erased and drawn | 1.86 | 1.94 | 2.16 | 2.46 | 2.71 |
+| Nine bars 548 high move by 4 pixels | 17.07 | 18.43 | 21.02 | 25.49 | 31.70 |
+| Two squares 48x48 | 0.29 | 0.28 | 0.30 | 0.34 | 0.37 |
+| The whole screen filled | 3.58 | 3.65 | 3.79 | 4.04 | 4.03 |
+| A gradient 256x100 by pixels | 15.95 | 15.91 | 15.92 | 15.06 | 15.19 |
+| A band of 200 rows from a virtual screen at row 213 | 4.07 | 3.99 | 3.99 | 3.97 | 3.97 |
+| 320x100 from a virtual screen, the place moves by 10 pixels | 1.10 | 1.09 | 1.11 | 1.16 | 1.35 |
+| Scene 3, frames a second | 34.9 | 34.8 | 34.8 | 30.5 | 23.9 |
+| Scene 11, catch-up copy in 10 seconds, MB | 20.2 | 1.2 | 0.3 | 0.7 | 1.2 |
+| Internal RAM for the bus and the screen, bytes | 7484 | 8092 | 9308 | 11740 | 11740 |
+
+The demos. Nine demos of `examples/` were run on this display as they are:
+the bus and the screen of the bench were put into the source of a demo, the
+rest was not touched. To them drawing of text of bitmap fonts on the display
+itself was added: a line of a clock in Verdana 32, a title in Terminus 12
+four times as large, a log of 18 lines of Terminus 12 of which one is
+written anew every frame, and two lines of small print in Arial 12 and Droid
+Sans 9. A line is erased by a rectangle before it is written. Every demo
+runs for 25 seconds. The table holds the processor time the task of a demo
+spends on one batch, in milliseconds. The waits for the display and the
+pauses of the demo itself are not in it.
+
+| Demo | 32x16 | 32x8 | 32x4 | 32x2 | 32x1 | 64x8 | 64x1 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `glyph_morph_demo`, a morph of symbols | 26.75 | 26.81 | 26.95 | 27.07 | 27.39 | 26.84 | 27.41 |
+| `weather_morph_demo`, a morph of weather symbols | 42.83 | 42.57 | 42.67 | 42.84 | 43.22 | 42.66 | 43.26 |
+| `morph_demo`, a morph of a word letter by letter | 1.446 | 1.423 | 1.441 | 1.453 | 1.499 | 1.554 | 1.605 |
+| `life_morph_demo`, the game of Life | 47.96 | 47.70 | 47.87 | 48.05 | 48.34 | 49.48 | 49.98 |
+| `hw_font_demo`, handwriting by a pen | 0.060 | 0.060 | 0.062 | 0.066 | 0.073 | 0.061 | 0.074 |
+| `hw_morph_demo`, a morph of handwriting | 45.03 | 44.72 | 44.71 | 44.71 | 44.85 | 44.72 | 44.83 |
+| `flip_clock_demo`, a flip clock | 0.500 | 0.494 | 0.496 | 0.510 | 0.559 | 0.495 | 0.559 |
+| `texture_demo`, textures | 2.193 | 2.190 | 2.190 | 2.206 | 2.242 | 2.190 | 2.242 |
+| `screen_demo`, primitives | 0.607 | 0.598 | 0.602 | 0.625 | 0.654 | 0.660 | 0.740 |
+| Text of bitmap fonts | 7.63 | 6.07 | 5.72 | 5.75 | 5.78 | 6.65 | 6.06 |
+
+The tile of 32x8 was run twice, first and last in the series: the numbers
+agreed within 0.3%.
+
+What is seen on the demos.
+
+- On all nine demos 32x8 is the fastest or shares the first place with
+  32x16. The lower the tile the slower, but not by much: 32x4 loses up to
+  1.3%, and 3% on the handwriting. 32x2 loses up to 4.5%, and 10% on the
+  handwriting. 32x1 loses from 0.3% to 22%.
+- The demos with a morph hardly depend on the size: a frame of the glow goes
+  to the display as one window, and the tiles are touched only at its edges.
+- Text of bitmap fonts is 5 to 6% faster with tiles of 32x4, 32x2 and 32x1.
+  A line is erased by a rectangle whose edges do not lie on boundaries of
+  tiles, and with a low tile less is copied at those edges: 45 MB of
+  catch-up copy in 25 seconds with 32x8 and 19 MB with 32x4. A tall tile of
+  32x16 is a quarter worse here.
+- A tile 64 wide is worse than a tile 32 wide of the same height everywhere.
+
+What is seen on the scenes.
+
+- On scattered pixels the lower the tile the faster: 32x1 is 2.6 times as
+  fast as 32x8.
+- Everything else is slower with a tile of one row: the line by a third, the
+  narrow bars one and a half times, the fill of the screen by 13%. As many
+  bytes are copied, but in pieces of one row. Every row of tiles that
+  drawing touches takes about 0.9 us: going through the map and calling the
+  copy. A bar 548 high has 548 such rows instead of 69.
+- Scene 11 copies tens of times more with a tile of 32x8 than with the
+  others. The bands of the bench start at the rows 60, 240 and 420: those
+  are boundaries of tiles 4 rows high but not of tiles 8 rows high, and 4
+  rows at the top and 4 at the bottom of every band are copied every batch.
+  That is the geometry of the bench, and it did not change the frame rate:
+  60.9 with any tile.
+- A map is a word a row of tiles: 32x4 takes 0.6 KB more than 32x8, 32x2
+  takes 1.8 KB more, 32x1 takes 4.2 KB more. With 64x1 half of the bits of a
+  word are used, and the memory is the same.
+
+The choice. The tile is 32x4 now unless a program says otherwise,
+`DGX_DSI_TILE_WIDTH` and `DGX_DSI_TILE_HEIGHT` in the header. The best on
+the demos is 32x8, but 32x4 is 0 to 3% behind it, and that is not seen. What
+it gains is seen: 6% on text of bitmap fonts, 28% on scattered pixels. The
+memory: 0.6 KB more. With a tile of 32x4 the check against a model and the
+scenes of the bench were passed again.
+
+Another size a program gives itself, by an optional call:
+
+```c
+dgx_bus_protocols_t *bus = dgx_dsi_init(0, 2, 750, 3, 2500);
+if (dgx_dsi_tiles(bus, 32, 8) != ESP_OK) ESP_LOGW(TAG, "the tiles stay 32x4");
+dgx_screen_t *screen = dgx_jd9165_init(bus, rst, 16, DgxScreenRGB, DgxDsiTwoFrames);
+```
+
+The call checks the size and answers by a code of ESP-IDF. When the size is
+not taken the tiles stay as they were, and a warning appears in the log.
+
+| Answer | When |
+| --- | --- |
+| `ESP_OK` | the size is taken |
+| `ESP_ERR_INVALID_ARG` | there is no bus; the width is not a power of two from 8 to 1024; the height is not a power of two from 1 to 128 |
+| `ESP_ERR_NO_MEM` | there is no memory for the maps |
+| `ESP_ERR_INVALID_STATE` | the call came in the middle of a batch |
+
+Before the constructor of the display the size is only remembered. After it
+the call is made between two batches: the bus waits until the display has
+taken the ready picture, gives the buffer that becomes free all it lacks,
+and makes the maps anew. The check against a model changed the size so
+every 5 batches, 360 times a run: 0 mismatches. A panel wider than 32 tiles
+makes the tile wider itself.
+
+The size is not to be changed as a program goes, to suit what is drawn this
+minute. It is chosen once, for the program, and given before the
+constructor of the display.
+
+- A change is not free. The drawing task waits for the display: 10.6 ms on
+  average and up to 23 ms a change in that same check. The picture stands
+  still meanwhile.
+- The gain from a tile that suits is small, some percent on the demos. On
+  text of bitmap fonts a tile of 32x4 saves 0.35 ms a batch, and one change
+  eats that saving of thirty batches.
+- The maps are taken from the heap anew every time, 0.6 to 4.8 KB. Changing
+  often breaks the heap up.
+- In the middle of a batch the call refuses.
+
+The call after the constructor is left for a program that learns the size
+late, one that reads it from its settings for instance.
+
+A tile of one row can be made faster: rows of tiles with the same mask taken
+as one piece, not one by one. That is not done.
 
 ### The cost for a pixel
 
@@ -832,7 +1463,7 @@ Compared with `DgxDsiTwoFrames`.
 
 | | LVGL, `direct_mode` | DGX, two buffers |
 | --- | --- | --- |
-| What marks the changed | rectangles, 32 at most | tiles of 32x8, 2400 of them on 1024x600 |
+| What marks the changed | rectangles, 32 at most | tiles of 32x4, 4800 of them on 1024x600 |
 | A line from corner to corner | one rectangle of the whole screen | about a hundred tiles |
 | If there are too many marks | the list is replaced by one rectangle of the whole screen | nothing can overflow |
 | What is not copied | what will be redrawn in this frame: known beforehand | what a fill or a window has covered: found out on the way |
@@ -1083,6 +1714,181 @@ What it shows.
 - A gradient by pixels got slower than with the rectangle: that is the cost
   of going to the maps for every pixel. Its time changes from build to build
   between 14.3 and 16.2 ms, by how the code happens to lie.
+- The table was taken with a tile of 32x8. With the present 32x4 the size of
+  the tile changed three rows of the last column: 2000 pixels 5.4 ms instead
+  of 7.4, the nine bars 18.4 instead of 17.1, the diagonal 2.0 instead of
+  1.9. The four bottom rows were changed by the copy after the change, see
+  its section.
+
+### Measuring the board
+
+From what size on a rectangle goes by the 2D DMA or the PPA and not by the
+processor, and how much room the bus leaves before the scan, is decided by
+numbers. They depend on the chip, its memory and the
+display. The code has the numbers of the board the bus was written on.
+`dgx_dsi_bench()` takes them on the board at hand.
+
+```c
+dgx_dsi_tuning_t tuning;
+if (dgx_dsi_bench(bus, &tuning)) dgx_dsi_tune(bus, &tuning);
+```
+
+| Function | What it does |
+| --- | --- |
+| `dgx_dsi_bench(bus, &tuning)` | measures the board and gives the numbers. The bus stays with those it had |
+| `dgx_dsi_tune(bus, &tuning)` | gives the numbers to the bus. Numbers of another version of the structure, another panel or another color depth it does not take: it returns `false` and writes the reason to the log |
+| `dgx_dsi_tuning(bus, &tuning)` | reads the numbers the bus works with now |
+
+Why a call of its own and not a part of starting the panel.
+
+- The measuring takes 0.07 s at 16 bits and 0.09 s at 24. At every start
+  that is too much.
+- The numbers do not change from start to start. `dgx_dsi_tuning_t` is a
+  flat structure of 40 bytes with no pointers. A program puts it into NVS
+  and gives it to the bus from there at the next start. The example
+  `dsi_demo` does so.
+- The bus does not touch NVS itself. Where to keep the numbers and when to
+  measure again is for the program to decide.
+- A bus that was given nothing works with the numbers it had. The measuring
+  changes nothing until a program asks for it.
+
+Nothing changes on the screen while it measures. It works in memory of its
+own: two pictures of 128 rows of the panel, half a megabyte of PSRAM with
+1024 pixels in a row at 16 bits. It gives that back at the end. Checked: a
+checksum of the screen before six measurings in a row and after them is the
+same, and all of the heap comes back.
+
+The display has to be running meanwhile, and that is a condition of the
+measuring. The display reads the frame buffer from the same PSRAM all the
+time, and with the display at work the processor reads and writes it at
+another speed. The numbers have to be those of the work, so before
+`dgx_dsi_video_start()` the measuring refuses. Nothing may be drawn while it
+goes.
+
+What is measured. Every operation is made nine times and the middle result
+is taken. Where the number is one to leave room by, the operation is made
+three times and the longest is taken. Before every go both pictures are
+thrown out of the cache.
+
+| What is measured | How | On the bench at 16 bits |
+| --- | --- | --- |
+| Writing through a window | the whole picture 1024x128 in portions of 4 KB, each copied from the other picture first, as from a virtual screen; the cache brought out at the end | 7.7 ms, which is 34 KB/ms |
+| Bringing out of the cache | 32 KB just written | 107 to 120 us |
+| A copy by the processor | 32x128 and 512x16 | 218 to 221 and 361 to 364 us |
+| A copy by the 2D DMA | 32x8, 1024x32 and 1024x128 | 62 to 68, 462 to 470 and 1676 to 1693 us |
+| A fill by the processor | 16x128 and 512x16 | 153 to 162 and 234 to 235 us |
+| A fill by the PPA | 16x16, 16x128 and 1024x64 | 78 to 85, 94 and 434 us |
+
+Two shapes of one operation give what a row costs and what a byte costs, a
+small operation gives what asking the DMA or the PPA costs. The thresholds
+are reckoned from those as follows.
+
+- The copy. A rectangle costs the processor "rows times the cost of a row
+  plus bytes times the cost of a byte", it costs the DMA "the cost of asking
+  plus bytes times the cost of a byte by the DMA". The threshold is where the
+  DMA becomes the faster one, with room: a fifth at 16 bits, twice at 24.
+- Why the room differs. The measuring starts with an empty cache. In work a
+  piece drawn a moment ago is still in the cache, and from there the
+  processor copies it four times as fast as from PSRAM. At 24 bits a piece
+  is copied at the end of a batch, and the batch waits for it: the DMA has
+  to win with room. At 16 bits a piece for the DMA is left for later, and
+  the batch pays only for leaving it, about 50 us at any size.
+- The fill. The same comparison, with room of two and a half times: what the
+  PPA has filled is not in the cache, see "A fill by the PPA".
+- Rows of a program. Writing through a window against the DMA, room 1.6.
+- The speeds of writing through a window and of bringing out of the cache
+  are taken a quarter less than measured.
+- The room for a start is twice the cost of asking the DMA.
+
+What came out on the bench. The measuring was repeated six times in every
+mode, the cells hold the spread. Next to them the numbers set in the code.
+
+| Number | Set in the code | Measured, 16 bits | Measured, 24 bits |
+| --- | --- | --- | --- |
+| Writing through a window, KB/ms | 28 | 24 to 25 | 27 to 28 |
+| Bringing out of the cache, KB/ms | 256 | 205 to 237 | 220 to 240 |
+| The speed of the 2D DMA, KB/ms | measured at work | 150 to 152 | 133 |
+| The room for a start of the DMA and the PPA, us | 400 | 116 to 150 | 114 to 126 |
+| A copy by the DMA when rows × (width + A) is B or more | A 53, B 8000 | A 8 to 10, B 2200 to 2900 | A 30 to 34, B 5200 to 5700 |
+| Rows of a program by the DMA from, bytes | 16384 | 3900 to 5200 | not used |
+| A fill by the PPA when rows + bytes / A is B or more | A 64, B 200 | A 65 to 76, B 244 to 270 | A 78 to 130, B 196 to 300 |
+| The sieve before the threshold of the fill: width + height is at least | 64 | 151 to 158 | 140 to 151 |
+
+Four numbers the measuring does not touch, they stay as in the code: the
+display reads 6 rows beforehand, a second transfer slows a copy down 2.5
+times, the room for a write behind the scan is 150 us, the room before the
+end of a frame is 2 ms. The first and the last need the frame buffer itself
+under the scan and cannot be taken in memory of one's own. The slowing by a
+second transfer could be taken; that is not done.
+
+The size of the tiles the measuring does not choose. It depends on what a
+program draws, not on the board, and is given by a call of its own, see "The
+size of a tile".
+
+Do the numbers suit: the choice of the bus. Through `dgx_dsi_tune()` the bus
+is given numbers that make it do everything one way, then numbers that make
+it do everything the other way, and the same thing is timed both ways. So
+for every shape of a rectangle it is known which way is faster. With that
+the choice of the bus by the set numbers and by the measured ones is
+compared. The shapes: 10 widths from 8 to 1024 by 10 heights from 4 to 548
+for fills and rows of a program, 7 widths from 32 to 1024 by 9 heights from
+8 to 544 for the catch-up copy. The last two columns hold the time lost on
+all the shapes together by choosing the slower way.
+
+| Mode | What | All by the faster way | The set numbers lose | The measured ones lose |
+| --- | --- | --- | --- | --- |
+| One buffer, 16 bits | fills | 24.7 ms | 0.02 ms | 0.11 ms |
+| One buffer, 16 bits | rows of a program | 51.8 ms | 4.08 ms | 0.36 ms |
+| Two buffers, 16 bits | fills | 29.0 ms | 0.04 ms | 0.02 ms |
+| Two buffers, 16 bits | rows of a program | 89.5 ms | 3.83 ms | 0.40 ms |
+| Two buffers, 16 bits | the catch-up copy | 3.3 ms | 0.24 ms | 0.001 ms |
+| Two buffers, 24 bits | fills | 33.9 ms | 0.09 ms | 0.006 ms |
+| Two buffers, 24 bits | the catch-up copy | 76.2 ms | 0.02 ms | 0.003 ms |
+
+- Fills and the catch-up copy: the difference between the set numbers and
+  the measured ones is less than half a percent of the time. The set ones
+  were taken on this very board, nothing else was to be expected.
+- Rows of a program: the measured threshold is ten times better. 16 KB was
+  much, the DMA pays from 4 to 5 KB on.
+- The catch-up copy at 16 bits: 3.3 ms for 63 shapes because a piece is left
+  for later and the batch does not wait for it. The lower the threshold the
+  better, and the measured one is lower.
+- Behind the scan such a check tells nothing: a tall rectangle by the DMA or
+  the PPA waits for the scan there, up to a whole frame, while the processor
+  writes at once, and "faster" does not mean the same any more.
+- The threshold for rows of a program counts bytes only and does not tell
+  shapes apart. A narrow tall area, 8x200, the DMA moves three times as fast
+  as the window does, and the threshold leaves it to the window.
+
+Do the numbers suit: the work. With the measured numbers the check against
+a model and the scenes of the bench were run again, IDF 6.0.1.
+
+| What | The set numbers | The measured numbers |
+| --- | --- | --- |
+| The check against a model: one buffer, behind the scan, two buffers at 16 and at 24 bits | 0 mismatches | 0 mismatches |
+| The same under IDF 5.5.5, two buffers, 16 bits | 0 mismatches | 0 mismatches |
+| Pieces that fell behind the scan, in all scenes and checks | 0 | 0 |
+| Two buffers, scenes 1 to 6, frames a second | 42.3, 60.9, 34.8, 60.9, 60.9, 60.9 | 42.4, 60.9, 34.8, 60.9, 60.9, 60.9 |
+| Two buffers, scene 7, pictures a second of the three tasks | 40.2, 41.9, 40.1 | 40.6, 43.1, 40.1 |
+| Two buffers, scene 12 | 59.2, 39.5, 30.8 | 59.3, 39.6, 31.0 |
+| Two buffers, the time of the fourteen batches of the bench | taken on the same bench | differs by no more than 0.12 ms, but for the gradient |
+| Behind the scan, scenes 1 to 6, frames a second | 30.4, 60.9, 45.6, 60.9, 60.9, 60.9 | 30.4, 60.9, 53.2, 60.9, 60.9, 60.9 |
+| Behind the scan, scenes 1, 2 and 4: updates the scan got into | 0 of 305, 0 of 610, 0 of 610 | 0 of 305, 0 of 610, 0 of 610 |
+
+- Correctness suffered nowhere, and no piece fell behind the scan.
+- The time of the gradient by pixels wanders from build to build by a
+  millisecond, from 15.0 to 16.0 ms, and has nothing to do with the
+  measured numbers.
+- Both columns of two buffers were taken with a tile of 32x4.
+- Behind the scan scene 3 went from 45.6 to 53.2. Its tall fills can be
+  started only in the blanking, and the room for a start became 0.12 ms
+  instead of 0.4 ms: more fills fit one blanking. Nobody has looked at this
+  scene with the new room with the eyes.
+
+What is not here. The measuring was made and checked on one board, the very
+one the set numbers were taken on. It shows that on that board it comes out
+no worse. That it comes out right on another chip, with another memory or
+another display, nobody has checked.
 
 ### Internal RAM
 
@@ -1097,6 +1903,12 @@ The sum includes the buffer of the bus, 4096 bytes. IDF 5.5.4.
 | Two buffers, tiles | 5700 | 6492 |
 
 Under IDF 6.1 two buffers with tiles, the DMA and the PPA take 6580 bytes.
+
+After the joining of batches, the copy after the change, the counters and
+the measuring of the board, under IDF 6.0.1 with the DMA and the PPA: one
+buffer 5880 bytes, behind the scan 5964, two buffers 8096. That is with a
+tile of 32x4. The maps of the tiles take 8 bytes a row of tiles: with a tile
+of 32x8 that is 0.6 KB less, with 32x2 1.2 KB more, with 32x1 3.6 KB more.
 
 ## Frame rate
 
@@ -1126,6 +1938,10 @@ What is seen by eye.
   either, but the width of a running bar twitches: its fills fall into two
   frames, see "Behind the scan", "A fill by the accelerator".
 - Two buffers: no tearing in any scene.
+
+The table was taken before the batches of different tasks began to join, see
+"Several tasks". In each of its scenes one task draws, and for it the order
+is as it was. The scenes were not taken again.
 
 With one buffer the bench holds the pace itself: by a pause of 16 ms where
 drawing goes straight on the display, and by a timer with the period of the
@@ -1161,6 +1977,38 @@ pause is gone, and no tearing is seen by eye after that.
 
 ## What is not done
 
+- The copy after the change works only by the 2D DMA. Without it, and with
+  the option of the DMA and the PPA off, the hidden buffer gets everything at
+  the end of the first batch of a frame, as in release 0.5.2.
+- The numbers the bus decides by were taken on one board. For another one
+  `dgx_dsi_bench()` takes them, but the bus does not run it and does not
+  keep what it gives: the program does, see "Measuring the board". Four
+  numbers it does not measure.
+- The measuring of the board was checked on one board, the very one the set
+  numbers were taken on. On another chip, with another memory or another
+  display nobody has run it.
+- After this change the code was only built under IDF 5.5.4, 6.0.3 and 6.1,
+  not run on the board: under 6.0.3 and 6.1 the exchange of bytes by the 2D
+  DMA is broken, see issue 19226, and 5.5.4 was replaced by 5.5.5.
+- How long a batch will take the bus judges by the last batches, and it has
+  one estimate. If the batches are of different lengths it is wrong, and a
+  ready picture waits an extra frame. In the check with random batches a
+  ready picture missed 5% of the ends of frames, see "How it was checked".
+- A picture that comes less often than a frame, and not after the same
+  number of frames every time, moves unevenly. The bus does not even that
+  out, see "The time of a frame", "Evenness".
+- The size of the tiles a display has unless a program gives another was
+  chosen by the demos on one board. A tile of one row was not made faster,
+  see "The size of a tile".
+- The threshold from which rows of a program go by the DMA counts bytes
+  only. Narrow tall areas it leaves to the window, though the DMA would
+  move them faster.
+- There is no way in DGX to wait for the end of a frame. The bus tells how
+  long a frame takes and when one ended, and a program sleeps and aims
+  itself, see "The time of a frame". For pictures to come evenly several
+  sources need one drawing task and messages to it; with tasks that draw
+  themselves under a mutex evenness is a matter of chance.
+- At 24 bits the copy after the change is off.
 - Behind the scan a batch is not shown as one: of many tall fills some
   appear a frame later. To mend that the fills of a batch would have to be
   put off to its end, and they would still not fit one gap.
@@ -1206,6 +2054,37 @@ too. With the final code there was only a build under those three versions.
 
 Tearing is not caught by such a check: it is not seen in the buffer.
 
+The change of the buffers. That a half-drawn picture is not shown and that
+the batches of different tasks join is checked by a model of the display on
+the host, `test/host/test_fb_flip.c`, see "Several tasks". On the board the
+check was passed again after this change, under IDF 6.0.1, and with two
+buffers at 16 bits under 5.5.5 as well. To the three runs of 300 batches
+three more were added, in which the same random batches are drawn by three
+tasks in turn. The counters over all six runs:
+
+| Mode | Bits | IDF | Mismatches | Batches | Of them went into a ready picture | Frames | Of them a ready picture missed |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| One buffer | 16 | 6.0.1 | 0 | 1660 | the mode does not do that | not counted | the mode does not do that |
+| Behind the scan | 16 | 6.0.1 | 0 | 1664 | the mode does not do that | 2274 | the mode does not do that |
+| Two buffers | 16 | 6.0.1 | 0 | 1701 | 365 | 3077 | 169 |
+| Two buffers | 16 | 5.5.5 | 0 | 1701 | 345 | 3141 | 169 |
+| Two buffers | 24 | 6.0.1 | 0 | 1701 | 120 | 3875 | 117 |
+
+The length of a random batch cannot be told from those before it, and a
+ready picture misses ends of frames: 169 of 3077 at 16 bits, which is 5%,
+and 117 of 3875 at 24 bits, which is 3%. More than half of them fall on the
+run with a screen of 600x1024, where a batch with the checks takes 40 to 60
+ms, longer than two frames: 69 and 89 misses there. One task draws in it
+without pauses, its next batch goes into its own ready picture and keeps
+that back for all the time it takes. While the bus told tasks apart and did
+not let a batch into a picture of the same task, there were 18 and 19
+misses. A program with batches of one length does not have this: in the
+scenes of the bench from 0 to 5 ends of frames of 613 were missed.
+
+Later all the modes were passed once more with the numbers of the measuring
+of the board and with the size of the tiles changed every 5 batches, see
+"Measuring the board": 0 mismatches.
+
 Speed. The same application is built twice, with the library before a change
 and after it, and flashed to the same board. A time on the host proves
 nothing for an ESP32. Differences below 0.2 us a call depend on where the
@@ -1216,7 +2095,19 @@ judged by eye shows its build number on the screen.
 
 The build was checked under IDF 5.5.4, 5.5.5, 6.0.1, 6.0.3 and 6.1. Built
 separately but not run: the variant for a chip of revision 3 and later under
-5.5.4, the variant with the option of the DMA and the PPA off under 5.5.4 and
-6.1, the strategy behind the scan under 6.1. The example `examples/dsi_demo` and an example for
-a board with an ESP32 were built under 5.5.4 and 6.1. There are 18 tests on
-the host.
+5.5.4, the variant with the option of the DMA and the PPA off under 5.5.4,
+6.0.1 and 6.1, the strategy behind the scan under 6.1. The example
+`examples/dsi_demo` was built under 5.5.4, 6.0.1 and 6.1, an example for a
+board with an ESP32 under 5.5.4, 6.0.1 and 6.1. There are 19 tests on the
+host.
+
+That was before the joining of batches. The code of version 0.5.3 was run on
+the board under IDF 6.0.1 in every mode, and two buffers under 5.5.5 as
+well. Only built, with no warnings: the bench of the check against a model
+with two buffers under 5.5.4, 6.0.3 and 6.1; the variant with the option of
+the DMA and the PPA off under 5.5.5, 6.0.1 and 6.1; the variant for a chip
+of revision 3 and later under 5.5.5 and 6.0.3; the example
+`examples/dsi_demo` under all five versions; the other nine examples under
+5.5.5 and 6.0.1. The example `dsi_demo` with the measured numbers kept in
+NVS was run on the board, with the new way of keeping the pace it was only
+built.

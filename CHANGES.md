@@ -1,5 +1,117 @@
 # Changes
 
+## 0.5.3 - 2026-10-12
+
+- **with `DgxDsiTwoFrames` the bus no longer sets the pace of a program.**
+  The end of a batch used to be the order to show it, and the drawing that
+  followed waited until the display had: a batch a frame. Now the end of a
+  batch tells that there is a picture to show, and the display takes it
+  where its frame ends. A batch that comes before that goes into the same
+  picture: the display is told to stay with the frame buffer it reads, the
+  batch is drawn, the display is told again. So what is drawn in the time of
+  a frame is shown together, by one change of the frame buffers, whoever
+  drew it. Tasks that draw each its own part of the screen used to get the
+  frames in turn, three tasks a third of them each; on an ESP32-P4 three
+  tasks that each put a part of 320x100, or a band of 1024x168 of which
+  little is redrawn, to the display now get 61 pictures a second each
+  instead of 20. A program that draws more often than frames are shown gets
+  the last of what it drew into every frame, and has to hold itself back if
+  it relied on the wait, see `dgx_dsi_frame_ended()` below. Which of several
+  tasks draws when is the program's business as well, and they still have to
+  draw on a screen one at a time. A batch does not join a picture when the frame is about to end, by
+  the time the longest of the last batches took and 2 ms, and when the
+  picture has been kept back over an end of a frame once: it waits then;
+- with `DgxDsiTwoFrames` a large piece the frame buffer lacks of the other
+  one is not copied when a picture is finished. A row has to be whole when
+  the display comes to it, not when the display is told of the picture, so
+  the piece is copied after the display has taken the picture, by the 2D
+  DMA, which writes twice as fast as the display reads: started from the
+  interrupt that tells the end of the frame, one piece after another from
+  the top. Until then a batch that goes into the same picture may draw over
+  the piece, and then it is not copied at all. With three tasks and bands of
+  the whole width less than 1 MB is copied in 10 seconds instead of 411, and
+  a batch
+  that follows a large one elsewhere takes half the time and less: a square
+  of 48x48 after a fill of the whole screen 0.6 ms instead of 8.6, a band of
+  200 rows in two places in turn 2.8 ms instead of 5.5. Drawing that would
+  write over a piece not copied yet waits for it; a task that waits for the
+  display copies the pieces itself meanwhile. The speed of the copy is not
+  assumed: the bus times its transfers, and a piece that would not be sure
+  to stay ahead of the display is copied at once, as before. For 16-bit
+  color only: at 24 bits the display reads half as many bytes more in the
+  same time, and pieces fell behind it. Needs the 2D DMA
+  (`CONFIG_DGX_DSI_HARDWARE_COPY`) and 0.85 KB of RAM with two frame
+  buffers;
+- `dgx_dsi_counters()` gives what a display on the DSI bus has done since it
+  was started: frames sent, changes of the frame buffers, batches, batches
+  that joined a finished picture, ends of frames a finished picture was kept
+  back over, waits for the display and for the scan with their time, bytes
+  copied from one frame buffer into the other and how many of them after the
+  display took the picture, the speed of the 2D DMA as the bus measured it.
+  A bus takes 0.2 KB more RAM;
+- `dgx_dsi_frame_us()` tells how long a frame of a display on the DSI bus
+  takes, so that a program can keep the pace of the display by its own
+  clock now that the bus does not hold it back. Reckoned from the timings
+  of the panel at first, 16412 us for the JD9165 panel; with two frame
+  buffers and behind the scan it is the time of the frames counted from
+  half a second on, 256 of them at a time, 16417 us on the same board.
+  `dgx_dsi_frame_ended()` tells when the last frame ended. By the two a
+  program aims a picture: it starts it so as to finish it a little before a
+  frame ends, by how long its last pictures took; `demo_pace()` of
+  `examples/dsi_demo` does that. A task that draws a picture every second
+  frame got 302 of 303 pictures two frames apart so; by the clock alone it
+  was chance, all of them in one run and half in another;
+- `dgx_dsi_bench()` measures on the board at hand the numbers a DSI bus
+  decides by: from what size on a rectangle is copied by the 2D DMA, rows of
+  a program are moved by it and a rectangle is filled by the accelerator,
+  how fast the processor writes through a window and the cache brings out,
+  how much room a transfer needs to start. They depend on the
+  chip, its memory and the display, and the bus had those of one board
+  built in. It works in memory of its own, half a megabyte of PSRAM given
+  back at the end, while the display runs, for a running display takes its
+  share of the memory: nothing on the screen changes. It takes 0.07 s, so
+  it is not run by the bus and not at every start: what it gives is a flat
+  structure of 40 bytes, `dgx_dsi_tuning_t`, which a program keeps, in NVS
+  for one, and gives to the bus by `dgx_dsi_tune()`; `examples/dsi_demo`
+  does that. Numbers of another version, another panel or another color
+  depth are not taken. `dgx_dsi_tuning()` reads what the bus has. A bus that
+  is given nothing works with the numbers it had before. On the board they
+  were taken on the measured ones choose the slower way no more often than
+  those; rows of a program go by the 2D DMA from 4.5 KB instead of 16, which
+  is the faster way for the sizes between. A bus takes 48 bytes more RAM;
+- `dgx_dsi_tiles(bus, width, height)`, an optional call that answers by an
+  `esp_err_t`, gives the size of
+  the tiles a display with two frame buffers keeps what one of them lacks
+  by: before the constructor of the display, or between two batches of
+  drawing, when the bus waits for the display to take the finished picture
+  and makes its maps anew: 11 ms on average and up to 23 ms, so the size is
+  to be chosen once and not changed as a program goes;
+- **the tiles of a display with two frame buffers are 32x4 pixels, were
+  32x8.** The sizes were compared on the nine demos of DGX run on an
+  ESP32-P4 and on text of bitmap fonts. Tiles of 32x8 are the fastest on
+  every demo, but tiles of 32x4 are only 0 to 3% slower there, which is not
+  seen, and 6% faster on such text and 28% faster on pixels set here and
+  there, which is. The maps take 0.6 KB of RAM more for a panel of 600
+  rows. Tiles one row high are 2.6 times as fast on such pixels, up to one
+  and a half times slower on lines, narrow bars and fills, and take 4.2 KB
+  more than tiles of 32x8. `dgx_dsi_tiles(bus, 32, 8)` gives the size that
+  was;
+- the README has a section on drawing from several tasks: what a screen, a
+  bus and a virtual screen keep between calls, why a screen takes one task
+  at a time, and two ways for a program with several sources of pictures:
+  messages to one task that owns the display, which is the way to even
+  motion and keeps clear of inversion of priorities, or a mutex of the
+  program around a batch. Measured on an ESP32-P4 with three sources that
+  each redraw a band of 1024x168 whole, a picture every second frame: by
+  messages 302 of 303 pictures of each came two frames apart; with a mutex
+  from 170 to 302 of them did;
+- fixed: three commands the JD9165 driver sets its controller up with never
+  reached the display. They are the registers 0x2A, 0x2B and 0x2C of page 1
+  of the controller, the same numbers as the commands of the window, and
+  the DSI bus took them for those: it answered the commands of the window
+  from the moment it had a frame buffer, which is before the driver sends
+  its table. Now it does so from `dgx_dsi_video_start()` on.
+
 ## 0.5.2 - 2026-10-12
 
 - **`dgx_jd9165_init()` takes one more argument**, `frames`, the way the

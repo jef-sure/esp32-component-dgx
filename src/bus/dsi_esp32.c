@@ -10,6 +10,7 @@
  *  of the window and the pixels itself and puts them into that buffer.
  */
 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +23,7 @@
 #include "esp_attr.h"
 #include "esp_ldo_regulator.h"
 #include "esp_log.h"
+#include "esp_memory_utils.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -31,6 +33,7 @@
 
 #include "bus/dgx_dsi_esp32.h"
 #include "dgx_fb_area_priv.h"
+#include "dgx_fb_flip_priv.h"
 #include "dgx_fb_tiles_priv.h"
 #include "dgx_screen_functions.h"
 #include "dgx_screen_with_bus.h"
@@ -105,6 +108,85 @@ typedef struct _dgx_dsi_bus_t dgx_dsi_bus_t;
 static bool dgx_dsi_wait_scan_outside(dgx_dsi_bus_t *bus, uint32_t first, uint32_t last);
 #endif
 
+/*
+ * With two frame buffers a large piece a finished picture lacks is not
+ * copied when the picture is finished. The display reads a frame buffer row
+ * after row, so the piece is in time when it is there before the display
+ * comes to its rows: it is copied after the display has taken the picture,
+ * by the 2D DMA, which writes twice as fast as the display reads and is
+ * started in the interrupt that tells the end of the frame. Until then
+ * another batch may draw over the piece, and then it is not copied at all:
+ * so tasks that redraw each its own part of the screen cost no copy.
+ *
+ * The pieces go one after another from the top. Two at once would each be
+ * hardly faster than the display reads: 83 KB in a millisecond against 77,
+ * measured on an ESP32-P4. A transfer or a fill a task starts meanwhile
+ * slows a piece down the same way. So it is reckoned beforehand whether the
+ * pieces stay ahead of the display when they are slowed down so; when they
+ * do not, such a transfer waits until they are all there, otherwise only
+ * what would write over a piece waits for that piece.
+ *
+ * How fast the 2D DMA copies depends on the chip, its memory and what else
+ * runs, so it is not assumed: every piece that was copied with nothing else
+ * moved is timed, and the slowest of the last ones is what is reckoned
+ * with. How fast the display reads follows from the time of a frame. Until
+ * a piece has been timed the pieces are taken as needing all the speed.
+ */
+/* a piece is timed when it is at least this large: a small one tells more of the starting than of the copying */
+#define DGX_DSI_LATE_TIMED_FROM 65536u
+/* a piece copied while something else is moved takes this many halves of its time: twice as long was measured, some more is taken */
+#define DGX_DSI_LATE_SHARED_HALVES 5u
+#if DGX_DSI_HARDWARE_COPY
+#define DGX_DSI_LATE_PIECES 6
+
+typedef struct {
+    dgx_dsi_bus_t *bus;
+    uint8_t        piece;
+} dgx_dsi_late_context_t;
+
+typedef struct {
+    uint16_t left, top, width, rows; /* on the panel */
+} dgx_dsi_late_piece_t;
+
+typedef struct {
+    dma2d_descriptor_t    *desc;       /* two a piece, of the picture read and of the picture written */
+    uint8_t               *trans;      /* a transfer a piece */
+    uint32_t               trans_size; /* of one of them */
+    dma2d_trans_config_t   config[DGX_DSI_LATE_PIECES];
+    dgx_dsi_late_context_t context[DGX_DSI_LATE_PIECES];
+    dgx_dsi_late_piece_t   piece[DGX_DSI_LATE_PIECES];
+    uint8_t                count;      /* pieces left for later when the picture was last finished */
+    uint8_t                into;       /* the frame buffer they go into */
+    bool                   alone;      /* they stay ahead of the display only when nothing else is moved meanwhile */
+    volatile bool          shared;     /* something else was moved while they were copied: their time tells nothing */
+    uint32_t               piece_us;   /* when the piece being copied was started */
+    uint32_t               mb_us;      /* microseconds the 2D DMA takes for a megabyte, the slowest of the last pieces; 0 until one is timed */
+    /*
+     * Set when the display is told of the picture; whoever takes it
+     * away owns the pieces: the interrupt where a frame ends, which
+     * starts them, or a task that draws into the same picture.
+     */
+    _Atomic uint32_t       armed;
+    volatile uint8_t       left;       /* a bit a piece that is not copied yet */
+    SemaphoreHandle_t      step;       /* given when a piece has been copied */
+    uint32_t               from_us;    /* when the frame ended they were started at */
+    /* counted since the start */
+    uint32_t               bytes;      /* copied so */
+    uint32_t               behind;     /* pieces that ended when the display had read past them */
+    uint32_t               waits;      /* times drawing waited for a piece */
+    uint32_t               wait_us;    /* and how long in all */
+} dgx_dsi_late_t;
+
+static void dgx_dsi_late_frame_end(dgx_dsi_bus_t *bus, uint32_t now);
+static void dgx_dsi_late_now(dgx_dsi_bus_t *bus);
+static void dgx_dsi_late_idle(dgx_dsi_bus_t *bus);
+static void dgx_dsi_late_shares(dgx_dsi_bus_t *bus);
+static void dgx_dsi_late_timed(dgx_dsi_late_t *late, uint32_t bytes, uint32_t us);
+static void dgx_dsi_late_back(dgx_dsi_bus_t *bus);
+static void dgx_dsi_late_moved(dgx_dsi_bus_t *bus);
+static void dgx_dsi_late_clear(dgx_dsi_bus_t *bus, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
+#endif
+
 struct _dgx_dsi_bus_t {
     dgx_bus_protocols_t       protocols;
     esp_lcd_dsi_bus_handle_t  dsi;
@@ -117,13 +199,17 @@ struct _dgx_dsi_bus_t {
      * With two frame buffers drawing goes into the one the display is not
      * reading. A batch of drawing ends with the display told to read that
      * one from the next frame on; when it does, the other one is free and
-     * becomes the one drawing goes into. It lacks what the last batch drew:
+     * becomes the one drawing goes into. Until it does, batches of other
+     * tasks go into the same picture: `flip` keeps that. The frame buffer
+     * that becomes free lacks what was drawn since it was last drawn into:
      * `tiles` keeps where that is, and it is taken from the frame buffer
      * the display reads tile by tile, when a tile is drawn in or read, and
-     * the rest before the next change.
+     * the rest when the picture is finished: small pieces at once, large
+     * ones after the display has taken the picture, see `late`.
      */
     uint8_t          *frame[2];
     dgx_fb_tiles_t    tiles;        /* the maps are there with two frame buffers only */
+    dgx_fb_flip_t     flip;         /* which of them drawing goes into, and whether the display was told to read it */
 #if DGX_DSI_HARDWARE_COPY
     /* the 2D DMA: a place among those who use it, two descriptors of a picture one after another, a transfer, and the word that it is done */
     dma2d_pool_handle_t dma_pool; /* NULL when there is none: the processor copies then */
@@ -140,17 +226,28 @@ struct _dgx_dsi_bus_t {
     bool              window_open;  /* pixels are being sent into the window from its first one on: its tiles wait to be told how far they went */
     uint32_t          window_got;   /* how many came */
     uint8_t           frames;       /* 1 or 2 */
+    uint8_t           tile_shift_x; /* the tiles of two frame buffers are 1 << this pixels wide, or wider when the panel makes them so */
+    uint8_t           tile_shift_y; /* and 1 << this rows high */
+    bool              started;      /* the display is being sent the frame buffer */
     bool              after_scan;   /* one frame buffer, a batch brought out behind the scan of the display */
     bool              batch_seen;   /* a part of the batch being drawn is on the display already: holding the rest back would split it */
     uint16_t          lines_total;  /* rows of a frame with the blanking */
     uint16_t          lines_before; /* rows of blanking between the end of a frame, where it is counted, and its first row */
-    uint8_t           drawn;        /* which of them drawing goes into */
-    bool              flip_pending; /* the display was told to show `drawn` and may not be reading it yet */
-    uint32_t          flip_at;      /* the count of refreshes from which it surely does */
     SemaphoreHandle_t refreshed;
     volatile uint32_t refreshes;         /* frames the display has been sent, counted where a frame ends */
     volatile uint32_t refresh_us;        /* when the last one ended, the low 32 bits of the time: read whole from a task */
     volatile uint32_t refresh_period_us; /* and how long it took */
+    volatile uint32_t frame_us_256;      /* how long a frame takes, in 1/256 us: by the timings of the panel, then by the frames counted */
+    uint32_t          frames_from;       /* the count of frames and the time where the frames now being timed start; 0 when none yet */
+    uint32_t          frames_from_us;
+#if DGX_DSI_HARDWARE_COPY
+    dgx_dsi_late_t *late; /* what a finished picture lacks and is given after the display has taken it; NULL when nothing is left for later */
+#endif
+    dgx_dsi_tuning_t tuning; /* the numbers the bus decides by: those of the board it was written on, until a program gives its own */
+    /* counted since the start, for dgx_dsi_counters() */
+    uint32_t batches;      /* batches of drawing that ended with something drawn */
+    uint32_t scan_waits;   /* behind the scan: times a write waited for the scan */
+    uint32_t scan_wait_us; /* and how long in all */
     /*
      * A DSI packet carries a command together with its parameters, so a
      * command is held back until its data comes, or until it is known that
@@ -172,20 +269,23 @@ static void dgx_dsi_send_pending(dgx_dsi_bus_t *bus)
 
 /*
  * The tiles the panel is cut into to tell what one of two frame buffers
- * lacks: 32 pixels wide and 8 high. A row of tiles is a word of each of the
- * two maps, so a panel 600 rows high takes 600 bytes for them. Measured on
- * an ESP32-P4 against tiles 32 rows high, which take 152 bytes: a band of
- * 200 rows sent every frame is 1 ms faster, pixels scattered over the
- * screen twice as fast, the rest within a tenth.
+ * lacks, unless dgx_dsi_tiles() gives another size: see the header for the
+ * size and docs/dsi-display-en.md for what it was chosen by. A row of tiles
+ * is a word of each of the two maps.
  */
-#ifndef DGX_DSI_TILE_SHIFT_X
-#define DGX_DSI_TILE_SHIFT_X 5
-#endif
-#ifndef DGX_DSI_TILE_SHIFT_Y
-#define DGX_DSI_TILE_SHIFT_Y 3
-#endif
+#define DGX_DSI_TILE_SHIFT_X __builtin_ctz(DGX_DSI_TILE_WIDTH)
+#define DGX_DSI_TILE_SHIFT_Y __builtin_ctz(DGX_DSI_TILE_HEIGHT)
 
-/* how close to the end of a frame the display is told to change the frame buffer and may not do it at once */
+/*
+ * The numbers below are what a bus starts with, see dgx_dsi_tuning_t: those
+ * of the board it was written on. dgx_dsi_bench() measures them on another.
+ */
+
+/*
+ * How close to the end of a frame a word to the display is not relied on:
+ * told to change the frame buffer it may not do it at once, told to stay
+ * with the one it reads it may have changed already.
+ */
 #define DGX_DSI_FLIP_GUARD_US 2000
 
 /*
@@ -197,6 +297,8 @@ static void dgx_dsi_send_pending(dgx_dsi_bus_t *bus)
  * of 320x100 or a bar of 40x548 twice as fast by the DMA.
  */
 #define DGX_DSI_HARDWARE_COPY_FROM 8000u
+/* and in that count a row costs the processor as much as this many pixels of it: rows * (width + this) is compared */
+#define DGX_DSI_HARDWARE_COPY_ROW_PX 53u
 
 /*
  * A rectangle is filled by the accelerator when rows + bytes / 64 is this
@@ -208,6 +310,9 @@ static void dgx_dsi_send_pending(dgx_dsi_bus_t *bus)
  * 4x548 go to the accelerator.
  */
 #define DGX_DSI_HARDWARE_FILL_FROM 200u
+#define DGX_DSI_HARDWARE_FILL_DIV 64u
+/* no rectangle the accelerator takes has less than this in its width and height together: a cheap test for the short runs of figures and letters */
+#define DGX_DSI_HARDWARE_FILL_SUM 64u
 
 /*
  * Rows of pixels from a program go to the 2D DMA from this many bytes on:
@@ -222,9 +327,33 @@ static IRAM_ATTR bool dgx_dsi_on_refresh(esp_lcd_panel_handle_t panel, esp_lcd_d
     dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)user_ctx;
     uint32_t       now = (uint32_t)esp_timer_get_time();
     BaseType_t     woken = pdFALSE;
+#if DGX_DSI_HARDWARE_COPY
+    /*
+     * The display has taken the frame buffer it was told: what the picture
+     * lacks goes into it ahead of its scan. Before the frame is counted: a
+     * task that sees the count finds the pieces taken.
+     */
+    if (bus->late) dgx_dsi_late_frame_end(bus, now);
+#endif
+    /* the count first: a task that reads the time and then the count, and finds the count as it was, has the time of that frame */
+    const uint32_t count = ++bus->refreshes;
     bus->refresh_period_us = now - bus->refresh_us;
+    /*
+     * How long a frame takes: many of them timed together, so that a late
+     * interrupt hardly counts. 16 frames at first, to have a number soon,
+     * then 256 at a time.
+     */
+    if (!(count & (count < 256u ? 15u : 255u))) {
+        const uint32_t frames = count - bus->frames_from, took = now - bus->frames_from_us, nominal = bus->frame_us_256;
+        if (bus->frames_from && frames <= 256u && took < (1u << 24)) {
+            const uint32_t frame = took * 256u / frames;
+            /* what is far from the timings of the panel is not a frame: the display was stopped meanwhile, or the clock is not what was asked */
+            if (frame - (nominal >> 1) < nominal) bus->frame_us_256 = frame;
+        }
+        bus->frames_from    = count;
+        bus->frames_from_us = now;
+    }
     bus->refresh_us        = now;
-    ++bus->refreshes;
     xSemaphoreGiveFromISR(bus->refreshed, &woken);
     return woken == pdTRUE;
 }
@@ -235,25 +364,82 @@ static void dgx_dsi_bring_out(uint8_t *from, size_t length)
 }
 
 /*
- * Before anything is drawn: if the display was told to show the frame buffer
- * drawing went into, wait until it reads that one and draw into the other
- * one from now on.
+ * What the two frame buffers that change places are told of the display:
+ * see dgx_fb_flip_priv.h.
  */
-static void dgx_dsi_draw_ready(dgx_dsi_bus_t *bus)
+
+static void dgx_dsi_flip_show(void *context, uint8_t frame)
 {
-    if (!bus->flip_pending) return;
-    while ((int32_t)(bus->refreshes - bus->flip_at) < 0) {
-        if (xSemaphoreTake(bus->refreshed, pdMS_TO_TICKS(200)) != pdTRUE) break; /* no frames are sent: nothing to wait for */
+    dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)context;
+    /* a frame buffer of its own given to the panel is not copied: the panel reads it from the next frame on */
+    esp_lcd_panel_draw_bitmap(bus->panel, 0, 0, bus->area.fb_width, 1, bus->frame[frame]);
+}
+
+static bool dgx_dsi_flip_frames(void *context, uint32_t *ended, uint32_t *since_us, uint32_t *period_us)
+{
+    const dgx_dsi_bus_t *bus = (const dgx_dsi_bus_t *)context;
+    /* the time before the count, the other way round from where they are set */
+    const uint32_t at = bus->refresh_us;
+    *ended            = bus->refreshes;
+    *period_us        = bus->refresh_period_us;
+    *since_us         = (uint32_t)esp_timer_get_time() - at;
+    return *period_us >= 1000u && *period_us <= 100000u && *since_us <= 2u * *period_us;
+}
+
+static bool dgx_dsi_flip_wait(void *context)
+{
+    dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)context;
+#if DGX_DSI_HARDWARE_COPY
+    /* the task has to wait for the display anyway: what the picture lacks is copied meanwhile, when there is time for it */
+    dgx_dsi_late_now(bus);
+#endif
+    return xSemaphoreTake(bus->refreshed, pdMS_TO_TICKS(200)) == pdTRUE;
+}
+
+static uint32_t dgx_dsi_flip_now(void *context)
+{
+    return (uint32_t)esp_timer_get_time();
+}
+
+static const dgx_fb_flip_display_t dgx_dsi_flip_display = {
+    .show   = dgx_dsi_flip_show,
+    .frames = dgx_dsi_flip_frames,
+    .wait   = dgx_dsi_flip_wait,
+    .now_us = dgx_dsi_flip_now,
+};
+
+/*
+ * The display was told to read the frame buffer drawing went into, and
+ * something is about to be drawn. The batch goes into the same picture when
+ * the display has not taken it and the frame does not end soon; otherwise
+ * this waits until the display reads it and drawing goes into the other
+ * frame buffer, which lacks what was drawn since it was last drawn into.
+ */
+static void dgx_dsi_draw_moved(dgx_dsi_bus_t *bus)
+{
+    if (!dgx_fb_flip_draw(&bus->flip)) {
+#if DGX_DSI_HARDWARE_COPY
+        dgx_dsi_late_back(bus);
+#endif
+        return;
     }
-    bus->flip_pending = false;
-    bus->drawn ^= 1u;
-    bus->area.fb = bus->frame[bus->drawn];
+#if DGX_DSI_HARDWARE_COPY
+    dgx_dsi_late_moved(bus);
+#endif
+    bus->area.fb = bus->frame[bus->flip.drawn];
+    dgx_fb_tiles_changed(&bus->tiles);
+}
+
+/* before anything is drawn */
+static inline void dgx_dsi_draw_ready(dgx_dsi_bus_t *bus)
+{
+    if (bus->flip.told) dgx_dsi_draw_moved(bus);
 }
 
 /* the frame buffer the display reads, or is about to: it has what the one drawn into lacks */
 static inline const uint8_t *dgx_dsi_other(const dgx_dsi_bus_t *bus)
 {
-    return bus->frame[bus->drawn ^ 1u];
+    return bus->frame[bus->flip.drawn ^ 1u];
 }
 
 /*
@@ -298,32 +484,11 @@ static void dgx_dsi_tiles_ready(dgx_dsi_bus_t *bus, int left, int right, int top
     dgx_fb_tiles_ready(&bus->tiles, bus->area.fb, dgx_dsi_other(bus), x0, y0, x1, y1, whole, drawn);
 }
 
-/* a batch has been drawn into the frame buffer the display is not reading: show it from the next frame on */
-static void dgx_dsi_flip(dgx_dsi_bus_t *bus)
+/* a look at a finished picture has copied tiles into it: no batch is there to bring them out of the cache */
+static inline void dgx_dsi_read_out(dgx_dsi_bus_t *bus)
 {
-    /* a frame buffer of its own given to the panel is not copied: the panel reads it from the next frame on */
-    esp_lcd_panel_draw_bitmap(bus->panel, 0, 0, bus->area.fb_width, 1, bus->area.fb);
-#if DGX_DSI_REFRESH_AT_SWITCH
-    /*
-     * The display takes the new frame buffer where a frame ends, and that
-     * is where the ends of frames are counted: the next one counted is it.
-     * One counted between the telling and this line makes it wait a frame
-     * more than needed, which does no harm.
-     */
-    bus->flip_at = bus->refreshes + 1u;
-#else
-    /*
-     * The display takes the new frame buffer where a frame ends, a little
-     * before that is counted. Told so just before that moment, it may have
-     * started the next frame from the old one already: then it is the
-     * frame after the next.
-     */
-    uint32_t period = bus->refresh_period_us;
-    uint32_t since  = (uint32_t)esp_timer_get_time() - bus->refresh_us;
-    bool     late   = period == 0 || since + DGX_DSI_FLIP_GUARD_US > period;
-    bus->flip_at    = bus->refreshes + (late ? 2u : 1u);
-#endif
-    bus->flip_pending = true;
+    uint32_t from, length;
+    if (dgx_fb_tiles_take_copied(&bus->tiles, &from, &length)) dgx_dsi_bring_out(bus->area.fb + from, length);
 }
 
 #if DGX_DSI_HARDWARE_COPY
@@ -421,6 +586,8 @@ static bool dgx_dsi_dma(dgx_dsi_bus_t *bus, const uint8_t *from, uint32_t from_s
 {
     const uint32_t bytes   = bus->area.pixel_bytes;
     const size_t   to_pitch = (size_t)bus->area.fb_width * bytes;
+    /* pieces that are only just ahead of the scan of the display are not slowed down by another transfer */
+    dgx_dsi_late_shares(bus);
     esp_cache_msync((void *)(from + (size_t)from_x * bytes), (size_t)(rows - 1u) * from_stride * bytes + (size_t)width * bytes,
                     ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
     esp_cache_msync(to + (size_t)to_x * bytes, (size_t)(rows - 1u) * to_pitch + (size_t)width * bytes,
@@ -438,8 +605,12 @@ static bool dgx_dsi_dma(dgx_dsi_bus_t *bus, const uint8_t *from, uint32_t from_s
     config.channel_flags = DMA2D_CHANNEL_FUNCTION_FLAG_SIBLING | (exchange ? DMA2D_CHANNEL_FUNCTION_FLAG_TX_CSC : 0u);
     config.user_config   = bus;
     xSemaphoreTake(bus->dma_done, 0); /* nothing is left over from a transfer that was given up */
+    const bool     undisturbed = bus->late && !bus->late->left;
+    const uint32_t started     = (uint32_t)esp_timer_get_time();
     if (dma2d_enqueue(bus->dma_pool, &config, bus->dma_trans) != ESP_OK) return false;
     xSemaphoreTake(bus->dma_done, portMAX_DELAY);
+    /* how fast the 2D DMA is here is what tells whether a piece may be left for later */
+    if (undisturbed && !bus->late->left) dgx_dsi_late_timed(bus->late, width * rows * bytes, (uint32_t)esp_timer_get_time() - started);
     return true;
 }
 
@@ -447,7 +618,7 @@ static bool dgx_dsi_dma(dgx_dsi_bus_t *bus, const uint8_t *from, uint32_t from_s
 static bool dgx_dsi_hardware_copy(void *context, uint8_t *to, const uint8_t *from, uint32_t left, uint32_t top, uint32_t width, uint32_t rows)
 {
     dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)context;
-    if (rows * (width + 53u) < DGX_DSI_HARDWARE_COPY_FROM) return false;
+    if (rows * (width + bus->tuning.copy_row_px) < bus->tuning.copy_from) return false;
     const size_t pitch = (size_t)bus->area.fb_width * bus->area.pixel_bytes;
     return dgx_dsi_dma(bus, from + (size_t)top * pitch, bus->area.fb_width, left, to + (size_t)top * pitch, left, width, rows, false, false);
 }
@@ -490,6 +661,8 @@ static void dgx_dsi_dma_init(dgx_dsi_bus_t *bus)
 #define DGX_DSI_IN_KB_A_MS   28u
 #define DGX_DSI_SCAN_LEAD    6u
 #define DGX_DSI_SCAN_ROOM_US 150u
+/* how long it may take from the moment it is asked to the first byte the 2D DMA or the accelerator writes */
+#define DGX_DSI_DMA_START_US 400u
 
 /*
  * Wait, if needed, for the moment the rows `first`..`last` of the frame
@@ -508,9 +681,9 @@ static bool dgx_dsi_wait_scan(dgx_dsi_bus_t *bus, uint32_t first, uint32_t last,
     const uint64_t line   = ((uint64_t)period << 16) / bus->lines_total; /* a row in 1/65536 us */
     const uint32_t before = bus->lines_before + first;
     /* the scan is in the rows from `enter` to `leave`, counted from the end of the last frame */
-    const uint32_t enter = first < DGX_DSI_SCAN_LEAD ? 0u : (uint32_t)(((before - DGX_DSI_SCAN_LEAD) * line) >> 16);
+    const uint32_t enter = first < bus->tuning.scan_lead ? 0u : (uint32_t)(((before - bus->tuning.scan_lead) * line) >> 16);
     const uint32_t leave = (uint32_t)(((bus->lines_before + last + 1u) * line) >> 16);
-    takes += DGX_DSI_SCAN_ROOM_US;
+    takes += bus->tuning.scan_room_us;
     if (takes >= period - (leave - enter)) return false;               /* too much for any moment */
     if (since + takes < enter) return true;                            /* done before the scan comes */
     if (since >= leave && since + takes < enter + period) return true; /* the scan has left and is not back in time */
@@ -518,6 +691,8 @@ static bool dgx_dsi_wait_scan(dgx_dsi_bus_t *bus, uint32_t first, uint32_t last,
     uint32_t until = since < leave ? leave : leave + period;
     uint32_t wait  = until - since;
     uint32_t start = bus->refresh_us + since;
+    ++bus->scan_waits;
+    bus->scan_wait_us += wait;
     if (wait > 2u * portTICK_PERIOD_MS * 1000u) vTaskDelay(wait / (portTICK_PERIOD_MS * 1000u) - 1u);
     while ((uint32_t)esp_timer_get_time() - start < wait) {
     }
@@ -533,7 +708,7 @@ static void dgx_dsi_wait_scan_bytes(dgx_dsi_bus_t *bus, uint32_t from, uint32_t 
 #ifdef CONFIG_CACHE_L2_CACHE_SIZE
     if (kept > (uint32_t)CONFIG_CACHE_L2_CACHE_SIZE) kept = (uint32_t)CONFIG_CACHE_L2_CACHE_SIZE;
 #endif
-    dgx_dsi_wait_scan(bus, from / pitch, (from + length - 1u) / pitch, kept / DGX_DSI_OUT_KB_A_MS * 1000u / 1024u);
+    dgx_dsi_wait_scan(bus, from / pitch, (from + length - 1u) / pitch, kept / bus->tuning.out_kb_a_ms * 1000u / 1024u);
 }
 
 /*
@@ -548,12 +723,10 @@ static void dgx_dsi_wait_scan_window(dgx_dsi_bus_t *bus)
     uint16_t x0, y0, x1, y1;
     dgx_fb_area_to_panel(&bus->area, bus->area.left, bus->area.right, bus->area.top, bus->area.bottom, &x0, &y0, &x1, &y1);
     uint32_t bytes = (uint32_t)(x1 - x0 + 1u) * (uint32_t)(y1 - y0 + 1u) * bus->area.pixel_bytes;
-    if (!dgx_dsi_wait_scan(bus, y0, y1, bytes / DGX_DSI_IN_KB_A_MS * 1000u / 1024u)) bus->batch_seen = true;
+    if (!dgx_dsi_wait_scan(bus, y0, y1, bytes / bus->tuning.window_kb_a_ms * 1000u / 1024u)) bus->batch_seen = true;
 }
 
 #if DGX_DSI_HARDWARE_COPY || DGX_DSI_HARDWARE_FILL
-/* how long it may take from here to the first byte the 2D DMA or the accelerator writes */
-#define DGX_DSI_DMA_START_US 400u
 
 /*
  * Wait, if needed, until the display is not reading the rows `first`..`last`
@@ -569,16 +742,389 @@ static bool dgx_dsi_wait_scan_outside(dgx_dsi_bus_t *bus, uint32_t first, uint32
     if (since >= period) since -= period;
     const uint64_t line   = ((uint64_t)period << 16) / bus->lines_total;
     const uint32_t before = bus->lines_before + first;
-    uint32_t       enter  = first < DGX_DSI_SCAN_LEAD ? 0u : (uint32_t)(((before - DGX_DSI_SCAN_LEAD) * line) >> 16);
+    uint32_t       enter  = first < bus->tuning.scan_lead ? 0u : (uint32_t)(((before - bus->tuning.scan_lead) * line) >> 16);
     const uint32_t leave  = (uint32_t)(((bus->lines_before + last + 1u) * line) >> 16);
-    enter = enter > DGX_DSI_DMA_START_US ? enter - DGX_DSI_DMA_START_US : 0u;
+    enter = enter > bus->tuning.dma_start_us ? enter - bus->tuning.dma_start_us : 0u;
     if (since < enter || since >= leave) return true;
     uint32_t wait  = leave - since;
     uint32_t start = bus->refresh_us + since;
+    ++bus->scan_waits;
+    bus->scan_wait_us += wait;
     if (wait > 2u * portTICK_PERIOD_MS * 1000u) vTaskDelay(wait / (portTICK_PERIOD_MS * 1000u) - 1u);
     while ((uint32_t)esp_timer_get_time() - start < wait) {
     }
     return true;
+}
+#endif
+
+#if DGX_DSI_HARDWARE_COPY
+/*
+ * What a finished picture lacks and is given after the display has taken
+ * it. See the note where dgx_dsi_late_piece_t is declared.
+ */
+
+static inline dma2d_trans_t *dgx_dsi_late_trans(const dgx_dsi_bus_t *bus, uint32_t piece)
+{
+    return (dma2d_trans_t *)(bus->late->trans + piece * bus->late->trans_size);
+}
+
+static IRAM_ATTR void dgx_dsi_late_start(dgx_dsi_bus_t *bus, uint32_t piece)
+{
+    /* a piece the DMA does not take stays marked as not copied: the task that waits for it copies it itself */
+    dma2d_enqueue(bus->dma_pool, &bus->late->config[piece], dgx_dsi_late_trans(bus, piece));
+}
+
+/*
+ * A copy of `bytes` by the 2D DMA took `us` microseconds with no other
+ * transfer or fill going on: the slowest of the last ones is kept,
+ * forgotten by an eighth a copy. A small one tells more of the starting
+ * than of the copying and is not counted.
+ */
+static IRAM_ATTR void dgx_dsi_late_timed(dgx_dsi_late_t *late, uint32_t bytes, uint32_t us)
+{
+    if (bytes < DGX_DSI_LATE_TIMED_FROM) return;
+    const uint32_t took = (uint32_t)(((uint64_t)us << 20) / bytes), less = late->mb_us - (late->mb_us >> 3);
+    late->mb_us         = took > less ? took : less;
+}
+
+/* in the interrupt of the 2D DMA: a piece has been copied */
+static IRAM_ATTR bool dgx_dsi_late_done(dma2d_channel_handle_t channel, dma2d_event_data_t *event, void *user)
+{
+    dgx_dsi_bus_t *bus   = ((dgx_dsi_late_context_t *)user)->bus;
+    const uint32_t piece = ((dgx_dsi_late_context_t *)user)->piece;
+    const dgx_dsi_late_piece_t *part  = &bus->late->piece[piece];
+    const uint32_t              now   = (uint32_t)esp_timer_get_time();
+    const uint32_t              bytes = (uint32_t)part->width * part->rows * bus->area.pixel_bytes;
+    bus->late->bytes += bytes;
+    if (!bus->late->shared) dgx_dsi_late_timed(bus->late, bytes, now - bus->late->piece_us);
+    /* where the display reads now, by the time since the frame ended and the rows it reads ahead: has it come past the piece before the copy was there? */
+    const uint32_t period = bus->refresh_period_us, since = now - bus->late->from_us;
+    if (period >= 1000u && (uint64_t)since * bus->lines_total >= (uint64_t)(bus->lines_before + part->top + part->rows - bus->tuning.scan_lead) * period) {
+        ++bus->late->behind;
+    }
+    bus->late->left = (uint8_t)(bus->late->left & ~(1u << piece));
+    if (piece + 1u < bus->late->count) dgx_dsi_late_start(bus, piece + 1u);
+    BaseType_t woken = pdFALSE;
+    xSemaphoreGiveFromISR(bus->late->step, &woken);
+    return woken == pdTRUE;
+}
+
+/* the 2D DMA has channels for a piece: set them up and start */
+static IRAM_ATTR bool dgx_dsi_late_picked(uint32_t count, const dma2d_trans_channel_info_t *channels, void *user)
+{
+    dgx_dsi_bus_t         *bus   = ((dgx_dsi_late_context_t *)user)->bus;
+    const uint32_t         piece = ((dgx_dsi_late_context_t *)user)->piece;
+    dma2d_channel_handle_t tx = NULL, rx = NULL;
+    for (uint32_t i = 0; i < count; i++) {
+        if (channels[i].dir == DMA2D_CHANNEL_DIRECTION_TX) tx = channels[i].chan;
+        if (channels[i].dir == DMA2D_CHANNEL_DIRECTION_RX) rx = channels[i].chan;
+    }
+    dma2d_trigger_t memory = {.periph = DMA2D_TRIG_PERIPH_M2M, .periph_sel_id = SOC_DMA2D_TRIG_PERIPH_M2M_TX};
+    dma2d_connect(tx, &memory);
+    memory.periph_sel_id = SOC_DMA2D_TRIG_PERIPH_M2M_RX;
+    dma2d_connect(rx, &memory);
+    dma2d_rx_event_callbacks_t callbacks = {.on_recv_eof = dgx_dsi_late_done};
+    dma2d_register_rx_event_callbacks(rx, &callbacks, user);
+    dma2d_set_desc_addr(tx, (intptr_t)&bus->late->desc[2u * piece]);
+    dma2d_set_desc_addr(rx, (intptr_t)&bus->late->desc[2u * piece + 1u]);
+    bus->late->piece_us = (uint32_t)esp_timer_get_time();
+    dma2d_start(tx);
+    dma2d_start(rx);
+    return false;
+}
+
+/* in the interrupt where a frame ends */
+static IRAM_ATTR void dgx_dsi_late_frame_end(dgx_dsi_bus_t *bus, uint32_t now)
+{
+    if (!atomic_exchange(&bus->late->armed, 0u)) return;
+    bus->late->from_us = now;
+    dgx_dsi_late_start(bus, 0);
+}
+
+/* copy a piece here and now, from one frame buffer into the other */
+static void dgx_dsi_late_copy(dgx_dsi_bus_t *bus, const uint8_t *from, uint8_t *to, const dgx_dsi_late_piece_t *part)
+{
+    const uint32_t bytes = bus->area.pixel_bytes;
+    const size_t   pitch = (size_t)bus->area.fb_width * bytes;
+    if (dgx_dsi_dma(bus, from + (size_t)part->top * pitch, bus->area.fb_width, part->left, to + (size_t)part->top * pitch, part->left, part->width, part->rows,
+                    false, false)) {
+        return;
+    }
+    for (uint32_t y = part->top; y < (uint32_t)part->top + part->rows; ++y) {
+        memcpy(to + (size_t)y * pitch + (size_t)part->left * bytes, from + (size_t)y * pitch + (size_t)part->left * bytes, (size_t)part->width * bytes);
+    }
+    dgx_dsi_bring_out(to + (size_t)part->top * pitch + (size_t)part->left * bytes, (size_t)(part->rows - 1u) * pitch + (size_t)part->width * bytes);
+}
+
+/* copy the pieces of `mask` here and now, from the frame buffer they were to come from */
+static void dgx_dsi_late_by_hand(dgx_dsi_bus_t *bus, uint32_t mask)
+{
+    for (uint32_t i = 0; i < bus->late->count; ++i) {
+        if (mask & (1u << i)) dgx_dsi_late_copy(bus, bus->frame[bus->late->into ^ 1u], bus->frame[bus->late->into], &bus->late->piece[i]);
+    }
+}
+
+/*
+ * Wait until a piece more has been copied than when `left` was read; false
+ * when none is for a time many frames long.
+ */
+static bool dgx_dsi_late_step(dgx_dsi_bus_t *bus, uint32_t left)
+{
+    for (int tries = 0; tries < 50; ++tries) {
+        if (bus->late->left != left) return true;
+        xSemaphoreTake(bus->late->step, pdMS_TO_TICKS(4) + 1);
+    }
+    if (bus->late->left != left) return true;
+    /* the 2D DMA did not take a piece, or its interrupt never came: what is left is copied here */
+    ESP_LOGW(TAG, "a piece left for the 2D DMA was not copied: the task copies");
+    left           = bus->late->left;
+    bus->late->left = 0;
+    dgx_dsi_late_by_hand(bus, left);
+    return false;
+}
+
+/* wait until nothing is being copied behind the back of the tasks */
+static void dgx_dsi_late_idle(dgx_dsi_bus_t *bus)
+{
+    if (!bus->late || !bus->late->left) return;
+    const uint32_t from = (uint32_t)esp_timer_get_time();
+    ++bus->late->waits;
+    for (uint32_t left = bus->late->left; left && dgx_dsi_late_step(bus, left); left = bus->late->left) {
+    }
+    const uint32_t waited = (uint32_t)esp_timer_get_time() - from;
+    bus->late->wait_us += waited;
+    /* only the first batch of a picture waits so: a batch that joins it comes when the pieces are long there */
+    dgx_fb_flip_idled(&bus->flip, waited);
+}
+
+/*
+ * Before a rectangle of the panel is written, both ends included. A piece
+ * that is not copied yet is read from the frame buffer drawing goes into
+ * now: writing over it has to wait until it has gone.
+ */
+static void dgx_dsi_late_clear(dgx_dsi_bus_t *bus, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
+{
+    uint32_t from   = 0;
+    bool     waited = false;
+    for (;;) {
+        const uint32_t left  = bus->late->left;
+        bool           meets = false;
+        for (uint32_t i = 0; i < bus->late->count && !meets; ++i) {
+            const dgx_dsi_late_piece_t *part = &bus->late->piece[i];
+            meets = (left & (1u << i)) && x0 < (uint32_t)part->left + part->width && x1 >= part->left && y0 < (uint32_t)part->top + part->rows && y1 >= part->top;
+        }
+        if (!meets) break;
+        if (!waited) {
+            waited = true;
+            from   = (uint32_t)esp_timer_get_time();
+            ++bus->late->waits;
+        }
+        dgx_dsi_late_step(bus, left);
+    }
+    if (waited) {
+        const uint32_t took = (uint32_t)esp_timer_get_time() - from;
+        bus->late->wait_us += took;
+        dgx_fb_flip_idled(&bus->flip, took);
+    }
+}
+
+/*
+ * A batch goes into the picture that was finished, and the display has been
+ * told to stay with the frame buffer it reads: the pieces are not to start,
+ * the batch may draw over them.
+ */
+static void dgx_dsi_late_back(dgx_dsi_bus_t *bus)
+{
+    if (!bus->late || !bus->late->count) return;
+    if (atomic_exchange(&bus->late->armed, 0u)) {
+        bus->late->left = 0;
+    } else {
+        /* a frame has ended this very moment and its interrupt has started the pieces: they are let through, they do no harm */
+        dgx_dsi_late_idle(bus);
+    }
+    bus->late->count = 0;
+}
+
+/*
+ * A task waits until the display has taken the picture, and nothing is
+ * drawn meanwhile. The time is used: the pieces are copied now, when the
+ * frame lasts long enough for all of them, and then nothing has to be
+ * copied behind the back of the tasks, and the task that draws next does
+ * not find a piece in its way.
+ */
+static void dgx_dsi_late_now(dgx_dsi_bus_t *bus)
+{
+    if (!bus->late || !bus->late->count || !atomic_load(&bus->late->armed)) return;
+    const uint32_t period = bus->refresh_period_us, since = (uint32_t)esp_timer_get_time() - bus->refresh_us;
+    uint32_t       bytes = 0;
+    for (uint32_t i = 0; i < bus->late->count; ++i) bytes += (uint32_t)bus->late->piece[i].width * bus->late->piece[i].rows * bus->area.pixel_bytes;
+    /* nothing else is moved while the task waits, so the copy goes at the speed that was measured; it is to be over before the frame ends */
+    const uint32_t takes = (uint32_t)(((uint64_t)bytes * bus->late->mb_us) >> 20) + (bus->late->count + 1u) * bus->tuning.dma_start_us;
+    if (!bus->late->mb_us || period < 1000u || period > 100000u || since + takes >= period) return;
+    if (!atomic_exchange(&bus->late->armed, 0u)) return; /* a frame has ended this moment: the interrupt has them */
+    bus->late->left = 0;
+    dgx_dsi_late_by_hand(bus, (1u << bus->late->count) - 1u);
+    bus->late->count = 0;
+}
+
+/* the display reads the picture: its pieces are being copied into it, or have been */
+static void dgx_dsi_late_moved(dgx_dsi_bus_t *bus)
+{
+    if (!bus->late || !bus->late->count || !atomic_exchange(&bus->late->armed, 0u)) return;
+    /* no interrupt has taken them, as when no frames are sent */
+    bus->late->left = 0;
+    dgx_dsi_late_by_hand(bus, (1u << bus->late->count) - 1u);
+    bus->late->count = 0;
+}
+
+/* asked by the tiles of every rectangle a finished picture lacks: how many of its rows are to be copied at once */
+static uint32_t dgx_dsi_late_take(void *context, uint32_t left, uint32_t top, uint32_t width, uint32_t rows)
+{
+    dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)context;
+    if (bus->late->count == DGX_DSI_LATE_PIECES) return rows;
+    /* the display reads the first rows of a frame as soon as the frame before has ended: nothing is ahead of it there */
+    uint32_t now = 0;
+    if (top < bus->tuning.scan_lead) {
+        const uint32_t tile = 1u << bus->tiles.shift_y;
+        now = (bus->tuning.scan_lead - top + tile - 1u) / tile * tile;
+    }
+    if (now >= rows || (rows - now) * (width + bus->tuning.copy_row_px) < bus->tuning.copy_from) return rows;
+    dgx_dsi_late_piece_t *part = &bus->late->piece[bus->late->count++];
+    part->left = (uint16_t)left, part->top = (uint16_t)(top + now), part->width = (uint16_t)width, part->rows = (uint16_t)(rows - now);
+    return now;
+}
+
+/*
+ * The picture has been finished but for the pieces left for later, and the
+ * display is about to be told of it.
+ *
+ * A piece stays for later only when it is sure to be ahead of the display:
+ * it starts when those above it are done, has to start before the display
+ * comes to its first row and to end before it comes to its last one, by
+ * the speed the 2D DMA was measured at and a quarter more time. One that
+ * is not sure, and every one as long as no speed is known, is copied now.
+ * Those that stay remain lacked in the maps of the tiles, and all is made
+ * ready for the interrupt to start them.
+ */
+static void dgx_dsi_late_arm(dgx_dsi_bus_t *bus)
+{
+    dgx_dsi_late_t *late = bus->late;
+    if (!late || !late->count) return;
+    const uint32_t bytes  = bus->area.pixel_bytes, period = bus->refresh_period_us;
+    const size_t   pitch  = (size_t)bus->area.fb_width * bytes;
+    const uint8_t *from   = dgx_dsi_other(bus);
+    uint8_t       *to     = bus->area.fb;
+    const bool     known  = late->mb_us && period >= 1000u && period <= 100000u;
+    uint32_t       before = bus->tuning.dma_start_us, shared = bus->tuning.dma_start_us, kept = 0;
+    late->alone           = false;
+    for (uint32_t i = 0; i < late->count; ++i) {
+        const dgx_dsi_late_piece_t part  = late->piece[i];
+        const uint32_t             takes = (uint32_t)(((uint64_t)part.width * part.rows * bytes * late->mb_us) >> 20);
+        /* when the display comes to the first row of the piece and when it has read its last one, with the rows it reads ahead */
+        const uint32_t enters = known ? (uint32_t)((uint64_t)(bus->lines_before + part.top - bus->tuning.scan_lead) * period / bus->lines_total) : 0;
+        const uint32_t leaves = known ? (uint32_t)((uint64_t)(bus->lines_before + part.top + part.rows - bus->tuning.scan_lead) * period / bus->lines_total) : 0;
+        if (!known || before >= enters || before + takes + takes / 4u >= leaves) {
+            dgx_dsi_late_copy(bus, from, to, &part);
+            continue;
+        }
+        /* would it stay ahead if something else were moved at the same time? If not, such a thing waits until the pieces are there */
+        const uint32_t slow = takes * bus->tuning.shared_halves / 2u;
+        if (shared >= enters || shared + slow >= leaves) late->alone = true;
+        before += takes + takes / 4u;
+        shared += slow;
+        const size_t at = (size_t)part.top * pitch + (size_t)part.left * bytes, span = (size_t)(part.rows - 1u) * pitch + (size_t)part.width * bytes;
+        dgx_fb_tiles_lack(&bus->tiles, part.left, part.top, (uint16_t)(part.left + part.width - 1u), (uint16_t)(part.top + part.rows - 1u));
+        /* the DMA reads and writes memory: what the cache holds of the place written is brought out and forgotten */
+        esp_cache_msync((void *)(from + at), span, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+        esp_cache_msync(to + at, span, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_INVALIDATE | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+        dgx_dsi_dma_describe(&late->desc[2u * kept], from + (size_t)part.top * pitch, bus->area.fb_width, part.left, part.width, part.rows, (uint8_t)bytes);
+        dgx_dsi_dma_describe(&late->desc[2u * kept + 1u], to + (size_t)part.top * pitch, bus->area.fb_width, part.left, part.width, part.rows, (uint8_t)bytes);
+        late->piece[kept++] = part;
+    }
+    late->count = (uint8_t)kept;
+    if (!kept) return;
+    esp_cache_msync(late->desc, 2u * DGX_DSI_LATE_PIECES * sizeof(dma2d_descriptor_t),
+                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_INVALIDATE | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+    late->shared = false;
+    late->into   = bus->flip.drawn;
+    late->left   = (uint8_t)((1u << kept) - 1u);
+    xSemaphoreTake(late->step, 0);
+    atomic_store(&late->armed, 1u);
+}
+
+static void dgx_dsi_late_free(dgx_dsi_bus_t *bus)
+{
+    dgx_dsi_late_t *late = bus->late;
+    bus->late        = NULL;
+    bus->tiles.later = NULL;
+    if (!late) return;
+    if (late->step) vSemaphoreDelete(late->step);
+    free(late->trans);
+    free(late->desc);
+    free(late);
+}
+
+/* with two frame buffers and the 2D DMA at hand; without the memory for it everything is copied at once, as before */
+static void dgx_dsi_late_init(dgx_dsi_bus_t *bus)
+{
+    dgx_dsi_late_t *late = (dgx_dsi_late_t *)heap_caps_calloc(1, sizeof(dgx_dsi_late_t), MALLOC_CAP_INTERNAL);
+    if (!late) return;
+    late->trans_size = (uint32_t)dma2d_get_trans_elm_size();
+    late->desc  = (dma2d_descriptor_t *)heap_caps_aligned_calloc(64, 1, (2u * DGX_DSI_LATE_PIECES * sizeof(dma2d_descriptor_t) + 63u) & ~63u,
+                                                               MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    late->trans = (uint8_t *)heap_caps_calloc(DGX_DSI_LATE_PIECES, late->trans_size, MALLOC_CAP_INTERNAL);
+    late->step  = xSemaphoreCreateBinary();
+    bus->late   = late;
+    if (!late->desc || !late->trans || !late->step) {
+        dgx_dsi_late_free(bus);
+        return;
+    }
+    for (uint32_t i = 0; i < DGX_DSI_LATE_PIECES; ++i) {
+        late->context[i].bus   = bus;
+        late->context[i].piece = (uint8_t)i;
+        late->config[i] = (dma2d_trans_config_t){
+            .tx_channel_num = 1,
+            .rx_channel_num = 1,
+            .channel_flags  = DMA2D_CHANNEL_FUNCTION_FLAG_SIBLING,
+            .on_job_picked  = dgx_dsi_late_picked,
+            .user_config    = &late->context[i],
+        };
+    }
+    bus->tiles.later         = dgx_dsi_late_take;
+    bus->tiles.later_context = bus;
+}
+
+static inline bool dgx_dsi_late_busy(const dgx_dsi_bus_t *bus)
+{
+    return bus->late && bus->late->left != 0;
+}
+
+/* a task is about to move much memory by other means than the processor */
+static void dgx_dsi_late_shares(dgx_dsi_bus_t *bus)
+{
+    if (!bus->late || !bus->late->left) return;
+    if (bus->late->alone) {
+        dgx_dsi_late_idle(bus);
+    } else {
+        bus->late->shared = true;
+    }
+}
+#else
+static inline bool dgx_dsi_late_busy(const dgx_dsi_bus_t *bus)
+{
+    return false;
+}
+
+static inline void dgx_dsi_late_shares(dgx_dsi_bus_t *bus)
+{
+}
+
+static inline void dgx_dsi_late_clear(dgx_dsi_bus_t *bus, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
+{
+}
+
+static inline void dgx_dsi_late_idle(dgx_dsi_bus_t *bus)
+{
 }
 #endif
 
@@ -594,10 +1140,11 @@ static bool dgx_dsi_write_rows(struct _dgx_bus_protocols_t *_bus, uint16_t left,
 {
     dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)_bus;
     if (!bus->area.fb || bus->area.pixel_bytes != 2 || bus->area.swap_rb || bus->turned || (pitch & 1u)) return false;
-    if ((uint32_t)width * height * 2u < DGX_DSI_HARDWARE_ROWS_FROM) return false;
+    if ((uint32_t)width * height * 2u < bus->tuning.rows_from) return false;
     if ((uint32_t)left + width > bus->area.fb_width || (uint32_t)top + height > bus->area.fb_height) return false;
     if (bus->frames == 2) {
         dgx_dsi_draw_ready(bus);
+        if (dgx_dsi_late_busy(bus)) dgx_dsi_late_clear(bus, left, top, (uint16_t)(left + width - 1u), (uint16_t)(top + height - 1u));
         /* every pixel of the rectangle is written: of its tiles only what lies outside it is brought up to date */
         dgx_dsi_tiles_ready(bus, left, left + width - 1, top, top + height - 1, true, true);
     }
@@ -642,7 +1189,13 @@ static void dgx_dsi_send_command(struct _dgx_bus_protocols_t *_bus, uint8_t cmd)
     dgx_dsi_send_pending(bus);
     /* the window is about to change, or to be written from its first pixel again */
     if (bus->window_open && cmd != DGX_FB_AREA_WRITE_CONTINUE) dgx_dsi_window_close(bus);
-    if (bus->area.fb && dgx_fb_area_command(&bus->area, cmd)) return;
+    /*
+     * The frame buffer answers the commands of the window once the display
+     * is started. Before that a driver sets its controller up, and there
+     * the same numbers may be registers of the controller: JD9165 has 0x2A,
+     * 0x2B and 0x2C on its page 1. They go to the display.
+     */
+    if (bus->started && dgx_fb_area_command(&bus->area, cmd)) return;
     bus->command         = cmd;
     bus->command_pending = true;
 }
@@ -667,6 +1220,11 @@ static void dgx_dsi_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *
         }
         if (bus->frames == 2 && (bus->area.command == DGX_FB_AREA_WRITE || bus->area.command == DGX_FB_AREA_WRITE_CONTINUE)) {
             dgx_dsi_draw_ready(bus);
+            if (dgx_dsi_late_busy(bus)) {
+                uint16_t x0, y0, x1, y1;
+                dgx_fb_area_to_panel(&bus->area, bus->area.left, bus->area.right, bus->area.top, bus->area.bottom, &x0, &y0, &x1, &y1);
+                dgx_dsi_late_clear(bus, x0, y0, x1, y1);
+            }
             if (bus->window_open) {
                 bus->window_got += byte_len / bus->area.pixel_bytes;
             } else if (bus->area.command == DGX_FB_AREA_WRITE && bus->area.x == bus->area.left && bus->area.y == bus->area.top) {
@@ -683,6 +1241,7 @@ static void dgx_dsi_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *
         if (dgx_fb_area_data(&bus->area, data, byte_len)) return;
     }
     bus->command_pending = false;
+    ESP_LOGD(TAG, "command 0x%02x with %u bytes, the first 0x%02x", bus->command, (unsigned)byte_len, data[0]);
     esp_err_t ret        = esp_lcd_panel_io_tx_param(bus->io, bus->command, data, byte_len);
     if (ret != ESP_OK) ESP_LOGE(TAG, "command 0x%02x with %u bytes failed: %s", bus->command, (unsigned)byte_len, esp_err_to_name(ret));
 }
@@ -694,8 +1253,11 @@ static uint32_t dgx_dsi_read_data(struct _dgx_bus_protocols_t *_bus, uint8_t *da
     if (byte_len == 0) return 0;
     if (dgx_dsi_memory_command(bus)) {
         uint32_t pixels = byte_len / bus->area.pixel_bytes;
-        /* until the frame buffers have changed places the one at hand is the one that was drawn into, and lacks nothing */
-        if (bus->frames == 2 && !bus->flip_pending) dgx_dsi_tiles_ready(bus, bus->area.left, bus->area.right, bus->area.top, bus->area.bottom, false, false);
+        /* a picture that is finished may still lack a piece left for later: it is brought as anything lacked is */
+        if (bus->frames == 2) {
+            dgx_dsi_tiles_ready(bus, bus->area.left, bus->area.right, bus->area.top, bus->area.bottom, false, false);
+            if (bus->flip.told) dgx_dsi_read_out(bus);
+        }
         dgx_fb_area_read(&bus->area, data, pixels);
         return pixels * bus->area.pixel_bytes * 8u;
     }
@@ -726,6 +1288,11 @@ static void dgx_dsi_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
     if (bus->refreshed) vSemaphoreDelete(bus->refreshed);
     if (bus->tiles.owed) dgx_fb_tiles_free(&bus->tiles);
 #if DGX_DSI_HARDWARE_COPY
+    if (bus->late) {
+        atomic_store(&bus->late->armed, 0u);
+        dgx_dsi_late_idle(bus);
+        dgx_dsi_late_free(bus);
+    }
     dgx_dsi_dma_free(bus);
 #endif
 #if DGX_DSI_HARDWARE_FILL
@@ -783,6 +1350,25 @@ dgx_bus_protocols_t *dgx_dsi_init(int bus_id, uint8_t data_lanes, uint32_t lane_
         return NULL;
     }
     bus->data_lanes                 = data_lanes;
+    bus->tile_shift_x               = (uint8_t)DGX_DSI_TILE_SHIFT_X;
+    bus->tile_shift_y               = (uint8_t)DGX_DSI_TILE_SHIFT_Y;
+    bus->tuning = (dgx_dsi_tuning_t){
+        .version        = DGX_DSI_TUNING_VERSION,
+        .size           = sizeof(dgx_dsi_tuning_t),
+        .scan_lead      = DGX_DSI_SCAN_LEAD,
+        .shared_halves  = DGX_DSI_LATE_SHARED_HALVES,
+        .window_kb_a_ms = DGX_DSI_IN_KB_A_MS,
+        .out_kb_a_ms    = DGX_DSI_OUT_KB_A_MS,
+        .dma_start_us   = DGX_DSI_DMA_START_US,
+        .scan_room_us   = DGX_DSI_SCAN_ROOM_US,
+        .guard_us       = DGX_DSI_FLIP_GUARD_US,
+        .copy_row_px    = DGX_DSI_HARDWARE_COPY_ROW_PX,
+        .fill_sum       = DGX_DSI_HARDWARE_FILL_SUM,
+        .fill_div       = DGX_DSI_HARDWARE_FILL_DIV,
+        .fill_from      = DGX_DSI_HARDWARE_FILL_FROM,
+        .copy_from      = DGX_DSI_HARDWARE_COPY_FROM,
+        .rows_from      = DGX_DSI_HARDWARE_ROWS_FROM,
+    };
     bus->protocols.bus_type         = DGX_BUS_DSI;
     bus->protocols.bus_name         = "DSI";
     bus->protocols.write_command    = dgx_dsi_send_command;
@@ -854,7 +1440,7 @@ bool dgx_dsi_video_setup(dgx_bus_protocols_t *_bus, const dgx_dsi_video_t *video
 #endif
         ret = bus->refreshed ? esp_lcd_dpi_panel_register_event_callbacks(bus->panel, &callbacks, bus) : ESP_ERR_NO_MEM;
     }
-    if (ret == ESP_OK && two && !dgx_fb_tiles_init(&bus->tiles, video->width, video->height, color_bits / 8u, DGX_DSI_TILE_SHIFT_X, DGX_DSI_TILE_SHIFT_Y)) {
+    if (ret == ESP_OK && two && !dgx_fb_tiles_init(&bus->tiles, video->width, video->height, color_bits / 8u, bus->tile_shift_x, bus->tile_shift_y)) {
         ret = ESP_ERR_NO_MEM;
     }
     if (ret != ESP_OK || !fb || (two && !fb2)) {
@@ -868,7 +1454,15 @@ bool dgx_dsi_video_setup(dgx_bus_protocols_t *_bus, const dgx_dsi_video_t *video
     }
     bus->frames      = two ? 2 : 1;
     bus->after_scan  = after_scan;
+    bus->tuning.width       = video->width;
+    bus->tuning.height      = video->height;
+    bus->tuning.pixel_bytes = (uint8_t)(color_bits / 8u);
+    if (two) bus->tile_shift_x = bus->tiles.shift_x; /* as wide as the panel made it */
     bus->lines_total = (uint16_t)(video->height + video->vsync_front_porch + video->vsync_pulse_width + video->vsync_back_porch);
+    {
+        const uint64_t row = (uint64_t)video->width + video->hsync_front_porch + video->hsync_pulse_width + video->hsync_back_porch;
+        bus->frame_us_256  = video->pixel_clock_khz ? (uint32_t)(row * bus->lines_total * 256000u / video->pixel_clock_khz) : 0;
+    }
     /*
      * The end of a frame is counted where the last row has been read, on a
      * chip of revision 3 and later at the vertical sync that follows.
@@ -885,6 +1479,14 @@ bool dgx_dsi_video_setup(dgx_bus_protocols_t *_bus, const dgx_dsi_video_t *video
         if (two) {
             bus->tiles.copier         = dgx_dsi_hardware_copy;
             bus->tiles.copier_context = bus;
+            /*
+             * At 24 bits a row is half as many bytes more, and so the
+             * display reads half as fast again, while the 2D DMA copies as
+             * it does: the pieces fell behind the scan now and then. So
+             * there everything a picture lacks is copied when it is
+             * finished.
+             */
+            if (color_bits == 16) dgx_dsi_late_init(bus);
         }
     }
 #endif
@@ -900,8 +1502,12 @@ bool dgx_dsi_video_setup(dgx_bus_protocols_t *_bus, const dgx_dsi_video_t *video
     bus->frame[0] = (uint8_t *)fb;
     bus->frame[1] = (uint8_t *)fb2;
     /* the display starts with the first one: with two, drawing goes into the second */
-    bus->drawn = two ? 1 : 0;
-    dgx_fb_area_init(&bus->area, bus->frame[bus->drawn], video->width, video->height, color_bits / 8u, swap_rb);
+#if DGX_DSI_REFRESH_AT_SWITCH
+    dgx_fb_flip_init(&bus->flip, &dgx_dsi_flip_display, bus, two ? 1 : 0, true, bus->tuning.guard_us);
+#else
+    dgx_fb_flip_init(&bus->flip, &dgx_dsi_flip_display, bus, two ? 1 : 0, false, bus->tuning.guard_us);
+#endif
+    dgx_fb_area_init(&bus->area, bus->frame[bus->flip.drawn], video->width, video->height, color_bits / 8u, swap_rb);
     return true;
 }
 
@@ -918,6 +1524,7 @@ bool dgx_dsi_video_start(dgx_bus_protocols_t *_bus)
         ESP_LOGE(TAG, "esp_lcd_panel_init failed: %s", esp_err_to_name(ret));
         return false;
     }
+    bus->started = true;
     return true;
 }
 
@@ -942,12 +1549,27 @@ void dgx_dsi_show(dgx_bus_protocols_t *_bus)
     /* what the 2D DMA has put is in memory already, but with two frame buffers it is still to be shown */
     if (!drawn && !bus->rows_written) return;
     bus->rows_written = false;
+    ++bus->batches;
     if (bus->frames == 2) {
-        /* the frame buffer that is about to be shown gets all it still lacks */
+        /*
+         * The picture is finished: the frame buffer gets what it still
+         * lacks, but for the large pieces, which are left for after the
+         * display has taken it, and the display is told that there is
+         * something to show.
+         */
         dgx_dsi_window_close(bus);
-        dgx_fb_tiles_finish(&bus->tiles, bus->area.fb, dgx_dsi_other(bus));
+        dgx_fb_flip_drawn(&bus->flip);
+#if DGX_DSI_HARDWARE_COPY
+        /* the pieces of the picture before go by the same means: they have to be there first */
+        dgx_dsi_late_idle(bus);
+        if (bus->late) bus->late->count = 0;
+#endif
+        dgx_fb_tiles_complete(&bus->tiles, bus->area.fb, dgx_dsi_other(bus));
         if (dgx_fb_tiles_take_copied(&bus->tiles, &from, &length)) dgx_dsi_bring_out(bus->area.fb + from, length);
-        dgx_dsi_flip(bus);
+#if DGX_DSI_HARDWARE_COPY
+        dgx_dsi_late_arm(bus);
+#endif
+        dgx_fb_flip_finished(&bus->flip);
     }
 }
 
@@ -956,17 +1578,44 @@ uint8_t dgx_dsi_data_lanes(dgx_bus_protocols_t *_bus)
     return ((dgx_dsi_bus_t *)_bus)->data_lanes;
 }
 
+void dgx_dsi_counters(dgx_bus_protocols_t *_bus, dgx_dsi_counters_t *counters)
+{
+    const dgx_dsi_bus_t *bus = (const dgx_dsi_bus_t *)_bus;
+    counters->frames       = bus->refreshes;
+    counters->batches      = bus->batches;
+    counters->flips        = bus->flip.flips;
+    counters->joined       = bus->flip.joined;
+    counters->kept_back    = bus->flip.kept_back;
+    counters->flip_waits   = bus->flip.waits;
+    counters->flip_wait_us = bus->flip.wait_us;
+    counters->scan_waits   = bus->scan_waits;
+    counters->scan_wait_us = bus->scan_wait_us;
+    counters->copied_bytes = bus->tiles.copied_bytes;
+    counters->copied_late_bytes = counters->copied_late_behind = counters->copy_waits = counters->copy_wait_us = counters->copy_kb_a_ms = 0;
+#if DGX_DSI_HARDWARE_COPY
+    if (bus->late) {
+        counters->copied_bytes += bus->late->bytes;
+        counters->copied_late_bytes  = bus->late->bytes;
+        counters->copied_late_behind = bus->late->behind;
+        counters->copy_waits         = bus->late->waits;
+        counters->copy_wait_us       = bus->late->wait_us;
+        counters->copy_kb_a_ms       = bus->late->mb_us ? (1024u * 1000u) / bus->late->mb_us : 0;
+    }
+#endif
+}
+
 #if DGX_DSI_HARDWARE_FILL
 /*
- * Fill a rectangle of the screen, which lies inside it, by the accelerator.
- * Returns false when it has not been done: the processor fills then.
+ * Fill by the accelerator the columns x0..x1 of the rows y0..y1 of a picture
+ * that has the rows of the panel, `rows` of them: a frame buffer, or the
+ * memory dgx_dsi_bench() measures in. `behind_scan` makes it start when the
+ * display is not reading the rows. Returns false when it has not been done.
  */
-static bool dgx_dsi_hardware_fill(dgx_dsi_bus_t *bus, int x, int y, int w, int h, uint32_t color)
+static bool dgx_dsi_accelerator_fill(dgx_dsi_bus_t *bus, uint8_t *picture, uint32_t rows, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint32_t color,
+                                     bool behind_scan)
 {
     const dgx_fb_area_t *area  = &bus->area;
     const uint32_t       bytes = area->pixel_bytes;
-    uint16_t             x0, y0, x1, y1;
-    dgx_fb_area_to_panel(area, x, x + w - 1, y, y + h - 1, &x0, &y0, &x1, &y1);
     /* the color as 8 bits of red, green and blue; 5 and 6 bits are spread so that the accelerator gets the same 5 and 6 back */
     uint32_t r, g, b;
     if (bytes == 2) {
@@ -976,30 +1625,446 @@ static bool dgx_dsi_hardware_fill(dgx_dsi_bus_t *bus, int x, int y, int w, int h
         r = (color >> 16) & 0xffu, g = (color >> 8) & 0xffu, b = color & 0xffu;
     }
     const size_t pitch = (size_t)area->fb_width * bytes;
-    uint8_t     *first = area->fb + (size_t)y0 * pitch + (size_t)x0 * bytes;
+    uint8_t     *first = picture + (size_t)y0 * pitch + (size_t)x0 * bytes;
     const size_t span  = (size_t)(y1 - y0) * pitch + (size_t)(x1 - x0 + 1u) * bytes;
     /* what the cache holds of the place goes out before the wait for the scan, not after it */
     esp_cache_msync(first, span, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_INVALIDATE | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
     /* the accelerator fills four times as fast as the display reads: started when the scan is not in the rows, it stays ahead of it */
-    if (bus->after_scan) dgx_dsi_wait_scan_outside(bus, y0, y1);
+    if (behind_scan) dgx_dsi_wait_scan_outside(bus, y0, y1);
     const ppa_fill_oper_config_t fill = {
         .out = {
-            .buffer         = area->fb,
-            .buffer_size    = (uint32_t)(pitch * area->fb_height),
+            .buffer         = picture,
+            .buffer_size    = (uint32_t)(pitch * rows),
             .pic_w          = area->fb_width,
-            .pic_h          = area->fb_height,
+            .pic_h          = rows,
             .block_offset_x = x0,
             .block_offset_y = y0,
             .fill_cm        = bytes == 2 ? PPA_FILL_COLOR_MODE_RGB565 : PPA_FILL_COLOR_MODE_RGB888,
         },
-        .fill_block_w    = (uint32_t)(x1 - x0 + 1u),
-        .fill_block_h    = (uint32_t)(y1 - y0 + 1u),
+        .fill_block_w    = x1 - x0 + 1u,
+        .fill_block_h    = y1 - y0 + 1u,
         .fill_argb_color = {.a = 0xff, .r = area->swap_rb ? b : r, .g = g, .b = area->swap_rb ? r : b},
         .mode            = PPA_TRANS_MODE_BLOCKING,
     };
     return ppa_do_fill(bus->filler, &fill) == ESP_OK;
 }
+
+/*
+ * Fill a rectangle of the screen, which lies inside it, by the accelerator.
+ * Returns false when it has not been done: the processor fills then.
+ */
+static bool dgx_dsi_hardware_fill(dgx_dsi_bus_t *bus, int x, int y, int w, int h, uint32_t color)
+{
+    uint16_t x0, y0, x1, y1;
+    dgx_fb_area_to_panel(&bus->area, x, x + w - 1, y, y + h - 1, &x0, &y0, &x1, &y1);
+    /* pieces that are only just ahead of the scan of the display are not slowed down by a fill */
+    dgx_dsi_late_shares(bus);
+    return dgx_dsi_accelerator_fill(bus, bus->area.fb, bus->area.fb_height, x0, y0, x1, y1, color, bus->after_scan);
+}
 #endif
+
+uint32_t dgx_dsi_frame_us(dgx_bus_protocols_t *_bus)
+{
+    return (((const dgx_dsi_bus_t *)_bus)->frame_us_256 + 128u) >> 8;
+}
+
+bool dgx_dsi_frame_ended(dgx_bus_protocols_t *_bus, int64_t *ended_us)
+{
+    const dgx_dsi_bus_t *bus = (const dgx_dsi_bus_t *)_bus;
+    if (!bus->refreshed || !bus->refreshes) return false;
+    /* the time of the end first: a frame that ends between the two readings leaves the one before it, which is still an end of a frame */
+    const uint32_t ended = bus->refresh_us;
+    const int64_t  now   = esp_timer_get_time();
+    const uint32_t since = (uint32_t)now - ended;
+    /* no frame for several frames: the display was stopped, and where its frames end now is not known */
+    if (since > 4u * (((bus->frame_us_256 + 128u) >> 8) + 1u)) return false;
+    *ended_us = now - (int64_t)since;
+    return true;
+}
+
+void dgx_dsi_tuning(dgx_bus_protocols_t *_bus, dgx_dsi_tuning_t *tuning)
+{
+    *tuning = ((const dgx_dsi_bus_t *)_bus)->tuning;
+}
+
+/*
+ * Tiles of another size, between two batches. The maps tell what the frame
+ * buffer drawing goes into lacks and what was drawn in it, and neither can
+ * be told by tiles of another size. So first there is nothing to tell: the
+ * picture that is finished goes to the display, the frame buffer that
+ * becomes free gets all it lacks, and nothing is drawn in it yet. Then the
+ * new maps, which are empty, are right.
+ */
+static esp_err_t dgx_dsi_tiles_resize(dgx_dsi_bus_t *bus, uint8_t shift_x, uint8_t shift_y)
+{
+    dgx_fb_tiles_t tiles;
+    if (bus->frames != 2) return ESP_OK;
+    if (!dgx_fb_tiles_init(&tiles, bus->tiles.width, bus->tiles.height, bus->tiles.pixel_bytes, shift_x, shift_y)) return ESP_ERR_NO_MEM;
+    if (tiles.shift_x == bus->tiles.shift_x && tiles.shift_y == bus->tiles.shift_y) {
+        dgx_fb_tiles_free(&tiles);
+        return ESP_OK;
+    }
+    dgx_dsi_window_close(bus);
+    if (bus->flip.told) {
+        /* no more is drawn into the picture: the display takes it, and the wait is for that */
+        bus->flip.closed = true;
+        dgx_dsi_draw_moved(bus);
+        /* the time from here to the next drawing is not the time of a batch */
+        bus->flip.timed = false;
+    }
+    for (uint32_t row = 0; row < bus->tiles.rows; ++row) {
+        if (bus->tiles.fresh[row]) {
+            /* a batch is under way: what it drew cannot be told from what it lacks without the maps */
+            dgx_fb_tiles_free(&tiles);
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+#if DGX_DSI_HARDWARE_COPY
+    /* what the picture on the display was left lacking has to be there first, and nothing more is left for later */
+    dgx_dsi_late_idle(bus);
+    if (bus->late) bus->late->count = 0;
+#endif
+    const dgx_fb_tiles_later_t later = bus->tiles.later;
+    uint32_t                   from, length;
+    bus->tiles.later                 = NULL;
+    dgx_fb_tiles_complete(&bus->tiles, bus->area.fb, dgx_dsi_other(bus));
+    if (dgx_fb_tiles_take_copied(&bus->tiles, &from, &length)) dgx_dsi_bring_out(bus->area.fb + from, length);
+    tiles.copier         = bus->tiles.copier;
+    tiles.copier_context = bus->tiles.copier_context;
+    tiles.later          = later;
+    tiles.later_context  = bus->tiles.later_context;
+    tiles.copied_bytes   = bus->tiles.copied_bytes;
+    dgx_fb_tiles_free(&bus->tiles);
+    bus->tiles = tiles;
+    return ESP_OK;
+}
+
+esp_err_t dgx_dsi_tiles(dgx_bus_protocols_t *_bus, uint16_t width, uint16_t height)
+{
+    dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)_bus;
+    if (!bus) return ESP_ERR_INVALID_ARG;
+    if (width < DGX_DSI_TILE_WIDTH_LEAST || width > DGX_DSI_TILE_WIDTH_MOST || (width & (width - 1u)) || !height || height > DGX_DSI_TILE_HEIGHT_MOST ||
+        (height & (height - 1u))) {
+        ESP_LOGW(TAG, "dgx_dsi_tiles: %ux%u is not a size of tiles, they stay as they are", width, height);
+        return ESP_ERR_INVALID_ARG;
+    }
+    const uint8_t shift_x = (uint8_t)__builtin_ctz(width), shift_y = (uint8_t)__builtin_ctz(height);
+    /* a display made already has maps: they are made anew */
+    const esp_err_t ret = bus->panel ? dgx_dsi_tiles_resize(bus, shift_x, shift_y) : ESP_OK;
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "dgx_dsi_tiles: %s, the tiles stay as they are", ret == ESP_ERR_NO_MEM ? "no memory for the maps" : "a batch of drawing is under way");
+        return ret;
+    }
+    bus->tile_shift_x = bus->panel && bus->frames == 2 ? bus->tiles.shift_x : shift_x;
+    bus->tile_shift_y = shift_y;
+    return ESP_OK;
+}
+
+bool dgx_dsi_tune(dgx_bus_protocols_t *_bus, const dgx_dsi_tuning_t *tuning)
+{
+    dgx_dsi_bus_t          *bus = (dgx_dsi_bus_t *)_bus;
+    const dgx_dsi_tuning_t *has = &bus->tuning;
+    const char *why = NULL;
+    if (!bus->panel) {
+        why = "the bus has no display yet";
+    } else if (tuning->version != DGX_DSI_TUNING_VERSION || tuning->size != sizeof(dgx_dsi_tuning_t)) {
+        why = "they are of another version of DGX";
+    } else if (tuning->width != has->width || tuning->height != has->height || tuning->pixel_bytes != has->pixel_bytes) {
+        why = "they are of another panel or color depth";
+    } else if (!tuning->window_kb_a_ms || !tuning->out_kb_a_ms || !tuning->fill_div || tuning->shared_halves < 2u || tuning->scan_lead >= tuning->height ||
+               tuning->guard_us >= 20000u || tuning->dma_start_us >= 20000u || tuning->scan_room_us >= 20000u) {
+        /* what the bus divides by, and what would make it wait for ever or never */
+        why = "one of them makes no sense";
+    }
+    if (why) {
+        ESP_LOGW(TAG, "dgx_dsi_tune: the numbers are not taken, %s", why);
+        return false;
+    }
+    bus->tuning        = *tuning;
+    bus->flip.guard_us = tuning->guard_us;
+#if DGX_DSI_HARDWARE_COPY
+    /* pieces are left for later from the first picture on, not from the first copy that was timed */
+    if (bus->late && tuning->dma_kb_a_ms) bus->late->mb_us = 1024000u / tuning->dma_kb_a_ms;
+#endif
+    return true;
+}
+
+/*
+ * dgx_dsi_bench(): two pictures of the width of the panel and 128 rows, in
+ * memory of the kind the frame buffer is in. What the bus does to the frame
+ * buffers it does to them, a few shapes of each, and the time is taken: the
+ * middle one of nine goes, or the longest of three where the number is one
+ * to be on the safe side of. Every go starts with nothing of the pictures
+ * in the cache, and ends with what it wrote brought out of it.
+ */
+#define DGX_DSI_BENCH_ROWS  128u
+#define DGX_DSI_BENCH_GOES  9
+#define DGX_DSI_BENCH_ALIGN 128u
+
+typedef struct {
+    dgx_dsi_bus_t *bus;
+    dgx_fb_area_t  area;   /* the picture written, as a frame buffer of its own */
+    uint8_t       *from, *to;
+    uint8_t       *pixels; /* DGX_DSI_BUFFER_LEN bytes as a screen sends them through the window */
+    uint32_t       width, bytes;
+    size_t         pitch, size;
+} dgx_dsi_bench_t;
+
+typedef bool (*dgx_dsi_bench_go_t)(dgx_dsi_bench_t *bench, uint32_t width, uint32_t rows);
+
+static void dgx_dsi_bench_forget(const dgx_dsi_bench_t *bench)
+{
+    esp_cache_msync(bench->from, bench->size, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_INVALIDATE);
+    esp_cache_msync(bench->to, bench->size, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_INVALIDATE);
+}
+
+/* what was written into the picture goes out of the cache, as it does when a batch ends */
+static void dgx_dsi_bench_out(dgx_dsi_bench_t *bench)
+{
+    uint32_t from, length;
+    if (dgx_fb_area_take_dirty(&bench->area, &from, &length)) dgx_dsi_bring_out(bench->to + from, length);
+}
+
+#if DGX_DSI_HARDWARE_COPY
+/* the processor copies a rectangle as the tiles do */
+static bool dgx_dsi_bench_copy(dgx_dsi_bench_t *bench, uint32_t width, uint32_t rows)
+{
+    for (uint32_t y = 0; y < rows; ++y) memcpy(bench->to + y * bench->pitch, bench->from + y * bench->pitch, (size_t)width * bench->bytes);
+    dgx_dsi_bring_out(bench->to, (size_t)(rows - 1u) * bench->pitch + (size_t)width * bench->bytes);
+    return true;
+}
+
+static bool dgx_dsi_bench_dma(dgx_dsi_bench_t *bench, uint32_t width, uint32_t rows)
+{
+    return dgx_dsi_dma(bench->bus, bench->from, bench->width, 0, bench->to, 0, width, rows, false, false);
+}
+#endif
+
+#if DGX_DSI_HARDWARE_FILL
+/* the processor fills a rectangle */
+static bool dgx_dsi_bench_fill(dgx_dsi_bench_t *bench, uint32_t width, uint32_t rows)
+{
+    dgx_fb_area_fill(&bench->area, 0, 0, (uint16_t)width, (uint16_t)rows, 0x18c3u);
+    dgx_dsi_bench_out(bench);
+    return true;
+}
+
+static bool dgx_dsi_bench_accelerator(dgx_dsi_bench_t *bench, uint32_t width, uint32_t rows)
+{
+    return dgx_dsi_accelerator_fill(bench->bus, bench->to, DGX_DSI_BENCH_ROWS, 0, 0, width - 1u, rows - 1u, 0x18c3u, false);
+}
+#endif
+
+/*
+ * Pixels come through a window, a buffer of the bus at a time, and the
+ * buffer is filled from the other picture, as a virtual screen kept in the
+ * same kind of memory fills it.
+ */
+static bool dgx_dsi_bench_window(dgx_dsi_bench_t *bench, uint32_t width, uint32_t rows)
+{
+    const uint8_t *from = bench->from;
+    dgx_fb_area_set_columns(&bench->area, 0, (uint16_t)(width - 1u));
+    dgx_fb_area_set_rows(&bench->area, 0, (uint16_t)(rows - 1u));
+    dgx_fb_area_rewind(&bench->area);
+    for (uint32_t left = width * rows; left;) {
+        const uint32_t pixels = left < DGX_DSI_BUFFER_LEN / bench->bytes ? left : DGX_DSI_BUFFER_LEN / bench->bytes;
+        memcpy(bench->pixels, from, (size_t)pixels * bench->bytes);
+        dgx_fb_area_write(&bench->area, bench->pixels, pixels);
+        from += (size_t)pixels * bench->bytes;
+        left -= pixels;
+    }
+    dgx_dsi_bench_out(bench);
+    return true;
+}
+
+/* the cache brings out what was written: the writing itself is not timed, see dgx_dsi_bench_time() */
+static bool dgx_dsi_bench_bring_out(dgx_dsi_bench_t *bench, uint32_t width, uint32_t rows)
+{
+    dgx_dsi_bring_out(bench->to, (size_t)width * rows * bench->bytes);
+    return true;
+}
+
+/* microseconds a go takes: the middle one of nine goes, or the longest of three; 0 when it cannot be done */
+static uint32_t dgx_dsi_bench_time(dgx_dsi_bench_t *bench, dgx_dsi_bench_go_t go, uint32_t width, uint32_t rows, bool longest)
+{
+    uint32_t  took[DGX_DSI_BENCH_GOES];
+    const int goes = longest ? 3 : DGX_DSI_BENCH_GOES;
+    for (int i = 0; i < goes; ++i) {
+        dgx_dsi_bench_forget(bench);
+        if (go == dgx_dsi_bench_bring_out) memset(bench->to, i, (size_t)width * rows * bench->bytes);
+        const uint32_t from = (uint32_t)esp_timer_get_time();
+        if (!go(bench, width, rows)) return 0;
+        uint32_t us = (uint32_t)esp_timer_get_time() - from;
+        if (!us) us = 1;
+        int at = i;
+        for (; at > 0 && took[at - 1] > us; --at) took[at] = took[at - 1];
+        took[at] = us;
+    }
+    return took[longest ? goes - 1 : goes / 2];
+}
+
+#if DGX_DSI_HARDWARE_COPY || DGX_DSI_HARDWARE_FILL
+/*
+ * Two shapes took `a` and `b` microseconds: what a row and what a byte of
+ * them cost, in 1/65536 us. A cost that comes out below nothing is nothing.
+ */
+static void dgx_dsi_bench_costs(uint32_t a, uint32_t a_rows, uint32_t a_bytes, uint32_t b, uint32_t b_rows, uint32_t b_bytes, int64_t *row, int64_t *byte)
+{
+    const int64_t det = (int64_t)a_rows * b_bytes - (int64_t)b_rows * a_bytes;
+    *row              = (((int64_t)a * b_bytes - (int64_t)b * a_bytes) << 16) / det;
+    *byte             = (((int64_t)b * a_rows - (int64_t)a * b_rows) << 16) / det;
+    if (*row < 0) *row = 0;
+    if (*byte < 0) *byte = 0;
+}
+#endif
+
+static inline uint32_t dgx_dsi_bench_within(int64_t value, uint32_t from, uint32_t to)
+{
+    return value < (int64_t)from ? from : value > (int64_t)to ? to : (uint32_t)value;
+}
+
+bool dgx_dsi_bench(dgx_bus_protocols_t *_bus, dgx_dsi_tuning_t *tuning)
+{
+    dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)_bus;
+    if (!bus->panel || !bus->started) {
+        ESP_LOGE(TAG, "dgx_dsi_bench before dgx_dsi_video_start");
+        return false;
+    }
+    dgx_dsi_bench_t bench = {.bus = bus, .width = bus->area.fb_width, .bytes = bus->area.pixel_bytes};
+    bench.pitch           = (size_t)bench.width * bench.bytes;
+    bench.size            = (bench.pitch * DGX_DSI_BENCH_ROWS + DGX_DSI_BENCH_ALIGN - 1u) & ~(size_t)(DGX_DSI_BENCH_ALIGN - 1u);
+    const uint32_t caps   = esp_ptr_external_ram(bus->frame[0]) ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
+    bench.from            = (uint8_t *)heap_caps_aligned_alloc(DGX_DSI_BENCH_ALIGN, bench.size, caps);
+    bench.to              = (uint8_t *)heap_caps_aligned_alloc(DGX_DSI_BENCH_ALIGN, bench.size, caps);
+    bench.pixels          = (uint8_t *)heap_caps_malloc(DGX_DSI_BUFFER_LEN, MALLOC_CAP_INTERNAL);
+    if (!bench.from || !bench.to || !bench.pixels) {
+        ESP_LOGE(TAG, "dgx_dsi_bench: no memory");
+        heap_caps_free(bench.from);
+        heap_caps_free(bench.to);
+        heap_caps_free(bench.pixels);
+        return false;
+    }
+    /* what a finished picture still lacks is not copied in the middle of the measuring */
+    dgx_dsi_late_idle(bus);
+    memset(bench.from, 0x5a, bench.size);
+    memset(bench.to, 0, bench.size);
+    memset(bench.pixels, 0xa5, DGX_DSI_BUFFER_LEN);
+    dgx_fb_area_init(&bench.area, bench.to, (uint16_t)bench.width, DGX_DSI_BENCH_ROWS, (uint8_t)bench.bytes, bus->area.swap_rb);
+    *tuning = bus->tuning;
+
+    const uint32_t bytes = bench.bytes, wide = bench.width, all = DGX_DSI_BENCH_ROWS;
+#if DGX_DSI_HARDWARE_COPY || DGX_DSI_HARDWARE_FILL
+    const uint32_t half = wide / 2u, narrow = wide < 32u ? wide : 32u;
+#endif
+
+    /* through the window: the whole picture, more than the cache keeps to itself */
+    const uint32_t window = dgx_dsi_bench_time(&bench, dgx_dsi_bench_window, wide, all, true);
+    /* what a millisecond takes in, less a quarter */
+    tuning->window_kb_a_ms = (uint16_t)dgx_dsi_bench_within((int64_t)wide * all * bytes * 750 / 1024 / window, 1, 65535);
+
+    /* out of the cache: as much as it surely holds */
+    const uint32_t kept = 32u * 1024u < wide * all * bytes ? 32u * 1024u : wide * all * bytes;
+    const uint32_t out  = dgx_dsi_bench_time(&bench, dgx_dsi_bench_bring_out, kept / bytes, 1, true);
+    tuning->out_kb_a_ms = (uint16_t)dgx_dsi_bench_within((int64_t)kept * 750 / 1024 / out, 1, 65535);
+    ESP_LOGD(TAG, "bench: a window of %ux%u in %u us, %u KB out of the cache in %u us", (unsigned)wide, (unsigned)all, (unsigned)window, (unsigned)(kept / 1024u),
+             (unsigned)out);
+
+#if DGX_DSI_HARDWARE_COPY
+    if (bus->dma_pool) {
+        /* the processor: many short rows and a few long ones tell a row from a byte */
+        const uint32_t tall = dgx_dsi_bench_time(&bench, dgx_dsi_bench_copy, narrow, all, false);
+        const uint32_t flat = dgx_dsi_bench_time(&bench, dgx_dsi_bench_copy, half, 16, false);
+        const int64_t  window_byte = ((int64_t)window << 16) / (wide * all * bytes); /* a byte through the window, in 1/65536 us */
+        int64_t        row, byte;
+        dgx_dsi_bench_costs(tall, all, narrow * all * bytes, flat, 16, half * 16u * bytes, &row, &byte);
+        /* the 2D DMA: a small one tells what asking it costs, two large ones what a byte does */
+        const uint32_t small = dgx_dsi_bench_time(&bench, dgx_dsi_bench_dma, narrow, 8, false);
+        const uint32_t some  = dgx_dsi_bench_time(&bench, dgx_dsi_bench_dma, wide, all / 4u, false);
+        const uint32_t much  = dgx_dsi_bench_time(&bench, dgx_dsi_bench_dma, wide, all, false);
+        ESP_LOGD(TAG, "bench: the processor copies %ux%u in %u us, %ux%u in %u us; the 2D DMA %ux8 in %u us, %ux%u in %u us, %ux%u in %u us", (unsigned)narrow,
+                 (unsigned)all, (unsigned)tall, (unsigned)half, 16u, (unsigned)flat, (unsigned)narrow, (unsigned)small, (unsigned)wide, (unsigned)(all / 4u),
+                 (unsigned)some, (unsigned)wide, (unsigned)all, (unsigned)much);
+        if (small && some && much > some) {
+            const int64_t dma_byte = ((int64_t)(much - some) << 16) / (wide * (all - all / 4u) * bytes);
+            int64_t       asked    = (int64_t)small - ((dma_byte * narrow * 8u * bytes) >> 16);
+            if (asked < 1) asked = 1;
+            tuning->dma_kb_a_ms  = (uint16_t)dgx_dsi_bench_within((int64_t)wide * all * bytes * 1000 / 1024 / much, 1, 65535);
+            tuning->dma_start_us = (uint16_t)dgx_dsi_bench_within(2 * asked, 100, 19999);
+            /*
+             * The processor takes rows * row + pixels * bytes * byte, the
+             * DMA asked + pixels * bytes * dma_byte: the DMA is the faster
+             * one from rows * (width + row / gain) = asked / gain on, where
+             * gain is what a pixel costs the processor more. A fifth is
+             * added: near the boundary neither is much faster. At 24 bits
+             * it is doubled. There the piece is copied when the picture is
+             * finished and the batch waits for it, and what was drawn a
+             * moment ago is still in the cache, where the processor reads
+             * it four times as fast as measured here. At 16 bits a piece
+             * for the DMA is left for later, and the batch does not wait.
+             */
+            const int64_t gain = (byte - dma_byte) * bytes;
+            if (gain > 0) {
+                tuning->copy_row_px = (uint16_t)dgx_dsi_bench_within(row / gain, 0, 65535);
+                tuning->copy_from   = dgx_dsi_bench_within((asked << 16) * (bytes == 2u ? 6 : 10) / 5 / gain, 1, UINT32_MAX);
+            } else {
+                tuning->copy_from = UINT32_MAX; /* the processor is as fast: nothing goes to the DMA */
+            }
+            /* rows of a program: the window against the DMA, and more room: what comes through a window stays in the cache, to be drawn over */
+            tuning->rows_from = window_byte > dma_byte ? dgx_dsi_bench_within((asked << 16) * 8 / 5 / (window_byte - dma_byte), 1, UINT32_MAX) : UINT32_MAX;
+        }
+    }
+#endif
+#if DGX_DSI_HARDWARE_FILL
+    if (bus->filler) {
+        const uint32_t tall = dgx_dsi_bench_time(&bench, dgx_dsi_bench_fill, narrow / 2u, all, false);
+        const uint32_t flat = dgx_dsi_bench_time(&bench, dgx_dsi_bench_fill, half, 16, false);
+        int64_t        row, byte, fast_row, fast_byte;
+        dgx_dsi_bench_costs(tall, all, narrow / 2u * all * bytes, flat, 16, half * 16u * bytes, &row, &byte);
+        /* the accelerator: a small one, then a tall one and a wide one less the small one */
+        const uint32_t small = dgx_dsi_bench_time(&bench, dgx_dsi_bench_accelerator, narrow / 2u, 16, false);
+        const uint32_t thin  = dgx_dsi_bench_time(&bench, dgx_dsi_bench_accelerator, narrow / 2u, all, false);
+        const uint32_t broad = dgx_dsi_bench_time(&bench, dgx_dsi_bench_accelerator, wide, all / 2u, false);
+        ESP_LOGD(TAG, "bench: the processor fills %ux%u in %u us, %ux%u in %u us; the accelerator %ux16 in %u us, %ux%u in %u us, %ux%u in %u us",
+                 (unsigned)(narrow / 2u), (unsigned)all, (unsigned)tall, (unsigned)half, 16u, (unsigned)flat, (unsigned)(narrow / 2u), (unsigned)small,
+                 (unsigned)(narrow / 2u), (unsigned)all, (unsigned)thin, (unsigned)wide, (unsigned)(all / 2u), (unsigned)broad);
+        if (small && thin && broad) {
+            dgx_dsi_bench_costs(thin > small ? thin - small : 0, all - 16u, narrow / 2u * (all - 16u) * bytes, broad > small ? broad - small : 0, all / 2u - 16u,
+                                (wide * (all / 2u) - narrow / 2u * 16u) * bytes, &fast_row, &fast_byte);
+            int64_t asked = (int64_t)small - ((fast_row * 16 + fast_byte * (narrow / 2u * 16u * bytes)) >> 16);
+            if (asked < 1) asked = 1;
+            /*
+             * As with the copy: the accelerator is the faster one from
+             * rows + bytes / (row gain / byte gain) = asked / row gain on.
+             * Two and a half times that is taken: what the accelerator has
+             * filled is not in the cache, and what is drawn over it next
+             * has to fetch it.
+             */
+            int64_t row_gain = row - fast_row;
+            const int64_t byte_gain = byte - fast_byte;
+            if (row_gain < 3277) row_gain = 3277; /* a twentieth of a microsecond: the sum has a row in it all the same */
+            if (byte_gain > 0) {
+                tuning->fill_div  = (uint16_t)dgx_dsi_bench_within(row_gain / byte_gain, 1, 65535);
+                tuning->fill_from = (uint16_t)dgx_dsi_bench_within((asked << 16) * 5 / 2 / row_gain, 1, 65535);
+                /* the least width and height together of a rectangle that passes, whichever of them runs along the rows */
+                uint32_t sum = 65535;
+                for (uint32_t rows = 1; rows < sum && rows < tuning->fill_from; ++rows) {
+                    const uint64_t other = ((uint64_t)(tuning->fill_from - rows) * tuning->fill_div + rows * bytes - 1u) / (rows * bytes);
+                    if (rows + other < sum) sum = (uint32_t)(rows + other);
+                }
+                if (tuning->fill_from < sum) sum = tuning->fill_from; /* rows alone pass: a strip one pixel wide */
+                tuning->fill_sum = (uint16_t)sum;
+            } else {
+                tuning->fill_from = tuning->fill_sum = 65535; /* the processor is as fast: nothing goes to the accelerator */
+            }
+        }
+    }
+#endif
+    heap_caps_free(bench.from);
+    heap_caps_free(bench.to);
+    heap_caps_free(bench.pixels);
+    return true;
+}
+
 
 /*
  * Drawing functions of a screen on this bus. The pixels are memory at hand,
@@ -1019,9 +2084,10 @@ static void dgx_dsi_scr_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t colo
     dgx_dsi_bus_t *bus = dgx_dsi_bus_of(scr);
     if (bus->frames == 2) {
         uint16_t px = (uint16_t)x, py = (uint16_t)y;
-        if (bus->flip_pending) dgx_dsi_draw_ready(bus);
+        dgx_dsi_draw_ready(bus);
         if (bus->window_open) dgx_dsi_window_close(bus);
         if (bus->turned) dgx_fb_area_point_to_panel(&bus->area, x, y, &px, &py);
+        if (dgx_dsi_late_busy(bus)) dgx_dsi_late_clear(bus, px, py, px, py);
         dgx_fb_tiles_pixel(&bus->tiles, bus->area.fb, dgx_dsi_other(bus), px, py);
     }
     dgx_fb_area_set_pixel(&bus->area, (uint16_t)x, (uint16_t)y, color);
@@ -1033,12 +2099,13 @@ static uint32_t dgx_dsi_scr_get_pixel(dgx_screen_t *scr, int x, int y)
 {
     if (x < 0 || x >= scr->width || y < 0 || y >= scr->height) return 0;
     dgx_dsi_bus_t *bus = dgx_dsi_bus_of(scr);
-    /* until the frame buffers have changed places the one at hand is the one that was drawn into, and lacks nothing */
-    if (bus->frames == 2 && !bus->flip_pending) {
+    if (bus->frames == 2) {
         uint16_t px = (uint16_t)x, py = (uint16_t)y;
         if (bus->window_open) dgx_dsi_window_close(bus);
         if (bus->turned) dgx_fb_area_point_to_panel(&bus->area, x, y, &px, &py);
+        /* a picture that is finished may still lack a piece left for later: it is brought as anything lacked is */
         dgx_fb_tiles_pixel_read(&bus->tiles, bus->area.fb, dgx_dsi_other(bus), px, py);
+        if (bus->flip.told) dgx_dsi_read_out(bus);
     }
     return dgx_fb_area_get_pixel(&bus->area, (uint16_t)x, (uint16_t)y);
 }
@@ -1067,6 +2134,11 @@ static void dgx_dsi_scr_fill_rectangle(dgx_screen_t *scr, int x, int y, int w, i
     dgx_dsi_bus_t *bus = dgx_dsi_bus_of(scr);
     if (bus->frames == 2) {
         dgx_dsi_draw_ready(bus);
+        if (dgx_dsi_late_busy(bus)) {
+            uint16_t x0, y0, x1, y1;
+            dgx_fb_area_to_panel(&bus->area, x, x + w - 1, y, y + h - 1, &x0, &y0, &x1, &y1);
+            dgx_dsi_late_clear(bus, x0, y0, x1, y1);
+        }
         dgx_dsi_tiles_ready(bus, x, x + w - 1, y, y + h - 1, true, true);
     }
 #if DGX_DSI_HARDWARE_FILL
@@ -1076,8 +2148,8 @@ static void dgx_dsi_scr_fill_rectangle(dgx_screen_t *scr, int x, int y, int w, i
      * has less than 64 in it. Then the rows the rectangle takes on the
      * panel, its width when the axes are swapped, and its bytes.
      */
-    if (w + h >= 64 && bus->filler &&
-        (uint32_t)(bus->area.swap_xy ? w : h) + (uint32_t)w * h * bus->area.pixel_bytes / 64u >= DGX_DSI_HARDWARE_FILL_FROM &&
+    if (w + h >= bus->tuning.fill_sum && bus->filler &&
+        (uint32_t)(bus->area.swap_xy ? w : h) + (uint32_t)w * h * bus->area.pixel_bytes / bus->tuning.fill_div >= bus->tuning.fill_from &&
         dgx_dsi_hardware_fill(bus, x, y, w, h, color)) {
         bus->rows_written = true;
         dgx_screen_touch(scr, x, x + w - 1, y, y + h - 1);

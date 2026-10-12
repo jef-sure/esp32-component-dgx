@@ -11,9 +11,21 @@
  *  the panel is cut into tiles and a bit is kept for a tile: one map of the
  *  tiles drawn in now, one of the tiles this frame buffer still lacks. A
  *  tile it lacks is copied when something is first drawn in it or read from
- *  it, or before the frame buffers change places. Of a tile that is drawn
- *  in by a rectangle written whole only what lies outside the rectangle is
- *  copied: nothing, when the rectangle covers it.
+ *  it, or when the picture is finished and may be shown. Of a tile that is
+ *  drawn in by a rectangle written whole only what lies outside the
+ *  rectangle is copied: nothing, when the rectangle covers it.
+ *
+ *  A finished picture is not shown at once, and more may be drawn into it
+ *  before the frame buffers change places. So the two are told apart: the
+ *  picture is finished by dgx_fb_tiles_complete(), any number of times,
+ *  and the frame buffers have changed places at dgx_fb_tiles_changed().
+ *
+ *  A large piece a finished picture lacks need not be copied at once. Its
+ *  owner may leave it for later: the display reads a frame buffer row after
+ *  row, so a piece is in time when it is there before the display comes to
+ *  its rows, and more may be drawn over it meanwhile, which saves the copy.
+ *  Such a piece stays lacked in the maps until the frame buffers change
+ *  places; from then on it is the owner's.
  *
  *  A window pixels are sent into may be left before it is full. So its
  *  tiles stay lacked when it is opened, until it is known how far the
@@ -36,9 +48,9 @@ extern "C" {
 /**
  * @brief A way to copy a rectangle from one frame buffer into the other that may beat the processor.
  *
- * It is offered what a frame buffer still lacks before the frame buffers
- * change places, tiles side by side and one under another as one
- * rectangle. Nothing is drawn there after it, so it may leave the cache of
+ * It is offered what a frame buffer still lacks when its picture is
+ * finished, tiles side by side and one under another as one rectangle.
+ * Seldom is anything drawn there after it, so it may leave the cache of
  * the chip as it likes.
  *
  * @param left,top   The first column and row of the rectangle on the panel.
@@ -46,6 +58,22 @@ extern "C" {
  * @return false when it has not made the copy: the processor makes it then.
  */
 typedef bool (*dgx_fb_tiles_copier_t)(void *context, uint8_t *to, const uint8_t *from, uint32_t left, uint32_t top, uint32_t width, uint32_t rows);
+
+/**
+ * @brief A way to leave a rectangle a finished picture lacks for later.
+ *
+ * It is asked of every rectangle dgx_fb_tiles_complete() would copy, tiles
+ * side by side and one under another. It tells how many rows from the top
+ * are to be copied at once: all of them, or a number of whole tiles, 0
+ * among them. What is left the owner copies itself later, and it has to
+ * tell the maps of it by dgx_fb_tiles_lack() as soon as
+ * dgx_fb_tiles_complete() has returned.
+ *
+ * @param left,top   The first column and row of the rectangle on the panel.
+ * @param width,rows Its size in pixels.
+ * @return Rows from the top to copy at once.
+ */
+typedef uint32_t (*dgx_fb_tiles_later_t)(void *context, uint32_t left, uint32_t top, uint32_t width, uint32_t rows);
 
 typedef struct _dgx_fb_tiles_t {
     uint32_t *owed;        /* a word a row of tiles, a bit a tile: what the frame buffer drawn into lacks */
@@ -58,10 +86,14 @@ typedef struct _dgx_fb_tiles_t {
     uint8_t   pixel_bytes;
     dgx_fb_tiles_copier_t copier; /* NULL when there is none; set by the owner after dgx_fb_tiles_init() */
     void     *copier_context;
+    dgx_fb_tiles_later_t later;   /* NULL when nothing is left for later; set by the owner after dgx_fb_tiles_init() */
+    void     *later_context;
     /* the tile the last pixel was drawn in, its row of tiles and its place in the row: it is not lacked and is known as drawn in */
     uint32_t  last;
     /* bytes of the frame buffer the copies of the processor went into since the range was last taken; none when copied_to <= copied_from */
     uint32_t  copied_from, copied_to;
+    /* bytes copied from one frame buffer into the other since the start, by the processor and by the copier; they go round after 2^32 */
+    uint32_t  copied_bytes;
 } dgx_fb_tiles_t;
 
 /**
@@ -136,11 +168,30 @@ static inline void dgx_fb_tiles_pixel_read(dgx_fb_tiles_t *tiles, uint8_t *to, c
 }
 
 /**
- * @brief Before the frame buffers change places: give `to` every tile it still lacks.
+ * @brief The picture in `to` is finished: give it every tile it still lacks.
  *
- * From then on what was drawn into `to` is what the other one lacks, and
- * nothing is drawn yet.
+ * It lacks nothing after that and may be shown, but for what was left for
+ * later. More may be drawn into it before it is shown, and it may be
+ * finished again.
  */
+void dgx_fb_tiles_complete(dgx_fb_tiles_t *tiles, uint8_t *to, const uint8_t *from);
+
+/**
+ * @brief A rectangle left for later is still lacked: to be called for each one right after dgx_fb_tiles_complete().
+ * @param x0,y0,x1,y1 What was left of a rectangle offered to `later`, both ends included: whole tiles.
+ */
+void dgx_fb_tiles_lack(dgx_fb_tiles_t *tiles, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
+
+/**
+ * @brief The frame buffers have changed places, after dgx_fb_tiles_complete() and nothing drawn since.
+ *
+ * What was drawn since they last did is what the frame buffer drawing goes
+ * into now lacks, and nothing is drawn in it yet. What the other one was
+ * left lacking is the owner's to copy.
+ */
+void dgx_fb_tiles_changed(dgx_fb_tiles_t *tiles);
+
+/** @brief dgx_fb_tiles_complete() and dgx_fb_tiles_changed() at once: the picture is finished and shown. */
 void dgx_fb_tiles_finish(dgx_fb_tiles_t *tiles, uint8_t *to, const uint8_t *from);
 
 /**

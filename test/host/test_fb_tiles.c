@@ -58,7 +58,65 @@ static bool copier_copy(void *context, uint8_t *to, const uint8_t *from, uint32_
     return true;
 }
 
-static void test_batches(int width, int height, int bytes, int shift_x, int shift_y, int expected_shift_x, uint32_t copier_least)
+/*
+ * An owner that leaves rectangles for later, as it likes: all of one, or all but the tiles at its top, or none.
+ * It keeps what it has left, tells the maps of it, and copies it when the frame buffers have changed places.
+ */
+static struct {
+    int      tile_rows; /* the height of a tile */
+    int      count, asked;
+    uint32_t pixels;    /* of all that was left for later */
+    struct {
+        uint32_t left, top, width, rows;
+    } kept[96];
+} later;
+
+static uint32_t later_ask(void *context, uint32_t left, uint32_t top, uint32_t width, uint32_t rows)
+{
+    CHECK(context == &later);
+    CHECK(width > 0 && rows > 0);
+    CHECK(top % (uint32_t)later.tile_rows == 0);
+    ++later.asked;
+    uint32_t now = rows;
+    switch (rnd(0, 3)) {
+    case 0: now = 0; break;
+    case 1: now = (uint32_t)later.tile_rows; break;
+    case 2: now = (uint32_t)later.tile_rows * (uint32_t)rnd(0, 3); break;
+    default: break;
+    }
+    if (now >= rows || later.count == (int)(sizeof(later.kept) / sizeof(later.kept[0]))) return rows;
+    later.kept[later.count].left = left, later.kept[later.count].top = top + now;
+    later.kept[later.count].width = width, later.kept[later.count].rows = rows - now;
+    later.pixels += width * (rows - now);
+    ++later.count;
+    return now;
+}
+
+static bool later_has(int x, int y)
+{
+    for (int i = 0; i < later.count; ++i) {
+        if ((uint32_t)x >= later.kept[i].left && (uint32_t)x < later.kept[i].left + later.kept[i].width && (uint32_t)y >= later.kept[i].top &&
+            (uint32_t)y < later.kept[i].top + later.kept[i].rows) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* the frame buffer is the model everywhere but in what was left for later */
+static bool same_but_later(const uint8_t *fb, int width, int height, int bytes)
+{
+    if (!later.count) return memcmp(fb, model, (size_t)width * height * bytes) == 0;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (later_has(x, y)) continue;
+            if (memcmp(fb + ((size_t)y * width + x) * bytes, model + ((size_t)y * width + x) * bytes, (size_t)bytes)) return false;
+        }
+    }
+    return true;
+}
+
+static void test_batches(int width, int height, int bytes, int shift_x, int shift_y, int expected_shift_x, uint32_t copier_least, bool leave_for_later)
 {
     dgx_fb_tiles_t tiles;
     const size_t   size = (size_t)width * height * bytes;
@@ -76,8 +134,15 @@ static void test_batches(int width, int height, int bytes, int shift_x, int shif
         copier.width = width, copier.bytes = bytes, copier.least = copier_least;
         tiles.copier = copier_copy, tiles.copier_context = &copier;
     }
+    memset(&later, 0, sizeof(later));
+    if (leave_for_later) {
+        later.tile_rows = 1 << shift_y;
+        tiles.later = later_ask, tiles.later_context = &later;
+    }
     uint8_t *hidden = frame_a + ROOM, *shown = frame_b + ROOM;
     for (int batch = 0; batch < 400; ++batch) {
+      /* a picture is finished, and now and then more is drawn into it before the frame buffers change places */
+      for (int part = rnd(0, 3) ? 1 : rnd(2, 3); part; --part) {
         for (int ops = rnd(0, 7); ops; --ops) {
             int      x0 = rnd(0, width - 1), y0 = rnd(0, height - 1);
             int      x1 = rnd(0, 3) ? rnd(x0, x0 + 12 < width ? x0 + 12 : width - 1) : rnd(x0, width - 1);
@@ -162,19 +227,52 @@ static void test_batches(int width, int height, int bytes, int shift_x, int shif
             }
         }
         int taken_before = copier.taken;
-        dgx_fb_tiles_finish(&tiles, hidden, shown);
-        CHECK(memcmp(hidden, model, size) == 0);
-        /* the copier is asked only where the frame buffers change places */
+        const uint32_t copied_before = tiles.copied_bytes;
+        /* what was left for later the last time the picture was finished is forgotten: it is found again, as far as it is still lacked */
+        later.count = 0;
+        if (part == 1 && rnd(0, 1)) {
+            dgx_fb_tiles_finish(&tiles, hidden, shown);
+        } else {
+            dgx_fb_tiles_complete(&tiles, hidden, shown);
+            if (leave_for_later) {
+                for (int i = 0; i < later.count; ++i) {
+                    dgx_fb_tiles_lack(&tiles, (uint16_t)later.kept[i].left, (uint16_t)later.kept[i].top, (uint16_t)(later.kept[i].left + later.kept[i].width - 1u),
+                                      (uint16_t)(later.kept[i].top + later.kept[i].rows - 1u));
+                }
+            } else {
+                /* it lacks nothing now: finished once more, nothing is copied */
+                const uint32_t copied = tiles.copied_bytes;
+                dgx_fb_tiles_complete(&tiles, hidden, shown);
+                CHECK(tiles.copied_bytes == copied);
+            }
+            if (part == 1) dgx_fb_tiles_changed(&tiles);
+        }
+        CHECK(same_but_later(hidden, width, height, bytes));
+        if (part == 1) {
+            /* the frame buffers have changed places: the owner copies what it left, and the picture is whole */
+            for (int i = 0; i < later.count; ++i) {
+                for (uint32_t y = later.kept[i].top; y < later.kept[i].top + later.kept[i].rows; ++y) {
+                    const size_t at = ((size_t)y * width + later.kept[i].left) * bytes;
+                    memcpy(hidden + at, shown + at, (size_t)later.kept[i].width * bytes);
+                }
+            }
+            later.count = 0;
+            CHECK(memcmp(hidden, model, size) == 0);
+        }
+        /* the copier is asked only where a picture is finished */
         if (copier_least) CHECK(copier.taken >= taken_before);
+        CHECK(tiles.copied_bytes >= copied_before && tiles.copied_bytes - copied_before <= size);
         /* what the copies are said to have gone into lies in the frame buffer */
         uint32_t from, length;
         if (dgx_fb_tiles_take_copied(&tiles, &from, &length)) CHECK(length > 0 && (size_t)from + length <= size);
         CHECK(!dgx_fb_tiles_take_copied(&tiles, &from, &length));
+      }
         uint8_t *other = hidden;
         hidden         = shown;
         shown          = other;
     }
     if (copier_least) CHECK(copier.taken > 0 && copier.taken < copier.calls);
+    if (leave_for_later) CHECK(later.asked > 100 && later.pixels > 1000);
     /* nothing outside the frame buffers is touched */
     for (int i = 0; i < ROOM; ++i) {
         CHECK(frame_a[i] == 0x5a && frame_a[ROOM + size + i] == 0x5a);
@@ -500,24 +598,165 @@ static void test_rest(void)
     dgx_fb_tiles_free(&tiles);
 }
 
+/* more is drawn into a picture that was finished: when the frame buffers change places, the other one lacks all of it */
+static void test_joined(void)
+{
+    enum { W = 64, H = 40, B = 2 };
+    dgx_fb_tiles_t tiles;
+    const size_t   size = (size_t)W * H * B;
+    uint8_t       *a = frame_a + ROOM, *b = frame_b + ROOM;
+    memset(a, 0, size);
+    memset(b, 0, size);
+    CHECK(dgx_fb_tiles_init(&tiles, W, H, B, 3, 3));
+    CHECK(tiles.copied_bytes == 0);
+    dgx_fb_tiles_pixel(&tiles, a, b, 3, 3);
+    put(a, W, B, 3, 3, 0x1111);
+    dgx_fb_tiles_complete(&tiles, a, b);
+    /* the picture is finished, the frame buffers stay where they are: the next batch goes into it and nothing has to be copied */
+    dgx_fb_tiles_pixel(&tiles, a, b, 20, 20);
+    put(a, W, B, 20, 20, 0x2222);
+    dgx_fb_tiles_ready(&tiles, a, b, 40, 30, 41, 31, true, true);
+    put(a, W, B, 40, 30, 0x3333);
+    dgx_fb_tiles_complete(&tiles, a, b);
+    CHECK(tiles.copied_bytes == 0);
+    CHECK(marked(b, size) == 0);
+    dgx_fb_tiles_changed(&tiles);
+    /* now `b` is drawn into, and it lacks the three tiles of both batches */
+    dgx_fb_tiles_complete(&tiles, b, a);
+    CHECK(tiles.copied_bytes == 3u * 8u * 8u * B);
+    CHECK(memcmp(a, b, size) == 0);
+    dgx_fb_tiles_changed(&tiles);
+    /* nothing was drawn into `b`: `a` lacks nothing */
+    dgx_fb_tiles_complete(&tiles, a, b);
+    CHECK(tiles.copied_bytes == 3u * 8u * 8u * B);
+    dgx_fb_tiles_free(&tiles);
+}
+
+/* what an owner is asked and what becomes of the maps when it leaves a rectangle for later */
+static uint32_t later_now;
+static struct {
+    int      asked;
+    uint32_t left, top, width, rows;
+} later_seen;
+
+static uint32_t later_fixed(void *context, uint32_t left, uint32_t top, uint32_t width, uint32_t rows)
+{
+    CHECK(context == &later_seen);
+    ++later_seen.asked;
+    later_seen.left = left, later_seen.top = top, later_seen.width = width, later_seen.rows = rows;
+    return later_now;
+}
+
+static void test_later(void)
+{
+    enum { W = 64, H = 40, B = 2 };
+    dgx_fb_tiles_t tiles;
+    const size_t   size = (size_t)W * H * B;
+    uint8_t       *a = frame_a + ROOM, *b = frame_b + ROOM;
+    memset(a, 0, size);
+    memset(b, 0, size);
+    memset(&later_seen, 0, sizeof(later_seen));
+    CHECK(dgx_fb_tiles_init(&tiles, W, H, B, 3, 3));
+    CHECK(tiles.later == NULL);
+    tiles.later = later_fixed, tiles.later_context = &later_seen;
+    /* four tiles drawn whole in `a`, and one far from them */
+    dgx_fb_tiles_ready(&tiles, a, b, 0, 0, 15, 15, true, true);
+    for (int y = 0; y < 16; ++y) {
+        for (int x = 0; x < 16; ++x) put(a, W, B, x, y, 0x1100u + (uint32_t)(x + y));
+    }
+    dgx_fb_tiles_ready(&tiles, a, b, 48, 24, 55, 31, true, true);
+    for (int y = 24; y < 32; ++y) {
+        for (int x = 48; x < 56; ++x) put(a, W, B, x, y, 0x2200u + (uint32_t)x);
+    }
+    later_now = 99;
+    dgx_fb_tiles_complete(&tiles, a, b);
+    /* `a` lacked nothing: nobody is asked */
+    CHECK(later_seen.asked == 0 && tiles.copied_bytes == 0);
+    dgx_fb_tiles_changed(&tiles);
+    /* `b` lacks the five tiles; of the four the top two are copied at once, the other two are left */
+    later_now = 8;
+    dgx_fb_tiles_complete(&tiles, b, a);
+    CHECK(later_seen.asked == 2);
+    CHECK(later_seen.left == 48 && later_seen.top == 24 && later_seen.width == 8 && later_seen.rows == 8);
+    CHECK(tiles.copied_bytes == (16u * 8u + 8u * 8u) * B);
+    CHECK(memcmp(a, b, (size_t)W * 8 * B) == 0);
+    CHECK(marked(b + (size_t)W * 8 * B, (size_t)W * 8 * B) == 0);
+    CHECK(tiles.owed[0] == 0 && tiles.owed[1] == 0 && tiles.owed[3] == 0);
+    dgx_fb_tiles_lack(&tiles, 0, 8, 15, 15);
+    CHECK(tiles.owed[0] == 0 && tiles.owed[1] == 3 && tiles.owed[2] == 0 && tiles.owed[3] == 0);
+    /* what was left is lacked as before: a look at it brings it, both tiles that lie side by side */
+    dgx_fb_tiles_pixel_read(&tiles, b, a, 3, 10);
+    CHECK(tiles.owed[1] == 0);
+    CHECK(tiles.copied_bytes == (16u * 16u + 8u * 8u) * B);
+    CHECK(memcmp(a, b, size) == 0);
+    dgx_fb_tiles_changed(&tiles);
+    for (int row = 0; row < tiles.rows; ++row) CHECK(tiles.owed[row] == 0 && tiles.fresh[row] == 0);
+    /* an owner that asks for more rows than there are gets them all copied, and no more */
+    dgx_fb_tiles_ready(&tiles, a, b, 0, 32, 7, 39, true, true);
+    for (int x = 0; x < 8; ++x) put(a, W, B, x, 39, 0x3300u + (uint32_t)x);
+    dgx_fb_tiles_complete(&tiles, a, b);
+    dgx_fb_tiles_changed(&tiles);
+    later_now = 1000;
+    later_seen.asked = 0;
+    uint32_t copied = tiles.copied_bytes;
+    dgx_fb_tiles_complete(&tiles, b, a);
+    CHECK(later_seen.asked == 1 && later_seen.top == 32 && later_seen.rows == 8);
+    CHECK(tiles.copied_bytes == copied + 8u * 8u * B);
+    CHECK(memcmp(a, b, size) == 0);
+    dgx_fb_tiles_changed(&tiles);
+    /* a rectangle left whole, down to the last row of tiles: nothing is copied, and when the frame buffers change places the maps hold nothing of it */
+    dgx_fb_tiles_ready(&tiles, a, b, 16, 24, 31, 39, true, true);
+    dgx_fb_tiles_complete(&tiles, a, b);
+    dgx_fb_tiles_changed(&tiles);
+    CHECK(tiles.owed[3] == 0xcu && tiles.owed[4] == 0xcu);
+    later_now = 0;
+    later_seen.asked = 0;
+    copied = tiles.copied_bytes;
+    dgx_fb_tiles_pixel(&tiles, b, a, 60, 36);
+    dgx_fb_tiles_complete(&tiles, b, a);
+    CHECK(later_seen.asked == 1 && later_seen.left == 16 && later_seen.top == 24 && later_seen.width == 16 && later_seen.rows == 16);
+    CHECK(tiles.copied_bytes == copied);
+    CHECK(tiles.owed[3] == 0 && tiles.owed[4] == 0);
+    dgx_fb_tiles_lack(&tiles, 16, 24, 31, 39);
+    CHECK(tiles.owed[3] == 0xcu && tiles.owed[4] == 0xcu);
+    /* finished once more, it is asked of the same rectangle again */
+    dgx_fb_tiles_complete(&tiles, b, a);
+    CHECK(later_seen.asked == 2 && tiles.copied_bytes == copied);
+    dgx_fb_tiles_lack(&tiles, 16, 24, 31, 39);
+    dgx_fb_tiles_changed(&tiles);
+    /* `a` lacks the tile the pixel was drawn in, and nothing else */
+    for (int row = 0; row < tiles.rows; ++row) CHECK(tiles.owed[row] == (row == 4 ? 0x80u : 0u) && tiles.fresh[row] == 0);
+    dgx_fb_tiles_free(&tiles);
+}
+
 int main(void)
 {
-    test_batches(70, 45, 2, 2, 2, 2, 0);  /* 18 tiles a row */
-    test_batches(70, 45, 3, 3, 3, 3, 0);
-    test_batches(64, 32, 2, 1, 1, 1, 0);  /* 32 tiles a row: a word to the last bit */
-    test_batches(37, 29, 3, 0, 0, 1, 0);  /* a tile a pixel wide would make 37 a row: it grows */
-    test_batches(33, 20, 2, 0, 1, 1, 0);  /* and 33 a row, one more than a word has bits */
-    test_batches(80, 50, 2, 0, 2, 2, 0);
-    test_batches(33, 9, 2, 5, 5, 5, 0);   /* two tiles, the second a pixel wide */
-    test_batches(80, 50, 2, 3, 1, 3, 0);  /* tiles wider than high */
-    test_batches(60, 50, 3, 1, 4, 1, 0);  /* and higher than wide */
+    test_batches(70, 45, 2, 2, 2, 2, 0, false);  /* 18 tiles a row */
+    test_batches(70, 45, 3, 3, 3, 3, 0, false);
+    test_batches(64, 32, 2, 1, 1, 1, 0, false);  /* 32 tiles a row: a word to the last bit */
+    test_batches(37, 29, 3, 0, 0, 1, 0, false);  /* a tile a pixel wide would make 37 a row: it grows */
+    test_batches(33, 20, 2, 0, 1, 1, 0, false);  /* and 33 a row, one more than a word has bits */
+    test_batches(80, 50, 2, 0, 2, 2, 0, false);
+    test_batches(33, 9, 2, 5, 5, 5, 0, false);   /* two tiles, the second a pixel wide */
+    test_batches(80, 50, 2, 3, 1, 3, 0, false);  /* tiles wider than high */
+    test_batches(60, 50, 3, 1, 4, 1, 0, false);  /* and higher than wide */
     /* the same with a copier that takes what is left when it is large enough */
-    test_batches(70, 45, 2, 2, 2, 2, 40);
-    test_batches(64, 32, 2, 1, 1, 1, 12);
-    test_batches(37, 29, 3, 0, 0, 1, 6);
-    test_batches(80, 50, 2, 3, 1, 3, 100);
+    test_batches(70, 45, 2, 2, 2, 2, 40, false);
+    test_batches(64, 32, 2, 1, 1, 1, 12, false);
+    test_batches(37, 29, 3, 0, 0, 1, 6, false);
+    test_batches(80, 50, 2, 3, 1, 3, 100, false);
+    /* and with an owner that leaves rectangles for later, with a copier and without */
+    test_batches(70, 45, 2, 2, 2, 2, 0, true);
+    test_batches(64, 32, 2, 1, 1, 1, 0, true);
+    test_batches(37, 29, 3, 0, 0, 1, 0, true);
+    test_batches(80, 50, 2, 3, 1, 3, 0, true);
+    test_batches(60, 50, 3, 1, 4, 1, 0, true);
+    test_batches(70, 45, 2, 2, 2, 2, 40, true);
+    test_batches(80, 50, 2, 3, 1, 3, 100, true);
     test_economy();
     test_rest();
+    test_joined();
+    test_later();
     test_last_tile();
     CHECK_DONE();
 }

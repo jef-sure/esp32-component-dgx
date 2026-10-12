@@ -41,12 +41,13 @@ typedef struct {
     uint32_t left, top, right, below;
 } dgx_fb_tiles_part_t;
 
-/* copy a rectangle of the panel; `rest` tells that it is what is left before the frame buffers change places */
+/* copy a rectangle of the panel; `rest` tells that it is what is left when the picture is finished */
 static void dgx_fb_tiles_rectangle(dgx_fb_tiles_t *tiles, uint8_t *to, const uint8_t *from, uint32_t left, uint32_t top, uint32_t right, uint32_t below,
                                    bool rest)
 {
-    if (rest && tiles->copier && tiles->copier(tiles->copier_context, to, from, left, top, right - left, below - top)) return;
     const uint32_t bytes = tiles->pixel_bytes;
+    tiles->copied_bytes += (right - left) * (below - top) * bytes;
+    if (rest && tiles->copier && tiles->copier(tiles->copier_context, to, from, left, top, right - left, below - top)) return;
     const size_t   pitch = (size_t)tiles->width * bytes;
     const size_t   at = (size_t)top * pitch + (size_t)left * bytes, length = (size_t)(right - left) * bytes;
     for (uint32_t y = top; y < below; ++y) memcpy(to + (size_t)y * pitch + (size_t)left * bytes, from + (size_t)y * pitch + (size_t)left * bytes, length);
@@ -203,7 +204,7 @@ void dgx_fb_tiles_close(dgx_fb_tiles_t *tiles, uint16_t x0, uint16_t y0, uint16_
     for (uint32_t row = span.row0; row <= span.row1; ++row) tiles->owed[row] &= ~span.mask;
 }
 
-void dgx_fb_tiles_finish(dgx_fb_tiles_t *tiles, uint8_t *to, const uint8_t *from)
+void dgx_fb_tiles_complete(dgx_fb_tiles_t *tiles, uint8_t *to, const uint8_t *from)
 {
     const uint32_t rows = tiles->rows;
     for (uint32_t row = 0; row < rows; ++row) {
@@ -220,17 +221,42 @@ void dgx_fb_tiles_finish(dgx_fb_tiles_t *tiles, uint8_t *to, const uint8_t *from
             uint32_t       last   = row;
             while (last + 1u < rows && (tiles->owed[last + 1u] & (mask | around)) == mask) ++last;
             for (uint32_t taken = row; taken <= last; ++taken) tiles->owed[taken] &= ~mask;
-            uint32_t right = (first + count) << tiles->shift_x, below = (last + 1u) << tiles->shift_y;
+            const uint32_t left = first << tiles->shift_x, top = row << tiles->shift_y;
+            uint32_t       right = (first + count) << tiles->shift_x, below = (last + 1u) << tiles->shift_y;
             if (right > tiles->width) right = tiles->width;
             if (below > tiles->height) below = tiles->height;
-            dgx_fb_tiles_rectangle(tiles, to, from, first << tiles->shift_x, row << tiles->shift_y, right, below, true);
+            /* what the owner leaves for later is not copied, and it tells of it by dgx_fb_tiles_lack() */
+            if (tiles->later) {
+                const uint32_t now = tiles->later(tiles->later_context, left, top, right - left, below - top);
+                if (now < below - top) below = top + now;
+            }
+            if (below > top) dgx_fb_tiles_rectangle(tiles, to, from, left, top, right, below, true);
         }
     }
-    /* what was drawn is what the other frame buffer lacks; the map that has just been emptied takes what is drawn next */
+}
+
+void dgx_fb_tiles_lack(dgx_fb_tiles_t *tiles, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
+{
+    dgx_fb_tiles_span_t span;
+    dgx_fb_tiles_span(tiles, x0, y0, x1, y1, &span);
+    for (uint32_t row = span.row0; row <= span.row1; ++row) tiles->owed[row] |= span.mask;
+}
+
+void dgx_fb_tiles_changed(dgx_fb_tiles_t *tiles)
+{
+    /* what was left for later is not lacked by the frame buffer drawing goes into now */
+    memset(tiles->owed, 0, tiles->rows * sizeof(uint32_t));
+    /* what was drawn is what the other frame buffer lacks; the map that is empty takes what is drawn next */
     uint32_t *drawn = tiles->fresh;
     tiles->fresh    = tiles->owed;
     tiles->owed     = drawn;
     tiles->last     = DGX_FB_TILES_NO_TILE;
+}
+
+void dgx_fb_tiles_finish(dgx_fb_tiles_t *tiles, uint8_t *to, const uint8_t *from)
+{
+    dgx_fb_tiles_complete(tiles, to, from);
+    dgx_fb_tiles_changed(tiles);
 }
 
 bool dgx_fb_tiles_take_copied(dgx_fb_tiles_t *tiles, uint32_t *from, uint32_t *length)

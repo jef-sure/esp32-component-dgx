@@ -19,7 +19,7 @@ if(CONFIG_DGX_ENABLE_P8)
 endif()
 
 if(CONFIG_DGX_ENABLE_DSI)
-	list(APPEND srcs "src/bus/dsi_esp32.c" "src/bus/fb_area.c" "src/bus/fb_tiles.c")
+	list(APPEND srcs "src/bus/dsi_esp32.c" "src/bus/fb_area.c" "src/bus/fb_tiles.c" "src/bus/fb_flip.c")
 endif()
 
 if(CONFIG_DGX_ENABLE_SPI_ST7735)

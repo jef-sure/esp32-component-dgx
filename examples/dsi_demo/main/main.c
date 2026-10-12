@@ -6,6 +6,8 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 
 #include "bus/dgx_dsi_esp32.h"
 #include "dgx_bits.h"
@@ -19,6 +21,8 @@
 #include "fonts/VerdanaRegular32.h"
 
 static const char *TAG = "dgx_dsi_demo";
+
+static dgx_bus_protocols_t *demo_bus;
 
 /* Guition JC1060P470: a 7-inch 1024x600 display with a JD9165 on two DSI lanes */
 enum
@@ -190,6 +194,50 @@ static void demo_color_bars(dgx_screen_t *screen)
  * Bars moving sideways in a band of the screen: a picture that tears if it does. With one frame buffer a bar is
  * seen broken now and then, where the display was reading the band while it was sent; with two it never is.
  */
+/*
+ * How a program keeps the pace of the display. A display does not hold a
+ * program back, so one that would draw more often than frames are shown
+ * holds itself. Sleeping for the time of a frame is not enough: where in a
+ * frame the picture is finished then is a matter of chance, and one that is
+ * finished near the end of a frame gets now into this frame, now into the
+ * next, and moves unevenly.
+ *
+ * So a picture is aimed: it is to be finished a little before a frame ends.
+ * The bus tells how long a frame takes and when the last one ended, the
+ * program knows how long its last pictures took, and it starts the next one
+ * that much, and 4 ms of room, before the end of the frame it wants to be
+ * in. The bus does not wait for anything: the program sleeps as it likes.
+ * With one frame buffer the bus does not count frames, and the pace is kept
+ * by the clock alone.
+ */
+typedef struct {
+    int64_t  aim;     /* the end of a frame the last picture was to be in time for */
+    uint32_t work_us; /* the longest of the last pictures, forgotten by an eighth a picture */
+} demo_pace_t;
+
+#define DEMO_PACE_ROOM_US 4000
+
+/* sleep until the next picture is to be started; `began_us` is when the last one was */
+static void demo_pace(demo_pace_t *pace, int64_t began_us)
+{
+    const int64_t  now = esp_timer_get_time(), period = dgx_dsi_frame_us(demo_bus);
+    const uint32_t took = (uint32_t)(now - began_us), less = pace->work_us - (pace->work_us >> 3);
+    int64_t        ended, from;
+    pace->work_us = took > less ? took : less;
+    if (dgx_dsi_frame_ended(demo_bus, &ended)) {
+        /* the frame after the one aimed at last, on the ends of frames as they really are */
+        int64_t aim = pace->aim ? pace->aim + period : ended + period;
+        aim         = ended + (aim - ended + period / 2) / period * period;
+        from        = aim - DEMO_PACE_ROOM_US - pace->work_us;
+        /* too late for that frame: the one after it */
+        while (from < now) aim += period, from += period;
+        pace->aim = aim;
+    } else {
+        from = began_us + period;
+    }
+    while (esp_timer_get_time() < from) vTaskDelay(1);
+}
+
 static void demo_moving_bars(dgx_screen_t *screen, uint32_t run_ms)
 {
     const int     top = screen->height / 3, height = screen->height / 3, pitch = 128, width = 40, step = 4;
@@ -199,16 +247,17 @@ static void demo_moving_bars(dgx_screen_t *screen, uint32_t run_ms)
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, DGX_BLACK(demo_rgb));
     demo_text(screen, 16, 44, EXAMPLE_LCD_FRAMES == DgxDsiTwoFrames ? "two frame buffers" : "one frame buffer", DGX_WHITE(demo_rgb));
     dgx_screen_progress_down(screen);
-    int64_t start = esp_timer_get_time();
-    int     frames = 0, offset = 0;
+    int64_t     start = esp_timer_get_time();
+    int         frames = 0, offset = 0;
+    demo_pace_t pace = {0};
     while (esp_timer_get_time() - start < (int64_t)run_ms * 1000) {
+        const int64_t began = esp_timer_get_time();
         for (int x = offset - pitch; x < band->width; x += pitch) dgx_fill_rectangle(band, x, 0, width, height, DGX_BLACK(demo_rgb));
         offset = (offset + step) % pitch;
         for (int x = offset - pitch; x < band->width; x += pitch) dgx_fill_rectangle(band, x, 0, width, height, DGX_CYAN(demo_rgb));
         dgx_vscreen_to_screen(screen, 0, top, band);
         ++frames;
-        /* one frame buffer: not faster than the display shows; with two the bus waits for the display itself */
-        if (EXAMPLE_LCD_FRAMES == DgxDsiOneFrame) vTaskDelay(1);
+        demo_pace(&pace, began);
     }
     ESP_LOGI(TAG, "moving bars: %d frames a second", (int)(frames * 1000LL / run_ms));
     dgx_screen_destroy(&band);
@@ -224,6 +273,43 @@ static void demo_run_step(dgx_screen_t *screen, const char *name, demo_step_fn_t
     int64_t elapsed_ms = (esp_timer_get_time() - start_us) / 1000;
     ESP_LOGI(TAG, "%s rendered in %" PRId64 " ms", name, elapsed_ms);
     vTaskDelay(pdMS_TO_TICKS(hold_ms));
+}
+
+/*
+ * When a rectangle goes by the 2D DMA or the accelerator of the chip and
+ * when by the processor, and how much room the bus leaves before the scan
+ * of the display, is decided by numbers that depend on the chip, its
+ * memory and the display. The bus starts with those of the board DGX was
+ * written on. dgx_dsi_bench() measures them on the board at hand, in
+ * memory of its own, so nothing shows on the screen. It takes 0.07 s, so
+ * it is done once and the numbers are kept in NVS: at the next start the
+ * bus gets them from there. Numbers kept for another panel or another color
+ * depth are not taken, and the board is measured again.
+ */
+static void demo_tune(dgx_bus_protocols_t *bus)
+{
+    dgx_dsi_tuning_t tuning;
+    size_t           size = sizeof(tuning);
+    nvs_handle_t     nvs;
+    esp_err_t        err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        err = nvs_flash_init();
+    }
+    if (err != ESP_OK || nvs_open("dgx", NVS_READWRITE, &nvs) != ESP_OK) {
+        ESP_LOGW(TAG, "no NVS: the bus keeps the numbers it has");
+        return;
+    }
+    if (nvs_get_blob(nvs, "dsi_tuning", &tuning, &size) == ESP_OK && size == sizeof(tuning) && dgx_dsi_tune(bus, &tuning)) {
+        ESP_LOGI(TAG, "the bus has the numbers kept in NVS");
+    } else if (dgx_dsi_bench(bus, &tuning) && dgx_dsi_tune(bus, &tuning)) {
+        nvs_set_blob(nvs, "dsi_tuning", &tuning, sizeof(tuning));
+        nvs_commit(nvs);
+        ESP_LOGI(TAG, "the board was measured, the numbers are kept in NVS");
+    } else {
+        ESP_LOGW(TAG, "the board could not be measured: the bus keeps the numbers it has");
+    }
+    nvs_close(nvs);
 }
 
 void app_main(void)
@@ -245,6 +331,8 @@ void app_main(void)
     }
     dgx_jd9165_orientation(screen, EXAMPLE_LCD_DIR_X, EXAMPLE_LCD_DIR_Y, EXAMPLE_LCD_SWAP_XY);
     ESP_LOGI(TAG, "Display initialized: %dx%d", screen->width, screen->height);
+    demo_bus = bus;
+    demo_tune(bus);
 
     while (1) {
         demo_run_step(screen, "test card", demo_test_card, 5000);
