@@ -950,6 +950,8 @@ a virtual screen, on a display drawn through a virtual back screen and on a
 DSI display. A virtual screen of whole bytes a pixel is moved in its memory a
 row at a time; any other such screen, a DSI display among them, is moved
 pixel by pixel.
+[examples/figures_scroll_demo](examples/figures_scroll_demo) shows the
+figures and both kinds of scroll on a CYD.
 
 A display that keeps its pixels in the panel behind a bus is not read. There
 the panel moves the picture itself when it can, and no pixel of the picture
@@ -1406,6 +1408,10 @@ all its orientations, and the ILI9341 driver with the scroll of its panel:
 make -C test/host
 ```
 
+What a host cannot tell, the look of a figure on a panel, the scroll of the
+panel itself and the times on the chip, is seen on a board:
+[examples/figures_scroll_demo](examples/figures_scroll_demo) for a CYD.
+
 ## Repository layout
 
 ```
@@ -1429,6 +1435,7 @@ examples/texture_demo/      CYD demo scaling, turning and wobbling a textured ca
 examples/hw_font_demo/      CYD demo writing a text by hand with a font of Bezier curves
 examples/hw_morph_demo/     CYD demo morphing handwritten words one into another
 examples/hw_soft_pen_demo/  demo for a CYD or a JC1060P470 writing four lines with a soft pen, two of them moving to make room
+examples/figures_scroll_demo/  CYD demo of ellipses, arcs and sectors and of a picture scrolled, in memory and by the panel, with timings in its log
 test/host/               host tests with ESP-IDF stubs
 docs/                    morphing articles and handwritten text guides (English and Russian),
                          the converter and the tables of handwritten fonts (Russian),

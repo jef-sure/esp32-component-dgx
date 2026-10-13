@@ -1,5 +1,16 @@
 # Changes
 
+## Unreleased
+
+- `examples/figures_scroll_demo`: the figures and the scroll of 0.5.5 on a
+  CYD, each in a way it is used in a program: a pie of sectors, the sign of
+  Wi-Fi by arcs of a soft pen, lines of text scrolled in the memory of a
+  virtual screen, a chart and a terminal with a head and a foot scrolled by
+  the panel itself, in four orientations. Every page says what moves its
+  picture, and the timings go to the log. It is the firmware the figures and
+  the scroll were seen and timed with; the entry of 0.5.5 says it is outside
+  the repository, and it was then.
+
 ## 0.5.5 - 2026-10-13
 
 - **an ellipse, its arc and its sector: `dgx_draw_ellipse()`,
