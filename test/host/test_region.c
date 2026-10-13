@@ -70,6 +70,38 @@ static void panel_wait(dgx_screen_t *scr)
     (void)scr;
 }
 
+/*
+ * A bus that has a faster way than its window: it takes rows as they lie in memory, a rectangle at a
+ * time. As a real one does, it refuses what is too small to be worth it; this one also refuses a
+ * rectangle now and then, and that has to go through the window.
+ */
+static int rows_calls, rows_taken, rows_refuse_every, rows_least, bands_given;
+
+static bool panel_write_rows(struct _dgx_bus_protocols_t *bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height, const uint8_t *rows,
+                             uint32_t pitch)
+{
+    (void)bus;
+    ++rows_calls;
+    if ((int)width * height * 2 < rows_least) return false;
+    if (rows_refuse_every && rows_calls % rows_refuse_every == 0) return false;
+    CHECK(left + width <= DW && top + height <= DH && pitch >= 2u * width);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const uint8_t *p = rows + (size_t)y * pitch + 2u * (size_t)x;
+            if (left + x < DW && top + y < DH) panel[left + x + (top + y) * DW] = (uint16_t)(p[0] << 8 | p[1]);
+            ++sent_pixels;
+        }
+    }
+    ++rows_taken;
+    return true;
+}
+
+static uint8_t *panel_memory(uint32_t len)
+{
+    ++bands_given;
+    return (uint8_t *)malloc(len);
+}
+
 static void panel_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color)
 {
     (void)scr;
@@ -104,8 +136,14 @@ static void test_region(void)
     lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait_buffer = panel_wait;
     lcd->set_pixel = panel_set_pixel, lcd->update_screen = panel_update;
 
-    for (int round = 0; round < 4000; ++round) {
+    for (int round = 0; round < 12000; ++round) {
         bool transparent = round & 1, by_bus = (round >> 1) & 1;
+        /* the bus of every third round takes rows, of every sixth it refuses some of them */
+        int  rows_kind = by_bus ? (round >> 2) % 3 : 0;
+        bus.write_rows = rows_kind ? panel_write_rows : NULL;
+        bus.memory_allocator = rows_kind ? panel_memory : NULL;
+        rows_least = rows_kind ? 60 : 0;
+        rows_refuse_every = rows_kind == 2 ? 3 : 0;
         int  x = rnd(-SW - 3, DW + 3), y = rnd(-SH - 3, DH + 3); /* where the whole source is shown */
         int  left = rnd(-6, SW + 5), top = rnd(-6, SH + 5), width = rnd(-2, SW + 8), height = rnd(-2, SH + 8);
         if (round % 7 == 0) left = 0, top = 0, width = SW, height = SH;
@@ -137,12 +175,118 @@ static void test_region(void)
         }
         CHECK(wrong == 0);
         /* over a bus only the pixels of the part are sent, in one area; nothing is when nothing is left of the part */
-        if (by_bus && !transparent) CHECK(sent_pixels == inside && areas == (inside ? 1 : 0));
+        if (by_bus && !transparent) CHECK(sent_pixels == inside);
+        if (by_bus && !transparent && !rows_kind) CHECK(areas == (inside ? 1 : 0));
         if (by_bus && !inside) CHECK(sent_pixels == 0 && areas == 0);
     }
+    /* the bus has taken rows, has refused some, and bands of several rows have gone both ways */
+    CHECK(rows_taken > 1000 && rows_calls > rows_taken + 500 && bands_given > 1000);
     dgx_screen_destroy(&src);
     dgx_screen_destroy(&whole);
     dgx_screen_destroy(&part);
+}
+
+/*
+ * A bus that mixes two colors by an amount of ink itself, as the accelerator of an ESP32-P4 does. This
+ * one puts the colors of a table of its own, to be told from the table of the library, and refuses now
+ * and then; what it refuses has to come another way, in the colors of the library.
+ */
+static int      ink_calls, ink_taken, ink_refuse_every;
+static uint16_t ink_colors[256];
+
+static bool panel_write_ink(struct _dgx_bus_protocols_t *bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height, const uint8_t *ink,
+                            uint32_t pitch, uint32_t paper, uint32_t color)
+{
+    (void)bus;
+    ++ink_calls;
+    if (ink_refuse_every && ink_calls % ink_refuse_every == 0) return false;
+    CHECK(left + width <= DW && top + height <= DH && pitch >= width && paper == 0xffbd && color == 0x192f);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (left + x < DW && top + y < DH) panel[left + x + (top + y) * DW] = ink_colors[ink[(size_t)y * pitch + x]];
+        }
+    }
+    ++ink_taken;
+    return true;
+}
+
+/* a table of two colors and what lies between them, rounded as a program would: each channel on its own, in 8 bits */
+static void two_colors(uint16_t *table, const uint8_t *paper, const uint8_t *color)
+{
+    for (int a = 0; a < 256; ++a) {
+        int rgb[3];
+        for (int c = 0; c < 3; ++c) rgb[c] = paper[c] + (color[c] - paper[c]) * a / 255;
+        table[a] = (uint16_t)((rgb[0] >> 3) << 11 | (rgb[1] >> 2) << 5 | rgb[2] >> 3);
+    }
+}
+
+static void test_ink(void)
+{
+    dgx_screen_t *src = dgx_vscreen_init(SW, SH, 8, DgxScreenRGB);
+    dgx_screen_t *by_table = dgx_vscreen_init(DW, DH, 16, DgxScreenRGB);
+    for (int y = 0; y < SH; ++y) {
+        for (int x = 0; x < SW; ++x) dgx_set_pixel(src, x, y, (uint32_t)(rnd(0, 3) ? rnd(0, 255) : rnd(0, 1) * 255));
+    }
+    /* the table of a page of ink, as examples/hw_soft_pen_demo makes it, and tables that are no two colors */
+    static const uint8_t paper[3] = {250, 246, 232}, color[3] = {24, 36, 120};
+    static uint16_t      straight[256], bent[256], stepped[256];
+    two_colors(straight, paper, color);
+    CHECK(straight[0] == 0xffbd && straight[255] == 0x192f);
+    for (int a = 0; a < 256; ++a) {
+        /* the same two colors with a bend in the way between them, and with two steps where one is let */
+        bent[a] = straight[a * a / 255];
+        stepped[a] = straight[a];
+    }
+    stepped[100] = (uint16_t)(stepped[100] ^ (2 << 5));
+    /* the bus of the test puts colors of its own, to be told from the table */
+    for (int a = 0; a < 256; ++a) ink_colors[a] = (uint16_t)(straight[a] ^ 0x0841);
+
+    static uint8_t        bus_buffer[64];
+    dgx_bus_protocols_t   bus = {.buffer = bus_buffer, .buffer_len = sizeof(bus_buffer)};
+    dgx_screen_with_bus_t sbus = {.bus = &bus};
+    dgx_screen_t         *lcd = &sbus.scr;
+    lcd->width = DW, lcd->height = DH, lcd->color_bits = 16, lcd->screen_subtype = DgxPhysicalScreenWithBus;
+    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait_buffer = panel_wait;
+    lcd->set_pixel = panel_set_pixel, lcd->update_screen = panel_update;
+
+    int asked_wrongly = 0;
+    for (int round = 0; round < 8000; ++round) {
+        /* a bus with its window alone, a bus that mixes, a bus that mixes and refuses every third time */
+        const int       kind = round % 3;
+        /* the table of two colors, the bent one, the stepped one, the two colors with a hole for 0, the two colors asked for to the last bit */
+        const int       which = (round / 3) % 5;
+        uint16_t       *table = which == 1 ? bent : which == 2 ? stepped : straight;
+        const uint32_t  transparent = which == 3 ? DGX_LUT_TRANSPARENT : which == 4 ? DGX_LUT_EXACT : 0;
+        int             x = rnd(-SW - 3, DW + 3), y = rnd(-SH - 3, DH + 3);
+        int             left = rnd(-6, SW + 5), top = rnd(-6, SH + 5), width = rnd(-2, SW + 8), height = rnd(-2, SH + 8);
+        if (round % 7 == 0) left = 0, top = 0, width = SW, height = SH;
+        bus.write_ink = kind ? panel_write_ink : NULL;
+        ink_refuse_every = kind == 2 ? 3 : 0;
+        const int taken_before = ink_taken, calls_before = ink_calls;
+        dgx_fill_rectangle(by_table, 0, 0, DW, DH, MARK);
+        for (int i = 0; i < DW * DH; ++i) panel[i] = MARK;
+        dgx_vscreen8_region_to_screen16(by_table, x + left, y + top, src, left, top, width, height, table, transparent);
+        dgx_vscreen8_region_to_screen16(lcd, x + left, y + top, src, left, top, width, height, table, transparent);
+        const bool mixed = ink_taken != taken_before;
+        /* only the table of two colors, with no hole in it and not asked for exactly, is offered to the bus that mixes */
+        if (which) asked_wrongly += ink_calls != calls_before;
+        int wrong = 0;
+        for (int dy = 0; dy < DH; ++dy) {
+            for (int dx = 0; dx < DW; ++dx) {
+                uint16_t want = (uint16_t)dgx_get_pixel(by_table, dx, dy);
+                int      sx = dx - x, sy = dy - y;
+                bool     in = sx >= left && sx < left + width && sy >= top && sy < top + height && sx >= 0 && sy >= 0 && sx < SW && sy < SH;
+                /* the bus that has mixed has put its own colors, in the same pixels */
+                if (mixed && in) want = ink_colors[dgx_get_pixel(src, sx, sy)];
+                wrong += panel[dx + dy * DW] != want;
+            }
+        }
+        CHECK(wrong == 0);
+    }
+    /* the bus has mixed many times, has refused many, and was never asked for a table that is not two colors */
+    CHECK(ink_taken > 300 && ink_calls > ink_taken + 50 && asked_wrongly == 0);
+    dgx_screen_destroy(&src);
+    dgx_screen_destroy(&by_table);
 }
 
 static int updates;
@@ -295,6 +439,7 @@ static void test_marks(void)
 int main(void)
 {
     test_region();
+    test_ink();
     test_take();
     test_marks();
     CHECK_DONE();

@@ -1,0 +1,14 @@
+CONFIG_DGX_ENABLE_DSI=y
+CONFIG_DGX_ENABLE_JD9165=y
+
+# The frame buffers the display is sent from and the page of ink live in PSRAM
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_HEX=y
+CONFIG_SPIRAM_SPEED_200M=y
+CONFIG_IDF_EXPERIMENTAL_FEATURES=y
+
+# The board this was made on has a chip of revision 1.3.
+# Remove the line for a chip of revision 3.0 or later.
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y

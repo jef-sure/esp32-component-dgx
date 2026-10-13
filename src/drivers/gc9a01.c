@@ -75,7 +75,9 @@ static void dgx_gc9a01_set_area(dgx_screen_t *_scr, uint16_t left, uint16_t righ
         top          = bottom;
         bottom       = tmp;
     }
-    if (left >= _scr->width || top >= _scr->height) {
+    /* a window off the screen is no window: what is sent into it must not land in the one before */
+    scr->area_void = left >= _scr->width || top >= _scr->height;
+    if (scr->area_void) {
         return;
     }
     if (right > _scr->width - 1) {
@@ -226,6 +228,8 @@ void dgx_gc9a01_display_off(dgx_screen_t *_scr)
     dgx_gc9a01_t *scr = (dgx_gc9a01_t *)_scr;
 
     scr->base.bus->write_command(scr->base.bus, GC9A01_DISPOFF);
+    /* a bus that sends a command together with its data holds it back until it knows there is none */
+    if (scr->base.bus->sync_write) scr->base.bus->sync_write(scr->base.bus);
 }
 
 void dgx_gc9a01_display_on(dgx_screen_t *_scr)
@@ -233,4 +237,5 @@ void dgx_gc9a01_display_on(dgx_screen_t *_scr)
     dgx_gc9a01_t *scr = (dgx_gc9a01_t *)_scr;
 
     scr->base.bus->write_command(scr->base.bus, GC9A01_DISPON);
+    if (scr->base.bus->sync_write) scr->base.bus->sync_write(scr->base.bus);
 }

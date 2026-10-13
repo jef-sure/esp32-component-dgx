@@ -14,15 +14,26 @@ extern "C" {
  * The driver renders into a color virtual screen and flushes it to the
  * controller, so CONFIG_DGX_ENABLE_VSCREEN must be enabled.
  *
- * @param bus Bus backend returned by dgx_spi_init(), dgx_i2c_init() or dgx_p8_init().
+ * The controller is driven by its serial protocol, a sync byte and two
+ * nibbles for every byte, so the bus is an SPI one. Its chip select is active
+ * high and is held for a whole transfer: the driver drives @p cs itself.
+ *
+ * @param bus Bus backend returned by dgx_spi_init().
  * @param rst Reset GPIO (use GPIO_NUM_NC if the panel has no reset line).
- * @param cs  Chip-select GPIO.
+ * @param cs  Chip-select GPIO, driven by the driver: high for a transfer.
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */
 dgx_screen_t* dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t cs);
 
 /**
- * @brief Reprogram the logical scan direction (rotation/mirroring).
+ * @brief Set how the screen lies on the panel (rotation/mirroring).
+ *
+ * The controller has no command for it: the driver turns the picture when
+ * it sends it to the panel. With @p swap_xy the screen is 64x128, and what
+ * was drawn before the call is cleared, for its rows are of another length;
+ * without a change of size the picture stays and is shown as it lies now.
+ * A turned screen is gathered bit by bit, a whole update of it takes longer.
+ *
  * @param scr     Screen created by dgx_st7920_init().
  * @param dir_x   DgxScreenLeftRight or DgxScreenRightLeft.
  * @param dir_y   DgxScreenTopBottom or DgxScreenBottomTop.

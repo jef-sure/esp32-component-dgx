@@ -145,7 +145,9 @@ void app_main(void)
         dgx_hw_writing_t writing;
         int64_t          start_us = esp_timer_get_time();
         clear();
-        dgx_hw_writing_begin(&writing, band, (int)lroundf(shift[0] * scale), base_y, font, words[0], scale, pen, 255, EXAMPLE_JOINED, &pace);
+        /* the pen has a soft edge: the band is 8 bits a pixel, a byte of it an amount of ink */
+        dgx_hw_writing_begin(&writing, band, (int)lroundf(shift[0] * scale), base_y, font, words[0], scale, DGX_PEN_SOFT | pen, 255,
+                             EXAMPLE_JOINED, &pace);
         bool finished = false;
         while (!finished) {
             finished = dgx_hw_writing_draw_to(&writing, 1500.0f * (esp_timer_get_time() - start_us) * 1e-6f);
@@ -187,10 +189,10 @@ void app_main(void)
             if (by_letters) {
                 for (size_t i = 0; i < letters->length; ++i) {
                     float t = progress(start_us + (int64_t)i * EXAMPLE_LETTER_STAGGER_US, now_us, EXAMPLE_LETTER_MORPH_US);
-                    dgx_hw_morph_draw(letters->letters[i], t, band, 0, base_y, scale, pen, 255);
+                    dgx_hw_morph_draw(letters->letters[i], t, band, 0, base_y, scale, DGX_PEN_SOFT | pen, 255);
                 }
             } else {
-                dgx_hw_morph_draw(line, progress(start_us, now_us, duration_us), band, 0, base_y, scale, pen, 255);
+                dgx_hw_morph_draw(line, progress(start_us, now_us, duration_us), band, 0, base_y, scale, DGX_PEN_SOFT | pen, 255);
             }
             drawing_us += esp_timer_get_time() - now_us;
             present();

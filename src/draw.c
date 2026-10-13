@@ -111,7 +111,7 @@ void dgx_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color) {
 */
 uint32_t dgx_get_pixel(dgx_screen_t *scr, int x, int y) {
     if (!scr->get_pixel) {
-        ESP_LOGE(TAG, "set_pixel is not implemented");
+        ESP_LOGE(TAG, "get_pixel is not implemented");
         return 0;
     }
     return scr->get_pixel(scr, x, y);

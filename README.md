@@ -185,14 +185,14 @@ DGX is a component, not a standalone firmware image. It is published in the
 as `jef-sure/dgx`. To add it to your own ESP-IDF project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.5.3"
+idf.py add-dependency "jef-sure/dgx^0.5.4"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.5.3"
+  jef-sure/dgx: "^0.5.4"
 ```
 
 The next build downloads it into `managed_components/`. To work on DGX itself,
@@ -287,7 +287,7 @@ wire.
 | SSD1351 | color OLED | SPI, P8 | `dgx_ssd1351_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SSD1351` |
 | SSD1306 | mono OLED | SPI, I2C | `dgx_ssd1306_init(bus, resolution, is_ext_vcc, rst)` | `CONFIG_DGX_ENABLE_SSD1306` |
 | ST7565R | mono LCD | SPI | `dgx_st7565r_init(bus, rst)` | `CONFIG_DGX_ENABLE_ST7565R` |
-| ST7920 | mono LCD | SPI, I2C, P8 | `dgx_st7920_init(bus, rst, cs)` | `CONFIG_DGX_ENABLE_ST7920` |
+| ST7920 | mono LCD | SPI | `dgx_st7920_init(bus, rst, cs)` | `CONFIG_DGX_ENABLE_ST7920` |
 | JD9165 | color TFT, 1024x600 | DSI | `dgx_jd9165_init(bus, rst, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9165` |
 
 Common parameters:
@@ -299,11 +299,17 @@ Common parameters:
   under software control.
 - `color_bits` — pixel depth; `16` (RGB565) is the usual choice. JD9165
   takes `16` or `24`.
-- `cbo` — channel order, `DgxScreenRGB` or `DgxScreenBGR`.
+- `cbo` — channel order, `DgxScreenRGB` or `DgxScreenBGR`: the order colors
+  come out in on the usual modules of the controller. The usual ILI9341
+  modules show red as red with the BGR bit of the controller set, so there
+  `DgxScreenRGB` sets that bit, the other way round from the other drivers.
+  If red and blue are exchanged on your module, pass the other value.
 
 Color panels and ST7920 also expose an orientation setter
-(`dgx_<driver>_orientation(scr, dir_x, dir_y, swap_xy)`) that reprograms the
-controller's scan direction. A few drivers add extras: ILI9341 has
+(`dgx_<driver>_orientation(scr, dir_x, dir_y, swap_xy)`). A color controller
+is told its scan direction. An ST7920 has no command for that: its driver
+turns the picture where it sends it to the panel, and with `swap_xy` the
+screen is 64x128. A few drivers add extras: ILI9341 has
 `dgx_ili9341_backlight()`, GC9A01 has `dgx_gc9a01_display_off()` /
 `dgx_gc9a01_display_on()`, SSD1351 has `dgx_ssd1351_brightness()`, and SSD1306
 has `dgx_ssd1306_contrast()`.
@@ -375,6 +381,16 @@ turned; otherwise, and for 24-bit color, the processor moves the pixels as
 before. A large rectangle is filled by the pixel processing accelerator: the
 whole screen in 3.5 ms instead of 16, in any orientation and color depth.
 `CONFIG_DGX_DSI_HARDWARE_COPY` turns both off.
+
+An 8-bit virtual screen whose table is two colors and what lies between
+them, as a screen a pen with a soft edge draws on has, is mixed of the two by
+the same accelerator when the display has two frame buffers: 367 thousand
+pixels in 10.6 ms where through the table they take 17.1. The first and the
+last color are those of the table; a color between them may differ from the
+table by one step of a channel, 3.2% of the range of red or blue and 1.6% of
+green, which is 2.3% of full brightness at most and 0.5% on the average.
+`DGX_LUT_EXACT` given to the call in place of `false` asks for the colors of
+the table and nothing else: the screen goes through its table then.
 
 From what size on a piece goes past the processor and how much room the bus
 leaves before the scan of the display is decided by numbers that depend on
@@ -514,10 +530,14 @@ dgx_gauge_init(&gauge, scr,
                135.0f, 270,                     // start angle (deg), sweep
                0, 100,                          // value range
                DGX_DARKGREY(dgx_rgb_to_16),     // inactive step color
-               gauge_color);
+               gauge_color);                    // the empty ring is on the screen now
 
 dgx_gauge_set_value(&gauge, 42); // redraws only the steps that changed
 ```
+
+`dgx_gauge_init()` draws the ring with every step inactive; what is under it
+is not cleared. `dgx_gauge_redraw()` draws the whole gauge again, after
+something else was drawn over it.
 
 ### Stretching a texture onto a quad
 
@@ -819,6 +839,14 @@ that bends more; `k` is the second argument of `dgx_hw_pace()`, 0 for an even
 speed. See [docs/handwriting-en.md](docs/handwriting-en.md) and
 [examples/hw_font_demo](examples/hw_font_demo).
 
+A small text on a small display wants a pen with a soft edge. It is the same
+call with `DGX_PEN_SOFT | pen` for the pen, into a virtual screen of 8 bits a
+pixel that is sent to the display through a table of colors: `color` is then
+an amount of ink, 255 for all of it, and the table runs from the color of the
+paper at 0 to the color of the ink at 255.
+[examples/hw_soft_pen_demo](examples/hw_soft_pen_demo) and
+[examples/hw_morph_demo](examples/hw_morph_demo) draw so.
+
 ### Morphing handwritten text
 
 Every stroke is a cubic Bezier curve, so a morph is a list of pairs of curves
@@ -872,7 +900,7 @@ Declared in [include/dgx_draw.h](include/dgx_draw.h):
 | `dgx_get_pixel(scr, x, y)` | Read one pixel: virtual screens and panels drawn through a virtual back screen only; see [Known gaps](#known-gaps). |
 | `dgx_draw_line(scr, x1, y1, x2, y2, color)` | Single-pixel line by Bresenham's algorithm; the same pixels whichever end it is given from. |
 | `dgx_draw_line_thick(scr, x1, y1, x2, y2, width, color)` | Thick line with caps. |
-| `dgx_draw_bezier3(scr, points, pieces, width, color)` | Thick quadratic Bezier curve by three `dgx_point_2d_t` points, drawn by `pieces` straight pieces; 0 finds their number from the points, within half a pixel of the curve. |
+| `dgx_draw_bezier3(scr, points, pieces, width, color)` | Thick quadratic Bezier curve by three `dgx_point_2d_t` points, drawn by `pieces` straight pieces; 0 finds their number from the points, within half a pixel of the curve. `DGX_PEN_SOFT | width` gives it a soft edge. |
 | `dgx_draw_bezier4(scr, points, pieces, width, color)` | Thick cubic Bezier curve by four points. |
 | `dgx_bezier3_begin(b, scr, points, pieces, width, color)`, `dgx_bezier4_begin(...)` | Prepare the same curves in a `dgx_bezier_t` for drawing part by part, to animate writing. |
 | `dgx_bezier_draw_to(b, t)` | Draw a prepared curve on until it is `t` complete, 0 .. 1 by the way of the pen, and flush what was added; returns `true` when the curve is finished. |
@@ -890,9 +918,28 @@ Lines and circles are one code for every screen, made of the pixels and the
 rectangles a screen draws itself: a figure has the same pixels on a display,
 on a virtual screen and on a monochrome one.
 
-How a Bezier curve is split into straight pieces, how a piece is drawn and how
-a curve is drawn on by `t` is described in
-[docs/handwriting-en.md](docs/handwriting-en.md#bezier-curves).
+How a Bezier curve is split into straight pieces and how a curve is drawn on
+by `t` is described in
+[docs/handwriting-en.md](docs/handwriting-en.md#bezier-curves). What figures
+a pen puts on a screen for a piece, what it counts with and what that costs
+on an ESP32 is in [docs/pen-en.md](docs/pen-en.md)
+([Russian](docs/pen-ru.md)).
+
+The pen of a curve is its `width` and `color`, and its edge is hard: a pixel
+is the line or is not. `DGX_PEN_SOFT` added to the width asks for a soft
+edge, `DGX_PEN_SOFT | 2`: a pixel on the edge of the line gets the share of
+`color` the pen covers of it, a pixel keeps the larger of what it has and
+what it is given, and a soft pen with color 0 takes the ink off every pixel
+it touches. That takes a pixel that is an amount of ink, a byte of a virtual
+screen of 8 bits a pixel; the table such a screen is sent to the display
+through, `dgx_vscreen8_to_screen16()`, runs then from the color of the paper
+at 0 to the color of the ink. A display that mixes two colors itself, a DSI
+display of an ESP32-P4 with two frame buffers, takes such a table as its
+first and its last color and mixes the rest, within a step of a channel of
+the table; `DGX_LUT_EXACT` for the last argument of the call asks for the
+colors of the table to the last bit. On any other screen a pen asked to be
+soft draws as a hard one; see
+[A soft edge](docs/handwriting-en.md#a-soft-edge).
 
 `quad` is four `dgx_point_2d_t` vertices in the order of the region's corners:
 top-left, top-right, bottom-right, bottom-left. The texture needs the same
@@ -959,13 +1006,18 @@ the order of writing and a morph is a list of pairs of them; a frame is every
 pair with its four points taken between the two curves. A frame is drawn anew
 every time, so it wants a virtual screen.
 
+`width` is the pen of all of these, and `DGX_PEN_SOFT | width` a pen with a
+soft edge: `color` is then an amount of ink, and a text written again by the
+same pen with color 0 is taken off, see
+[Drawing primitives](#drawing-primitives).
+
 [examples/hw_font_demo](examples/hw_font_demo) fits three lines to the screen
 and writes them by hand, [examples/hw_morph_demo](examples/hw_morph_demo)
 morphs words one into another both ways.
 
 One such font is bundled: `font0ss()` from `fonts/font0ss.h`. It has the Latin
 alphabet with the German letters `ÄÖÜäöüß`, the Russian alphabet, digits and
-punctuation, 154 symbols in all, and nothing else: no accented letters of
+punctuation, 155 symbols in all, and nothing else: no accented letters of
 other languages, no Greek, no scripts written right to left. Drawing a
 handwritten alphabet is slow work and I am not going to draw more of them;
 if you need another one, draw it in the editor and send it over, co-authors
@@ -1056,8 +1108,8 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_vscreen_to_screen(dst, x, y, src)` | Push a RAM screen to any destination (incl. hardware). |
 | `dgx_vscreen_region_to_screen(dst, x, y, src, x_src, y_src, w, h)` | Push a sub-region. |
 | `dgx_vscreen_to_screen_oriented(...)` / `dgx_vscreen_region_to_screen_oriented(...)` | Oriented variants. |
-| `dgx_vscreen8_to_screen16(dst, x, y, src, lut, has_transparency)` | Expand an 8-bit indexed screen into 16-bit through a LUT. |
-| `dgx_vscreen8_region_to_screen16(dst, x, y, src, x_src, y_src, w, h, lut, has_transparency)` | The same for a sub-region; `x`, `y` are where the corner of the region goes. |
+| `dgx_vscreen8_to_screen16(dst, x, y, src, lut, flags)` | Expand an 8-bit indexed screen into 16-bit through a LUT. `flags` is 0 or `DGX_LUT_TRANSPARENT` (a pixel of index 0 is not put; `true` means the same) and `DGX_LUT_EXACT` (the colors of the table to the last bit, no hardware that mixes two colors) added together. |
+| `dgx_vscreen8_region_to_screen16(dst, x, y, src, x_src, y_src, w, h, lut, flags)` | The same for a sub-region; `x`, `y` are where the corner of the region goes. |
 | `dgx_bw_init(width, height)` | Allocate a 1-bit monochrome RAM screen. |
 | `dgx_vscreen_2h_init(left, right)` | Compose two screens as one wide logical screen. |
 | `dgx_vscreen_is_linear(scr)` | True when the screen is a `dgx_vscreen_t` with row-major pixels in `v_array`. |
@@ -1072,7 +1124,7 @@ Declared in [include/dgx_gauge.h](include/dgx_gauge.h):
 
 | Function | Description |
 | --- | --- |
-| `dgx_gauge_init(gauge, scr, cx, cy, inner_radius, width, start_angle, sweep_degrees, min, max, bg_color, color_fn)` | Configure a ring gauge. `color_fn` maps a value to a step color. |
+| `dgx_gauge_init(gauge, scr, cx, cy, inner_radius, width, start_angle, sweep_degrees, min, max, bg_color, color_fn)` | Configure a ring gauge and draw its empty ring. `color_fn` maps a value to a step color. |
 | `dgx_gauge_set_value(gauge, value)` | Update the value, redrawing only changed steps. |
 | `dgx_gauge_redraw(gauge)` | Redraw the whole gauge. |
 
@@ -1089,6 +1141,16 @@ Declared under [include/bus/](include/bus):
 
 Each returns a `dgx_bus_protocols_t *` to hand to a driver constructor. A
 driver pulls in only the transports it needs; enable them in `menuconfig`.
+
+The 8-bit parallel bus stands on the I80 driver of the `esp_lcd` component,
+and that driver is two different ones. On an ESP32-S3 and an ESP32-P4 it can
+send data alone. On an ESP32 and an ESP32-S2, where the bus is made of the
+I2S peripheral, every transfer starts with a command byte. So on this bus a
+command goes in one transfer with its data, and every block of pixels goes
+with the command that writes memory: a block that continues a window has the
+window set anew, to what is left of it. That is one or two short commands
+more for every 4000 bytes of pixels, and the same code for both kinds of
+chips.
 
 [include/bus/dgx_dsi_esp32.h](include/bus/dgx_dsi_esp32.h) also has what a
 driver of another DSI display is written with: `dgx_dsi_video_setup()` makes
@@ -1195,12 +1257,24 @@ in the transports they require.
 | `CONFIG_DGX_ENABLE_SSD1351` | `drivers/ssd1351.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SSD1306` | `drivers/ssd1306.c` | needs SPI or I2C; selects `V_BW_SCREEN` |
 | `CONFIG_DGX_ENABLE_ST7565R` | `drivers/st7565r.c` | needs SPI; selects `V_BW_SCREEN` |
-| `CONFIG_DGX_ENABLE_ST7920` | `drivers/st7920.c` | needs SPI/I2C/P8; selects `VSCREEN` |
+| `CONFIG_DGX_ENABLE_ST7920` | `drivers/st7920.c` | needs SPI; selects `VSCREEN` |
 | `CONFIG_DGX_ENABLE_JD9165` | `drivers/jd9165.c` | needs DSI |
 | `CONFIG_DGX_ENABLE_V_BW_SCREEN` | `bw_screen.c` | 1-bit virtual screen |
 | `CONFIG_DGX_ENABLE_VSCREEN` | `drivers/vscreen.c` | color RAM-backed screen |
 | `CONFIG_DGX_ENABLE_VSCREEN_2H` | `drivers/vscreen_2h.c` | needs `VSCREEN` |
 | `CONFIG_DGX_ENABLE_MORPH` | `matrix.c`, `morph*.c` | dot morphing; selects `VSCREEN` |
+| `CONFIG_DGX_DSI_HARDWARE_COPY` | nothing | DSI on chips with a 2D DMA: large pieces are moved and filled past the processor; on by default |
+| `CONFIG_DGX_HW_FONT_IN_IRAM` | nothing | ESP32 only: the code that lays out a handwritten text is kept in IRAM, 4.1 KB |
+| `CONFIG_DGX_BEZIER_IN_IRAM` | nothing | ESP32 only: the code of the pen of Bezier curves is kept in IRAM, 9.3 KB |
+
+The two `IN_IRAM` options are for a handwritten text on an ESP32. There code
+and the tables of a font are read from flash through one cache of two ways,
+and the time of the same text changes from build to build with where the
+linker has put the font: going through its strokes takes up to twice as
+long, drawing it up to a third longer. With the code in IRAM it does not.
+IRAM of an ESP32 is no part of the heap, but there are 128 KB of it and a
+program with Wi-Fi leaves a few; see
+[docs/pen-en.md](docs/pen-en.md#the-flash-cache).
 
 `dgx_lcd_init.c`, the drawing and font code, handwritten fonts included, and
 everything in `src/fonts/` are always compiled. Fonts are picked up via a `file(GLOB)` on
@@ -1224,9 +1298,11 @@ A couple of practical limitations are worth knowing up front:
   access.** Those fields describe orientation metadata, but they do not
   rotate or mirror the stored pixel data.
 
-- **Handwritten text goes left to right only, without smoothing.** There is
-  no orientation parameter and the lines are not antialiased. The direction
-  has a plain reason: I have never written right to left or top to bottom
+- **Handwritten text goes left to right only.** There is no orientation
+  parameter. A soft edge of the lines, `DGX_PEN_SOFT`, comes out on a virtual
+  screen of 8 bits a pixel only; drawn straight to a display or into a screen
+  of another depth, the lines are not antialiased. The direction has a plain
+  reason: I have never written right to left or top to bottom
   myself, have no handwritten fonts of that kind and do not know such
   languages, so there was nothing to build it on. Rotate a virtual screen on
   its way to the display if you need the text turned.
@@ -1242,8 +1318,11 @@ The platform-independent code (matrices, morphing, renderers, virtual and page
 screens, fills, lines and circles, the frame buffer of the DSI bus and the
 way its two frame buffers change places, fonts,
 textured quads, Bezier curves, handwritten fonts with their writing and
-morphing) has host tests built with gcc against small ESP-IDF
-stubs and run under ASan/UBSan:
+morphing, the arc gauge) has host tests built with gcc against small ESP-IDF
+stubs and run under ASan/UBSan. Two pieces that do depend on the platform
+are tested there too, each against a model of what is on its wires: the
+8-bit parallel bus with both drivers of IDF under it, and the ST7920 driver
+in all its orientations:
 
 ```sh
 make -C test/host
@@ -1271,6 +1350,7 @@ examples/flip_clock_demo/   CYD split-flap clock drawn with textured quads
 examples/texture_demo/      CYD demo scaling, turning and wobbling a textured card
 examples/hw_font_demo/      CYD demo writing a text by hand with a font of Bezier curves
 examples/hw_morph_demo/     CYD demo morphing handwritten words one into another
+examples/hw_soft_pen_demo/  demo for a CYD or a JC1060P470 writing four lines with a soft pen, two of them moving to make room
 test/host/               host tests with ESP-IDF stubs
 docs/                    morphing articles and handwritten text guides (English and Russian),
                          the format of handwritten fonts (Russian),

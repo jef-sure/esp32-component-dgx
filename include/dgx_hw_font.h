@@ -311,8 +311,8 @@ typedef struct {
  * @param font    A font of type DGX_FONT_HW.
  * @param text    UTF-8 text; it must live as long as the writing goes.
  * @param scale   Pixels in a cell of the grid of the font; its line is symbol_size_y cells high.
- * @param width   Thickness of the pen in pixels.
- * @param color   Color of the ink.
+ * @param width   Thickness of the pen in pixels; with DGX_PEN_SOFT added its edge is soft, see dgx_draw.h.
+ * @param color   Color of the ink; for a soft pen the amount of ink, and 0 takes ink off.
  * @param joined  Joined writing, see dgx_hw_writer_begin().
  * @param pace    How the effort is counted, see dgx_hw_pace(); NULL: by the length alone.
  */

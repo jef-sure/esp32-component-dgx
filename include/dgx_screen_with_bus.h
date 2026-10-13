@@ -31,6 +31,22 @@ typedef struct _dgx_screen_with_bus_t {
         uint16_t top;
         uint16_t bottom;
     } cached_area;
+    /*
+     * For a bus that takes pixels only together with a command, DGX_BUS_P8:
+     * the window that was asked for and the next pixel of it. The display is
+     * told of the window when pixels come, see dgx_screen_with_bus_write_window().
+     */
+    struct {
+        uint16_t left;
+        uint16_t right;
+        uint16_t top;
+        uint16_t bottom;
+        uint16_t x;
+        uint16_t y;
+        bool     full;    /* both bounds are sent every time, changed or not */
+        bool     started; /* pixels have come into it */
+    } window;
+    bool area_void; /* the window that was asked for lies off the screen: the pixels sent into it are dropped */
 } dgx_screen_with_bus_t;
 
 static inline void dgx_screen_with_bus_init_area(dgx_screen_with_bus_t *scr, uint8_t xcmd, uint8_t ycmd, uint8_t wcmd, uint8_t rcmd,
@@ -45,5 +61,9 @@ static inline void dgx_screen_with_bus_init_area(dgx_screen_with_bus_t *scr, uin
     scr->cached_area.right = 0xffff;
     scr->cached_area.top   = 0xffff;
     scr->cached_area.bottom = 0xffff;
+    scr->window.left = scr->window.right = scr->window.top = scr->window.bottom = 0;
+    scr->window.x = scr->window.y = 0;
+    scr->window.full = scr->window.started = false;
+    scr->area_void = false;
 }
 

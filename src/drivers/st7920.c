@@ -201,6 +201,29 @@ eliminated. The memory is treated as one continuous 64-line buffer, where each l
 
 */
 
+/*
+ * How the screen lies on the panel is carried out here, where the panel is
+ * updated: the controller has no command for it. The memory of the screen is
+ * always rows of the screen, 128 bits each or 64 with the axes swapped, and
+ * a row of the panel is gathered from it bit by bit. As with the MX, MY and
+ * MV bits of a color controller: dir_x counts the columns of the panel from
+ * the right, dir_y its rows from the bottom, swap_xy makes x of the screen
+ * run along the rows of the panel.
+ */
+static inline bool dgx_st7920_turned(const dgx_screen_t *scr)
+{
+    return scr->swap_xy || scr->dir_x == DgxScreenRightLeft || scr->dir_y == DgxScreenBottomTop;
+}
+
+/* the pixel of the screen that the pixel (px, py) of the panel shows */
+static inline bool dgx_st7920_panel_pixel(const dgx_screen_t *scr, const uint8_t *bits, int px, int py)
+{
+    const int    ax = scr->dir_x == DgxScreenRightLeft ? ST7920_WIDTH - 1 - px : px;
+    const int    ay = scr->dir_y == DgxScreenBottomTop ? ST7920_HEIGHT - 1 - py : py;
+    const size_t at = scr->swap_xy ? (size_t)ax * (size_t)scr->width + (size_t)ay : (size_t)ay * (size_t)scr->width + (size_t)ax;
+    return (bits[at >> 3] & (0x80u >> (at & 7))) != 0;
+}
+
 // Update physical display from virtual buffer
 static void dgx_st7920_update_screen(dgx_screen_t *_scr, int left, int right, int top, int bottom)
 {
@@ -212,10 +235,21 @@ static void dgx_st7920_update_screen(dgx_screen_t *_scr, int left, int right, in
     // Clamp coordinates to display bounds
     if (left < 0) left = 0;
     if (top < 0) top = 0;
-    if (right >= ST7920_WIDTH) right = ST7920_WIDTH - 1;
-    if (bottom >= ST7920_HEIGHT) bottom = ST7920_HEIGHT - 1;
+    if (right >= _scr->width) right = _scr->width - 1;
+    if (bottom >= _scr->height) bottom = _scr->height - 1;
 
     if (left > right || top > bottom) return;
+
+    const bool turned = dgx_st7920_turned(_scr);
+    if (turned) {
+        /* the same rectangle on the panel */
+        const int a0 = _scr->swap_xy ? top : left, a1 = _scr->swap_xy ? bottom : right;
+        const int b0 = _scr->swap_xy ? left : top, b1 = _scr->swap_xy ? right : bottom;
+        left   = _scr->dir_x == DgxScreenRightLeft ? ST7920_WIDTH - 1 - a1 : a0;
+        right  = _scr->dir_x == DgxScreenRightLeft ? ST7920_WIDTH - 1 - a0 : a1;
+        top    = _scr->dir_y == DgxScreenBottomTop ? ST7920_HEIGHT - 1 - b1 : b0;
+        bottom = _scr->dir_y == DgxScreenBottomTop ? ST7920_HEIGHT - 1 - b0 : b1;
+    }
 
     int     addr_start = left / ST7920_PIXELS_PER_ADDRESS;
     int     addr_end   = right / ST7920_PIXELS_PER_ADDRESS;
@@ -226,12 +260,23 @@ static void dgx_st7920_update_screen(dgx_screen_t *_scr, int left, int right, in
         int idx_buf  = 1;
         row_bytes[0] = 0xfa; // Data write command
         for (int addr_x = addr_start; addr_x <= addr_end; addr_x++) {
-            uint32_t byte_offset = (addr_x * 2) + (y * ST7920_BYTES_PER_ROW);
-            uint8_t *lp          = vscreen->v_array + byte_offset;
-            row_bytes[idx_buf++] = lp[0] & 0xf0;        //
-            row_bytes[idx_buf++] = (lp[0] << 4) & 0xf0; //
-            row_bytes[idx_buf++] = lp[1] & 0xf0;        //
-            row_bytes[idx_buf++] = (lp[1] << 4) & 0xf0; //
+            uint8_t pair[2];
+            if (!turned) {
+                uint32_t byte_offset = (addr_x * 2) + (y * ST7920_BYTES_PER_ROW);
+                pair[0] = vscreen->v_array[byte_offset];
+                pair[1] = vscreen->v_array[byte_offset + 1];
+            } else {
+                pair[0] = pair[1] = 0;
+                for (int bit = 0; bit < ST7920_PIXELS_PER_ADDRESS; ++bit) {
+                    if (dgx_st7920_panel_pixel(_scr, vscreen->v_array, addr_x * ST7920_PIXELS_PER_ADDRESS + bit, y)) {
+                        pair[bit >> 3] |= (uint8_t)(0x80u >> (bit & 7));
+                    }
+                }
+            }
+            row_bytes[idx_buf++] = pair[0] & 0xf0;        //
+            row_bytes[idx_buf++] = (pair[0] << 4) & 0xf0; //
+            row_bytes[idx_buf++] = pair[1] & 0xf0;        //
+            row_bytes[idx_buf++] = (pair[1] << 4) & 0xf0; //
         }
         // Send the row data
         dgx_gpio_set_level(scr->cs, 1);
@@ -299,10 +344,22 @@ dgx_screen_t *dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
 
 void dgx_st7920_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
-    // dgx_st7920_t *scr = (dgx_st7920_t *)scr_;
-    // dgx_vscreen_orientation(scr->base, dir_x, dir_y, swap_xy);
-    (void)scr_;
-    (void)dir_x;
-    (void)dir_y;
-    (void)swap_xy;
+    dgx_st7920_t *scr = (dgx_st7920_t *)scr_;
+    const int     width = swap_xy ? ST7920_HEIGHT : ST7920_WIDTH, height = swap_xy ? ST7920_WIDTH : ST7920_HEIGHT;
+    scr_->dir_x   = dir_x;
+    scr_->dir_y   = dir_y;
+    scr_->swap_xy = swap_xy;
+    if (scr_->width != width) {
+        /*
+         * A screen of 64x128 takes as many bytes as one of 128x64, so the
+         * memory stays; but its rows are of another length now, and what
+         * was drawn in it is no picture any more.
+         */
+        memset(scr->base.v_array, 0, ST7920_WIDTH * ST7920_HEIGHT / 8);
+        scr_->width  = width;
+        scr_->height = height;
+    }
+    /* nothing of the old layout is left waiting, and the panel shows the screen as it lies now */
+    scr_->dirty_left = scr_->dirty_right = scr_->dirty_top = scr_->dirty_bottom = 0;
+    dgx_st7920_update_screen(scr_, 0, width - 1, 0, height - 1);
 }

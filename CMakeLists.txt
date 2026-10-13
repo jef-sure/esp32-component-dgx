@@ -2,7 +2,10 @@ file(GLOB dgx_font_sources
 	"${COMPONENT_DIR}/src/fonts/*.c"
 )
 
-set(srcs "src/drivers/dgx_lcd_init.c" "src/dgx_bus_optimized_funcs.c" "src/dgx_spi_area_protocol.c" "src/draw.c" "src/pixels.c" "src/bezier.c" "src/font.c" "src/hw_font.c" "src/hw_morph.c" "src/font_morph.c" "src/orientation.c" "src/bitmap.c" "src/gauge.c" "src/texture.c")
+# hw_font.c, bezier.c and hw_morph.c stand together: a text is written by the first calling the second for
+# every stroke, and the linker puts the code of an archive into flash in the order its files are needed. Code
+# that lies 16 KB apart shares the lines of the 2-way flash cache of the ESP32; side by side the two do not.
+set(srcs "src/drivers/dgx_lcd_init.c" "src/dgx_bus_optimized_funcs.c" "src/dgx_spi_area_protocol.c" "src/draw.c" "src/pixels.c" "src/font.c" "src/hw_font.c" "src/bezier.c" "src/hw_morph.c" "src/font_morph.c" "src/orientation.c" "src/bitmap.c" "src/gauge.c" "src/texture.c")
 
 list(APPEND srcs ${dgx_font_sources})
 
@@ -94,11 +97,30 @@ if(IDF_VERSION_MAJOR GREATER 5 OR (IDF_VERSION_MAJOR EQUAL 5 AND IDF_VERSION_MIN
 	list(APPEND dgx_priv_requires esp_driver_ppa)
 endif()
 
+# Code kept in IRAM by request, past the flash cache: see docs/pen-en.md. A linker fragment has to name the
+# archive, and the archive is named after the component, that is after its directory or by the component
+# manager; so the fragment is written here.
+set(dgx_ldfragments "")
+if(NOT CMAKE_BUILD_EARLY_EXPANSION AND (CONFIG_DGX_HW_FONT_IN_IRAM OR CONFIG_DGX_BEZIER_IN_IRAM))
+	set(dgx_iram_entries "")
+	if(CONFIG_DGX_HW_FONT_IN_IRAM)
+		string(APPEND dgx_iram_entries "    hw_font (noflash_text)\n")
+		string(APPEND dgx_iram_entries "    font:dgx_font_find_glyph (noflash_text)\n")
+		string(APPEND dgx_iram_entries "    font:decodeUTF8next (noflash_text)\n")
+	endif()
+	if(CONFIG_DGX_BEZIER_IN_IRAM)
+		string(APPEND dgx_iram_entries "    bezier (noflash_text)\n")
+	endif()
+	set(dgx_ldfragments "${CMAKE_CURRENT_BINARY_DIR}/dgx_iram.lf")
+	file(WRITE "${dgx_ldfragments}" "[mapping:dgx_iram]\narchive: lib${COMPONENT_NAME}.a\nentries:\n${dgx_iram_entries}")
+endif()
+
 idf_component_register(
 	SRCS "${srcs}"
 	REQUIRES ${dgx_requires}
 	PRIV_REQUIRES ${dgx_priv_requires}
 	INCLUDE_DIRS "include"
+	LDFRAGMENTS ${dgx_ldfragments}
 )
 
 # The driver of a DSI display got a new name for the moment a frame buffer is free, in IDF 5.5.5, 6.0.3 and 6.1:

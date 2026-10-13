@@ -291,6 +291,27 @@ int main(void)
         dgx_draw_bezier4(s, cubics[2], 0, wide[i], 0xff);
         CHECK(ink(s) == W * H);
     }
+    /*
+     * A pen of an even width that stops just past a sharp turn: its axis runs half a pixel to the right of
+     * the way, so the two pieces have their axes on different pixels, and the disc of the stopped pen used
+     * to leave a pixel outside the finished curve.
+     */
+    {
+        static const dgx_point_2d_t turn4[][4] = {
+            {{62, 49}, {78, 60}, {52, 44}, {48, 49}},
+            {{64, 54}, {88, 60}, {74, 54}, {67, 52}},
+            {{62, 83}, {81, 75}, {54, 109}, {77, 90}},
+        };
+        static const dgx_point_2d_t turn3[][3] = {
+            {{63, 57}, {90, 72}, {68, 61}},
+            {{72, 62}, {52, 86}, {74, 63}},
+        };
+        check_steps(turn4[0], 4, 7, 10, 4);
+        check_steps(turn4[1], 4, 2, 10, 9);
+        check_steps(turn4[2], 4, 4, 8, 9);
+        check_steps(turn3[0], 3, 3, 10, 8);
+        check_steps(turn3[1], 3, 7, 10, 6);
+    }
     /* a disc cut by the top of the screen has the rows it would have on a screen that holds all of it */
     dgx_screen_t *tall = dgx_vscreen_init(W, H + 100, 8, DgxScreenRGB);
     for (int width = 40; width <= 61; width += 7) {

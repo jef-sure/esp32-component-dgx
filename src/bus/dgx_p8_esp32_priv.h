@@ -13,6 +13,14 @@ typedef struct _dgx_p8_bus_t {
     esp_lcd_panel_io_handle_t io;
     SemaphoreHandle_t         transfer_done_sem;
     bool                      transfer_pending;
+    /*
+     * A transfer of this bus is a command and the data that belongs to it.
+     * So a command is held back until its data comes, or until it is known
+     * that there is none: another command, or sync_write().
+     */
+    uint8_t                   command;
+    bool                      command_pending;
+    bool                      complained; /* data with no command has been refused, and the log told of it once */
 } dgx_p8_bus_t;
 
 void dgx_p8_wait_pending(dgx_p8_bus_t *bus);

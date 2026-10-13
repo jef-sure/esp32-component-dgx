@@ -1,5 +1,226 @@
 # Changes
 
+## 0.5.4 - 2026-10-13
+
+- **a pen with a soft edge: `DGX_PEN_SOFT` added to the width of a pen**,
+  `DGX_PEN_SOFT | 2`, in whatever draws a curve by a pen: `dgx_draw_bezier3()`,
+  `dgx_draw_bezier4()`, `dgx_bezier3_begin()`, `dgx_bezier4_begin()` and what
+  is built on them, the handwritten text, its writing and its morphs. The
+  color of the curve is then an amount of ink, that of a pixel the pen covers
+  whole, and a pixel on the edge of the line gets the share of it the pen
+  covers, half a pixel either way from where a hard edge would be. A pixel
+  keeps the larger of what it has and what it is given, so joints and
+  crossings get no darker and a line drawn twice is the line drawn once. A
+  soft pen with color 0 takes the ink off every pixel it touches at all:
+  nothing is left around a letter taken off by the pen that wrote it. A text
+  written in any number of steps is still, byte for byte, the text drawn at
+  once. It takes a pixel that is an amount of ink, a byte of a virtual screen
+  of 8 bits a pixel, sent to the display through a table that runs from the
+  color of the paper to the color of the ink; on any other screen a pen asked
+  to be soft draws as a hard one. Without `DGX_PEN_SOFT` nothing has changed:
+  the edge is hard on every screen, and a hard pen with color 0 takes off the
+  pixels of a hard line as before;
+- the ends of the straight pieces of a soft line are not brought to whole
+  pixels, only the ends of the curve are whole. It is this, more than the
+  edge, that makes a thin line lighter: the name of a place written with a
+  pen of 2 in a band of 320x46 takes 2068 pixels of ink instead of 2387, and
+  a picture drawn 8 times larger and reduced takes 2101. A soft line of an
+  even width runs half a pixel to the right and down of its points, between
+  pixels: a dot of a pen of 2 is a square of 2x2 there and is not spread
+  over 3x3;
+- a soft piece is a bar with soft sides and straight ends, not a rectangle
+  with a disc. Where the line turns little at a joint the two bars are made
+  longer and meet in a corner, which gives no pixel more than a sixteenth of
+  its ink over a round joint; a sharper joint gets the part of a disc that
+  lies between the two pieces, an end of a curve the half of a disc past it;
+- writing a text takes less time. The bend of a curve is no longer found
+  when its number of pieces is given, as it is for every stroke of a
+  handwritten font. The soft pen calls nothing: the functions of the C
+  library lie elsewhere in flash, and on an ESP32 a miss of the flash cache
+  costs more than the function. `hw_font.c` and `bezier.c` are next to each
+  other in the list of sources, so that their code lies side by side in flash
+  and not on the same lines of the cache. On a CYD, ESP32 at 240 MHz, one
+  program with 0.5.3 and with this, the soft pen now against the hard one of
+  0.5.3: three lines of 117 strokes, 120 with the font as it is now, at a
+  scale of 0.3 with a pen of 3 take 7.0-8.4 ms instead of 18.2, written in
+  1000 steps 16.5-17.5 ms instead of
+  28.3, the name of a place of 89 strokes with a pen of 2 takes 4.0-4.3 ms
+  instead of 11.8; a frame of a morph of two words takes 2.1-3.4 ms instead
+  of 2.3-3.6. A range is several builds of the same code: the time depends
+  on how the font fell in the flash cache;
+- the hard pen is faster on a virtual screen of 8 or 16 bits a pixel with
+  linear memory: it writes the rows of its figures into the memory of the
+  screen itself and does not ask the screen for every row, counts the chord
+  of a disc in 32 bits and rounds the ends of the pieces in place. In one
+  build, as it was and now: the name of a place with a pen of 2 takes 3.80 ms
+  instead of 4.48, a text at a scale of 1 with a pen of 9 takes 7.65 ms
+  instead of 10.45. Its pixels are the same: 80 000 random curves came out
+  byte for byte as before. On other screens it draws as it did. In a small
+  text the hard pen is now 5-14% faster than the soft one, at a scale of 1
+  the soft one is 1.6 times as fast;
+- fixed: a curve of a hard pen of an even width from 4, drawn part by part
+  with `dgx_bezier_draw_to()`, could get a pixel the curve drawn at once has
+  not, 39 of 40 000 random curves did. The disc of a pen stopped just past a
+  turn stuck out of the disc of the piece before, for the axis of an even pen
+  runs half a pixel beside the way. That disc is now cut by the start of its
+  piece. Finished curves and curves drawn at once have the pixels they had;
+- `CONFIG_DGX_HW_FONT_IN_IRAM` and `CONFIG_DGX_BEZIER_IN_IRAM`, off by
+  default and for an ESP32 only, keep the code that lays out a handwritten
+  text and the code of the pen in IRAM, 4.1 and 9.3 KB. On an ESP32 code and
+  the tables of a font are read through one flash cache of two ways, and the
+  time of a text depends on where the linker has put the font: with one
+  code and 25 places of the font, going through the strokes of the name of a
+  place takes 0.75-1.21 ms and drawing it with a soft pen 3.80-5.00 ms.
+  With both options it takes 0.74 and 3.79 ms at every place. IRAM of an
+  ESP32 is no part of the heap; a program with Wi-Fi may have little of it
+  left. On an ESP32-P4 the place of the font makes no difference. Putting
+  the symbols of the font in the order of the frequency of letters was tried
+  and gives nothing. See docs/pen-en.md, "The flash cache";
+- a hard pen of 1 pixel is counted in whole numbers, without `lroundf` for
+  every pixel, and writes its pixels into the memory of such a screen: the
+  name of a place takes 2.19 ms instead of 3.14. Its pixels are the same;
+- `font0ss`: the two dots of ä, ö, ü, Ä, Ö, Ü, ё and Ё are 24 cells apart, not
+  18 (16 for Ё). At the size of the name of a place, 0.19 of a pixel a cell,
+  18 cells are 3.1-3.4 pixels between the centres, and a pen of 2 left a gap
+  of one pixel that the eye did not see. Ä is 3 cells wider for it. A colon
+  has 6 cells before it and 16 after, not 12 and 28: "::" took 104 cells,
+  nearly as much as "M", and is read as one sign. Between digits such a colon
+  stands too close, and they have one of their own, "∶", U+2236: two dots one
+  above the other at a third and two thirds of the height of a digit, with
+  12 cells before it and 28 after. A time in a line is written with it,
+  "12∶34".
+  155 symbols. The letters of three stems are wider: m, т, ш and щ 1.4 times
+  and w 1.2 times along the line, 73, 73, 81, 96 and 80 cells instead of 53,
+  53, 58, 69 and 67. Their stems stood 18-23 cells apart where the two stems
+  of n stand 30-34, and with a pen of 9 cells such a letter ran together at a
+  small size; now they are 25-29 apart. A line with these letters is longer
+  for it. The end connections of П and Т go on from the ends of their last
+  strokes: they started from the middle of the foot, and in joined writing
+  the tip of the foot and the connection beside it made a fork. The foot of
+  П is half as long for it and ends where the connection used to start;
+- an 8-bit virtual screen goes to a DSI display through a table of colors
+  nearly twice as fast. `dgx_vscreen8_region_to_screen16()` and
+  `dgx_vscreen8_to_screen16()` make the colors ready by bands of up to 64 KB
+  in memory the bus gives and hand every band to the bus by its rows, where
+  the bus has that way, so the 2D DMA and not the processor carries them into
+  the frame buffer. A rectangle of 367 thousand pixels takes 20.7 ms instead
+  of 37.2 on an ESP32-P4, and the move of `examples/hw_soft_pen_demo` runs at
+  25.5 frames a second instead of 17.7. The memory, internal RAM, is taken
+  for the time of the call. Other buses are served as before;
+- a table of two colors needs no processor on a DSI display with two frame
+  buffers. `dgx_vscreen8_region_to_screen16()` tells a table that is two
+  colors and what lies between them, as a program makes for a screen a pen
+  with a soft edge draws on: no color of it is further than a step of red,
+  green or blue from the straight way between its first and its last. The
+  bus then fills the rectangle with the first color, and the pixel
+  accelerator of the ESP32-P4 mixes the second into it by the bytes of the
+  screen. A rectangle of 367 thousand pixels takes 10.6 ms where bands
+  through the table take 17.1, and `examples/hw_soft_pen_demo` moves its
+  lines at 31.2 frames a second. The first and the last color come out as the
+  table has them; between them a channel may differ from the table by a
+  step, 3.2% of the range of red or blue and 1.6% of green: 2.3% of full
+  brightness at most and 0.5% on the average with the colors of that
+  example. No call is new; the bus interface has `write_ink` for it, NULL for
+  a bus that cannot;
+- the last argument of `dgx_vscreen8_to_screen16()` and
+  `dgx_vscreen8_region_to_screen16()` is flags, not a bool: `true` and
+  `false` mean what they did, `DGX_LUT_TRANSPARENT` and nothing, and
+  `DGX_LUT_EXACT` asks for the colors of the table to the last bit, for a
+  program that does not want its two colors mixed by hardware. It changes
+  nothing where there is no such hardware;
+- `font0ss` follows the editor: the connections of 37 symbols are drawn
+  anew by the rules now written down in docs/hw-font-ru.md, "Как рисовать
+  связи". An end connection starts on the drawing of its letter and goes on
+  the way its stroke goes (Н, Г, Р, У, Ф, B, F, H, P, T and others), a begin
+  connection ends the way the letter starts (о, o, q, ö), «в», «ф» and «У»
+  have end connections of two elements. 692 elements instead of 689; the
+  writer needed no change for it;
+- `dgx_bezier_t` is 128 bytes instead of 116, `dgx_hw_writing_t` 348 instead
+  of 336. The code of the pen is 9.9 KB of flash instead of 3.8 where the
+  virtual screen is built in, 4.6 KB where it is not, and takes no RAM;
+- docs: `docs/pen-en.md` and `docs/pen-ru.md`, a technical note on how the
+  two pens are built: their figures, what they count with, what they call,
+  the flash cache of an ESP32 and what all of it costs, with what was tried
+  and did not stay;
+- added `examples/hw_soft_pen_demo`: four lines written with a soft pen on a
+  CYD or on a JC1060P470 board with an ESP32-P4, by the target it is built
+  for, two of them getting lower and moving up to make room for the other
+  two, and all of it taken off by the same pen with no ink.
+  `examples/hw_morph_demo` draws with a soft pen too;
+- host tests: `test_soft_pen` checks the share of a pixel against a round pen
+  along the same pieces, writing in steps, drawing twice and taking off;
+  that a pen is hard unless asked to be soft, on an 8-bit screen as on a
+  16-bit one; that a hard pen puts the same pixels whether it writes the
+  memory of a screen itself or asks the screen for them. `test_bezier` draws
+  curves of an even pen with sharp turns in steps;
+- fixed: the 8-bit parallel bus drew nothing right on an ESP32 and an
+  ESP32-S2. The bus sent a command on its own and pixels after it as a
+  transfer of data alone, a command of -1 for the I80 driver of IDF. The
+  driver of an ESP32-S3 and an ESP32-P4, the LCD_CAM peripheral, sends no
+  command then. The driver of an ESP32 and an ESP32-S2, the I2S peripheral,
+  sends the command byte whatever it is: 0xFF went out before every block,
+  and the display took the pixels for parameters of that. Now a command is
+  held back until its data comes and goes in one transfer with it, as on the
+  DSI bus, and a screen on this bus sends every block of pixels with the
+  command that writes memory: the window is told to the display when pixels
+  come, and a block that goes on where the one before ended has the window
+  set anew, to what is left of it, one or two short commands for every 4000
+  bytes. One code for both drivers. On an ESP32 the driver also sends pixels
+  two bytes at a time and adds a byte to an odd number of them; now a
+  command follows every block, and the display drops that byte. Pixels of 12
+  bits, which share bytes, go the old way and need a chip with LCD_CAM.
+  Checked on the host against a model of what the display gets from each of
+  the two drivers, `test_p8`: the code of 0.5.3 fails it for an ESP32 and
+  draws right for an ESP32-S3. Built for an ESP32 and an ESP32-S3 under IDF
+  5.5.4 and for an ESP32 under 6.1. Not run on a display: there was no board
+  with such a bus;
+- fixed: `dgx_gauge_init()` drew nothing, its loop went over the active
+  steps of a gauge that has none yet. It draws the empty ring now.
+  `dgx_gauge_set_value()` and `dgx_gauge_redraw()` are one batch each, so a
+  screen that shows by batches shows the steps together;
+- `dgx_st7920_orientation()` was an empty function. It sets how the screen
+  lies on the panel now. The controller has no command for it, so the driver
+  turns the picture where it sends it; with the axes swapped the screen is
+  64x128 in the same memory, and what was drawn before the call is cleared.
+  A screen that is not turned is sent as before. Checked on the host against
+  a model of the controller in all eight orientations, `test_st7920`; not
+  run on a panel. `CONFIG_DGX_ENABLE_ST7920` needs the SPI bus and nothing
+  else: the driver speaks the serial protocol of the controller, and with an
+  I2C or a parallel bus it could not work;
+- fixed: `dgx_delay()` rounded a delay down to ticks. At 100 ticks a second,
+  the default of ESP-IDF, a delay under 10 ms was no delay: the reset pulse
+  of the JD9165, 5 ms, and the 9 ms the ST7735 is given after a command. It
+  is rounded up now and a tick is added, for the tick under way may end at
+  once: a start-up takes a few ticks longer;
+- a turned virtual screen goes to a display through one window:
+  `dgx_vscreen_to_screen_oriented()` and
+  `dgx_vscreen_region_to_screen_oriented()` gather every row of the display
+  from the source in the order the turn asks for and send it through the
+  buffer of the bus. They used to set the pixels one by one, and on a
+  display behind a bus every pixel was a window and a transfer of its own. For a source of
+  8, 16, 18 or 24 bits a pixel kept as rows in memory; the pixels are the
+  same, `test_oriented`. Not timed on a board;
+- fixed: a window set off the screen was not set at all, and pixels sent
+  after it went into the window before. They are dropped now. No call of the
+  library sets such a window; a driver of one's own could;
+- the common `fill_rectangle` of a screen that has no draw buffer took one
+  from the heap only for a rectangle of more than 64 bytes and refused a
+  smaller one, and with a bus that has no buffer it never ended. No screen
+  of the library came there. `get_pixel` of a display behind a bus sent a
+  window and the command that reads memory to return 0; it sends nothing;
+- removed what was not used: `src/drivers/vscreen_bw_functions.c`, which no
+  build took, and the transfers of a window in the SPI bus that have not
+  been queued since the window went by polling, 5 of them, about 0.2 KB of
+  RAM by the size of the structures; not measured on a board;
+- `dgx_ili9341_init()`: the header and the README say what `cbo` means
+  there. `DgxScreenRGB` sets the BGR bit of the controller, the other way
+  round from the other drivers, for the usual modules show red as red so.
+  Nothing changed in the driver;
+- host tests: `test_p8` and `test_p8_lcdcam`, `test_st7920`, `test_oriented`,
+  `test_gauge`. The window code of a screen behind a bus,
+  `src/dgx_spi_area_protocol.c`, is built into the host tests itself and has
+  no stand-in there any more.
+
 ## 0.5.3 - 2026-10-12
 
 - **with `DgxDsiTwoFrames` the bus no longer sets the pace of a program.**

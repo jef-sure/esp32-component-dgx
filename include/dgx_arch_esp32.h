@@ -45,9 +45,16 @@ static inline esp_err_t dgx_gpio_set_level(gpio_num_t gpio_num, uint32_t level)
     return gpio_set_level(gpio_num, level);
 }
 
+/*
+ * Wait for at least so many milliseconds. A delay in ticks is rounded up, and
+ * one tick is added: the tick under way may end the next moment. Rounded
+ * down, a reset pulse of 5 ms was no pulse at all at 100 ticks a second,
+ * which is what ESP-IDF has by default.
+ */
 static inline void dgx_delay(uint32_t msDelay)
 {
-    vTaskDelay(msDelay / portTICK_PERIOD_MS);
+    if (msDelay == 0) return;
+    vTaskDelay((TickType_t)((msDelay + portTICK_PERIOD_MS - 1) / portTICK_PERIOD_MS + 1));
 }
 
 static inline void dgx_delay_ns(uint32_t nsDelay)

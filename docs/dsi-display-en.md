@@ -5,7 +5,7 @@
 A note on how the MIPI-DSI bus for the ESP32-P4 is made in DGX, what was
 measured on it, and why the screen is updated the way it is.
 
-It describes the code of version 0.5.3: the bus `src/bus/dsi_esp32.c`, the
+It describes the code of version 0.5.4: the bus `src/bus/dsi_esp32.c`, the
 frame buffer core `src/bus/fb_area.c`, the tile maps `src/bus/fb_tiles.c`,
 the change of the two buffers `src/bus/fb_flip.c`, the driver
 `src/drivers/jd9165.c`.
@@ -137,10 +137,11 @@ dgx_screen_progress_down(scr);
 
 ### Tile
 
-Tiles are a fixed grid laid over the panel: cells 32 pixels wide and 8 high,
-for 1024x600 that is 32 tiles in a row and 75 rows. They differ from windows
-in that a window is set by the drawing code and may be anything, and the grid
-of tiles is one and does not change.
+Tiles are a fixed grid laid over the panel: cells 32 pixels wide and 4 high,
+for 1024x600 that is 32 tiles in a row and 150 rows, 4800 tiles in all. They
+differ from windows in that a window is set by the drawing code and may be
+anything, and the grid of tiles is one and does not change. A program may
+give the cell another size, once at its start, see "The size of a tile".
 
 The bus keeps one bit for a tile: whether something was drawn in it. A line
 from corner to corner of the screen is the whole screen as a rectangle, and
@@ -1194,7 +1195,7 @@ all that this batch drew is marked, becomes the map `owed` for the other
 buffer, and a new `fresh` starts empty.
 
 An example: a line from corner to corner of the screen that moves every
-batch. The line goes through about a hundred tiles of 2400. The next batch
+batch. The line goes through about 180 tiles of 4800. The next batch
 erases it by pixels: those are the same tiles, each is copied at its first
 pixel. The new line falls partly into them, partly into neighbouring ones,
 which need no copy. About 50 KB are copied instead of 1.2 MB, and the batch
@@ -1464,7 +1465,7 @@ Compared with `DgxDsiTwoFrames`.
 | | LVGL, `direct_mode` | DGX, two buffers |
 | --- | --- | --- |
 | What marks the changed | rectangles, 32 at most | tiles of 32x4, 4800 of them on 1024x600 |
-| A line from corner to corner | one rectangle of the whole screen | about a hundred tiles |
+| A line from corner to corner | one rectangle of the whole screen | about 180 tiles |
 | If there are too many marks | the list is replaced by one rectangle of the whole screen | nothing can overflow |
 | What is not copied | what will be redrawn in this frame: known beforehand | what a fill or a window has covered: found out on the way |
 | Who copies | the processor, row by row | the processor, and the 2D DMA for large pieces |
@@ -1484,13 +1485,15 @@ Notes to the table.
 The ESP32-P4 has two hardware blocks that write memory without the processor
 and past its cache. The 2D DMA moves a rectangle from one picture into
 another. The PPA, the pixel processing accelerator, among other things fills
-a rectangle with a color. In the bus they have three jobs.
+a rectangle with a color and mixes two pictures. In the bus they have four
+jobs.
 
 | Job | By what | What is done | From what size |
 | --- | --- | --- | --- |
 | A virtual screen put to the display | 2D DMA | rows of a 16-bit virtual screen go into the frame buffer, with the byte exchange | from 16 KB |
 | The catch-up copy with two buffers | 2D DMA | what is left to copy before the buffers change goes from one frame buffer into the other | rows × (width + 53) of 8000 or more |
 | A fill of a rectangle | PPA | a rectangle of the frame buffer is filled with a color | rows + bytes / 64 of 200 or more |
+| An 8-bit screen put to the display through a table of two colors | PPA | a rectangle is filled with the first color, and the second is mixed into it by a byte a pixel | any, with two buffers only |
 
 The option `CONFIG_DGX_DSI_HARDWARE_COPY` turns both blocks off; the
 processor does everything then. They cost 0.8 KB of internal RAM: 0.5 KB the
@@ -1597,6 +1600,82 @@ destination, for the processor to read them from memory after the DMA. With
 two buffers the rule of the tiles for a rectangle written whole works before
 that. Behind the scan the bus waits before the start until the scan has left
 the rows.
+
+A screen of 8 bits a pixel goes to a 16-bit display through a table of
+colors, `dgx_vscreen8_region_to_screen16()`. It has no rows of colors ready.
+The processor used to turn the pixels into colors in the buffer of the
+window, 4 KB, and to carry them into the frame buffer itself. Now, when the
+bus takes rows, the colors are made ready by bands of up to 64 KB in memory
+the bus gives, internal RAM with DSI, and every band goes through
+`write_rows`. The memory is taken for the time of the call. A band the bus
+does not take goes through the window; if the bus refuses the first one, the
+whole rectangle goes through the window, as before.
+
+Measured on the example `hw_soft_pen_demo`: every frame a rectangle of 367
+thousand pixels of a page of 1024x600 goes to the display. Two buffers, a
+cache of 128 KB, IDF 5.5.4:
+
+| What | Through the window | By bands through the DMA |
+| --- | --- | --- |
+| The rectangle sent | 37.2 ms | 20.7 ms |
+| Frames a second, the drawing counted | 17.7 | 25.5 |
+
+Of the 20.7 ms about 12 is the turning itself: the processor reads the page
+from PSRAM and looks into the table. With a cache of 256 KB the same example
+gives 27.8 frames a second, with 512 KB 32.8.
+
+A table of colors the accelerator cannot do: the indexed input is commented
+out in the driver of IDF. It can do another thing: mix a picture with one
+color, taking how opaque the color is from an 8-bit mask. A screen whose byte
+is an amount of ink is such a mask: a pen with a soft edge draws so, and its
+table goes from the color of the paper to the color of the ink. Such a table
+the transfer tells by itself: none of its colors is further than a step of
+red, green or blue from the straight way between the first and the last.
+Then the bus is given two colors, the first and the last. It fills the
+rectangle of the frame buffer with the first and mixes the second into it,
+the rectangle itself being where the result goes. The processor carries no
+pixel. There are no new calls for it: a program calls the same
+`dgx_vscreen8_region_to_screen16()` with the same table.
+
+Between the fill and the mixing the rectangle is paper alone. With two
+buffers nobody sees it. With one the display would show it every other time,
+so with one buffer the bus refuses this job, and the picture goes by bands
+through the table, as any other does.
+
+What the accelerator gives was checked by reading the frame buffer, six pairs
+of colors: all the 614 400 pixels of the screen get the color of their
+amount, no ink gives the paper exactly, 255 the ink exactly, rectangles from
+one pixel up fall in their places. Between paper and ink the accelerator
+rounds in its own way, and its exact rule was not found: from the table of
+the example `hw_soft_pen_demo` it differs in 140 colors of 256, by one step
+of a channel everywhere. A display takes all the pictures of one table one
+way.
+
+A step of a channel is 3.2% of the range of red or blue and 1.6% of green.
+In brightness, with the colors of the same example, that is 2.3% of full at
+most, when all three channels go one way, and 0.5% on the average over the
+table. Only the colors between the first and the last differ, that is the
+pixels of the soft edge of a line. A program that wants the colors of its
+table and nothing else says so when it sends the screen: the last argument
+of the call is flags now, and `DGX_LUT_EXACT` in place of `false` sends the
+screen through the table by bands. `true` and `false` mean what they did:
+`DGX_LUT_TRANSPARENT` and nothing. Where there is nothing to mix with, the
+flag changes nothing.
+
+The time of a rectangle, one buffer, a cache of 128 KB, IDF 5.5.4; the mixing
+with one buffer was let in for this timing alone:
+
+| Rectangle | By bands through the DMA | Mixed by the accelerator |
+| --- | --- | --- |
+| 1024x600 | 28.0 ms | 17.1 ms |
+| 900x408 | 17.1 ms | 10.6 ms |
+| 320x100 | 1.28 ms | 1.13 ms |
+| 100x60 | 0.88 ms | 0.50 ms |
+| 40x40 | 0.21 ms | 0.28 ms |
+
+In the example `hw_soft_pen_demo`, with two buffers, the sending took 13.5 ms
+instead of 20.7, and the lines move at 31.2 frames a second. The client of
+the accelerator for mixing took no internal RAM by the count of the heap.
 
 ### The catch-up copy
 

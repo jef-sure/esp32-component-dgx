@@ -159,7 +159,10 @@ dgx_draw_bezier4(scr, p, 0, 5, color);   /* 0 pieces: find the number from the p
 
 `points` are whole pixels, `width` is the thickness of the line, and `pieces`
 is how many straight pieces the curve is split into; 0 lets the library find
-the number. The line has round ends.
+the number. The line has round ends. With `DGX_PEN_SOFT` in the width the
+line has a soft edge, see [«A soft edge»](#a-soft-edge). What figures the two
+pens make a line of, what they count with and what that costs is told apart,
+in [pen-en.md](pen-en.md).
 
 ### From a curve to pieces
 
@@ -210,50 +213,22 @@ right half of the «0» of `font0ss`, 169 cells long, takes 7, 10, 13 and 19
 pieces at scales of 0.25, 0.5, 1 and 2; a piece every 6 pixels would give 8,
 15, 29 and 57.
 
-### A piece is a bullet
+### The pen
 
-The plain way to draw a thick polyline is a thick line for every piece and a
-filled circle at every joint, to close the wedge two pieces leave open on the
-outer side of a turn. Measured on a CYD, the circles alone took 33–48% of the
-time of a symbol. The time followed not the pixels but the number of calls
-that fill a row: 1.3–1.9 µs each, almost whatever the length of the row.
-
-So a piece is drawn as one figure with as few rows as can be: a rectangle
-with a flat start and a disc of the line width around its end. It is convex,
-so every row of pixels of it is one interval and one call. The disc of the
-piece before lies around the start, so the joint is closed whatever the turn
-is, and the very first piece is given a disc at its start.
-
-```
-        flat start                round end
-            |                        .-.
-   =========+========================   )
-            |                        `-'
-      (the disc of the piece before is here)
-```
-
-For a row the interval is found without any search:
-
-- the rectangle is four straight lines — its two ends and its two sides — and
-  each gives a bound of `x` that is a straight function of the row, so the
-  row has a left bound, the larger of two, and a right one, the smaller of
-  two;
-- the disc gives a chord, kept in whole numbers and stepped from row to row;
-- the interval of the row is the two together.
-
-Rows next to each other with the same interval go out as one call, so a
-vertical piece is one rectangle. The whole font is drawn in 56–63% of the time
-the circles took, with 2–3 times fewer calls.
-
-### Even widths
+A piece is drawn as one convex figure: a rectangle with a flat start and a
+disc of the line width around its end. The disc of the piece before lies
+around the start, so a joint is closed whatever the turn is, and the ends of
+a curve are round. On a virtual screen with a pixel of 8 or 16 bits the pen
+writes the rows of a figure straight into the memory of the screen, on other
+screens it gives them to the screen, equal ones joined.
 
 A line of an odd width has a middle pixel, and the points of the curve are
 its centres. An even width has none: one side has to be a pixel wider. DGX
 gives that pixel to the right of the direction the line goes in, the same way
 `dgx_draw_line_thick()` does, so a figure drawn always in one direction —
-clockwise, say — is thicker consistently inwards. For a piece this means its
-middle line runs half a pixel to the right of its points, and the disc at its
-end is centred between pixels.
+clockwise, say — is thicker consistently inwards. A soft line deals with an
+even width in a plainer way, see
+[«Points that are not rounded»](#points-that-are-not-rounded).
 
 ### Drawing by `t`
 
@@ -262,7 +237,7 @@ complete, and it has two levels.
 
 The first is the pieces. `t` is a share of the length of the whole polyline,
 which is counted once, when it is first needed. The pieces that fit into that
-way are drawn whole, as bullets.
+way are drawn whole.
 
 The second is the piece the pen is on. It is drawn as far as the pen has got:
 the part of its rectangle from where the pen stopped last time to where it is
@@ -279,6 +254,73 @@ not drawn back.
 `t` goes by the way of the pen, not by the parameter or the pieces. Pieces
 differ in length many times over — a straight stroke is one long piece, a curl
 many short ones — and a pen led piece by piece would crawl and jump.
+
+### A soft edge
+
+A pen is given by a width and a color, and its edge is hard: a pixel is the
+line or is not. A soft edge is asked for with the width, `DGX_PEN_SOFT | 2`,
+of any function that draws a curve by a pen: the Bezier curves, a text, its
+writing and its morphs.
+
+```c
+dgx_hw_draw_text(band, x, y, font, text, scale, DGX_PEN_SOFT | 2, 255, true);
+```
+
+A soft pen leaves ink by shares of a pixel, and for that a pixel has to be an
+amount of ink. Such a pixel is a byte of an 8-bit virtual screen: 0 is paper,
+`color` is a pixel the pen has covered whole, and a pixel on the edge gets a
+share of `color`. The table the screen is sent through,
+`dgx_vscreen8_to_screen16()`, turns ink into the colors of the display. A
+16-bit pixel has no amount to compare with what was there, and a display
+behind a bus cannot be read at all: there a pen asked to be soft draws as a
+hard one of the same width.
+
+The share of a pixel is `0.5 + depth`, cut to 0…1; the depth is the distance
+from the centre of the pixel to the edge of the figure, positive inwards. It
+is the area of a pixel under a straight edge, and the change takes one pixel
+across the line. A smoothstep over it was tried: with a pen of 2 pixels it
+makes next to no difference, with a thick one still less. It did not stay.
+
+Three rules make a pen of it that can write and take off what it wrote:
+
+- a pixel keeps the larger of what it has and what it is given. Joints and
+  crossings get no darker, and a line drawn twice is the same line;
+- color 0 takes ink off: every pixel on which the pen with all the ink would
+  leave any becomes 0. The trace of it is a pixel wider than that of a hard
+  pen, but nothing is left around a letter taken off;
+- a hard pen with color 0 takes off in its own way: the pixels of a hard
+  line, and of a soft one it leaves the edge. A soft line is taken off by a
+  soft pen going the same way.
+
+There is a soft pen of one pixel, but little joy in it: the line lies on two
+pixels at half the brightness, looks dimmer than a hard one, and at a scale
+of 0.19 takes 49% longer to draw.
+
+### Points that are not rounded
+
+A soft edge alone gives little. The line «Neustadt an der Weinstraße» in a
+band of 320×46 with a pen of 2, the way the clock writes the name of a place,
+takes 2387 pixels of ink with the hard pen and 2286 with a soft one that has
+the same ends of the pieces. The spare ink comes of the rounding: the end of
+every piece is moved to the nearest whole pixel, up to half a pixel away from
+the curve, the polyline goes in a zigzag about the curve, and the pen paints
+more than it would along the curve itself. So the ends of the pieces of a
+soft line stay as they are, not whole, and the same line takes 2068. Only the
+start and the end of the curve itself are whole: they are given as
+`dgx_point_2d_t`.
+
+With an odd pen a whole point is the centre of the middle pixel. With an even
+soft pen it would be there too, and a pen of 2 pixels would cover three: the
+middle one whole and half of each beside it. So a soft line of an even width
+runs half a pixel to the right and down of its points: whole points fall
+between pixels, and the dot of a pen of 2 is a square of 2×2 with 79% of the
+ink each, where the hard pen puts it.
+
+A soft piece is a bar with soft sides and ends cut straight; at a joint where
+the turn is little two pieces meet in a corner, at a sharp one the wedge of a
+disc stands between them. A text written in any number of steps is byte for
+byte the text drawn at once. More of it is in
+[pen-en.md](pen-en.md#the-soft-pen).
 
 ## Writing at the pace of a pen
 
@@ -397,6 +439,33 @@ steps, changes 24 pixels on average and goes in 0.09 ms, 0.1 ms at most. The
 place of one digit, 60 x 100, where a morph goes on: 3.2 ms. The time of a
 transfer goes by the number of pixels, about 0.52 us a pixel, and 30 us for
 the transfer itself however few they are.
+
+The last argument of a transfer is flags. `false` and `true` mean what they
+did: nothing and `DGX_LUT_TRANSPARENT`, a pixel of byte 0 is not put. The
+second flag, `DGX_LUT_EXACT`, is for a display that can mix two colors
+itself. The table of a soft pen goes from the color of the paper to the
+color of the ink, and such a display is given not the table but its first
+color and its last: the rest it mixes by the bytes of the page, and the
+processor carries no pixel. For now that is a DSI display of an ESP32-P4
+with two frame buffers. The paper and all the ink come out as the table has
+them. A color between them may differ from the table by one step of a
+channel: 3.2% of the range of red or blue and 1.6% of green, in brightness
+2.3% of full at most and 0.5% on the average. `DGX_LUT_EXACT` in place of
+`false` asks for the colors of the table to the last bit, and the page goes
+through the table then. Where there is nothing to mix with, the flag changes
+nothing.
+
+Timed on an ESP32-P4 with a display of 1024 x 600, the example
+`hw_soft_pen_demo`: a rectangle of 367 thousand pixels goes to the display
+in a frame.
+
+| The last argument | The sending | Frames a second, the drawing counted |
+| --- | --- | --- |
+| `false` | 13.4 ms | 31.0 |
+| `DGX_LUT_EXACT` | 20.7 ms | 25.3 |
+
+How it is built in the bus is told in
+[dsi-display-en.md](dsi-display-en.md#a-virtual-screen-put-to-the-display).
 
 ### How it is made
 
@@ -566,21 +635,52 @@ half the pen around it.
 
 ## What it costs
 
-Measured on a CYD: ESP32 at 240 MHz, `-O2`, drawing into an 8-bit virtual
-screen.
+Measured on a CYD: ESP32-D0WD-V3 at 240 MHz, `-O2`, ESP-IDF 5.5.4, drawing
+into an 8-bit virtual screen. One program with release 0.5.3 and with
+0.5.4. A range in the second column is several builds of the
+same code: the time depends on how the font fell in the flash cache.
 
-| What | Time |
-| --- | --- |
-| A text of three lines, 204 strokes, at once, scale 0.3, pen 3 | 11.7 ms |
-| The same written in 1000 steps | 20.3 ms in all, 20 µs a step, 164 µs at most |
-| Going through its strokes without drawing | 1.0 ms |
-| The whole effort of it | 2.2 ms |
-| A frame of a morph of two words, 46–55 curves, scale 0.4, pen 4 | 2.7–3.7 ms |
-| The same with sending a 320×102 band to an ILI9341 at 40 MHz | 47–49 frames a second |
+| What | 0.5.3, the hard pen | 0.5.4, the soft pen |
+| --- | --- | --- |
+| Three lines, 117 strokes in 0.5.3 and 120 in 0.5.4, at once, scale 0.3, pen 3 | 18.2 ms | 7.0–8.4 ms |
+| The same written in 1000 steps | 28.3 ms in all, 28 µs a step, 314 µs at most | 16.5–17.5 ms in all, 17 µs a step, 250 µs at most |
+| Going through their strokes without drawing | 5.9 ms | 1.0–2.0 ms |
+| The whole effort of them | 1.4 ms | 0.8–1.3 ms |
+| The name of the place, 89 strokes, scale 0.188 × 0.208, pen 2 | 11.8 ms | 4.0–4.3 ms |
+| A frame of a morph of two words, scale 0.4, pen 4 | 2.3–3.6 ms | 2.1–3.4 ms |
+| A frame of a morph of «3» into «8», scale 0.6, pen 5 | 0.56 ms | 0.49–0.50 ms |
+
+Most of the difference for a text is not the edge. In 0.5.3 the bend of a
+curve was found for every stroke though the font gives the number of pieces,
+and in this program the code of the layout and the code of the pen fell on
+the same lines of the cache. A morph, where the pen works without the layout,
+changed by a few percent.
+
+The hard pen got faster too: it draws the name of the place with a pen of 2
+in 3.8 ms, the soft one in the same build in 4.1. In a small text the hard
+pen is faster by 5–14%, at a scale of 1 the soft one by 1.6 times. The tables
+and the reasons are in [pen-en.md](pen-en.md#what-costs-what).
+
+On an ESP32 the same drawing takes up to a third longer, and going through
+the strokes up to twice as long, by where the linker has put the tables of
+the font: code and the font share one flash cache. Two settings,
+`CONFIG_DGX_HW_FONT_IN_IRAM` and `CONFIG_DGX_BEZIER_IN_IRAM`, keep the code
+of the layout and the code of the pen in IRAM, 4.1 and 9.3 KB, and the time
+no longer depends on a build; both are off by default. The timings are in
+[pen-en.md](pen-en.md#the-flash-cache).
+
+With sending a 320×102 band to an ILI9341 at 40 MHz a morph of two words ran
+at 47–49 frames a second. That was measured with the hard pen of 0.5.3; it
+was not repeated with the pens of 0.5.4. On an ESP32-P4 a frame of
+the move of two lines in the example `hw_soft_pen_demo` takes 32 ms: the
+wiping 4.8, the drawing with a soft pen of 16 to 12 pixels 13.5, the sending
+13.4.
 
 A morph keeps its pairs in memory: 64 bytes a pair and a byte more, about 3 KB
-for two words. Writing keeps nothing but its state, a few hundred bytes, on
-the stack or wherever you put it. `font0ss` is 17 KB of flash.
+for two words. Writing keeps nothing but its state: 348 bytes, 128 of them
+the curve, on the stack or wherever you put it; in 0.5.3 they were 336 and
+116. The code of the pen is 9.9 KB of flash, it was 3.8 KB; it added no RAM.
+`font0ss` is 17 KB of flash.
 
 ## Limits
 
@@ -591,7 +691,9 @@ the stack or wherever you put it. `font0ss` is 17 KB of flash.
   Russian alphabet, digits and punctuation, and nothing else. Other alphabets
   are to be drawn in the [hw-fonts][gh-hw-fonts] editor by those who need
   them; a symbol the font does not have leaves an empty cell.
-- Lines are not smoothed. An 8-bit virtual screen leaves room for it.
+- A soft edge comes out on an 8-bit virtual screen only. On a screen of
+  another depth and on the display itself a soft pen draws as a hard one:
+  there is nothing to compare there and nothing to read.
 - A morph of several lines knows nothing special about lines: the texts go as
   one way of the pen.
 - At small sizes a thick pen hides small things: a comma is 10 cells long,
@@ -606,9 +708,15 @@ the stack or wherever you put it. `font0ss` is 17 KB of flash.
   English.
 - [`examples/hw_morph_demo`](../examples/hw_morph_demo) writes a word and
   morphs it into the next ones, as a whole and letter by letter in turn.
+- [`examples/hw_soft_pen_demo`](../examples/hw_soft_pen_demo) writes four
+  lines with a soft pen: two as large as the screen, then they get lower and
+  go up, and two more are written under them; at the end the same pen with
+  no ink takes it all off.
 
 The host tests in `test/host` cover every step: `test_bezier` the curves and
-drawing by `t`, `test_hw_font` the glyphs, `test_hw_line` the placing,
+drawing by `t` with the hard pen, `test_soft_pen` the soft edge: the share of
+a pixel against a round pen, writing in steps, drawing twice and taking off,
+`test_hw_font` the glyphs, `test_hw_line` the placing,
 `test_hw_write` the order of writing, the effort and writing by pace,
 `test_hw_morph` both morphs, `test_region` the transfer of a part and that
 writing and a frame of a morph mark all they change.

@@ -61,21 +61,24 @@ static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, in
         if (draw_buffer == NULL || draw_buffer_len == 0) {
             draw_buffer_len = dgx_color_points_to_bytes(scr->color_bits, fill_scr_size);
             if (draw_buffer_len > 4096) draw_buffer_len = 4096; // limit temporary buffer size for virtual screens
-            while (draw_buffer_len > 64) {
+            /* as much as there is memory for, down to 64 bytes; a small rectangle needs less than that */
+            for (;;) {
                 draw_buffer = heap_caps_malloc(draw_buffer_len, MALLOC_CAP_DMA);
-                if (draw_buffer != NULL) break;
+                if (draw_buffer != NULL || draw_buffer_len <= 64) break;
                 draw_buffer_len /= 2;
-            }
-            if (draw_buffer == NULL) {
-                ESP_LOGE("DGX SLOW BUS FUNC", "Failed to allocate draw buffer for fill_rectangle_sb");
-                dgx_screen_progress_down(scr);
-                return;
             }
         }
     }
     uint8_t *lp  = draw_buffer;
-    uint32_t pic = dgx_bytes_to_color_points(scr->color_bits, draw_buffer_len);
+    uint32_t pic = draw_buffer ? dgx_bytes_to_color_points(scr->color_bits, draw_buffer_len) : 0;
     if (pic > fill_scr_size) pic = fill_scr_size;
+    if (pic == 0) {
+        /* no buffer to send from, as a bus that was given none has, or a depth pixels are not counted in */
+        ESP_LOGE("DGX SLOW BUS FUNC", "no draw buffer for fill_rectangle");
+        if (draw_buffer != scr->draw_buffer) free(draw_buffer);
+        dgx_screen_progress_down(scr);
+        return;
+    }
     if (scr->wait_buffer) scr->wait_buffer(scr);
     dgx_fill_pixels(scr->color_bits, lp, 0, pic, color); // index inside the buffer, not on the screen
     uint32_t pic_lenbits = dgx_color_points_to_bytes(scr->color_bits, pic) * 8u;
@@ -113,18 +116,13 @@ static void dgx_scr_set_pixel_sb(dgx_screen_t *scr, int x, int y, uint32_t color
     dgx_screen_touch(scr, x, x, y, y);
 }
 
+/*
+ * A display behind a bus is not read back: many SPI panels have no MISO, and
+ * where the command that reads memory works it is too slow. Nothing is sent.
+ */
 static uint32_t dgx_scr_get_pixel_sb(dgx_screen_t *_scr, int x, int y)
 {
-    if (_scr->screen_subtype == DgxPhysicalScreenWithBus) {
-        dgx_screen_with_bus_t *scr = (dgx_screen_with_bus_t *)_scr;
-        dgx_bus_protocols_t   *bus = scr->bus;
-        if (scr->rcmd_send != 0) {
-            _scr->set_area(_scr, x, x, y, y);
-            bus->write_command(bus, scr->rcmd_send);
-            // Readback is not implemented: many SPI panels have no MISO, and where RAMRD exists it is too slow.
-            return 0;
-        }
-    }
+    (void)_scr, (void)x, (void)y;
     return 0;
 }
 
@@ -373,7 +371,9 @@ static void dgx_scr_set_area_sb(dgx_screen_t *scr, uint16_t left, uint16_t right
         dgx_screen_with_bus_t *sbus = (dgx_screen_with_bus_t *)scr;
         if (left > right) DGX_INT_SWAP(left, right);
         if (top > bottom) DGX_INT_SWAP(top, bottom);
-        if (left >= scr->width || top >= scr->height) return;
+        /* a window off the screen is no window: what is sent into it must not land in the one before */
+        sbus->area_void = left >= scr->width || top >= scr->height;
+        if (sbus->area_void) return;
         if (right > scr->width - 1) right = scr->width - 1;
         if (bottom > scr->height - 1) bottom = scr->height - 1;
         left += scr->cg_col_shift;
@@ -387,7 +387,14 @@ static void dgx_scr_set_area_sb(dgx_screen_t *scr, uint16_t left, uint16_t right
 static void dgx_scr_write_area_sb(dgx_screen_t *scr, uint8_t *data, uint32_t lenbits)
 {
     if (scr->screen_subtype == DgxPhysicalScreenWithBus) {
-        dgx_bus_protocols_t *bus = ((dgx_screen_with_bus_t *)scr)->bus;
+        dgx_screen_with_bus_t *sbus = (dgx_screen_with_bus_t *)scr;
+        dgx_bus_protocols_t   *bus = sbus->bus;
+        if (sbus->area_void) return;
+        if (dgx_screen_with_bus_window_is_deferred(sbus)) {
+            /* a bus that takes pixels only with their command: the window goes with them */
+            dgx_screen_with_bus_write_window(sbus, data, lenbits);
+            return;
+        }
         bus->write_data_async(bus, data, lenbits);
     }
 }

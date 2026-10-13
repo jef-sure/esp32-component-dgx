@@ -4,15 +4,6 @@
 #include <stdint.h>
 #include "bus/dgx_spi_esp32.h"
 
-enum
-{
-    DGX_SPI_TRN_XCMD_IDX  = 0, //
-    DGX_SPI_TRN_XDATA_IDX = 1, //
-    DGX_SPI_TRN_YCMD_IDX  = 2, //
-    DGX_SPI_TRN_YDATA_IDX = 3, //
-    DGX_SPI_TRN_DCMD_IDX  = 4  //
-};
-
 typedef struct _dgx_spi_bus_t
 {
     dgx_bus_protocols_t           protocols;
@@ -25,28 +16,11 @@ typedef struct _dgx_spi_bus_t
     gpio_num_t                    dcio;
     int                           max_transfer_sz;
     int                           clock_speed_hz;
-    int                           pending_transactions;
-    bool                          is_trans_data_free;
+    bool                          is_trans_data_free; /* trans_data is not on its way: nothing is queued */
     spi_device_handle_t           spi;
     spi_device_interface_config_t devcfg;
-    union
-    {
-        struct
-        {
-            spi_transaction_t trans_area_cmd;
-            uint8_t           area_data[6];
-        };
-        spi_transaction_t trans_area[DGX_SPI_TRN_DCMD_IDX + 1];
-    };
-    spi_transaction_t trans_data;
-    spi_transaction_t trans_sync;
-    struct
-    {
-        uint16_t left;
-        uint16_t right;
-        uint16_t top;
-        uint16_t bottom;
-    } area;
+    spi_transaction_t trans_data; /* pixels, queued: the one transfer that may be under way when a call returns */
+    spi_transaction_t trans_sync; /* commands and parameters, waited for */
 } dgx_spi_bus_t;
 
 static inline void *set_dc_pin(gpio_num_t dc, uint8_t val)

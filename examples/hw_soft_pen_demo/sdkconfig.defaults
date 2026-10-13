@@ -1,0 +1,7 @@
+# The demo is made for two boards: the settings of each are in
+# sdkconfig.defaults.esp32 (a CYD) and sdkconfig.defaults.esp32p4 (a JC1060P470).
+CONFIG_DGX_ENABLE_VSCREEN=y
+
+# full speed, a frame is drawn anew every time
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_FREERTOS_HZ=1000

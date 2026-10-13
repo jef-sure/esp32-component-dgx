@@ -66,6 +66,13 @@
 #if __has_include("driver/ppa.h")
 #include "driver/ppa.h"
 #define DGX_DSI_HARDWARE_FILL 1
+/*
+ * The same accelerator mixes two colors by an 8-bit picture of how much of the second there is: what a
+ * table of two colors does for an 8-bit screen. It rounds in its own way, so a color between the two
+ * may differ from the table by a step of a channel; a program that wants the colors of its table and
+ * nothing else says so when it sends the screen, DGX_LUT_EXACT.
+ */
+#define DGX_DSI_HARDWARE_MIX 1
 #endif
 #endif
 
@@ -220,6 +227,9 @@ struct _dgx_dsi_bus_t {
 #endif
 #if DGX_DSI_HARDWARE_FILL
     ppa_client_handle_t filler; /* the accelerator that fills rectangles; NULL when there is none: the processor fills then */
+#if DGX_DSI_HARDWARE_MIX
+    ppa_client_handle_t mixer;  /* the same accelerator mixing two colors by an amount of ink; NULL when there is none */
+#endif
 #endif
     bool              rows_written; /* pixels were put into the frame buffer past the processor: there is something to show */
     bool              turned;       /* the screen does not lie on the panel pixel for pixel: mirrored, or its axes swapped */
@@ -320,6 +330,11 @@ static void dgx_dsi_send_pending(dgx_dsi_bus_t *bus)
  * less than this it has moved before the DMA is asked.
  */
 #define DGX_DSI_HARDWARE_ROWS_FROM 16384u
+
+#if DGX_DSI_HARDWARE_MIX
+static bool dgx_dsi_write_ink(struct _dgx_bus_protocols_t *_bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height, const uint8_t *ink,
+                              uint32_t pitch, uint32_t paper, uint32_t color);
+#endif
 
 /* a frame has been sent: the display starts the next one from the frame buffer it was last told to read */
 static IRAM_ATTR bool dgx_dsi_on_refresh(esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t *edata, void *user_ctx)
@@ -1276,9 +1291,15 @@ static void dgx_dsi_sync_write(struct _dgx_bus_protocols_t *_bus)
     dgx_dsi_send_pending((dgx_dsi_bus_t *)_bus);
 }
 
+/*
+ * Memory for pixels on their way to the display: the buffer of the window and the bands a picture is
+ * made ready in for the 2D DMA. Internal memory when there is any: what the processor writes here it
+ * should not have to carry through the cache of the PSRAM, where malloc() puts a large block.
+ */
 static uint8_t *dgx_dsi_memory_allocator(uint32_t len)
 {
-    return (uint8_t *)malloc(len);
+    uint8_t *memory = (uint8_t *)heap_caps_malloc(len, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return memory ? memory : (uint8_t *)malloc(len);
 }
 
 static void dgx_dsi_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
@@ -1297,6 +1318,9 @@ static void dgx_dsi_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
 #endif
 #if DGX_DSI_HARDWARE_FILL
     if (bus->filler) ppa_unregister_client(bus->filler);
+#if DGX_DSI_HARDWARE_MIX
+    if (bus->mixer) ppa_unregister_client(bus->mixer);
+#endif
 #endif
     if (bus->io) esp_lcd_panel_io_del(bus->io);
     if (bus->dsi) esp_lcd_del_dsi_bus(bus->dsi);
@@ -1497,6 +1521,14 @@ bool dgx_dsi_video_setup(dgx_bus_protocols_t *_bus, const dgx_dsi_video_t *video
             ESP_LOGW(TAG, "no accelerator to fill rectangles: the processor fills");
             bus->filler = NULL;
         }
+#if DGX_DSI_HARDWARE_MIX
+        const ppa_client_config_t mixer_config = {.oper_type = PPA_OPERATION_BLEND, .max_pending_trans_num = 1};
+        if (bus->filler && color_bits == 16 && ppa_register_client(&mixer_config, &bus->mixer) == ESP_OK) {
+            bus->protocols.write_ink = dgx_dsi_write_ink;
+        } else {
+            bus->mixer = NULL;
+        }
+#endif
     }
 #endif
     bus->frame[0] = (uint8_t *)fb;
@@ -1648,6 +1680,80 @@ static bool dgx_dsi_accelerator_fill(dgx_dsi_bus_t *bus, uint8_t *picture, uint3
     };
     return ppa_do_fill(bus->filler, &fill) == ESP_OK;
 }
+
+#if DGX_DSI_HARDWARE_MIX
+/* a color of 16 bits as the 8 bits of red, green and blue the accelerator takes, the screen's own order of red and blue minded */
+static color_pixel_rgb888_data_t dgx_dsi_color_888(const dgx_dsi_bus_t *bus, uint32_t color)
+{
+    uint32_t r = (color >> 11) & 0x1fu, g = (color >> 5) & 0x3fu, b = color & 0x1fu;
+    r = r << 3 | r >> 2, g = g << 2 | g >> 4, b = b << 3 | b >> 2;
+    const color_pixel_rgb888_data_t rgb = {.r = (uint8_t)(bus->area.swap_rb ? b : r), .g = (uint8_t)g, .b = (uint8_t)(bus->area.swap_rb ? r : b)};
+    return rgb;
+}
+
+/*
+ * A picture of amounts of ink put into a rectangle of the frame buffer by the accelerator: the rectangle
+ * is filled with the color of the paper, and then the ink is mixed into it, the picture being how
+ * opaque the ink is in every pixel. The processor carries no pixel. Returns false when it has not been
+ * done; the rectangle may be left filled with paper then, and is to be sent whole another way.
+ */
+static bool dgx_dsi_write_ink(struct _dgx_bus_protocols_t *_bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height, const uint8_t *ink,
+                              uint32_t pitch, uint32_t paper, uint32_t color)
+{
+    dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)_bus;
+    if (!bus->mixer || !bus->filler || !bus->area.fb || bus->area.pixel_bytes != 2 || bus->turned || pitch < width) return false;
+    /*
+     * Between the paper and the ink the rectangle is paper alone. With two frame buffers nobody sees
+     * it; with one the display would show it now and then, so there it is not done this way.
+     */
+    if (bus->frames != 2) return false;
+    if ((uint32_t)left + width > bus->area.fb_width || (uint32_t)top + height > bus->area.fb_height) return false;
+    dgx_dsi_draw_ready(bus);
+    if (dgx_dsi_late_busy(bus)) dgx_dsi_late_clear(bus, left, top, (uint16_t)(left + width - 1u), (uint16_t)(top + height - 1u));
+    /* every pixel of the rectangle is written: of its tiles only what lies outside it is brought up to date */
+    dgx_dsi_tiles_ready(bus, left, left + width - 1, top, top + height - 1, true, true);
+    dgx_dsi_late_shares(bus);
+    if (!dgx_dsi_accelerator_fill(bus, bus->area.fb, bus->area.fb_height, left, top, left + width - 1u, top + height - 1u, paper, bus->after_scan)) return false;
+    const uint32_t                size = (uint32_t)bus->area.fb_width * bus->area.fb_height * 2u;
+    const ppa_blend_oper_config_t mix = {
+        .in_bg = {
+            .buffer         = bus->area.fb,
+            .pic_w          = bus->area.fb_width,
+            .pic_h          = bus->area.fb_height,
+            .block_w        = width,
+            .block_h        = height,
+            .block_offset_x = left,
+            .block_offset_y = top,
+            .blend_cm       = PPA_BLEND_COLOR_MODE_RGB565,
+        },
+        .in_fg = {
+            .buffer   = ink,
+            .pic_w    = pitch,
+            .pic_h    = height,
+            .block_w  = width,
+            .block_h  = height,
+            .blend_cm = PPA_BLEND_COLOR_MODE_A8,
+        },
+        .out = {
+            .buffer         = bus->area.fb,
+            .buffer_size    = size,
+            .pic_w          = bus->area.fb_width,
+            .pic_h          = bus->area.fb_height,
+            .block_offset_x = left,
+            .block_offset_y = top,
+            .blend_cm       = PPA_BLEND_COLOR_MODE_RGB565,
+        },
+        .bg_alpha_update_mode = PPA_ALPHA_FIX_VALUE,
+        .bg_alpha_fix_val     = 255,
+        .fg_alpha_update_mode = PPA_ALPHA_NO_CHANGE,
+        .fg_fix_rgb_val       = dgx_dsi_color_888(bus, color),
+        .mode                 = PPA_TRANS_MODE_BLOCKING,
+    };
+    if (ppa_do_blend(bus->mixer, &mix) != ESP_OK) return false;
+    bus->rows_written = true;
+    return true;
+}
+#endif /* DGX_DSI_HARDWARE_MIX */
 
 /*
  * Fill a rectangle of the screen, which lies inside it, by the accelerator.

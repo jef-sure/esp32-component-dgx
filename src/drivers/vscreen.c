@@ -1,8 +1,10 @@
+#include <stddef.h>
 #include <string.h>
 
 #include "dgx_arch.h"
 #include "dgx_bits.h"
 #include "dgx_screen_functions.h"
+#include "dgx_screen_with_bus.h"
 #include "drivers/dgx_lcd_init.h"
 #include "drivers/vscreen.h"
 #include "esp_heap_caps.h"
@@ -732,9 +734,80 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
     dgx_screen_progress_down(_scr_dst);
 }
 
-void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width,
-                                     int height, uint16_t *lut, bool has_transparency)
+/* so many bytes of colors are made ready at a time for a bus that takes rows */
+#ifndef DGX_VSCREEN8_BAND_BYTES
+#define DGX_VSCREEN8_BAND_BYTES 65536u
+#endif
+
+/*
+ * A rectangle of an 8-bit screen for a display behind a bus that has a faster way than its window. Such
+ * a bus takes rows as they lie in memory, so the colors are made by bands, in memory the bus gives, and
+ * put to the display band by band: the processor only reads the 8-bit pixels and looks them up, and
+ * does not carry the colors to the display itself. Returns false when the bus has taken nothing: the
+ * pixels have to go through the window then. A band the bus does not take later goes through the window.
+ */
+static bool dgx_vscreen8_rows_to_bus(dgx_screen_t *_scr_dst, dgx_bus_protocols_t *bus, int rxd, int ryd, int bw, int bh, const dgx_vscreen_t *scr_src,
+                                     int skip_x, int skip_y, const uint16_t *lut)
 {
+    if (!bus->write_rows || !bus->memory_allocator) return false;
+    const uint32_t row_bytes = (uint32_t)bw * 2u;
+    int            rows = (int)(DGX_VSCREEN8_BAND_BYTES / row_bytes);
+    if (rows < 1) rows = 1;
+    if (rows > bh) rows = bh;
+    uint8_t *band = bus->memory_allocator((uint32_t)rows * row_bytes);
+    if (!band) return false;
+    /* every color as its two bytes lie in memory in the order a display takes them */
+    uint16_t pair[256];
+    for (int i = 0; i < 256; ++i) {
+        const uint8_t bytes[2] = {(uint8_t)(lut[i] >> 8), (uint8_t)lut[i]};
+        memcpy(&pair[i], bytes, 2);
+    }
+    const uint8_t *ink = scr_src->v_array + (size_t)skip_y * (size_t)scr_src->base.width + (size_t)skip_x;
+    for (int y = 0; y < bh; y += rows) {
+        const int n = bh - y < rows ? bh - y : rows;
+        uint8_t  *to = band;
+        for (int r = 0; r < n; ++r, ink += scr_src->base.width, to += row_bytes) {
+            for (int x = 0; x < bw; ++x) memcpy(to + 2 * x, &pair[ink[x]], 2);
+        }
+        if (bus->write_rows(bus, (uint16_t)rxd, (uint16_t)(ryd + y), (uint16_t)bw, (uint16_t)n, band, row_bytes)) continue;
+        if (y == 0) {
+            /* refused from the start: nothing has been put yet */
+            free(band);
+            return false;
+        }
+        _scr_dst->set_area(_scr_dst, rxd, rxd + bw - 1, ryd + y, ryd + y + n - 1);
+        _scr_dst->wait_buffer(_scr_dst);
+        _scr_dst->write_area(_scr_dst, band, 8u * (uint32_t)n * row_bytes);
+        _scr_dst->wait_buffer(_scr_dst);
+    }
+    free(band);
+    return true;
+}
+
+/*
+ * Is the table two colors and what lies between them? It is when every color of it is not further
+ * than a step of red, of green and of blue from the straight way between its first color and its
+ * last: a table a program has made for a pen with a soft edge, from the paper to the ink, however it
+ * rounded. Such a table a bus with hardware that mixes two colors does not need: the first color, the
+ * last one and the bytes of the screen are enough for it.
+ */
+static bool dgx_vscreen8_two_colors(const uint16_t *lut)
+{
+    static const uint8_t shift[3] = {11, 5, 0}, mask[3] = {31, 63, 31};
+    for (int c = 0; c < 3; ++c) {
+        const int from = (lut[0] >> shift[c]) & mask[c], way = ((lut[255] >> shift[c]) & mask[c]) - from;
+        for (int a = 1; a < 255; ++a) {
+            const int off = 255 * (((lut[a] >> shift[c]) & mask[c]) - from) - way * a;
+            if (off > 255 || off < -255) return false;
+        }
+    }
+    return true;
+}
+
+void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width,
+                                     int height, uint16_t *lut, uint32_t flags)
+{
+    const bool has_transparency = (flags & DGX_LUT_TRANSPARENT) != 0;
     dgx_vscreen_t *scr_src = (dgx_vscreen_t *)_scr_src;
     if (_scr_dst->color_bits != 16 || _scr_src->color_bits != 8) {
         ESP_LOGE(TAG, "vscreen8_to_screen16: source color bits %d != 8 or destination %d != 16", _scr_src->color_bits, _scr_dst->color_bits);
@@ -764,7 +837,13 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
         dgx_bus_protocols_t *bus             = ((dgx_screen_with_bus_t *)_scr_dst)->bus;
         uint8_t             *draw_buffer     = bus->buffer;
         size_t               draw_buffer_len = bus->buffer_len;
-        if (!has_transparency) {
+        if (!has_transparency && !(flags & DGX_LUT_EXACT) && bus->write_ink && dgx_vscreen8_two_colors(lut) &&
+            bus->write_ink(bus, (uint16_t)rxd, (uint16_t)ryd, (uint16_t)bw, (uint16_t)bh,
+                           scr_src->v_array + (size_t)skip_y * (size_t)_scr_src->width + (size_t)skip_x, (uint32_t)_scr_src->width, lut[0], lut[255])) {
+            /* the bus has mixed the two colors of the table itself */
+        } else if (!has_transparency && dgx_vscreen8_rows_to_bus(_scr_dst, bus, rxd, ryd, bw, bh, scr_src, skip_x, skip_y, lut)) {
+            /* the bus has taken it by rows */
+        } else if (!has_transparency) {
             _scr_dst->set_area(_scr_dst, rxd, rxd + bw - 1, ryd, ryd + bh - 1);
             _scr_dst->wait_buffer(_scr_dst);
             uint8_t *cbuf = draw_buffer;
@@ -828,9 +907,9 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
     dgx_screen_progress_down(_scr_dst);
 }
 
-void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint16_t *lut, bool has_transparency)
+void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint16_t *lut, uint32_t flags)
 {
-    dgx_vscreen8_region_to_screen16(_scr_dst, x_dst, y_dst, _scr_src, 0, 0, _scr_src->width, _scr_src->height, lut, has_transparency);
+    dgx_vscreen8_region_to_screen16(_scr_dst, x_dst, y_dst, _scr_src, 0, 0, _scr_src->width, _scr_src->height, lut, flags);
 }
 
 dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src)
@@ -850,6 +929,94 @@ dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src)
     uint32_t       csize   = dgx_color_points_to_bytes(_scr_src->color_bits, _scr_src->width * _scr_src->height);
     memcpy(scr->v_array, scr_src->v_array, csize);
     return _scr;
+}
+
+/*
+ * A turned region for a display behind a bus. A pixel set alone costs such a
+ * display a window and a transfer of its own, so the region goes through one
+ * window: the rows of the place it takes on the display, each gathered from
+ * the source in the order the turn asks for and sent through the buffer of
+ * the bus. Along a row of the display the source is walked by a step of its
+ * own, a pixel or a row of it, forth or back.
+ *
+ * (left, top) .. (right, bottom) is what of the turned region lies on the
+ * display, (x_dst, y_dst) where its corner would be. Returns false when the
+ * pixels have to be set one by one: the source is not rows of whole bytes in
+ * memory, or the bus has no buffer for a pixel.
+ */
+static bool dgx_vscreen_oriented_to_bus(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width,
+                                        int height, dgx_output_orientation_t orientation, int left, int top, int right, int bottom)
+{
+    if (_scr_dst->screen_subtype != DgxPhysicalScreenWithBus || !dgx_vscreen_is_linear(_scr_src)) return false;
+    const uint8_t bits = _scr_src->color_bits;
+    if (bits != 8 && bits != 16 && bits != 18 && bits != 24 && bits != 32) return false;
+    const dgx_vscreen_t *scr_src = (const dgx_vscreen_t *)_scr_src;
+    dgx_bus_protocols_t *bus = ((dgx_screen_with_bus_t *)_scr_dst)->bus;
+    const size_t         bip = dgx_color_points_to_bytes(bits, 1), pitch = (size_t)_scr_src->width * bip;
+    uint8_t *const       draw_buffer = bus->buffer;
+    const size_t         draw_buffer_len = bus->buffer_len - bus->buffer_len % bip;
+    if (!draw_buffer || draw_buffer_len < bip || !_scr_dst->set_area || !_scr_dst->write_area || !_scr_dst->wait_buffer) return false;
+    const bool swapped = dgx_vscreen_output_is_swapped(orientation);
+    /* which way the source is walked along a row of the display, and whether its columns and rows are counted from their far end */
+    bool across_back, down_back;
+    switch (orientation) {
+    case DgxOutputMirrorX:
+        across_back = true, down_back = false;
+        break;
+    case DgxOutputMirrorY:
+        across_back = false, down_back = true;
+        break;
+    case DgxOutputRotate180:
+        across_back = true, down_back = true;
+        break;
+    case DgxOutputTranspose:
+        across_back = false, down_back = false;
+        break;
+    case DgxOutputRotate90CCW:
+        across_back = true, down_back = false;
+        break;
+    case DgxOutputRotate90CW:
+        across_back = false, down_back = true;
+        break;
+    case DgxOutputTransverse:
+        across_back = true, down_back = true;
+        break;
+    default:
+        return false;
+    }
+    _scr_dst->set_area(_scr_dst, (uint16_t)left, (uint16_t)right, (uint16_t)top, (uint16_t)bottom);
+    _scr_dst->wait_buffer(_scr_dst);
+    uint8_t *cbuf = draw_buffer;
+    for (int dy = top; dy <= bottom; ++dy) {
+        /* the pixel of the region the first pixel of this row of the display shows */
+        const int u = left - x_dst, v = dy - y_dst;
+        int       sx, sy;
+        ptrdiff_t step;
+        if (!swapped) {
+            sx = across_back ? width - 1 - u : u;
+            sy = down_back ? height - 1 - v : v;
+            step = across_back ? -(ptrdiff_t)bip : (ptrdiff_t)bip;
+        } else {
+            /* a row of the display runs down a column of the source */
+            sx = across_back ? width - 1 - v : v;
+            sy = down_back ? height - 1 - u : u;
+            step = down_back ? -(ptrdiff_t)pitch : (ptrdiff_t)pitch;
+        }
+        const uint8_t *from = scr_src->v_array + (size_t)(y_src + sy) * pitch + (size_t)(x_src + sx) * bip;
+        for (int count = right - left + 1; count; --count, from += step) {
+            if ((size_t)(cbuf - draw_buffer) + bip > draw_buffer_len) {
+                _scr_dst->write_area(_scr_dst, draw_buffer, (uint32_t)(8u * (cbuf - draw_buffer)));
+                _scr_dst->wait_buffer(_scr_dst);
+                cbuf = draw_buffer;
+            }
+            for (size_t k = 0; k < bip; ++k) *cbuf++ = from[k];
+        }
+    }
+    if (cbuf != draw_buffer) {
+        _scr_dst->write_area(_scr_dst, draw_buffer, (uint32_t)(8u * (cbuf - draw_buffer)));
+        _scr_dst->wait_buffer(_scr_dst);
+    }
+    return true;
 }
 
 void dgx_vscreen_to_screen_oriented(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, dgx_output_orientation_t orientation)
@@ -921,7 +1088,9 @@ void dgx_vscreen_region_to_screen_oriented(dgx_screen_t *_scr_dst, int x_dst, in
     if (right < left || bottom < top) return;
 
     dgx_screen_progress_up(_scr_dst);
-    blit_func(_scr_dst, x_dst, y_dst, _scr_src, x_src, y_src, width, height, false);
+    if (!dgx_vscreen_oriented_to_bus(_scr_dst, x_dst, y_dst, _scr_src, x_src, y_src, width, height, orientation, left, top, right, bottom)) {
+        blit_func(_scr_dst, x_dst, y_dst, _scr_src, x_src, y_src, width, height, false);
+    }
     dgx_screen_touch(_scr_dst, left, right, top, bottom);
     dgx_screen_progress_down(_scr_dst);
 }

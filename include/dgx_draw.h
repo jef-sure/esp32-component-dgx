@@ -126,10 +126,49 @@ void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
 void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int width, uint32_t color);
 
 /**
+ * @brief Added to the width of a pen, it asks for a soft edge: `DGX_PEN_SOFT | 2`.
+ *
+ * It is for whatever draws a curve by a pen of a width: dgx_draw_bezier3(),
+ * dgx_draw_bezier4(), dgx_bezier3_begin(), dgx_bezier4_begin() and what is
+ * built on them, a handwritten text, its writing and its morphs.
+ *
+ * A soft pen leaves ink by the share of a pixel it covers. The color of the
+ * curve is then an amount of ink, that of a pixel the pen covers whole, and a
+ * pixel on the edge of the line gets a share of it, half a pixel either way
+ * from where a hard edge would be. Where lines meet or cross, a pixel keeps
+ * the larger amount: nothing gets darker there, and a line drawn twice is
+ * the line drawn once. A soft pen with color 0 takes the ink off every pixel
+ * it touches at all, so a line written by it is taken off whole by the same
+ * pen going the same way; a hard pen with color 0 takes off the pixels of a
+ * hard line and leaves the soft edge of a soft one. Drawn in any number of
+ * steps, a curve is byte for byte the curve drawn at once.
+ *
+ * A soft line also runs where the curve does: the ends of its straight pieces
+ * are not brought to whole pixels, only the ends of the curve are whole. A
+ * pen of an even width runs half a pixel to the right and down of them,
+ * between pixels. Where the line turns little at a joint it has a corner and
+ * not a round joint; the difference is under a sixteenth of the ink of a
+ * pixel.
+ *
+ * All this takes a pixel that is an amount of ink: a virtual screen of 8
+ * bits a pixel, dgx_vscreen_init(). What an amount looks like on a display is
+ * the business of the table such a screen is sent through,
+ * dgx_vscreen8_to_screen16(), which has to run from the color of the paper
+ * at 0 to the color of the ink. A pixel of colors has nothing to take the
+ * larger of, and a display behind a bus cannot be read at all: on every
+ * other screen a pen asked to be soft draws as a hard one of the same width.
+ */
+#define DGX_PEN_SOFT 0x40000000
+
+/**
  * @brief Draws a quadratic Bezier curve as a thick line with round ends.
  *
  * The curve is split into straight pieces drawn one after another. A piece
  * has a flat start and a round end, which closes the joint with the next one.
+ *
+ * The pen is given by @p width and @p color. Its edge is hard: a pixel is
+ * the line or is not. With DGX_PEN_SOFT added to @p width the edge is soft,
+ * see there.
  *
  * @param scr    The screen to draw on.
  * @param points Start point, control point, end point.
@@ -138,8 +177,9 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int 
  *               within half a pixel of the curve, found from the points with
  *               a margin. A curve of a handwritten font comes with its own
  *               number, see dgx_hw_font.h.
- * @param width  Line thickness in pixels (>= 1).
- * @param color  Line color.
+ * @param width  Line thickness in pixels (>= 1), with DGX_PEN_SOFT for a soft
+ *               edge.
+ * @param color  Line color; the amount of ink for a soft pen.
  */
 void dgx_draw_bezier3(dgx_screen_t *scr, const dgx_point_2d_t points[3], int pieces, int width, uint32_t color);
 
@@ -150,8 +190,9 @@ void dgx_draw_bezier3(dgx_screen_t *scr, const dgx_point_2d_t points[3], int pie
  * @param points Start point, two control points, end point.
  * @param pieces How many straight pieces to split the curve into, see
  *               dgx_draw_bezier3(); 0 estimates it from the points.
- * @param width  Line thickness in pixels (>= 1).
- * @param color  Line color.
+ * @param width  Line thickness in pixels (>= 1), with DGX_PEN_SOFT for a soft
+ *               edge.
+ * @param color  Line color; the amount of ink for a soft pen.
  */
 void dgx_draw_bezier4(dgx_screen_t *scr, const dgx_point_2d_t points[4], int pieces, int width, uint32_t color);
 
@@ -172,14 +213,29 @@ typedef struct {
     dgx_point_2d_t end;
     float          length;         /* of all the pieces, pixels; < 0: not counted yet */
     float          drawn;          /* the way the pen has gone */
-    int            x, y;           /* the start of the piece the pen is on */
-    int            bx, by;         /* its end */
-    float          piece_length;
+    float          piece_length;   /* of the piece the pen is on */
     float          piece_drawn;    /* how far along it the pen is */
-    bool           in_piece;       /* the four above are set */
-    int            ex, ey;         /* where the axis runs from the points, in half pixels */
+    bool           in_piece;       /* the piece the pen is on is known */
     bool           started;
-    int            rx, ry, rw, rh; /* equal rows not sent yet, rh == 0: none */
+    bool           soft;           /* the edge of the line is soft: DGX_PEN_SOFT on a screen of a byte a pixel */
+    uint8_t        direct;         /* bytes a pixel of a virtual screen whose memory the pen writes itself; 0: it asks the screen */
+    union {
+        struct { /* a line with a hard edge: its points are whole pixels */
+            int x, y;           /* the start of the piece the pen is on */
+            int bx, by;         /* its end */
+            int ex, ey;         /* where the axis runs from the points, in half pixels */
+            int rx, ry, rw, rh; /* equal rows not sent yet, rh == 0: none */
+        };
+        struct { /* a line with a soft edge: its points are not brought to whole pixels */
+            float fx, fy;          /* the start of the piece the pen is on */
+            float fbx, fby;        /* its end */
+            float ux, uy;          /* the way the piece goes, a vector of length 1 */
+            float nx, ny, next[2]; /* the end of the piece after it and the way that one goes, */
+            float next_length;     /* its length; 0: it is not known, or there is none */
+            float back, fore;      /* how much longer the piece is made at its start and at its end; fore < 0: the end is round */
+            float little;          /* the least cosine of a turn that needs no round joint */
+        };
+    };
 } dgx_bezier_t;
 
 /**

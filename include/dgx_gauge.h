@@ -29,7 +29,10 @@ typedef struct {
 } dgx_gauge_t;
 
 /**
- * @brief Initialize an arc/ring gauge widget.
+ * @brief Initialize an arc/ring gauge widget and draw its empty ring.
+ *
+ * The gauge starts at @p min_value: every step is drawn in @p background_color.
+ * What is under the ring is not cleared.
  *
  * @param gauge            Gauge object to initialize.
  * @param scr              Target screen.

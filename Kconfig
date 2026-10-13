@@ -27,7 +27,9 @@ config DGX_DSI_HARDWARE_COPY
         of a 16-bit virtual screen put to the display and, with two frame
         buffers, what one of them lacks of the other by the 2D DMA; a
         rectangle filled with a color by the pixel processing accelerator
-        (PPA). It costs 0.8 KB of RAM.
+        (PPA), and an 8-bit screen whose table is two colors mixed of them
+        by it, unless the call that sends the screen has DGX_LUT_EXACT. It
+        costs 0.8 KB of RAM.
 
         The accelerator has a public interface. The 2D DMA is driven
         through a private interface of IDF, esp_private/dma2d.h, and one
@@ -80,7 +82,7 @@ config DGX_ENABLE_ST7565R
 
 config DGX_ENABLE_ST7920
     bool "Enable ST7920 controller"
-    depends on DGX_ENABLE_SPI || DGX_ENABLE_I2C || DGX_ENABLE_P8
+    depends on DGX_ENABLE_SPI
     select DGX_ENABLE_VSCREEN
     default n
 
@@ -101,5 +103,39 @@ config DGX_ENABLE_MORPH
     bool "Enable dot morphing framework (bit-matrix morphs, glow/sprite renderers)"
     select DGX_ENABLE_VSCREEN
     default n
+
+config DGX_HW_FONT_IN_IRAM
+    bool "Keep the code that lays out a handwritten text in IRAM"
+    depends on IDF_TARGET_ESP32
+    default n
+    help
+        The code of a program and the tables of a font are read from flash
+        through one cache of two ways. Where a line of a font falls on a
+        set that holds two lines of hot code already, every stroke waits
+        for flash: the same text takes up to twice as long to go
+        through and up to a third longer to draw, by where the linker has
+        put the font, and that changes from build to build. Code in IRAM
+        is not read through the cache.
+
+        This takes 4.1 KB of IRAM for src/hw_font.c and the two functions
+        of src/font.c that find a glyph. Going through the strokes of a
+        text does not depend on the place of the font then, the drawing
+        still does by half as much; see DGX_BEZIER_IN_IRAM.
+
+        IRAM of an ESP32 is 128 KB and no part of the common heap, so it
+        costs no heap. A program with Wi-Fi may have a few KB of it left:
+        the linker says "IRAM0 segment data does not fit" when it is not
+        enough. Measured on an ESP32 only, see docs/pen-en.md.
+
+config DGX_BEZIER_IN_IRAM
+    bool "Keep the code that draws Bezier curves by a pen in IRAM"
+    depends on IDF_TARGET_ESP32
+    default n
+    help
+        The same for src/bezier.c, the hard pen and the soft one: 9.3 KB
+        of IRAM. The time of drawing a handwritten text does not depend on
+        the place of the font then, within 2%. With DGX_HW_FONT_IN_IRAM
+        too, 13.3 KB in all, neither the drawing nor the going through
+        does. See docs/pen-en.md.
 
 endmenu

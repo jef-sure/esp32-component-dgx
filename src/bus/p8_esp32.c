@@ -17,6 +17,7 @@
 #include "esp_lcd_io_i80.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "soc/soc_caps.h"
 
 #include "bus/dgx_p8_esp32.h"
 #include "dgx_p8_esp32_priv.h"
@@ -37,18 +38,82 @@ void dgx_p8_wait_pending(dgx_p8_bus_t *bus) {
     }
 }
 
+/*
+ * The driver of IDF under this bus sends a command and then its data in one
+ * transfer. Data alone it sends only on the chips whose bus is the LCD_CAM
+ * peripheral, ESP32-S3 and ESP32-P4, when the command is -1. On an ESP32 and
+ * an ESP32-S2 the bus is made of the I2S peripheral, and that driver sends
+ * the command byte before every block whatever the command is: -1 goes out
+ * as 0xFF, and the display takes the pixels after it for parameters of that.
+ *
+ * So nothing here is sent as data alone when it can be helped. A command
+ * waits for its data and goes in one transfer with it, and a screen on this
+ * bus sends every block of pixels with the command that writes memory, see
+ * dgx_screen_with_bus_write_window().
+ */
+
+/* the parameters of a command go through a buffer of the driver, LCD_I80_IO_FORMAT_BUF_SIZE of IDF; more than that goes as pixels do */
+#define DGX_P8_PARAM_BYTES 32u
+
+/* the command that was held back has no data */
+static void dgx_p8_flush_command(dgx_p8_bus_t *bus) {
+    if (!bus->command_pending) return;
+    bus->command_pending = false;
+    dgx_p8_wait_pending(bus);
+    esp_err_t ret = esp_lcd_panel_io_tx_param(bus->io, bus->command, NULL, 0);
+    if (ret != ESP_OK) ESP_LOGE(TAG, "command 0x%02x failed: %s", bus->command, esp_err_to_name(ret));
+}
+
+/*
+ * The command the data that follows belongs to: the one held back, or -1
+ * for data alone. false when data alone cannot be sent on this chip.
+ */
+static bool dgx_p8_take_command(dgx_p8_bus_t *bus, int *command) {
+    if (bus->command_pending) {
+        bus->command_pending = false;
+        *command = bus->command;
+        return true;
+    }
+#if SOC_LCDCAM_I80_LCD_SUPPORTED
+    *command = -1;
+    return true;
+#else
+    if (!bus->complained) {
+        bus->complained = true;
+        ESP_LOGE(TAG, "data with no command before it cannot be sent on this chip, it is dropped");
+    }
+    return false;
+#endif
+}
+
 static void dgx_p8_send_command(struct _dgx_bus_protocols_t *_bus, uint8_t cmd) {
     dgx_p8_bus_t *bus = (dgx_p8_bus_t *)_bus;
-    dgx_p8_wait_pending(bus);
-    esp_lcd_panel_io_tx_param(bus->io, cmd, NULL, 0);
+    dgx_p8_flush_command(bus);
+    bus->command = cmd;
+    bus->command_pending = true;
 }
 
 static void dgx_p8_send_commands(struct _dgx_bus_protocols_t *_bus, const uint8_t *cmds, uint32_t len) {
     dgx_p8_bus_t *bus = (dgx_p8_bus_t *)_bus;
-    dgx_p8_wait_pending(bus);
     uint32_t byte_len = (len + 7u) / 8u;
     for (uint32_t i = 0; i < byte_len; i++) {
-        esp_lcd_panel_io_tx_param(bus->io, cmds[i], NULL, 0);
+        dgx_p8_send_command(_bus, cmds[i]);
+    }
+    dgx_p8_flush_command(bus);
+}
+
+static void dgx_p8_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len) {
+    dgx_p8_bus_t *bus = (dgx_p8_bus_t *)_bus;
+    uint32_t byte_len = (len + 7u) / 8u;
+    int command;
+    if (byte_len == 0) return;
+    if (!dgx_p8_take_command(bus, &command)) return;
+    dgx_p8_wait_pending(bus);
+    bus->transfer_pending = true;
+    esp_err_t ret = esp_lcd_panel_io_tx_color(bus->io, command, data, byte_len);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_lcd_panel_io_tx_color failed: %s", esp_err_to_name(ret));
+        bus->transfer_pending = false; // nothing was queued: no completion callback will come
     }
 }
 
@@ -56,25 +121,22 @@ static void dgx_p8_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *d
     dgx_p8_bus_t *bus = (dgx_p8_bus_t *)_bus;
     uint32_t byte_len = (len + 7u) / 8u;
     if (byte_len == 0) return;
-    dgx_p8_wait_pending(bus);
-    esp_lcd_panel_io_tx_param(bus->io, -1, data, byte_len);
-}
-
-static void dgx_p8_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len) {
-    dgx_p8_bus_t *bus = (dgx_p8_bus_t *)_bus;
-    uint32_t byte_len = (len + 7u) / 8u;
-    if (byte_len == 0) return;
-    dgx_p8_wait_pending(bus);
-    bus->transfer_pending = true;
-    esp_err_t ret = esp_lcd_panel_io_tx_color(bus->io, -1, data, byte_len);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "esp_lcd_panel_io_tx_color failed: %s", esp_err_to_name(ret));
-        bus->transfer_pending = false; // nothing was queued: no completion callback will come
+    if (byte_len > DGX_P8_PARAM_BYTES) {
+        /* too much for the parameters of a command: sent as pixels are, and waited for */
+        dgx_p8_send_data_async(_bus, data, len);
+        dgx_p8_wait_pending(bus);
+        return;
     }
+    int command;
+    if (!dgx_p8_take_command(bus, &command)) return;
+    dgx_p8_wait_pending(bus);
+    esp_err_t ret = esp_lcd_panel_io_tx_param(bus->io, command, data, byte_len);
+    if (ret != ESP_OK) ESP_LOGE(TAG, "command 0x%02x with %u bytes failed: %s", (unsigned)(command & 0xff), (unsigned)byte_len, esp_err_to_name(ret));
 }
 
 static void dgx_p8_sync_write_func(struct _dgx_bus_protocols_t *_bus) {
     dgx_p8_bus_t *bus = (dgx_p8_bus_t *)_bus;
+    dgx_p8_flush_command(bus);
     dgx_p8_wait_pending(bus);
 }
 
@@ -85,6 +147,7 @@ static uint32_t dgx_p8_read_data(struct _dgx_bus_protocols_t *_bus, uint8_t *dat
 
 static void dgx_p8_dispose_bus_func(struct _dgx_bus_protocols_t *_bus) {
     dgx_p8_bus_t *bus = (dgx_p8_bus_t *)_bus;
+    if (bus->io) dgx_p8_flush_command(bus);
     dgx_p8_wait_pending(bus);
     if (bus->io) esp_lcd_panel_io_del(bus->io);
     if (bus->i80_bus) esp_lcd_del_i80_bus(bus->i80_bus);
@@ -183,5 +246,6 @@ dgx_bus_protocols_t *dgx_p8_init(gpio_num_t lcd_d0, gpio_num_t lcd_d1, gpio_num_
         return NULL;
     }
     bus->transfer_pending = false;
+    bus->command_pending = false;
     return (dgx_bus_protocols_t *)bus;
 }

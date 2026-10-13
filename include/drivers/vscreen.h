@@ -56,14 +56,44 @@ bool dgx_vscreen_is_linear(const dgx_screen_t *scr);
 dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src);
 
 /**
- * @brief Expand an 8-bit indexed virtual screen into a 16-bit destination through a LUT.
- * @param _scr_dst         Destination 16-bit screen.
- * @param x_dst,y_dst      Top-left placement on the destination.
- * @param _scr_src         Source 8-bit indexed virtual screen.
- * @param lut              256-entry RGB565 lookup table.
- * @param has_transparency If true, index 0 is treated as transparent.
+ * @brief How dgx_vscreen8_to_screen16() and dgx_vscreen8_region_to_screen16() use their table: added together.
+ *
+ * `true` and `false` given here are DGX_LUT_TRANSPARENT and nothing, as
+ * they were when this was a bool.
  */
-void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint16_t *lut, bool has_transparency);
+#define DGX_LUT_TRANSPARENT 1u /*!< A pixel of index 0 is not put: what the destination has there stays. */
+/**
+ * The colors of the table and no others. Without it a display that has
+ * hardware for it may be given a table of two colors mixed by that hardware,
+ * faster and not to the last bit; see dgx_vscreen8_to_screen16(). It changes
+ * nothing where there is no such hardware.
+ */
+#define DGX_LUT_EXACT 2u
+
+/**
+ * @brief Expand an 8-bit indexed virtual screen into a 16-bit destination through a LUT.
+ *
+ * A display whose bus has faster ways than its window is served by them, and
+ * the pixels are those of the table. One table is an exception: two colors
+ * and what lies between them, as a program makes for a screen a pen with a
+ * soft edge draws on, from the color of the paper at 0 to the color of the
+ * ink at 255. A bus with hardware that mixes two colors, a DSI display of an
+ * ESP32-P4 with two frame buffers, mixes them itself by the bytes of the
+ * screen then, and the processor carries no pixel. The first color and the
+ * last one come out as the table has them; a color between them may differ
+ * from the table by a step of red, green or blue: 3.2% of the range of red
+ * or blue, 1.6% of green. A table is taken for such when none of its colors
+ * is further than a step from the straight way between its first and its
+ * last, and nothing is transparent. DGX_LUT_EXACT in @p flags asks for the
+ * colors of the table whatever it is.
+ *
+ * @param _scr_dst     Destination 16-bit screen.
+ * @param x_dst,y_dst  Top-left placement on the destination.
+ * @param _scr_src     Source 8-bit indexed virtual screen.
+ * @param lut          256-entry RGB565 lookup table.
+ * @param flags        0, or DGX_LUT_TRANSPARENT and DGX_LUT_EXACT added together.
+ */
+void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint16_t *lut, uint32_t flags);
 
 /**
  * @brief Expand a rectangular region of an 8-bit indexed virtual screen into a 16-bit destination through a LUT.
@@ -82,10 +112,10 @@ void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_
  * @param x_src,y_src      Top-left corner of the region in the source.
  * @param width,height     Size of the region.
  * @param lut              256-entry RGB565 lookup table.
- * @param has_transparency If true, index 0 is treated as transparent.
+ * @param flags            0, or DGX_LUT_TRANSPARENT and DGX_LUT_EXACT added together.
  */
 void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width,
-                                     int height, uint16_t *lut, bool has_transparency);
+                                     int height, uint16_t *lut, uint32_t flags);
 
 /**
  * @brief Copy the whole source virtual screen into a same-sized destination.

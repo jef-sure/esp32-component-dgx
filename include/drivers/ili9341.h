@@ -17,7 +17,10 @@ extern "C"
  * @param rst        Reset GPIO (use GPIO_NUM_NC if the panel has no reset line).
  * @param backlight  Backlight GPIO (use GPIO_NUM_NC if the panel has no backlight control).
  * @param color_bits Pixel depth in bits (typically 16 for RGB565).
- * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR).
+ * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR): the order colors come out in on the
+ *                   usual modules of this controller. Those show red as red with the BGR bit of the
+ *                   controller set, so DgxScreenRGB sets that bit, the other way round from the ST77xx and
+ *                   GC9A01 drivers. If red and blue are exchanged on a module, pass the other value.
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */
 dgx_screen_t *dgx_ili9341_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo);

@@ -50,9 +50,8 @@ void dgx_gauge_init(dgx_gauge_t *gauge, dgx_screen_t *scr, int center_x, int cen
     gauge->sweep_degrees    = sweep_degrees;
     gauge->start_angle      = start_angle;
     gauge->background_color = background_color;
-    for (int step = 0; step < gauge->active_steps; ++step) {
-        dgx_gauge_step_quad(gauge, step, gauge->background_color);
-    }
+    /* the empty ring: no step is active yet, so every one of them is drawn in the background color */
+    dgx_gauge_redraw(gauge);
 }
 
 static int dgx_gauge_value_for_step(const dgx_gauge_t *gauge, int step)
@@ -86,6 +85,8 @@ void dgx_gauge_set_value(dgx_gauge_t *gauge, int value)
     if (range <= 0) return;
     int next_active_steps = ((next_value - gauge->min_value) * gauge->sweep_degrees) / range;
 
+    /* the steps that change are one picture: shown together where a screen shows by batches */
+    dgx_screen_progress_up(gauge->scr);
     if (next_active_steps > gauge->active_steps) {
         for (int step = gauge->active_steps + 1; step <= next_active_steps; ++step) {
             int step_value = dgx_gauge_value_for_step(gauge, step);
@@ -98,12 +99,14 @@ void dgx_gauge_set_value(dgx_gauge_t *gauge, int value)
             dgx_gauge_step_quad(gauge, step, gauge->background_color);
         }
     }
+    dgx_screen_progress_down(gauge->scr);
     gauge->value        = next_value;
     gauge->active_steps = next_active_steps;
 }
 
 void dgx_gauge_redraw(dgx_gauge_t *gauge)
 {
+    dgx_screen_progress_up(gauge->scr);
     for (int step = 1; step <= gauge->active_steps; ++step) {
         int step_value = dgx_gauge_value_for_step(gauge, step);
         uint32_t color = gauge->color_fn ? gauge->color_fn(step_value) : gauge->background_color;
@@ -112,4 +115,5 @@ void dgx_gauge_redraw(dgx_gauge_t *gauge)
     for (int step = gauge->active_steps + 1; step <= gauge->sweep_degrees; ++step) {
         dgx_gauge_step_quad(gauge, step, gauge->background_color);
     }
+    dgx_screen_progress_down(gauge->scr);
 }
