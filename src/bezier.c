@@ -662,6 +662,10 @@ void dgx_bezier3_begin(dgx_bezier_t *b, dgx_screen_t *scr, const dgx_point_2d_t 
     dgx_bezier_begin(b, scr, points[2], pieces, width, color);
 }
 
+/*
+ * dgx_draw_arc() of ellipse.c begins its curves here by points made whole and gives them kx[0..2] and
+ * ky[0..2] of its own after: nothing else found from the two middle points may be kept in the curve.
+ */
 void dgx_bezier4_begin(dgx_bezier_t *b, dgx_screen_t *scr, const dgx_point_2d_t points[4], int pieces, int width, uint32_t color)
 {
     b->kx[3] = points[0].x;

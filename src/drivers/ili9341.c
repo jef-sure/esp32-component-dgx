@@ -4,6 +4,7 @@
 
 #include "dgx_arch.h"
 #include "dgx_screen_functions.h"
+#include "dgx_spi_area_protocol.h"
 #include "drivers/dgx_lcd_init.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
@@ -178,6 +179,8 @@ dgx_screen_t *dgx_ili9341_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_nu
     scr->base.scr.screen_submodel = 0;
     scr->base.scr.screen_subtype  = DgxPhysicalScreenWithBus;
     dgx_screen_with_bus_init_area(&scr->base, ILI9341_CASET, ILI9341_PASET, ILI9341_RAMWR, 0, DGX_SCREEN_AREA_PROTO_STD16);
+    /* the controller scrolls along the 320 rows of its memory, the long side of the panel */
+    dgx_screen_with_bus_scroll_init(&scr->base, 320, ILI9341_VSCRDEF, ILI9341_VSCRSADD);
     // Initialize non-SPI GPIOs
     if (rst >= 0) {
         dgx_gpio_set_direction(rst, GPIO_MODE_OUTPUT);
@@ -219,6 +222,12 @@ void dgx_ili9341_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_or
     if (scr->base.scr.rgb_order == DgxScreenRGB) data[0] |= MADCTL_BGR;
     scr->base.bus->write_command(scr->base.bus, cmd);
     scr->base.bus->write_data(scr->base.bus, data, 8);
+    /*
+     * The rows of memory are the rows of the screen, or its columns when the
+     * axes are swapped; MY turns the addresses along them round whichever
+     * they are.
+     */
+    dgx_screen_with_bus_scroll_way(&scr->base, swap_xy, dir_y == DgxScreenBottomTop);
 }
 
 esp_err_t dgx_ili9341_backlight(dgx_screen_t *_scr, bool on)

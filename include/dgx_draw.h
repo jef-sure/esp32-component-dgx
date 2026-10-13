@@ -63,6 +63,83 @@ void dgx_draw_line(dgx_screen_t *scr, int x1, int y1, int x2, int y2, uint32_t c
 void dgx_solid_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color);
 
 /**
+ * @brief Draws the outline of an ellipse, a pixel wide.
+ *
+ * The axes of the ellipse lie along the rows and the columns of the screen.
+ * A pixel is taken by the rule of the midpoint algorithm, by which
+ * dgx_draw_circle() goes: an ellipse of equal radii is that circle, pixel
+ * for pixel. No pixel is further than half a pixel from the curve, along its
+ * row or along its column, and a thin ellipse keeps its ends, which the walk
+ * of the textbooks spoils. An ellipse with a radius of 0 is a line.
+ *
+ * @param scr   The screen to draw on.
+ * @param x     The x coordinate of the center.
+ * @param y     The y coordinate of the center.
+ * @param rx    The radius along x: the ellipse is 2 * rx + 1 pixels wide.
+ * @param ry    The radius along y: the ellipse is 2 * ry + 1 pixels high.
+ * @param color The color of the outline.
+ */
+void dgx_draw_ellipse(dgx_screen_t *scr, int x, int y, int rx, int ry, uint32_t color);
+
+/**
+ * @brief Draws an arc of an ellipse by a pen of a width; with equal radii, an arc of a circle.
+ *
+ * An angle is counted in degrees from the ray that goes from the center to
+ * the right, against the clock as the screen is seen: 90 is up. It is the
+ * angle of a ray on the screen, whatever the radii are. The arc is what of
+ * the ellipse lies between the rays of @p from and @p to, which of the two
+ * is the larger makes no difference. Angles are not brought into a turn: from
+ * 350 to 370 is twenty degrees across the ray that goes right, and 360
+ * degrees or more between the two is the whole ellipse. With no angle between
+ * them nothing is drawn.
+ *
+ * A hard pen of 1 draws the pixels of the outline of dgx_draw_ellipse() that
+ * lie between the rays, a pixel on a ray counted in.
+ *
+ * Any other pen is the pen of the curves, dgx_draw_bezier4(), led along the
+ * arc against the clock: the line is @p width wide with the arc in its
+ * middle and has round ends, and with DGX_PEN_SOFT added to @p width its
+ * edge is soft where the screen can hold it, see there. What is said there
+ * of a pen of an even width and of the ends of a curve, which are whole
+ * pixels, holds here. The straight pieces the pen goes by are within half a
+ * pixel of the arc for a hard line and within an eighth of a pixel for a
+ * soft one.
+ *
+ * @param scr   The screen to draw on.
+ * @param x     The x coordinate of the center.
+ * @param y     The y coordinate of the center.
+ * @param rx    The radius along x.
+ * @param ry    The radius along y.
+ * @param from  The angle the arc begins at, degrees.
+ * @param to    The angle the arc ends at, degrees.
+ * @param width Line thickness in pixels (>= 1), with DGX_PEN_SOFT for a soft
+ *              edge.
+ * @param color Line color; the amount of ink for a soft pen.
+ */
+void dgx_draw_arc(dgx_screen_t *scr, int x, int y, int rx, int ry, float from, float to, int width, uint32_t color);
+
+/**
+ * @brief Draws a filled sector of an ellipse; with equal radii, of a circle.
+ *
+ * The sector is what of the ellipse, its outline and all within it, lies
+ * between the rays of @p from and @p to; the angles are those of
+ * dgx_draw_arc(). A pixel on a ray is of the sector, so two sectors with a
+ * common ray both have its pixels. 360 degrees or more between the two angles
+ * is the whole ellipse filled, and with equal radii that is the picture of
+ * dgx_solid_circle(). With no angle between them nothing is drawn.
+ *
+ * @param scr   The screen to draw on.
+ * @param x     The x coordinate of the center.
+ * @param y     The y coordinate of the center.
+ * @param rx    The radius along x.
+ * @param ry    The radius along y.
+ * @param from  The angle the sector begins at, degrees.
+ * @param to    The angle the sector ends at, degrees.
+ * @param color Fill color.
+ */
+void dgx_solid_sector(dgx_screen_t *scr, int x, int y, int rx, int ry, float from, float to, uint32_t color);
+
+/**
  * @brief Set a pixel on the screen.
  *
  * @param scr The screen to draw on.
@@ -79,11 +156,68 @@ void dgx_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color);
  * @param x The x coordinate of the pixel.
  * @param y The y coordinate of the pixel.
  * @return The color of the pixel.
- * @note Works only on virtual screens and on physical screens that draw into a
- *       virtual back screen first (ST7920, SSD1306, ST7565R). Direct physical
- *       panels (ILI9341, ST7789, ...) do not read back and return 0.
+ * @note Works only where pixels are memory of the chip: on virtual screens,
+ *       on physical screens that draw into a virtual back screen first
+ *       (ST7920, SSD1306, ST7565R) and on a DSI display. Direct physical
+ *       panels (ILI9341, ST7789, ...) do not read back and return 0; see
+ *       dgx_screen_is_readable().
 */
 uint32_t dgx_get_pixel(dgx_screen_t *scr, int x, int y);
+
+/**
+ * @brief Tells whether a screen gives back the pixels drawn on it.
+ *
+ * True for a screen that keeps its pixels in memory: a virtual screen, a
+ * display that is drawn into a virtual screen first (ST7920, SSD1306,
+ * ST7565R), a DSI display with its frame buffers. False for a display that
+ * has its memory in the panel behind a bus (ILI9341, ST7789, ...):
+ * dgx_get_pixel() returns 0 there.
+ *
+ * @param scr The screen.
+ * @return true when dgx_get_pixel() reads what was drawn.
+ */
+bool dgx_screen_is_readable(const dgx_screen_t *scr);
+
+/**
+ * @brief Moves what a rectangle of the screen shows, within the rectangle, any way.
+ *
+ * The picture in the rectangle goes @p dx pixels to the right and @p dy
+ * pixels down; negative ones are to the left and up, and the two together
+ * are a move aslant. What leaves the rectangle is lost, what is outside it
+ * stays as it is, and the strips the picture has left are filled with
+ * @p color. A move as large as the rectangle, or larger, only fills it. The
+ * rectangle is cut by the screen first.
+ *
+ * The picture is read from the screen, so the screen has to give its pixels
+ * back, dgx_screen_is_readable(). A virtual screen of whole bytes a pixel, 8
+ * bits and more but for 12, is moved in its memory a row at a time. Any
+ * other screen that is read is moved pixel by pixel, each read and written
+ * by the screen.
+ *
+ * A display that keeps its pixels in the panel behind a bus is not read. A
+ * panel that scrolls itself moves the picture then, and no pixel of it is
+ * sent: an ILI9341 does, along the long side of its panel, which is y of a
+ * screen upright and x of one that lies. It is a move the panel can make
+ * when it goes along that side only and the rectangle takes the screen from
+ * edge to edge across it; and the panel has one such area at a time, so a
+ * rectangle that has been moved has to be filled, by a move as large as it,
+ * before another is moved. Everything drawn after is still drawn where it is
+ * seen. Any other move on such a display does nothing and returns false, but
+ * for a move that only fills: a text that scrolls another way is drawn on a
+ * virtual screen, which is moved and sent to the display.
+ *
+ * @param scr   The screen.
+ * @param x     The x coordinate of the top-left corner of the rectangle.
+ * @param y     The y coordinate of the top-left corner of the rectangle.
+ * @param w     The width of the rectangle.
+ * @param h     The height of the rectangle.
+ * @param dx    How far the picture goes to the right; negative: to the left.
+ * @param dy    How far the picture goes down; negative: up.
+ * @param color The color of what the picture has left.
+ * @return false when the picture had to be moved and the screen can neither be
+ *         read nor move it itself.
+ */
+bool dgx_scroll(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy, uint32_t color);
 
 /**
  * @brief Draws a filled triangle on the screen.
@@ -130,7 +264,8 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int 
  *
  * It is for whatever draws a curve by a pen of a width: dgx_draw_bezier3(),
  * dgx_draw_bezier4(), dgx_bezier3_begin(), dgx_bezier4_begin() and what is
- * built on them, a handwritten text, its writing and its morphs.
+ * built on them, an arc of dgx_draw_arc(), a handwritten text, its writing
+ * and its morphs.
  *
  * A soft pen leaves ink by the share of a pixel it covers. The color of the
  * curve is then an amount of ink, that of a pixel the pen covers whole, and a

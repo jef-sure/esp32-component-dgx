@@ -1,13 +1,100 @@
 # Changes
 
-## Unreleased
+## 0.5.5 - 2026-10-13
 
+- **an ellipse, its arc and its sector: `dgx_draw_ellipse()`,
+  `dgx_draw_arc()`, `dgx_solid_sector()`**, of a circle with equal radii. The
+  outline is a pixel wide and is drawn by the rule of the midpoint algorithm,
+  asked of every pixel: with equal radii it is `dgx_draw_circle()` pixel for
+  pixel, no pixel is further than half a pixel from the curve along its row
+  or its column, and a thin ellipse keeps its ends, which the walk of the
+  textbooks spoils. An angle is counted in degrees from the ray that goes
+  right, against the clock as the screen is seen, and is the angle of a ray
+  on the screen whatever the radii are; the figure is what lies between the
+  two rays, a pixel on a ray counted in, and 360 degrees or more between them
+  is the whole ellipse. A sector is filled by rows, equal rows as one
+  rectangle, and a whole turn of equal radii is the picture of
+  `dgx_solid_circle()`. An arc takes a pen as a curve does: a hard pen of 1
+  draws the pixels of the outline between the rays, any other pen is the pen
+  of `dgx_draw_bezier4()` led along the arc, with round ends, and
+  `DGX_PEN_SOFT` added to its width gives the line a soft edge where the
+  screen can hold one. The sign of Wi-Fi, a dot and arcs of a quarter of a
+  turn over it, is a call for each arc. The straight pieces of an arc are
+  within half a pixel of it for a hard line and within an eighth of a pixel
+  for a soft one, where a small circle of pieces half a pixel off is a
+  polygon to the eye: the middle of a soft line was measured up to 0.49 of a
+  pixel from its circle with the first and is within 0.18 with the second.
+  An arc of a quarter of a turn or less is one curve; a longer one is cut
+  where the axes are, at whole pixels. The code is `src/ellipse.c`, no RAM;
+  the code of the pen, `src/bezier.c`, is not changed. Checked on the host
+  by `test_ellipse`.
+- **a rectangle scrolled any way: `dgx_scroll()`**. What a rectangle of a
+  screen shows goes `dx` pixels to the right and `dy` down, either of them
+  negative for the other way, both together for a move aslant; what leaves
+  the rectangle is lost, and the strips the picture has left are filled with
+  a color. Where pixels are memory the picture is read: a virtual screen of
+  whole bytes a pixel is moved in its memory a row at a time, and any other
+  screen that can be read, a virtual screen of 1, 4 or 12 bits, a monochrome
+  one, a display drawn through a virtual back screen, a DSI display, is moved
+  pixel by pixel. `dgx_screen_is_readable()` tells whether a screen gives
+  back what is drawn on it. Checked on the host by `test_scroll`, on every
+  depth of a virtual screen and on a monochrome one.
+- **a display that is not read is scrolled by its panel, where the panel
+  scrolls itself**: an ILI9341, along the long side of its panel, which is y
+  of a screen upright and x of one that lies. `dgx_scroll()` does it when
+  the move goes along that side only and the rectangle takes the screen from
+  edge to edge across it; what lies before and after the rectangle along the
+  side stays, the head and the foot of a terminal. The panel then shows the
+  rows of the area from another row of its memory on, and no pixel of the
+  picture is sent, only the strip that is filled. A row is no longer where
+  it is shown, so every window of the screen is led to where its rows lie,
+  in `dgx_screen_with_bus_set_area_window()`: whatever is drawn after is
+  drawn where it is seen. A window that crosses the place where the rows
+  turn round goes in pieces, two when the screen is upright and two for
+  every row of it when the screen lies. The strip that leaves is filled
+  before the move, so what comes in at the other end is the color already.
+  A panel has one such area: a rectangle that has been moved has to be
+  filled, by a move as large as it, before another is moved, and setting the
+  orientation gives the scroll up. Any other move on a display that is not
+  read, across the long side or aslant, draws nothing and returns `false`.
+  The scroll is the two commands of the MIPI DCS, 33h and 37h, told of by a
+  driver with `dgx_screen_with_bus_scroll_init()` and
+  `dgx_screen_with_bus_scroll_way()`; ST7789, ST7735 and GC9A01 have them
+  too and are not switched on, there was no panel to see them on. 12 bytes
+  more in a screen with a bus.
+- measured on a CYD, ESP32-2432S028R: ESP32-D0WD-V3 revision 3.1 at 240 MHz,
+  ILI9341 on SPI at 40 MHz, IDF 5.5.4, `-O2`; the firmware is outside the
+  repository. The code there is 6.0 KB for the ellipse, the arc and the
+  sector and 1.0 KB for the scroll, linked where they are called. Straight on the display: the outline of an ellipse 50 x 50
+  7.6 ms and a circle of radius 50 7.5 ms; an arc of a whole turn by a pen
+  of 1 8.3 ms; a sector of a whole turn 7.6 ms and `dgx_solid_circle()`
+  7.9 ms. On a virtual screen of 8 bits: the outline 146 us against 87 us of
+  the circle, a sector of a whole turn 200 us against 86 us of the solid
+  circle; the sign of Wi-Fi, a dot and three arcs of 16, 32 and 48 by a soft
+  pen of 5, 0.51 ms, and 0.43 ms by curves of three points with half the
+  pieces. A scroll in memory: 320 x 240 of 8 bits up by 14 rows 2.8 ms, to
+  the left by 4 columns 3.0 ms; 320 x 112 of 16 bits 2.4 ms and 2.7 ms, and
+  15.2 ms more to send it to the display; 320 x 112 of 12 bits pixel by
+  pixel 26 ms. A scroll by the panel: 14 rows up on the screen upright
+  1.5 ms, of which 1.4 ms is the strip of 240 x 14 filled; 3 columns to the
+  left on the screen that lies 0.42 ms. A picture sent across the place where
+  the rows turn round: 320 x 112 on the screen that lies 32 ms against
+  15 ms, 240 x 112 on the screen upright 13.0 ms against 11.4 ms. The moves
+  by the panel ran on the board in four orientations, two that lie and two
+  upright, with the addresses along the long side running either way: none
+  was refused, and the pictures were looked at on the panel and found right,
+  a chart drawn on at its edge, a terminal with a head and a foot that stay,
+  a frame drawn at the edges of the area after the moves. The driver and the
+  window are checked on the host by `test_panel_scroll` against a model of
+  the controller as its datasheet has it. The pixel by pixel move of a DSI
+  display is neither run nor timed.
 - docs: the format of a handwritten font is no longer kept here as a copy.
   `docs/hw-font-ru.md` had the text of `font-format-ru.md` of the hw-fonts
   editor after its own part, and a copy falls behind. It has a link to that
   file now, and keeps what belongs to DGX: the converter with its check of
   pairs, the tables and the placing by the fields of a glyph. The README,
-  the handwriting guides and the examples point to the editor for the format.
+  the handwriting guides, the examples and the comment of
+  `include/dgx_hw_font.h` point to the editor for the format.
   The rules of drawing connections, "Как рисовать связи", which the entry of
   0.5.4 names in `docs/hw-font-ru.md`, are in that file of the editor too.
 

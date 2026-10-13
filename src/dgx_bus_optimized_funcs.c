@@ -126,6 +126,11 @@ static uint32_t dgx_scr_get_pixel_sb(dgx_screen_t *_scr, int x, int y)
     return 0;
 }
 
+bool dgx_screen_is_readable(const dgx_screen_t *scr)
+{
+    return scr && scr->get_pixel && scr->get_pixel != dgx_scr_get_pixel_sb;
+}
+
 // NOP for physical not virtually backed screens
 
 static void dgx_scr_update_area_sb(struct _dgx_screen_t *scr, int left, int right, int top, int bottom)

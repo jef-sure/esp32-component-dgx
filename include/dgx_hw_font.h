@@ -17,7 +17,8 @@ extern "C" {
  * hw-fonts editor on a 256 x 256 grid. font2c turns the editor's JSON file
  * (format "hw-font") into the tables below. They repeat that file: the same
  * data under the same names, in cells of the grid. What the fields mean, how
- * symbols are placed and joined is described with the editor, font-format-ru.md.
+ * symbols are placed and joined is described with the editor, font-format-ru.md
+ * of https://github.com/jef-sure/hw-fonts.
  *
  * Such a font is a dgx_font_t of type DGX_FONT_HW. Its symbols are found as
  * the glyphs of any font, dgx_font_find_glyph(); a glyph points to its

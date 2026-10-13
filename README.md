@@ -58,8 +58,9 @@ written stroke by stroke by a pen or turns into another text.
   buffers behind monochrome controllers.
 - A two-head compositor (`vscreen_2h`) that exposes two child screens as one
   logical screen.
-- Drawing primitives — pixels, lines, rectangles, circles, filled and textured
-  quads — and an arc gauge helper.
+- Drawing primitives — pixels, lines, rectangles, circles, ellipses, their
+  arcs and sectors, filled and textured quads, a rectangle scrolled any way —
+  and an arc gauge helper.
 - UTF-8 text rendering with 8-way orientation, glyph lookup, layout and bounds
   queries, plus a small "morph" helper for animating between glyphs.
 - Handwritten fonts: symbols kept as pen paths of Bezier curves, written at
@@ -185,14 +186,14 @@ DGX is a component, not a standalone firmware image. It is published in the
 as `jef-sure/dgx`. To add it to your own ESP-IDF project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.5.4"
+idf.py add-dependency "jef-sure/dgx^0.5.5"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.5.4"
+  jef-sure/dgx: "^0.5.5"
 ```
 
 The next build downloads it into `managed_components/`. To work on DGX itself,
@@ -899,7 +900,8 @@ Declared in [include/dgx_draw.h](include/dgx_draw.h):
 | Function | Description |
 | --- | --- |
 | `dgx_set_pixel(scr, x, y, color)` | Set one pixel. |
-| `dgx_get_pixel(scr, x, y)` | Read one pixel: virtual screens and panels drawn through a virtual back screen only; see [Known gaps](#known-gaps). |
+| `dgx_get_pixel(scr, x, y)` | Read one pixel: virtual screens, panels drawn through a virtual back screen and a DSI display only; see [Known gaps](#known-gaps). |
+| `dgx_screen_is_readable(scr)` | `true` when the screen gives back the pixels drawn on it, `false` for a display that keeps them in the panel behind a bus. |
 | `dgx_draw_line(scr, x1, y1, x2, y2, color)` | Single-pixel line by Bresenham's algorithm; the same pixels whichever end it is given from. |
 | `dgx_draw_line_thick(scr, x1, y1, x2, y2, width, color)` | Thick line with caps. |
 | `dgx_draw_bezier3(scr, points, pieces, width, color)` | Thick quadratic Bezier curve by three `dgx_point_2d_t` points, drawn by `pieces` straight pieces; 0 finds their number from the points, within half a pixel of the curve. `DGX_PEN_SOFT | width` gives it a soft edge. |
@@ -911,14 +913,78 @@ Declared in [include/dgx_draw.h](include/dgx_draw.h):
 | `dgx_fill_rectangle(scr, x, y, w, h, color)` | Filled rectangle. |
 | `dgx_draw_circle(scr, x, y, r, color)` | Circle outline by the midpoint algorithm. |
 | `dgx_solid_circle(scr, x, y, r, color)` | Filled circle, the same outline filled by rows. |
+| `dgx_draw_ellipse(scr, x, y, rx, ry, color)` | Ellipse outline, a pixel wide, by the rule of the midpoint algorithm: with equal radii it is `dgx_draw_circle()` pixel for pixel. |
+| `dgx_draw_arc(scr, x, y, rx, ry, from, to, width, color)` | Arc of an ellipse, of a circle with equal radii, between two angles in degrees, by a pen of `width`; `DGX_PEN_SOFT | width` gives it a soft edge. A hard pen of 1 draws the pixels of the outline between the rays. |
+| `dgx_solid_sector(scr, x, y, rx, ry, from, to, color)` | Filled sector of an ellipse between two angles; a whole turn is the ellipse filled. |
+| `dgx_scroll(scr, x, y, w, h, dx, dy, color)` | Move what a rectangle shows by `dx`, `dy` within it, any way, and fill what it has left with `color`. In memory where a screen is read, by the scroll of the panel where an ILI9341 can; `false` when neither. |
 | `dgx_draw_triangle_solid(scr, x0, y0, x1, y1, x2, y2, color)` | Filled triangle. |
 | `dgx_draw_polygon4_solid(scr, x0..y3, color)` | Filled simple quadrilateral (convex or concave). |
 | `dgx_draw_texture_quad(scr, quad, texture, tx, ty, tw, th)` | Stretch a region of a virtual screen onto a convex quadrilateral (affine, nearest texel). |
 | `dgx_draw_texture_rect(scr, x, y, w, h, texture, tx, ty, tw, th)` | Scale a region of a virtual screen into a rectangle. |
 
-Lines and circles are one code for every screen, made of the pixels and the
-rectangles a screen draws itself: a figure has the same pixels on a display,
-on a virtual screen and on a monochrome one.
+Lines, circles, ellipses and sectors are one code for every screen, made of
+the pixels and the rectangles a screen draws itself: a figure has the same
+pixels on a display, on a virtual screen and on a monochrome one.
+
+An angle of an arc or a sector is counted in degrees from the ray that goes
+from the center to the right, against the clock as the screen is seen, so 90
+is up; it is the angle of a ray on the screen whatever the radii are. The
+figure is what lies between the rays of `from` and `to`, a pixel on a ray
+counted in. Angles are not brought into a turn: from 350 to 370 is twenty
+degrees across the ray that goes right, and 360 degrees or more between the
+two is the whole ellipse. The outline, the arc by a hard pen of 1 and the
+sector are the same pixels: the arc is the outline between the rays, the
+sector is the outline and what is within it. An arc by any other pen is the
+pen of the curves led along it, with round ends:
+
+```c
+/* the sign of Wi-Fi: a dot and three arcs of a quarter of a turn over it */
+dgx_solid_circle(band, cx, cy, dot, ink);
+for (int i = 1; i <= 3; ++i) {
+    dgx_draw_arc(band, cx, cy, i * step, i * step, 45, 135, DGX_PEN_SOFT | pen, ink);
+}
+```
+
+`dgx_scroll()` reads the picture from the screen where pixels are memory: on
+a virtual screen, on a display drawn through a virtual back screen and on a
+DSI display. A virtual screen of whole bytes a pixel is moved in its memory a
+row at a time; any other such screen, a DSI display among them, is moved
+pixel by pixel.
+
+A display that keeps its pixels in the panel behind a bus is not read. There
+the panel moves the picture itself when it can, and no pixel of the picture
+is sent. An ILI9341 scrolls along the long side of its panel: up and down on
+a screen upright, left and right on one that lies. The rectangle has to take
+the screen from edge to edge across that side, what is before it and after
+it along the side stays, as the head and the foot of a terminal do:
+
+```c
+/* an ILI9341 upright, 240x320: a head of 24 rows stays, the lines under it go up by the panel */
+dgx_scroll(lcd, 0, 24, lcd->width, lcd->height - 24, 0, -line_height, paper);
+/* ... draw the new line at the bottom, where it is seen ... */
+```
+
+The panel shows its rows from another row of its memory on, so a row is not
+where it is shown; every window is led to where its rows lie, and a picture
+is drawn where it is seen whatever has been scrolled. A window that crosses
+the place where the rows turn round goes in pieces: two when the screen is
+upright, two for every row of it when the screen lies. The panel has one
+such area at a time: a rectangle that has been moved is filled, by a move as
+large as it, before another is moved. Any other move, across the long side
+or aslant, returns `false` and draws nothing; a text that scrolls so is
+drawn on a virtual screen, which is moved and sent to the display:
+
+```c
+/* a line of text more: the picture goes up by the height of a line */
+dgx_scroll(page, 0, 0, page->width, page->height, 0, -line_height, paper);
+/* ... draw the new line at the bottom of `page` ... */
+dgx_vscreen_to_screen(lcd, 0, 0, page);
+```
+
+On a CYD, an ESP32 at 240 MHz with an ILI9341 on SPI at 40 MHz, a line of 14
+rows scrolled by the panel upright takes 1.5 ms, the time of filling the
+strip of 240 x 14; a band of 320 x 112 moved in memory and sent takes 2.4 ms
+and 15 ms.
 
 How a Bezier curve is split into straight pieces and how a curve is drawn on
 by `t` is described in
@@ -1296,7 +1362,14 @@ A couple of practical limitations are worth knowing up front:
   (JD9165). Direct panels (ILI9341, ST7789, ...) return 0: many SPI modules
   have no MISO line at all, and where RAMRD works it is far too slow. If you
   need to read what you drew, draw into a `vscreen` and push it with
-  `dgx_vscreen_to_screen()`.
+  `dgx_vscreen_to_screen()`. `dgx_screen_is_readable()` tells which of the two
+  a screen is. `dgx_scroll()` reads the picture it moves; on a screen that is
+  not read it moves only what the panel can scroll itself, an ILI9341 along
+  its long side.
+- **The scroll of the panel is used on an ILI9341 only.** ST7789, ST7735 and
+  GC9A01 have the same two commands and take the same code, three lines of a
+  driver each; they are not switched on, for there was no panel to see them
+  on. `dgx_scroll()` returns `false` there.
 
 - **Virtual screens don't honor `dir_x`/`dir_y`/`swap_xy` for framebuffer
   access.** Those fields describe orientation metadata, but they do not
@@ -1319,14 +1392,15 @@ A couple of practical limitations are worth knowing up front:
 ## Host tests
 
 The platform-independent code (matrices, morphing, renderers, virtual and page
-screens, fills, lines and circles, the frame buffer of the DSI bus and the
+screens, fills, lines, circles and ellipses with their arcs and sectors,
+scrolling in memory, the frame buffer of the DSI bus and the
 way its two frame buffers change places, fonts,
 textured quads, Bezier curves, handwritten fonts with their writing and
 morphing, the arc gauge) has host tests built with gcc against small ESP-IDF
 stubs and run under ASan/UBSan. Two pieces that do depend on the platform
 are tested there too, each against a model of what is on its wires: the
-8-bit parallel bus with both drivers of IDF under it, and the ST7920 driver
-in all its orientations:
+8-bit parallel bus with both drivers of IDF under it, the ST7920 driver in
+all its orientations, and the ILI9341 driver with the scroll of its panel:
 
 ```sh
 make -C test/host
