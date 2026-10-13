@@ -1,5 +1,34 @@
 # Changes
 
+## Unreleased
+
+- README: recipes come first. After the installation and a minimal example
+  the README goes straight to short recipes for the things people look for:
+  animation without flicker, a monochrome OLED, a font of your own, a gauge,
+  a pie chart and arcs, scrolling text, a scaled or rotated picture,
+  morphing, handwritten text, a DSI display without tearing, screen
+  rotation, several tasks. Each recipe is a few sentences and a piece of
+  code, and points to a complete example and to the detailed document.
+- README: a table of the examples with the board each one runs on.
+- README: a banner at the top, drawn by DGX itself on a host: the name in
+  glowing dots, a pie chart, a Wi-Fi icon, a gauge and arcs, and a line
+  written with the handwritten font. There is a version for a dark page
+  and one for a light page, both with a transparent background; GitHub
+  shows the one that matches the theme. The program that draws them
+  is `docs/images/banner.c`. The pictures are not part of the component
+  package.
+- README: pictures in four recipes, drawn the same way: the bundled fonts,
+  a gauge, a pie chart with arcs and a Wi-Fi icon, a handwritten line.
+- The details that were in the README moved next to what they describe:
+  - MIPI-DSI displays: `docs/dsi-usage-en.md`, with a Russian version,
+    `docs/dsi-usage-ru.md`. The README keeps a short paragraph and the
+    table of the `frames` argument.
+  - `font2c`: `font2c/README.md`, with the options for bitmap and
+    handwritten fonts and the pair check.
+  - "Drawing from several tasks" now follows the API reference.
+- README: the handwritten text recipe is rewritten in three steps: draw a
+  text, fit it to the screen, write it stroke by stroke.
+
 ## 0.5.6 - 2026-10-13
 
 - **DSI displays: `dgx_scroll()` now moves whole rows of the frame buffer.**

@@ -3,7 +3,9 @@
 [Русская версия](dsi-display-ru.md)
 
 A note on how the MIPI-DSI bus for the ESP32-P4 is made in DGX, what was
-measured on it, and why the screen is updated the way it is.
+measured on it, and why the screen is updated the way it is. What a program
+needs to know to use such a display is shorter and is in
+[dsi-usage-en.md](dsi-usage-en.md).
 
 It describes the code of version 0.5.4: the bus `src/bus/dsi_esp32.c`, the
 frame buffer core `src/bus/fb_area.c`, the tile maps `src/bus/fb_tiles.c`,

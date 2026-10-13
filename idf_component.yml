@@ -52,6 +52,8 @@ files:
     - "examples/**/sdkconfig"
     - "examples/**/sdkconfig.old"
     - "test/host/build/**"
+    # the pictures of the README are taken from GitHub
+    - "docs/images/**"
     - "**/*.old"
     # working notes that are not part of the repository
     - "PLAN-*.md"
