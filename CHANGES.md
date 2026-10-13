@@ -1,5 +1,16 @@
 # Changes
 
+## Unreleased
+
+- docs: the format of a handwritten font is no longer kept here as a copy.
+  `docs/hw-font-ru.md` had the text of `font-format-ru.md` of the hw-fonts
+  editor after its own part, and a copy falls behind. It has a link to that
+  file now, and keeps what belongs to DGX: the converter with its check of
+  pairs, the tables and the placing by the fields of a glyph. The README,
+  the handwriting guides and the examples point to the editor for the format.
+  The rules of drawing connections, "Как рисовать связи", which the entry of
+  0.5.4 names in `docs/hw-font-ru.md`, are in that file of the editor too.
+
 ## 0.5.4 - 2026-10-13
 
 - **a pen with a soft edge: `DGX_PEN_SOFT` added to the width of a pen**,

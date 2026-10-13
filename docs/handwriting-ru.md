@@ -13,10 +13,12 @@
 
 Здесь описано, как всё это устроено в DGX. Сам шрифт рисуется в редакторе
 [hw-fonts][gh-hw-fonts]; формат его файла, размеры символа и правила
-расстановки и соединения букв описаны в [hw-font-ru.md](hw-font-ru.md). Всё,
+расстановки и соединения букв описаны там же, [font-format-ru.md][hw-format],
+конвертер и таблицы — в [hw-font-ru.md](hw-font-ru.md). Всё,
 о чём идёт речь, объявлено в [`dgx_hw_font.h`](../include/dgx_hw_font.h).
 
 [gh-hw-fonts]: https://github.com/jef-sure/hw-fonts
+[hw-format]: https://github.com/jef-sure/hw-fonts/blob/main/font-format-ru.md
 
 ## Содержание
 

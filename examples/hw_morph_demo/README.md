@@ -32,8 +32,9 @@ Things to change at the top of `main/main.c`: the words, the durations,
 
 The font is bundled with DGX as `fonts/font0ss.h`; see
 [examples/hw_font_demo](../hw_font_demo), which writes a text without
-morphing, for how such a font is made. Its format is described in
-[docs/hw-font-ru.md](../../docs/hw-font-ru.md) (in Russian), both morphs in
+morphing, for how such a font is made. Its format is described with the
+editor, [font-format-ru.md](https://github.com/jef-sure/hw-fonts/blob/main/font-format-ru.md),
+its tables in [docs/hw-font-ru.md](../../docs/hw-font-ru.md) (both in Russian), both morphs in
 [docs/handwriting-en.md](../../docs/handwriting-en.md).
 
 CYD wiring:

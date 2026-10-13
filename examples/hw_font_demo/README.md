@@ -33,8 +33,9 @@ and goes to `src/fonts/` and `include/fonts/`:
 ../../font2c/font2c path/to/your-font.json
 ```
 
-The format of such a font and the rules of writing are described in
-[docs/hw-font-ru.md](../../docs/hw-font-ru.md) (in Russian); writing itself in
+The format of such a font and the rules of writing are described with the
+editor, [font-format-ru.md](https://github.com/jef-sure/hw-fonts/blob/main/font-format-ru.md),
+its tables in [docs/hw-font-ru.md](../../docs/hw-font-ru.md) (both in Russian); writing itself in
 [docs/handwriting-en.md](../../docs/handwriting-en.md).
 
 CYD wiring:

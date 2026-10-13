@@ -14,11 +14,13 @@ bitmap font cannot do:
 
 This document describes all three as they are in DGX. The font itself is drawn
 in the [hw-fonts][gh-hw-fonts] editor; the format of its file, the measures of
-a symbol and the rules of placing and joining letters are described in
-[hw-font-ru.md](hw-font-ru.md) (in Russian). Everything here is declared in
+a symbol and the rules of placing and joining letters are described there,
+[font-format-ru.md][hw-format], its conversion and the tables it becomes in
+[hw-font-ru.md](hw-font-ru.md) (both in Russian). Everything here is declared in
 [`dgx_hw_font.h`](../include/dgx_hw_font.h).
 
 [gh-hw-fonts]: https://github.com/jef-sure/hw-fonts
+[hw-format]: https://github.com/jef-sure/hw-fonts/blob/main/font-format-ru.md
 
 ## Contents
 

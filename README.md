@@ -639,8 +639,10 @@ size. To use the generated font:
 
 `font2c` also converts handwritten fonts made of Bezier curves, saved as
 `.json` by the [hw-fonts](https://github.com/jef-sure/hw-fonts) editor; there
-is no size argument for them. The format and the tables it becomes are
-described in [docs/hw-font-ru.md](docs/hw-font-ru.md) (in Russian). Such a
+is no size argument for them. The format is described with the editor,
+[font-format-ru.md](https://github.com/jef-sure/hw-fonts/blob/main/font-format-ru.md), the conversion and the
+tables it becomes in [docs/hw-font-ru.md](docs/hw-font-ru.md) (both in
+Russian). Such a
 font is drawn by its own functions from `dgx_hw_font.h`, not by the text API
 above: letters are joined, the size and the pen are chosen at drawing, and
 the text may be written by the pace of a pen.
@@ -1031,8 +1033,10 @@ both morphs are described in detail in
 ([Russian](docs/handwriting-ru.md)), with two tutorials below:
 [Writing a text by hand](#writing-a-text-by-hand) and
 [Morphing handwritten text](#morphing-handwritten-text). The format of a font
-and the rules of placing and joining letters are in
-[docs/hw-font-ru.md](docs/hw-font-ru.md) (in Russian).
+and the rules of placing and joining letters are described with the editor,
+[font-format-ru.md](https://github.com/jef-sure/hw-fonts/blob/main/font-format-ru.md); how a font is converted and
+how it lies in the tables of DGX is in
+[docs/hw-font-ru.md](docs/hw-font-ru.md) (both in Russian).
 
 ### Dot morphing framework
 
@@ -1353,7 +1357,7 @@ examples/hw_morph_demo/     CYD demo morphing handwritten words one into another
 examples/hw_soft_pen_demo/  demo for a CYD or a JC1060P470 writing four lines with a soft pen, two of them moving to make room
 test/host/               host tests with ESP-IDF stubs
 docs/                    morphing articles and handwritten text guides (English and Russian),
-                         the format of handwritten fonts (Russian),
+                         the converter and the tables of handwritten fonts (Russian),
                          notes on a display on the DSI bus (English and Russian)
 Kconfig                  feature toggles
 CMakeLists.txt           ESP-IDF component build
