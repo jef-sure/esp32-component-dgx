@@ -1,5 +1,13 @@
 # Changes
 
+## Unreleased
+
+- docs: the banner for a light page shows the name as a matrix of dots too,
+  as the banner for a dark page does; it had the name written by hand. The
+  pictures for a light page use colors of a middle brightness, so they can
+  be read on a dark page as well, where a viewer does not tell the themes
+  apart.
+
 ## 0.5.7 - 2026-10-13
 
 - **`dgx_scroll()` returns `esp_err_t` instead of `bool`**: `ESP_OK` when

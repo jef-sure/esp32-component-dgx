@@ -3,7 +3,7 @@
  *
  *   banner <variant> <out.pam> [dark|light]
  *
- * Variants: a - the banner for a light page, b - the banner for a dark page, c - the pen alone;
+ * Variants: a - the banner for a light page, b - the banner for a dark page, c - the name by a pen alone;
  * f - fonts, g - gauges, h - a handwritten text, p - figures, each for a dark page or, with `light`, a light one.
  *
  * A picture is drawn twice the size it is shown at, on a 16-bit virtual screen, and written as a PAM file
@@ -56,7 +56,9 @@ static dgx_screen_t *canvas, *ink, *lights;
  * three are put together with their transparency when the file is written.
  */
 #define NOTHING 0xF81Fu
-static uint8_t ink_color[3], glow_color[3] = {70, 215, 255};
+static uint8_t ink_color[3];
+/* the glow: its color, and the color its brightest places turn to */
+static uint8_t glow_color[3] = {70, 215, 255}, glow_core[3] = {255, 255, 255};
 
 static uint32_t rgb(int r, int g, int b)
 {
@@ -141,12 +143,16 @@ static void text(dgx_font_t *font, int x, int y, int scale, uint32_t color, cons
 static void recipe(char variant, bool dark)
 {
     /* the colors of text and lines, of what is of less weight, and two to tell things apart */
-    const uint32_t line = dark ? rgb(230, 235, 245) : rgb(24, 36, 120), dim = dark ? rgb(140, 146, 160) : rgb(110, 114, 125);
-    const uint32_t warm = dark ? rgb(255, 190, 70) : rgb(190, 105, 0), cold = dark ? rgb(110, 215, 255) : rgb(20, 105, 190);
-    const uint32_t rest = dark ? rgb(84, 90, 104) : rgb(190, 192, 198);
+    /*
+     * A picture for a light page may end up on a dark one, where a viewer does not tell the themes apart:
+     * its colors are of a middle brightness, to be read on both.
+     */
+    const uint32_t line = dark ? rgb(230, 235, 245) : rgb(40, 105, 225), dim = dark ? rgb(140, 146, 160) : rgb(128, 132, 142);
+    const uint32_t warm = dark ? rgb(255, 190, 70) : rgb(215, 125, 0), cold = dark ? rgb(110, 215, 255) : rgb(0, 140, 200);
+    const uint32_t rest = dark ? rgb(84, 90, 104) : rgb(160, 164, 172);
     dgx_fill_rectangle(canvas, 0, 0, W, H, NOTHING);
     ink_clear();
-    ink_color[0] = dark ? 230 : 24, ink_color[1] = dark ? 235 : 36, ink_color[2] = dark ? 245 : 120;
+    ink_color[0] = dark ? 230 : 40, ink_color[1] = dark ? 235 : 105, ink_color[2] = dark ? 245 : 225;
     switch (variant) {
     case 'f': { /* the fonts that come with the library, each naming itself */
         int y = 44;
@@ -238,16 +244,23 @@ int main(int argc, char **argv)
     if (!banner) {
         /* drawn above */
     } else if (variant == 'a') {
-        /* for a light page: the name by a pen, the figures in a row, the words under them */
+        /*
+         * For a light page: the same picture in colors of a middle brightness, which are read on a dark page
+         * as well. The dots of the name do not glow on white: they are a blue that gets deeper to their middle.
+         */
         dgx_fill_rectangle(canvas, 0, 0, W, H, NOTHING);
-        figures(742, 150, 76, rgb(24, 36, 120), rgb(190, 192, 198), false);
+        uint32_t brightness[256];
+        for (int i = 0; i < 256; ++i) brightness[i] = rgb(i, i, i);
+        glowing("DGX", 40, 60, 22, brightness);
+        glow_color[0] = 70, glow_color[1] = 140, glow_color[2] = 245;
+        glow_core[0] = 30, glow_core[1] = 90, glow_core[2] = 215;
+        figures(742, 150, 76, rgb(40, 105, 225), rgb(160, 164, 172), false);
         ink_clear();
-        written("DGX", 30, 10, 560, 380, 22, 0);
         const int wx = 742 + 76 * 3, wy = 150 + 76 * 3 / 5, step = 76 * 2 / 5, pen = 76 / 6;
         dgx_solid_circle(ink, wx, wy, pen, 255);
         for (int i = 1; i <= 3; ++i) dgx_draw_arc(ink, wx, wy, i * step, i * step, 45, 135, DGX_PEN_SOFT | pen, 255);
         written(words, 660, 270, 900, 110, 6, 0);
-        ink_color[0] = 24, ink_color[1] = 36, ink_color[2] = 120;
+        ink_color[0] = 40, ink_color[1] = 105, ink_color[2] = 225;
     } else if (variant == 'b') {
         /* for a dark page: the name in glowing dots, the words by a light pen, the figures */
         dgx_fill_rectangle(canvas, 0, 0, W, H, NOTHING);
@@ -280,7 +293,8 @@ int main(int argc, char **argv)
                 if (c == NOTHING) r = g = b = a = 0;
                 /* the glow over the figures: as bright, so much of it; the brightest of it turns white */
                 const float lit = ((dgx_get_pixel(lights, x, y) >> 5) & 63) / 63.0f, hot = lit > 0.7f ? (lit - 0.7f) / 0.3f : 0;
-                const float glow[3] = {glow_color[0] + (255 - glow_color[0]) * hot, glow_color[1] + (255 - glow_color[1]) * hot, glow_color[2]};
+                const float glow[3] = {glow_color[0] + (glow_core[0] - glow_color[0]) * hot, glow_color[1] + (glow_core[1] - glow_color[1]) * hot,
+                                       glow_color[2] + (glow_core[2] - glow_color[2]) * hot};
                 /* then the ink, by its amount */
                 const float amount = dgx_get_pixel(ink, x, y) / 255.0f;
                 const float layers[2][4] = {{glow[0], glow[1], glow[2], lit}, {ink_color[0], ink_color[1], ink_color[2], amount}};
