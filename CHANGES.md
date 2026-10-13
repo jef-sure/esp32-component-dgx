@@ -1,113 +1,160 @@
 # Changes
 
-## Unreleased
+## 0.5.6 - 2026-10-13
 
-- `examples/figures_scroll_demo`: the figures and the scroll of 0.5.5 on a
-  CYD, each in a way it is used in a program: a pie of sectors, the sign of
-  Wi-Fi by arcs of a soft pen, lines of text scrolled in the memory of a
-  virtual screen, a chart and a terminal with a head and a foot scrolled by
-  the panel itself, in four orientations. Every page says what moves its
-  picture, and the timings go to the log. It is the firmware the figures and
-  the scroll were seen and timed with; the entry of 0.5.5 says it is outside
-  the repository, and it was then.
+- **DSI displays: `dgx_scroll()` now moves whole rows of the frame buffer.**
+  In 0.5.5 a DSI display was scrolled like any other readable screen, one
+  pixel at a time through the screen functions. The result was correct but
+  slow: about half a second for a full 1024x600 screen.
+  - A bus can now provide an optional `move` function that moves a rectangle
+    of the screen to another position. The DSI bus implements it, and
+    `dgx_scroll()` tries it first.
+  - With two frame buffers, the bus first brings the back buffer up to date
+    over the source and destination rectangles. Then `dgx_fb_area_move()`
+    moves the frame buffer row by row with `memmove()`, starting from the
+    side the picture moves towards. This works in every screen orientation.
+  - Measured on a JC1060P470 (ESP32-P4 revision 1.3, JD9165, 16 bits per
+    pixel, two frame buffers, IDF 5.5.4): 320x240 scrolled up by 14 rows
+    takes 2.7 ms instead of 61.8 ms; the full screen scrolled up by 28 rows
+    takes 24 ms instead of 501 ms; a 400x480 chart scrolled once per frame
+    takes 15.5 ms instead of 166 ms or more.
+  - Verified on the board in three orientations: the same drawing and 296
+    scrolls were applied to the display and to a virtual screen, and the two
+    were compared pixel by pixel with no differences. `dgx_fb_area_move()`
+    is covered by the host test `test_fb_area`.
+  - Details are in the section "A picture scrolled" of
+    `docs/dsi-display-en.md` and in its Russian version. The bus structure
+    is 4 bytes larger.
+- **New example: `examples/figures_scroll_demo`**, for a CYD or a
+  JC1060P470. It shows the figures and scrolling added in 0.5.5 the way a
+  program would use them:
+  - a pie chart made of sectors;
+  - a Wi-Fi icon drawn with soft-pen arcs;
+  - lines of text scrolled in a virtual screen and sent to the display;
+  - a chart and a terminal with a fixed header and footer, scrolled directly
+    on the display in four orientations: by the panel on an ILI9341, in the
+    frame buffer on a DSI display.
+
+  Each page says what does the scrolling and how long one scroll takes, and
+  all timings are printed to the log. On a readable display the example also
+  checks itself: it draws and scrolls the same content on the display and on
+  a virtual screen and compares the two. This is the firmware that was used
+  to check and time these features. The 0.5.5 entry says it is kept outside
+  the repository, which was true at that time.
 
 ## 0.5.5 - 2026-10-13
 
-- **an ellipse, its arc and its sector: `dgx_draw_ellipse()`,
-  `dgx_draw_arc()`, `dgx_solid_sector()`**, of a circle with equal radii. The
-  outline is a pixel wide and is drawn by the rule of the midpoint algorithm,
-  asked of every pixel: with equal radii it is `dgx_draw_circle()` pixel for
-  pixel, no pixel is further than half a pixel from the curve along its row
-  or its column, and a thin ellipse keeps its ends, which the walk of the
-  textbooks spoils. An angle is counted in degrees from the ray that goes
-  right, against the clock as the screen is seen, and is the angle of a ray
-  on the screen whatever the radii are; the figure is what lies between the
-  two rays, a pixel on a ray counted in, and 360 degrees or more between them
-  is the whole ellipse. A sector is filled by rows, equal rows as one
-  rectangle, and a whole turn of equal radii is the picture of
-  `dgx_solid_circle()`. An arc takes a pen as a curve does: a hard pen of 1
-  draws the pixels of the outline between the rays, any other pen is the pen
-  of `dgx_draw_bezier4()` led along the arc, with round ends, and
-  `DGX_PEN_SOFT` added to its width gives the line a soft edge where the
-  screen can hold one. The sign of Wi-Fi, a dot and arcs of a quarter of a
-  turn over it, is a call for each arc. The straight pieces of an arc are
-  within half a pixel of it for a hard line and within an eighth of a pixel
-  for a soft one, where a small circle of pieces half a pixel off is a
-  polygon to the eye: the middle of a soft line was measured up to 0.49 of a
-  pixel from its circle with the first and is within 0.18 with the second.
-  An arc of a quarter of a turn or less is one curve; a longer one is cut
-  where the axes are, at whole pixels. The code is `src/ellipse.c`, no RAM;
-  the code of the pen, `src/bezier.c`, is not changed. Checked on the host
-  by `test_ellipse`.
-- **a rectangle scrolled any way: `dgx_scroll()`**. What a rectangle of a
-  screen shows goes `dx` pixels to the right and `dy` down, either of them
-  negative for the other way, both together for a move aslant; what leaves
-  the rectangle is lost, and the strips the picture has left are filled with
-  a color. Where pixels are memory the picture is read: a virtual screen of
-  whole bytes a pixel is moved in its memory a row at a time, and any other
-  screen that can be read, a virtual screen of 1, 4 or 12 bits, a monochrome
-  one, a display drawn through a virtual back screen, a DSI display, is moved
-  pixel by pixel. `dgx_screen_is_readable()` tells whether a screen gives
-  back what is drawn on it. Checked on the host by `test_scroll`, on every
-  depth of a virtual screen and on a monochrome one.
-- **a display that is not read is scrolled by its panel, where the panel
-  scrolls itself**: an ILI9341, along the long side of its panel, which is y
-  of a screen upright and x of one that lies. `dgx_scroll()` does it when
-  the move goes along that side only and the rectangle takes the screen from
-  edge to edge across it; what lies before and after the rectangle along the
-  side stays, the head and the foot of a terminal. The panel then shows the
-  rows of the area from another row of its memory on, and no pixel of the
-  picture is sent, only the strip that is filled. A row is no longer where
-  it is shown, so every window of the screen is led to where its rows lie,
-  in `dgx_screen_with_bus_set_area_window()`: whatever is drawn after is
-  drawn where it is seen. A window that crosses the place where the rows
-  turn round goes in pieces, two when the screen is upright and two for
-  every row of it when the screen lies. The strip that leaves is filled
-  before the move, so what comes in at the other end is the color already.
-  A panel has one such area: a rectangle that has been moved has to be
-  filled, by a move as large as it, before another is moved, and setting the
-  orientation gives the scroll up. Any other move on a display that is not
-  read, across the long side or aslant, draws nothing and returns `false`.
-  The scroll is the two commands of the MIPI DCS, 33h and 37h, told of by a
-  driver with `dgx_screen_with_bus_scroll_init()` and
-  `dgx_screen_with_bus_scroll_way()`; ST7789, ST7735 and GC9A01 have them
-  too and are not switched on, there was no panel to see them on. 12 bytes
-  more in a screen with a bus.
-- measured on a CYD, ESP32-2432S028R: ESP32-D0WD-V3 revision 3.1 at 240 MHz,
-  ILI9341 on SPI at 40 MHz, IDF 5.5.4, `-O2`; the firmware is outside the
-  repository. The code there is 6.0 KB for the ellipse, the arc and the
-  sector and 1.0 KB for the scroll, linked where they are called. Straight on the display: the outline of an ellipse 50 x 50
-  7.6 ms and a circle of radius 50 7.5 ms; an arc of a whole turn by a pen
-  of 1 8.3 ms; a sector of a whole turn 7.6 ms and `dgx_solid_circle()`
-  7.9 ms. On a virtual screen of 8 bits: the outline 146 us against 87 us of
-  the circle, a sector of a whole turn 200 us against 86 us of the solid
-  circle; the sign of Wi-Fi, a dot and three arcs of 16, 32 and 48 by a soft
-  pen of 5, 0.51 ms, and 0.43 ms by curves of three points with half the
-  pieces. A scroll in memory: 320 x 240 of 8 bits up by 14 rows 2.8 ms, to
-  the left by 4 columns 3.0 ms; 320 x 112 of 16 bits 2.4 ms and 2.7 ms, and
-  15.2 ms more to send it to the display; 320 x 112 of 12 bits pixel by
-  pixel 26 ms. A scroll by the panel: 14 rows up on the screen upright
-  1.5 ms, of which 1.4 ms is the strip of 240 x 14 filled; 3 columns to the
-  left on the screen that lies 0.42 ms. A picture sent across the place where
-  the rows turn round: 320 x 112 on the screen that lies 32 ms against
-  15 ms, 240 x 112 on the screen upright 13.0 ms against 11.4 ms. The moves
-  by the panel ran on the board in four orientations, two that lie and two
-  upright, with the addresses along the long side running either way: none
-  was refused, and the pictures were looked at on the panel and found right,
-  a chart drawn on at its edge, a terminal with a head and a foot that stay,
-  a frame drawn at the edges of the area after the moves. The driver and the
-  window are checked on the host by `test_panel_scroll` against a model of
-  the controller as its datasheet has it. The pixel by pixel move of a DSI
-  display is neither run nor timed.
-- docs: the format of a handwritten font is no longer kept here as a copy.
-  `docs/hw-font-ru.md` had the text of `font-format-ru.md` of the hw-fonts
-  editor after its own part, and a copy falls behind. It has a link to that
-  file now, and keeps what belongs to DGX: the converter with its check of
-  pairs, the tables and the placing by the fields of a glyph. The README,
-  the handwriting guides, the examples and the comment of
-  `include/dgx_hw_font.h` point to the editor for the format.
-  The rules of drawing connections, "Как рисовать связи", which the entry of
-  0.5.4 names in `docs/hw-font-ru.md`, are in that file of the editor too.
+- **Ellipse, arc and sector: `dgx_draw_ellipse()`, `dgx_draw_arc()`,
+  `dgx_solid_sector()`.** With equal radii they draw a circle, its arc and
+  its sector.
+  - The outline is one pixel wide. Each pixel is chosen by the rule of the
+    midpoint algorithm, so with equal radii the result matches
+    `dgx_draw_circle()` pixel for pixel. No pixel is more than half a pixel
+    away from the curve, measured along its row or its column. Thin ellipses
+    keep their tips, which the textbook midpoint walk gets wrong.
+  - Angles are in degrees, counter-clockwise from the ray pointing right, as
+    seen on the screen. An angle is the direction of a ray on the screen,
+    whatever the radii are. The figure is the part between the two rays, and
+    a pixel that lies exactly on a ray is included. A span of 360 degrees or
+    more gives the whole ellipse.
+  - A sector is filled row by row, and identical rows are sent as one
+    rectangle. A full-turn sector with equal radii gives the same pixels as
+    `dgx_solid_circle()`.
+  - An arc takes a pen, like a curve. A hard pen of width 1 draws the
+    outline pixels that lie between the rays. Any other pen is the pen of
+    `dgx_draw_bezier4()` moved along the arc, with round ends, and
+    `DGX_PEN_SOFT` gives it a soft edge on screens that support one. A Wi-Fi
+    icon, a dot with quarter-turn arcs above it, is one call per arc.
+  - A hard arc is split into straight pieces that stay within half a pixel
+    of it, a soft arc into pieces within an eighth of a pixel. With
+    half-pixel pieces a small soft circle looks like a polygon: the middle
+    of the line was measured up to 0.49 pixels away from the circle, and
+    with the finer pieces it is within 0.18 pixels.
+  - An arc of a quarter turn or less is drawn as one cubic curve. A longer
+    arc is split at the axes, where its points fall on whole pixels.
+  - The code is in `src/ellipse.c` and uses no RAM. The pen code in
+    `src/bezier.c` is unchanged. Host test: `test_ellipse`.
+- **Scrolling a rectangle in any direction: `dgx_scroll()`.** The contents
+  of a rectangle move `dx` pixels to the right and `dy` pixels down;
+  negative values move them left and up, and both together move them
+  diagonally. Whatever leaves the rectangle is lost, and the freed strips
+  are filled with a color.
+  - The call reads the picture from the screen, so it needs a screen whose
+    pixels are kept in memory. A virtual screen with whole bytes per pixel
+    is moved in memory one row at a time. Any other readable screen is moved
+    pixel by pixel: virtual screens of 1, 4 or 12 bits, monochrome screens,
+    displays drawn through a virtual back screen, DSI displays.
+  - `dgx_screen_is_readable()` tells whether a screen returns the pixels
+    that were drawn on it.
+  - Host test: `test_scroll`, on every virtual screen depth and on a
+    monochrome screen.
+- **Hardware scrolling on displays that cannot be read.** Where the panel
+  can scroll by itself, `dgx_scroll()` uses that. This is enabled for the
+  ILI9341, which scrolls along the long side of its panel: vertically in
+  portrait orientation, horizontally in landscape.
+  - It is used when the scroll goes only along that side and the rectangle
+    spans the whole screen across it. The parts of the screen before and
+    after the rectangle stay in place, like the header and footer of a
+    terminal.
+  - The panel shows the rows of the scrolled area starting from a different
+    row of its memory. No picture data is sent, only the strip that is
+    filled.
+  - After a scroll a row is no longer stored where it is shown, so every
+    drawing window is translated to the place in memory where its rows are
+    (`dgx_screen_with_bus_set_area_window()`). Everything drawn later still
+    appears where it was asked for. A window that crosses the wrap point is
+    sent in pieces: two pieces in portrait, two per row in landscape.
+  - The strip that scrolls out is filled before the scroll, so it comes back
+    in at the other end already in the fill color.
+  - A panel has only one scroll area. After a rectangle has been scrolled,
+    it must be filled by a scroll at least as large as the rectangle before
+    a different rectangle can be scrolled. Changing the orientation resets
+    the scroll.
+  - Any other scroll on such a display (across the long side, or diagonal)
+    draws nothing and returns `false`.
+  - The implementation uses the two MIPI DCS commands 33h and 37h. A driver
+    enables it with `dgx_screen_with_bus_scroll_init()` and
+    `dgx_screen_with_bus_scroll_way()`. ST7789, ST7735 and GC9A01 have the
+    same commands but are not enabled, because no such panel was available
+    for testing. A screen with a bus is 12 bytes larger.
+- **Measurements on a CYD** (ESP32-2432S028R: ESP32-D0WD-V3 revision 3.1 at
+  240 MHz, ILI9341 on SPI at 40 MHz, IDF 5.5.4, `-O2`). The test firmware is
+  kept outside the repository. Its code size is 6.0 KB for the ellipse, arc
+  and sector and 1.0 KB for the scroll, linked only where they are called.
+  - Drawn directly on the display: ellipse outline 50x50 7.6 ms, circle of
+    radius 50 7.5 ms; full-turn arc with a pen of 1 8.3 ms; full-turn sector
+    7.6 ms, `dgx_solid_circle()` 7.9 ms.
+  - On an 8-bit virtual screen: ellipse outline 146 us, circle 87 us;
+    full-turn sector 200 us, solid circle 86 us. A Wi-Fi icon (a dot and
+    three arcs of radius 16, 32 and 48, soft pen of 5) takes 0.51 ms; the
+    same icon drawn with three-point curves, which use half as many pieces,
+    takes 0.43 ms.
+  - Scrolling in memory: 320x240 at 8 bits, up by 14 rows 2.8 ms, left by 4
+    columns 3.0 ms; 320x112 at 16 bits, 2.4 ms and 2.7 ms, plus 15.2 ms to
+    send it to the display; 320x112 at 12 bits, pixel by pixel, 26 ms.
+  - Scrolling by the panel: 14 rows up in portrait 1.5 ms, of which 1.4 ms
+    is filling the 240x14 strip; 3 columns left in landscape 0.42 ms.
+  - Sending a picture across the wrap point of a scrolled area: 320x112 in
+    landscape 32 ms instead of 15 ms; 240x112 in portrait 13.0 ms instead of
+    11.4 ms.
+  - Hardware scrolling was run on the board in four orientations, two
+    landscape and two portrait, with the addresses along the long side
+    running in either direction. No scroll was refused, and the pictures
+    were checked by eye on the panel: a chart extended at its edge, a
+    terminal with a fixed header and footer, and a frame drawn at the edges
+    of the area after scrolling. The driver and the window translation are
+    covered by the host test `test_panel_scroll`, which runs them against a
+    model of the controller built from its datasheet.
+  - Pixel-by-pixel scrolling of a DSI display was not run or timed.
+- docs: the format of a handwritten font is no longer copied into this
+  repository. `docs/hw-font-ru.md` used to carry a copy of
+  `font-format-ru.md` from the hw-fonts editor, and the copy fell behind. It
+  now links to that file and keeps only what belongs to DGX: the converter
+  with its pair check, the tables, and glyph placement by the glyph fields.
+  The README, the handwriting guides, the examples and the comment in
+  `include/dgx_hw_font.h` point to the editor for the format. The rules for
+  drawing connections ("Как рисовать связи"), which the 0.5.4 entry places
+  in `docs/hw-font-ru.md`, are in the editor's file as well.
 
 ## 0.5.4 - 2026-10-13
 

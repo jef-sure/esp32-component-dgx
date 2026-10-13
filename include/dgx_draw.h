@@ -190,9 +190,9 @@ bool dgx_screen_is_readable(const dgx_screen_t *scr);
  *
  * The picture is read from the screen, so the screen has to give its pixels
  * back, dgx_screen_is_readable(). A virtual screen of whole bytes a pixel, 8
- * bits and more but for 12, is moved in its memory a row at a time. Any
- * other screen that is read is moved pixel by pixel, each read and written
- * by the screen.
+ * bits and more but for 12, is moved in its memory a row at a time, and so is
+ * a DSI display in its frame buffer, by its bus. Any other screen that is
+ * read is moved pixel by pixel, each read and written by the screen.
  *
  * A display that keeps its pixels in the panel behind a bus is not read. A
  * panel that scrolls itself moves the picture then, and no pixel of it is

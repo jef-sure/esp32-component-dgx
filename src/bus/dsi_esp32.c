@@ -2267,6 +2267,33 @@ static void dgx_dsi_scr_fill_rectangle(dgx_screen_t *scr, int x, int y, int w, i
     dgx_screen_touch(scr, x, x + w - 1, y, y + h - 1);
 }
 
+/*
+ * A rectangle of the screen moved to another place of it, for dgx_scroll():
+ * the rows of the frame buffer are moved, each at once. With two frame
+ * buffers the one drawing goes into gets what it lacks first, where the
+ * picture is taken from and where it goes.
+ */
+static bool dgx_dsi_move(struct _dgx_bus_protocols_t *_bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height, uint16_t to_left,
+                         uint16_t to_top)
+{
+    dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)_bus;
+    if (!bus->area.fb || !width || !height) return false;
+    if (bus->frames == 2) {
+        const int x0 = left < to_left ? left : to_left, x1 = (left < to_left ? to_left : left) + width - 1;
+        const int y0 = top < to_top ? top : to_top, y1 = (top < to_top ? to_top : top) + height - 1;
+        dgx_dsi_draw_ready(bus);
+        if (dgx_dsi_late_busy(bus)) {
+            uint16_t px0, py0, px1, py1;
+            dgx_fb_area_to_panel(&bus->area, x0, x1, y0, y1, &px0, &py0, &px1, &py1);
+            dgx_dsi_late_clear(bus, px0, py0, px1, py1);
+        }
+        dgx_dsi_tiles_ready(bus, x0, x1, y0, y1, false, true);
+    }
+    dgx_fb_area_move(&bus->area, left, top, width, height, to_left, to_top);
+    dgx_dsi_written(bus);
+    return true;
+}
+
 static void dgx_dsi_scr_update_screen(dgx_screen_t *scr, int left, int right, int top, int bottom)
 {
     dgx_dsi_show(&dgx_dsi_bus_of(scr)->protocols);
@@ -2279,4 +2306,6 @@ void dgx_dsi_screen_functions(dgx_screen_t *scr)
     scr->get_pixel      = dgx_dsi_scr_get_pixel;
     scr->fill_rectangle = dgx_dsi_scr_fill_rectangle;
     scr->update_screen  = dgx_dsi_scr_update_screen;
+    /* the pixels are memory: a rectangle is moved in it */
+    ((dgx_screen_with_bus_t *)scr)->bus->move = dgx_dsi_move;
 }

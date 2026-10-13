@@ -108,6 +108,20 @@ uint32_t dgx_fb_area_get_pixel(const dgx_fb_area_t *area, uint16_t x, uint16_t y
 void dgx_fb_area_fill(dgx_fb_area_t *area, uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint32_t color);
 
 /**
+ * @brief Move the pixels of a rectangle of the screen to another place of it; both lie inside the screen.
+ *
+ * A rectangle of the screen is a rectangle of the panel however the screen
+ * lies on it, and a move of the one is a move of the other: rows of the
+ * frame buffer are moved, each at once, from the side the picture goes to.
+ * The two places may overlap.
+ *
+ * @param x,y          The corner of the rectangle.
+ * @param width,height Its size.
+ * @param to_x,to_y    Where its corner goes.
+ */
+void dgx_fb_area_move(dgx_fb_area_t *area, uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t to_x, uint16_t to_y);
+
+/**
  * @brief Where a rectangle of the screen lies on the panel.
  *
  * @param left,right,top,bottom The rectangle in screen coordinates, both ends included, inside the screen.

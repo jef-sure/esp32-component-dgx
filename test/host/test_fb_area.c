@@ -189,6 +189,53 @@ static void test_direct(uint8_t pixel_bytes, bool swap_rb, bool mirror_x, bool m
  */
 #define LW 83
 #define LH 4
+/* a rectangle moved to another place of the screen: every pixel of it is where it was that far away, the rest is as it was */
+static void test_move(uint8_t pixel_bytes, bool swap_rb, bool mirror_x, bool mirror_y, bool swap_xy)
+{
+    static uint32_t before[FW > FH ? FW : FH][FW > FH ? FW : FH];
+    dgx_fb_area_t   area;
+    memset(fb, 0xa5, sizeof(fb));
+    dgx_fb_area_init(&area, fb + 4, FW, FH, pixel_bytes, swap_rb);
+    dgx_fb_area_orientation(&area, mirror_x, mirror_y, swap_xy);
+    const int w = dgx_fb_area_width(&area), h = dgx_fb_area_height(&area);
+    uint32_t  from, length;
+    for (int round = 0; round < 300; ++round) {
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                dgx_fb_area_set_pixel(&area, (uint16_t)x, (uint16_t)y, ((uint32_t)rnd(0, 0xffff) << 8 | (uint32_t)rnd(0, 0xff)) & (pixel_bytes == 2 ? 0xffffu : 0xffffffu));
+                before[y][x] = dgx_fb_area_get_pixel(&area, (uint16_t)x, (uint16_t)y);
+            }
+        }
+        dgx_fb_area_take_dirty(&area, &from, &length);
+        const int width = rnd(1, w), height = rnd(1, h), x = rnd(0, w - width), y = rnd(0, h - height);
+        const int to_x = rnd(0, w - width), to_y = rnd(0, h - height);
+        dgx_fb_area_move(&area, (uint16_t)x, (uint16_t)y, (uint16_t)width, (uint16_t)height, (uint16_t)to_x, (uint16_t)to_y);
+        int      wrong = 0;
+        uint32_t low = UINT32_MAX, high = 0;
+        for (int j = 0; j < h; ++j) {
+            for (int i = 0; i < w; ++i) {
+                const bool moved = i >= to_x && i < to_x + width && j >= to_y && j < to_y + height;
+                wrong += dgx_fb_area_get_pixel(&area, (uint16_t)i, (uint16_t)j) != (moved ? before[j - to_y + y][i - to_x + x] : before[j][i]);
+                if (moved) {
+                    /* the place of the pixel in the frame buffer, to tell what was written */
+                    memcpy(model, fb + 4, FW * FH * 3);
+                    const uint32_t at = (uint32_t)(model_pixel(&area, i, j) - model);
+                    if (at < low) low = at;
+                    if (at + pixel_bytes > high) high = at + pixel_bytes;
+                }
+            }
+        }
+        CHECK(wrong == 0);
+        CHECK(fb[0] == 0xa5 && fb[3] == 0xa5 && fb[4 + FW * FH * pixel_bytes] == 0xa5);
+        if (x == to_x && y == to_y) {
+            CHECK(!dgx_fb_area_take_dirty(&area, &from, &length));
+        } else {
+            CHECK(dgx_fb_area_take_dirty(&area, &from, &length));
+            CHECK(from == low && from + length == high);
+        }
+    }
+}
+
 static void test_long_rows(void)
 {
     static _Alignas(8) uint8_t long_fb[LW * LH * 2 + 32], long_model[LW * LH * 2 + 32], pixels[LW * LH * 2 + 32];
@@ -261,6 +308,7 @@ int main(void)
     for (int bits = 0; bits < 32; ++bits) {
         test_windows(bits & 16 ? 3 : 2, bits & 8, bits & 4, bits & 2, bits & 1);
         test_direct(bits & 16 ? 3 : 2, bits & 8, bits & 4, bits & 2, bits & 1);
+        test_move(bits & 16 ? 3 : 2, bits & 8, bits & 4, bits & 2, bits & 1);
     }
     test_long_rows();
     test_bounds();

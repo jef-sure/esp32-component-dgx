@@ -186,14 +186,14 @@ DGX is a component, not a standalone firmware image. It is published in the
 as `jef-sure/dgx`. To add it to your own ESP-IDF project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.5.5"
+idf.py add-dependency "jef-sure/dgx^0.5.6"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.5.5"
+  jef-sure/dgx: "^0.5.6"
 ```
 
 The next build downloads it into `managed_components/`. To work on DGX itself,
@@ -948,10 +948,10 @@ for (int i = 1; i <= 3; ++i) {
 `dgx_scroll()` reads the picture from the screen where pixels are memory: on
 a virtual screen, on a display drawn through a virtual back screen and on a
 DSI display. A virtual screen of whole bytes a pixel is moved in its memory a
-row at a time; any other such screen, a DSI display among them, is moved
-pixel by pixel.
+row at a time, and so is a DSI display in its frame buffer, by its bus; any
+other such screen is moved pixel by pixel.
 [examples/figures_scroll_demo](examples/figures_scroll_demo) shows the
-figures and both kinds of scroll on a CYD.
+figures and every kind of scroll on a CYD and on a 7-inch DSI display.
 
 A display that keeps its pixels in the panel behind a bus is not read. There
 the panel moves the picture itself when it can, and no pixel of the picture
@@ -986,7 +986,8 @@ dgx_vscreen_to_screen(lcd, 0, 0, page);
 On a CYD, an ESP32 at 240 MHz with an ILI9341 on SPI at 40 MHz, a line of 14
 rows scrolled by the panel upright takes 1.5 ms, the time of filling the
 strip of 240 x 14; a band of 320 x 112 moved in memory and sent takes 2.4 ms
-and 15 ms.
+and 15 ms. On a JC1060P470, an ESP32-P4 with a JD9165 of 1024x600 on DSI,
+the whole screen moved in the frame buffer takes 24 ms.
 
 How a Bezier curve is split into straight pieces and how a curve is drawn on
 by `t` is described in
@@ -1410,7 +1411,9 @@ make -C test/host
 
 What a host cannot tell, the look of a figure on a panel, the scroll of the
 panel itself and the times on the chip, is seen on a board:
-[examples/figures_scroll_demo](examples/figures_scroll_demo) for a CYD.
+[examples/figures_scroll_demo](examples/figures_scroll_demo), for a CYD or
+a JC1060P470. On a display that is read it draws and scrolls the same on the
+display and on a virtual screen and compares the two pixel by pixel.
 
 ## Repository layout
 
@@ -1435,7 +1438,7 @@ examples/texture_demo/      CYD demo scaling, turning and wobbling a textured ca
 examples/hw_font_demo/      CYD demo writing a text by hand with a font of Bezier curves
 examples/hw_morph_demo/     CYD demo morphing handwritten words one into another
 examples/hw_soft_pen_demo/  demo for a CYD or a JC1060P470 writing four lines with a soft pen, two of them moving to make room
-examples/figures_scroll_demo/  CYD demo of ellipses, arcs and sectors and of a picture scrolled, in memory and by the panel, with timings in its log
+examples/figures_scroll_demo/  demo for a CYD or a JC1060P470 of ellipses, arcs and sectors and of a picture scrolled, in memory, by the panel and in a frame buffer, with timings in its log
 test/host/               host tests with ESP-IDF stubs
 docs/                    morphing articles and handwritten text guides (English and Russian),
                          the converter and the tables of handwritten fonts (Russian),

@@ -1989,6 +1989,60 @@ buffer 5880 bytes, behind the scan 5964, two buffers 8096. That is with a
 tile of 32x4. The maps of the tiles take 8 bytes a row of tiles: with a tile
 of 32x8 that is 0.6 KB less, with 32x2 1.2 KB more, with 32x1 3.6 KB more.
 
+## A picture scrolled
+
+`dgx_scroll()` moves what a rectangle of a screen shows within it. A panel in
+video mode has no scroll of its own: the picture is the frame buffer, and to
+move a picture is to move memory.
+
+In release 0.5.5 a DSI display went the way of any screen that is read: a
+pixel read and a pixel written through the screen, the tile of each asked
+for. It gave the right picture and was slow, half a second for the whole
+screen.
+
+Since 0.5.6 the bus has one more optional function, `move`: "move a rectangle
+of the screen to another place of it". Other buses do not have it. `dgx_scroll()`
+offers the move to the bus first; the strips the picture has left it fills
+as it fills any rectangle.
+
+With two frame buffers the bus first gives the buffer drawing goes into what
+it lacks in the two places together, as before any drawing that reads. Then
+`dgx_fb_area_move()` moves the rows of the frame buffer, each at once by
+`memmove()`, from the side the picture goes to, so that no row is written
+over before it is read. A rectangle of the screen is a rectangle of the
+panel however the screen lies on it, and a move of the one is a move of the
+other: the screen may be mirrored and turned. On a screen upright a move
+along y is a move along the rows of the panel, within each row.
+
+Measured on the board of this document with the example
+`figures_scroll_demo`: 16 bits, two buffers, a cache of 128 KB, IDF 5.5.4.
+The first five rows are several moves in one batch; the last two are a batch
+a move, shown before the next one, and the time is that of the call alone.
+
+| What | Pixel by pixel, 0.5.5 | By rows of the frame buffer |
+| --- | --- | --- |
+| 320x240 up by 14 rows | 61.8 ms | 2.7 ms |
+| 320x240 to the left by 4 columns | 65.3 ms | 3.4 ms |
+| 320x240 aslant by 3 and 2 | 65.0 ms | 6.1 ms |
+| The whole screen, 1024x600, up by 28 rows | 501 ms | 24 ms |
+| The whole screen to the left by 6 columns | 524 ms | 32 ms |
+| A chart of 400x480 to the left by 6, a batch a move | 166 ms to 198 ms | 15.5 ms |
+| A terminal of 480x488 on the screen upright, up by 28, a batch a move | 471 ms to 485 ms | 19.6 ms |
+
+A move that is a batch of its own costs more than the memory it moves: after
+a change of the buffers the one drawing goes into lacks the rectangle, and
+gets it from the other one before the move. The picture could be taken from
+the other buffer straight to its new place, one pass in place of two; that
+is not done.
+
+Checked on the board in three orientations, lying, upright and lying turned
+half a turn: rectangles, sectors and 296 moves any way, some larger than
+their rectangle, were made on the display and on a virtual screen alike,
+half of them a batch each and the rest in one batch, and every pixel of the
+two was compared through `dgx_get_pixel()`. None differed, with the pixel by
+pixel move and with the move by rows. On the host `test_fb_area` checks
+`dgx_fb_area_move()` in every orientation and both depths.
+
 ## Frame rate
 
 The bench shows six scenes of 10 seconds each and counts updates a second. In
@@ -2056,6 +2110,9 @@ pause is gone, and no tearing is seen by eye after that.
 
 ## What is not done
 
+- A picture scrolled in a batch of its own is moved in two passes, the
+  catch-up copy and the move; the 2D DMA is not used for the move. See "A
+  picture scrolled".
 - The copy after the change works only by the 2D DMA. Without it, and with
   the option of the DMA and the PPA off, the hidden buffer gets everything at
   the end of the first batch of a frame, as in release 0.5.2.

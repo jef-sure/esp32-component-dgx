@@ -74,6 +74,19 @@ typedef bool (*dgx_bus_write_rows_func)(struct _dgx_bus_protocols_t *bus, uint16
 typedef bool (*dgx_bus_write_ink_func)(struct _dgx_bus_protocols_t *bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
                                        const uint8_t *ink, uint32_t pitch, uint32_t paper, uint32_t color);
 
+/**
+ * @brief Move the pixels of a rectangle of the display to another place of it, when the pixels are memory of the bus.
+ *
+ * The two places may overlap; what the picture leaves behind stays as it was.
+ *
+ * @param left,top       The rectangle on the screen, inside it.
+ * @param width,height   Its size in pixels.
+ * @param to_left,to_top Where its corner goes; the rectangle is inside the screen there too.
+ * @return false when the bus has not done it: the pixels are to be moved another way then.
+ */
+typedef bool (*dgx_bus_move_func)(struct _dgx_bus_protocols_t *bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height, uint16_t to_left,
+                                  uint16_t to_top);
+
 typedef struct _dgx_bus_protocols_t {
     enum dgx_bus_type bus_type;
     const char *bus_name;
@@ -89,6 +102,7 @@ typedef struct _dgx_bus_protocols_t {
     uint8_t *buffer;
     dgx_bus_write_rows_func write_rows; /*!< NULL for a bus that has only its window */
     dgx_bus_write_ink_func write_ink;   /*!< NULL for a bus that cannot mix two colors by an amount itself */
+    dgx_bus_move_func move;             /*!< NULL for a bus whose pixels are not memory at hand */
 } dgx_bus_protocols_t;
 
 #ifdef __cplusplus

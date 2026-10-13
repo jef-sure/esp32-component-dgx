@@ -323,6 +323,25 @@ void dgx_fb_area_to_panel(const dgx_fb_area_t *area, int left, int right, int to
     *y0 = (uint16_t)(ay < by ? ay : by), *y1 = (uint16_t)(ay < by ? by : ay);
 }
 
+void dgx_fb_area_move(dgx_fb_area_t *area, uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t to_x, uint16_t to_y)
+{
+    if (!width || !height || (x == to_x && y == to_y)) return;
+    uint16_t from_x0, from_y0, to_x0, to_y0, x1, y1;
+    dgx_fb_area_to_panel(area, x, x + width - 1, y, y + height - 1, &from_x0, &from_y0, &x1, &y1);
+    const uint32_t columns = (uint32_t)x1 - from_x0 + 1u, rows = (uint32_t)y1 - from_y0 + 1u;
+    dgx_fb_area_to_panel(area, to_x, to_x + width - 1, to_y, to_y + height - 1, &to_x0, &to_y0, &x1, &y1);
+    const size_t   pitch = (size_t)area->fb_width * area->pixel_bytes, bytes = (size_t)columns * area->pixel_bytes;
+    const uint8_t *from = area->fb + from_y0 * pitch + (size_t)from_x0 * area->pixel_bytes;
+    uint8_t       *to   = area->fb + to_y0 * pitch + (size_t)to_x0 * area->pixel_bytes;
+    /* a picture that goes down the panel is moved from its last row: no row is written over before it is read */
+    const bool     down = to_y0 > from_y0;
+    for (uint32_t i = 0; i < rows; ++i) {
+        const uint32_t row = down ? rows - 1u - i : i;
+        memmove(to + row * pitch, from + row * pitch, bytes);
+        dgx_fb_area_touch(area, to + row * pitch, area->pixel_bytes, columns);
+    }
+}
+
 bool dgx_fb_area_command(dgx_fb_area_t *area, uint8_t command)
 {
     switch (command) {

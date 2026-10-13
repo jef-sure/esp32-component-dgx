@@ -54,13 +54,21 @@ bool dgx_scroll(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy, u
     const int from_y = dy < 0 ? y + ay : y, to_y = dy > 0 ? y + ay : y;
     dgx_screen_progress_up(scr);
     bool moved = false;
+    /* a display whose pixels are memory of its bus, a DSI display: the bus moves the rectangle in its frame buffer */
+    if (scr->screen_subtype == DgxPhysicalScreenWithBus) {
+        dgx_bus_protocols_t *bus = ((dgx_screen_with_bus_t *)scr)->bus;
+        if (bus->move && bus->move(bus, (uint16_t)from_x, (uint16_t)from_y, (uint16_t)columns, (uint16_t)rows, (uint16_t)to_x, (uint16_t)to_y)) {
+            dgx_screen_touch(scr, to_x, to_x + columns - 1, to_y, to_y + rows - 1);
+            moved = true;
+        }
+    }
 #ifdef DGX_SCROLL_MEMORY
     /*
      * Pixels of whole bytes in rows one after another: a row is moved at once. A picture that goes down
      * is moved from its last row, so that no row is written over before it is read; within a row
      * memmove() sees to the same.
      */
-    if (dgx_vscreen_is_linear(scr) && scr->color_bits >= 8 && scr->color_bits != 12) {
+    if (!moved && dgx_vscreen_is_linear(scr) && scr->color_bits >= 8 && scr->color_bits != 12) {
         const size_t bytes = (scr->color_bits + 7u) / 8u, pitch = (size_t)scr->width * bytes;
         uint8_t     *memory = ((dgx_vscreen_t *)scr)->v_array;
         for (int i = 0; i < rows; ++i) {
