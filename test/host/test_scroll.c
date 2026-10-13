@@ -56,7 +56,7 @@ static void scrolls(dgx_screen_t *scr, const char *name)
         /* a whole picture and a batch around it: one piece is shown, and it has all that has changed */
         int left, top, width, height;
         dgx_screen_progress_up(scr);
-        CHECK(dgx_scroll(scr, x, y, w, h, dx, dy, color));
+        CHECK(dgx_scroll(scr, x, y, w, h, dx, dy, color) == ESP_OK);
         const bool dirty = dgx_screen_take_dirty(scr, &left, &top, &width, &height);
         dgx_screen_progress_down(scr);
         /* the rectangle as the screen has it */
@@ -122,18 +122,18 @@ int main(void)
     scr->fill_rectangle = put_rectangle;
     scr->set_pixel      = put_pixel;
     CHECK(!dgx_screen_is_readable(scr));
-    CHECK(!dgx_scroll(scr, 5, 5, 20, 10, 1, 0, 3));
-    CHECK(!dgx_scroll(scr, 5, 5, 20, 10, -19, 9, 3));
+    CHECK(dgx_scroll(scr, 5, 5, 20, 10, 1, 0, 3) == ESP_ERR_NOT_SUPPORTED);
+    CHECK(dgx_scroll(scr, 5, 5, 20, 10, -19, 9, 3) == ESP_ERR_NOT_SUPPORTED);
     CHECK(fills == 0 && pixels_set == 0);
     /* nothing to move */
-    CHECK(dgx_scroll(scr, 5, 5, 20, 10, 0, 0, 3));
-    CHECK(dgx_scroll(scr, 5, 5, 0, 10, 3, 3, 3));
-    CHECK(dgx_scroll(scr, W, 5, 20, 10, 3, 3, 3));
+    CHECK(dgx_scroll(scr, 5, 5, 20, 10, 0, 0, 3) == ESP_OK);
+    CHECK(dgx_scroll(scr, 5, 5, 0, 10, 3, 3, 3) == ESP_OK);
+    CHECK(dgx_scroll(scr, W, 5, 20, 10, 3, 3, 3) == ESP_OK);
     CHECK(fills == 0 && pixels_set == 0);
     /* the whole picture leaves: the rectangle is filled, as much of it as the screen has */
-    CHECK(dgx_scroll(scr, 5, 5, 20, 10, 20, 0, 3));
+    CHECK(dgx_scroll(scr, 5, 5, 20, 10, 20, 0, 3) == ESP_OK);
     CHECK(fills == 1 && filled == 200);
-    CHECK(dgx_scroll(scr, -5, 40, 20, 10, 3, -70, 3));
+    CHECK(dgx_scroll(scr, -5, 40, 20, 10, 3, -70, 3) == ESP_OK);
     CHECK(fills == 2 && filled == 200 + 15 * 7);
     CHECK_DONE();
 }

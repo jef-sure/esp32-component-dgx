@@ -60,8 +60,9 @@ its picture.
 
 On pages D to G a box says what scrolls, red for the panel and blue for the
 frame buffer, counts the moves made and tells how long a move takes. An
-ILI9341 is not read, so a move `dgx_scroll()` reports as made was made by the
-panel; one it refuses is counted in the log. What is drawn after a move, the
+ILI9341 is not read, so a move for which `dgx_scroll()` returns `ESP_OK` was
+made by the panel; one it refuses, with `ESP_ERR_NOT_SUPPORTED`, is counted
+in the log. What is drawn after a move, the
 frame, the lines, the texts, has to lie where it is asked for: the rows of
 the area are elsewhere in the memory of the panel by then. E and G have the
 addresses along the long side of the panel running the other way than D and

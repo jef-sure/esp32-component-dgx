@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "esp_err.h"
+
 #include "dgx_screen_with_bus.h"
 
 #ifdef __cplusplus
@@ -71,9 +73,9 @@ void dgx_screen_with_bus_scroll_way(dgx_screen_with_bus_t *sbus, bool columns, b
  *
  * The rectangle is one cut by the screen, and the move is not nothing.
  *
- * @return false when the picture had to be moved and the panel cannot move it.
+ * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED when the picture had to be moved and the panel cannot move it.
  */
-bool dgx_screen_with_bus_scroll(dgx_screen_with_bus_t *sbus, int x, int y, int w, int h, int dx, int dy, uint32_t color);
+esp_err_t dgx_screen_with_bus_scroll(dgx_screen_with_bus_t *sbus, int x, int y, int w, int h, int dx, int dy, uint32_t color);
 
 #ifdef __cplusplus
 }

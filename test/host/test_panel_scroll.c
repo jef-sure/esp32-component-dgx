@@ -207,13 +207,15 @@ int main(void)
                 const int  rx = swap ? from : 0, ry = swap ? 0 : from, rw = swap ? count : scr->width, rh = swap ? scr->height : count;
                 const int  dx = swap ? move : 0, dy = swap ? 0 : move;
                 const long before = pixels_sent;
-                const bool done = dgx_scroll(scr, rx, ry, rw, rh, dx, dy, color);
+                const esp_err_t result = dgx_scroll(scr, rx, ry, rw, rh, dx, dy, color);
+                const bool      done = result == ESP_OK;
+                CHECK(done || result == ESP_ERR_NOT_SUPPORTED);
                 /* the panel has one area: while it is shifted another cannot be moved, only filled */
                 const bool fills = move >= count || move <= -count;
                 const bool same = !shifted || (area_from == from && area_count == count);
                 CHECK(done == (move == 0 || fills || same));
                 if (done) {
-                    CHECK(dgx_scroll(ref, rx, ry, rw, rh, dx, dy, color));
+                    CHECK(dgx_scroll(ref, rx, ry, rw, rh, dx, dy, color) == ESP_OK);
                     if (move && !fills) {
                         /* no pixel is sent but those of the strip that is filled */
                         CHECK(pixels_sent - before == (long)(move < 0 ? -move : move) * (swap ? scr->height : scr->width));
@@ -236,7 +238,7 @@ int main(void)
                 if (kind == 0) dx = move, dy = -move;
                 if (kind == 1) dx = swap ? 0 : move, dy = swap ? move : 0;
                 const long before = pixels_sent;
-                CHECK(!dgx_scroll(scr, 0, 0, rw, rh, dx, dy, color));
+                CHECK(dgx_scroll(scr, 0, 0, rw, rh, dx, dy, color) == ESP_ERR_NOT_SUPPORTED);
                 CHECK(pixels_sent == before);
                 ++refused;
             } else if (what == 5) {

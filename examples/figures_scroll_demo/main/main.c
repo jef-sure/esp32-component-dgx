@@ -319,7 +319,7 @@ static void page_chart(char letter, bool turned)
         /* a step is one picture: a display that shows by batches shows it whole */
         dgx_screen_progress_up(lcd);
         const int64_t t = esp_timer_get_time();
-        if (dgx_scroll(lcd, X(left), Y(0), S(width), S(240), -S(step), 0, paper)) ++moves;
+        if (dgx_scroll(lcd, X(left), Y(0), S(width), S(240), -S(step), 0, paper) == ESP_OK) ++moves;
         else ++refused;
         spent += esp_timer_get_time() - t;
         if (i % 10 == 9) badge_moves(X(0), Y(0), S(left), moves, spent);
@@ -374,7 +374,7 @@ static void page_terminal(char letter, bool turned)
         const bool up = i < 46;
         dgx_screen_progress_up(lcd);
         const int64_t t = esp_timer_get_time();
-        if (dgx_scroll(lcd, X(0), Y(top), S(240), S(height), 0, up ? -S(line) : S(line), paper)) ++moves;
+        if (dgx_scroll(lcd, X(0), Y(top), S(240), S(height), 0, up ? -S(line) : S(line), paper) == ESP_OK) ++moves;
         else ++refused;
         spent += esp_timer_get_time() - t;
         badge_moves(X(0), Y(0), S(240), moves, spent);
@@ -440,8 +440,8 @@ static int check_scroll(const char *name)
             /* a rectangle within the region, moved any way, at times further than it is large */
             const int sx = x < 0 ? 0 : x, sy = y < 0 ? 0 : y, sw = rw < w - sx ? rw : w - sx, sh = rh < h - sy ? rh : h - sy;
             const int dx = between(-40, 40) * (rnd() % 7 ? 1 : 12), dy = between(-30, 30) * (rnd() % 7 ? 1 : 12);
-            const bool a = dgx_scroll(lcd, x0 + sx, y0 + sy, sw, sh, dx, dy, color);
-            const bool b = dgx_scroll(ref, sx, sy, sw, sh, dx, dy, color);
+            const esp_err_t a = dgx_scroll(lcd, x0 + sx, y0 + sy, sw, sh, dx, dy, color);
+            const esp_err_t b = dgx_scroll(ref, sx, sy, sw, sh, dx, dy, color);
             if (a != b) printf("CHECK %s: a move refused on one screen only\n", name);
             ++moves;
             break;

@@ -365,7 +365,7 @@ void dgx_screen_with_bus_scroll_way(dgx_screen_with_bus_t *sbus, bool columns, b
     sbus->scroll.mirror  = mirror;
 }
 
-bool dgx_screen_with_bus_scroll(dgx_screen_with_bus_t *sbus, int x, int y, int w, int h, int dx, int dy, uint32_t color)
+esp_err_t dgx_screen_with_bus_scroll(dgx_screen_with_bus_t *sbus, int x, int y, int w, int h, int dx, int dy, uint32_t color)
 {
     dgx_screen_t *scr     = &sbus->scr;
     const bool    columns = sbus->scroll.columns;
@@ -383,12 +383,12 @@ bool dgx_screen_with_bus_scroll(dgx_screen_with_bus_t *sbus, int x, int y, int w
             dgx_screen_with_bus_scroll_tell(sbus, false);
             sbus->scroll.count = 0;
         }
-        return true;
+        return ESP_OK;
     }
-    if (!sbus->scroll.lines || !across || !dgx_screen_with_bus_pixel_bytes(scr->color_bits)) return false;
-    if (first + count > sbus->scroll.lines) return false;
+    if (!sbus->scroll.lines || !across || !dgx_screen_with_bus_pixel_bytes(scr->color_bits)) return ESP_ERR_NOT_SUPPORTED;
+    if (first + count > sbus->scroll.lines) return ESP_ERR_NOT_SUPPORTED;
     /* the panel has one area, and one that is shifted cannot be given up for another: its rows are not where they are shown */
-    if (sbus->scroll.count && sbus->scroll.shift && !same) return false;
+    if (sbus->scroll.count && sbus->scroll.shift && !same) return ESP_ERR_NOT_SUPPORTED;
     if (!same) {
         sbus->scroll.first = (uint16_t)first;
         sbus->scroll.count = (uint16_t)count;
@@ -405,5 +405,5 @@ bool dgx_screen_with_bus_scroll(dgx_screen_with_bus_t *sbus, int x, int y, int w
     if (scr->wait_buffer) scr->wait_buffer(scr);
     sbus->scroll.shift = (uint16_t)((sbus->scroll.shift + count - move) % count);
     dgx_screen_with_bus_scroll_tell(sbus, false);
-    return true;
+    return ESP_OK;
 }

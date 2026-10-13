@@ -8,6 +8,8 @@
  */
 
 
+#include "esp_err.h"
+
 #include "dgx_screen.h"
 
 #ifdef __cplusplus
@@ -202,9 +204,10 @@ bool dgx_screen_is_readable(const dgx_screen_t *scr);
  * edge to edge across it; and the panel has one such area at a time, so a
  * rectangle that has been moved has to be filled, by a move as large as it,
  * before another is moved. Everything drawn after is still drawn where it is
- * seen. Any other move on such a display does nothing and returns false, but
- * for a move that only fills: a text that scrolls another way is drawn on a
- * virtual screen, which is moved and sent to the display.
+ * seen. Any other move on such a display draws nothing and returns
+ * ESP_ERR_NOT_SUPPORTED, but for a move that only fills. A virtual screen
+ * always works then: draw the text on a virtual screen, scroll that, and send
+ * it to the display, in any orientation.
  *
  * @param scr   The screen.
  * @param x     The x coordinate of the top-left corner of the rectangle.
@@ -214,10 +217,12 @@ bool dgx_screen_is_readable(const dgx_screen_t *scr);
  * @param dx    How far the picture goes to the right; negative: to the left.
  * @param dy    How far the picture goes down; negative: up.
  * @param color The color of what the picture has left.
- * @return false when the picture had to be moved and the screen can neither be
- *         read nor move it itself.
+ * @return ESP_OK when the picture is moved, or when there was nothing to move;
+ *         ESP_ERR_NOT_SUPPORTED when the picture had to be moved and the
+ *         screen can neither be read nor move it itself. Nothing is drawn
+ *         then.
  */
-bool dgx_scroll(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy, uint32_t color);
+esp_err_t dgx_scroll(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy, uint32_t color);
 
 /**
  * @brief Draws a filled triangle on the screen.

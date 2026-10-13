@@ -1,7 +1,14 @@
 # Changes
 
-## Unreleased
+## 0.5.7 - 2026-10-13
 
+- **`dgx_scroll()` returns `esp_err_t` instead of `bool`**: `ESP_OK` when
+  the picture is moved or there was nothing to move, `ESP_ERR_NOT_SUPPORTED`
+  when the display can neither be read nor scroll that way itself. This
+  changes the meaning of the result: `ESP_OK` is 0, so code that tested the
+  `bool` of 0.5.5 and 0.5.6, `if (dgx_scroll(...))`, has to compare with
+  `ESP_OK` now. When a display cannot do a scroll, scroll a virtual screen
+  and send it to the display, in any orientation; the README recipe says so.
 - README: recipes come first. After the installation and a minimal example
   the README goes straight to short recipes for the things people look for:
   animation without flicker, a monochrome OLED, a font of your own, a gauge,

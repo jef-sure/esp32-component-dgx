@@ -20,7 +20,7 @@
 #define DGX_SCROLL_MEMORY 1 /* a virtual screen is moved in its memory */
 #endif
 
-bool dgx_scroll(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy, uint32_t color)
+esp_err_t dgx_scroll(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy, uint32_t color)
 {
     /* of the rectangle, what the screen has */
     if (x < 0) {
@@ -33,7 +33,7 @@ bool dgx_scroll(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy, u
     }
     if (w > scr->width - x) w = scr->width - x;
     if (h > scr->height - y) h = scr->height - y;
-    if (w <= 0 || h <= 0 || (!dx && !dy)) return true;
+    if (w <= 0 || h <= 0 || (!dx && !dy)) return ESP_OK;
     /*
      * A display that keeps its pixels in the panel behind a bus is not read. A panel that scrolls
      * itself moves the picture when the move is one it can make; no pixel is sent then.
@@ -44,9 +44,9 @@ bool dgx_scroll(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy, u
     /* a move as large as the rectangle leaves nothing of the picture: no pixel is read */
     if (dx >= w || dx <= -w || dy >= h || dy <= -h) {
         scr->fill_rectangle(scr, x, y, w, h, color);
-        return true;
+        return ESP_OK;
     }
-    if (!dgx_screen_is_readable(scr)) return false;
+    if (!dgx_screen_is_readable(scr)) return ESP_ERR_NOT_SUPPORTED;
     const int ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy;
     /* what stays of the picture: so many columns and rows, from here to there */
     const int columns = w - ax, rows = h - ay;
@@ -94,5 +94,5 @@ bool dgx_scroll(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy, u
     if (ay) scr->fill_rectangle(scr, x, dy > 0 ? y : y + rows, w, ay, color);
     if (ax) scr->fill_rectangle(scr, dx > 0 ? x : x + columns, to_y, ax, rows, color);
     dgx_screen_progress_down(scr);
-    return true;
+    return ESP_OK;
 }

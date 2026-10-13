@@ -64,14 +64,14 @@ DGX is an ESP-IDF component, published in the
 as `jef-sure/dgx`. Add it to a project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.5.6"
+idf.py add-dependency "jef-sure/dgx^0.5.7"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.5.6"
+  jef-sure/dgx: "^0.5.7"
 ```
 
 Then enable the drivers you need in `menuconfig`, under the **DGX** menu. A
@@ -266,12 +266,21 @@ dgx_vscreen_to_screen(lcd, 0, 0, page);
 
 Some displays can be scrolled directly, without a virtual screen: an ILI9341
 scrolls by its own hardware along the long side of the panel, and a MIPI-DSI
-display is scrolled in its frame buffer. The call is the same and returns
-`false` when the display cannot do that scroll:
+display is scrolled in its frame buffer. The call is the same; it returns
+`ESP_OK`, or `ESP_ERR_NOT_SUPPORTED` when the display cannot do that scroll:
 
 ```c
 // an ILI9341 in portrait: the rows below a 24-row header move up, the header stays
 dgx_scroll(lcd, 0, 24, lcd->width, lcd->height - 24, 0, -line_height, paper);
+```
+
+In that case a virtual screen always works: scroll the virtual screen as
+above and send it to the display. It can be sent in any
+orientation, so the text scrolls the way you need whatever way the panel is
+mounted:
+
+```c
+dgx_vscreen_to_screen_oriented(lcd, 0, 0, page, DgxOutputRotate90CW);
 ```
 
 Example: [examples/figures_scroll_demo](examples/figures_scroll_demo), a
@@ -658,7 +667,7 @@ Declared in [include/dgx_draw.h](include/dgx_draw.h):
 | `dgx_draw_ellipse(scr, x, y, rx, ry, color)` | Ellipse outline, a pixel wide, by the rule of the midpoint algorithm: with equal radii it is `dgx_draw_circle()` pixel for pixel. |
 | `dgx_draw_arc(scr, x, y, rx, ry, from, to, width, color)` | Arc of an ellipse, of a circle with equal radii, between two angles in degrees, by a pen of `width`; `DGX_PEN_SOFT | width` gives it a soft edge. A hard pen of 1 draws the pixels of the outline between the rays. |
 | `dgx_solid_sector(scr, x, y, rx, ry, from, to, color)` | Filled sector of an ellipse between two angles; a whole turn is the ellipse filled. |
-| `dgx_scroll(scr, x, y, w, h, dx, dy, color)` | Move what a rectangle shows by `dx`, `dy` within it, any way, and fill what it has left with `color`. In memory where a screen is read, by the scroll of the panel where an ILI9341 can; `false` when neither. |
+| `dgx_scroll(scr, x, y, w, h, dx, dy, color)` | Move what a rectangle shows by `dx`, `dy` within it, any way, and fill what it has left with `color`. In memory where a screen is read, by the scroll of the panel where an ILI9341 can. Returns `ESP_OK`, or `ESP_ERR_NOT_SUPPORTED` when neither is possible. |
 | `dgx_draw_triangle_solid(scr, x0, y0, x1, y1, x2, y2, color)` | Filled triangle. |
 | `dgx_draw_polygon4_solid(scr, x0..y3, color)` | Filled simple quadrilateral (convex or concave). |
 | `dgx_draw_texture_quad(scr, quad, texture, tx, ty, tw, th)` | Stretch a region of a virtual screen onto a convex quadrilateral (affine, nearest texel). |
@@ -715,8 +724,9 @@ the place where the rows turn round goes in pieces: two when the screen is
 upright, two for every row of it when the screen lies. The panel has one
 such area at a time: a rectangle that has been moved is filled, by a move as
 large as it, before another is moved. Any other move, across the long side
-or aslant, returns `false` and draws nothing; a text that scrolls so is
-drawn on a virtual screen, which is moved and sent to the display:
+or aslant, returns `ESP_ERR_NOT_SUPPORTED` and draws nothing; a text that
+scrolls so is drawn on a virtual screen, which is moved and sent to the
+display, in any orientation:
 
 ```c
 /* a line of text more: the picture goes up by the height of a line */
@@ -1193,7 +1203,7 @@ A couple of practical limitations are worth knowing up front:
 - **The scroll of the panel is used on an ILI9341 only.** ST7789, ST7735 and
   GC9A01 have the same two commands and take the same code, three lines of a
   driver each; they are not switched on, for there was no panel to see them
-  on. `dgx_scroll()` returns `false` there.
+  on. `dgx_scroll()` returns `ESP_ERR_NOT_SUPPORTED` there.
 
 - **Virtual screens don't honor `dir_x`/`dir_y`/`swap_xy` for framebuffer
   access.** Those fields describe orientation metadata, but they do not
