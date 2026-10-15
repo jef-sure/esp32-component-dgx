@@ -1,12 +1,114 @@
 # Changes
 
-## Unreleased
+## 0.6.0 - 2026-10-15
 
+- **`dgx_image_blit()`, sprites and icons of 1, 4 or 8 bits a pixel**
+  (`dgx_image.h`). It draws an indexed picture kept in flash or RAM into a
+  linear 8-bit virtual screen, in one call:
+  - the picture is uncompressed, rows of whole bytes, the leftmost pixel in
+    the high bits, the layout of `dgx_bw_bitmap_t`;
+  - value 0 is always transparent. Other values are drawn as one `color`
+    (1 bit), through a map of 15 (4 bits) or 255 (8 bits) indices, or as
+    their own values. The same pictures in other colors are another map;
+  - `DGX_IMAGE_SILHOUETTE` draws every visible pixel in one color, for a
+    shadow or a flash;
+  - any of the eight orientations, around the origin of the picture, so a
+    mirrored sprite stays where it stands;
+  - a clip rectangle with `DGX_IMAGE_CLIP`;
+  - the changed area is marked as by the other drawing functions; nothing
+    is allocated.
+
+  Any other destination gets `ESP_ERR_NOT_SUPPORTED` and is left
+  unchanged. Unlike `dgx_vscreen_to_vscreen()`, the source is constant data,
+  not a screen, it is clipped and can be recolored.
+  Measured on a CYD (ESP32 at 240 MHz, ESP-IDF 6.0.1, `-O2`), a 40x60
+  sprite with about a third transparent, from flash: 4 bits 0.105 ms as it
+  is, 0.100 ms mirrored, 0.066 ms clipped to half its width, 0.133 ms
+  rotated by 90°; 8 bits 0.108 ms; 1 bit 0.130 ms.
+  New host test `test_image`: every depth, orientation, coloring and
+  several clips against a plain model, pixel for pixel.
+- **Color tables for 8-bit virtual screens** (`dgx_lut.h`). Four functions
+  fill the `uint16_t lut[256]` of RGB565 colors that
+  `dgx_vscreen8_to_screen16()` and `dgx_vscreen8_region_to_screen16()`
+  take. Changing the table changes the colors of the whole frame without
+  redrawing it:
+  - `dgx_lut_from_rgb()`: entries from an RGB888 palette;
+  - `dgx_lut_gradient()`: a ramp from one color to another, such as the
+    table of a soft pen from the paper to the ink;
+  - `dgx_lut_mix()`: a mix of two RGB888 palettes, to change one into the
+    other;
+  - `dgx_lut_mix_color()`: a mix of a palette with one color, for a fade to
+    black or a flash to white.
+
+  Each fills the entries `first .. first + count - 1` only and skips those
+  past 255. A single color is `0xRRGGBB`, as `dgx_rgb_to_24()` makes it.
+  Mixing starts from the RGB888 palette every time, so a fade in many steps
+  does not gather the rounding errors of RGB565; it rounds to the nearest,
+  and the two ends are exact. Nothing is allocated. New host test
+  `test_lut`.
+- Faster output to a display behind SPI or another bus with a window.
+  `dgx_vscreen8_region_to_screen16()`, `dgx_vscreen8_to_screen16()`,
+  `dgx_vscreen_to_screen()`, `dgx_vscreen_region_to_screen()` and their
+  rotated or mirrored forms `dgx_vscreen_to_screen_oriented()` and
+  `dgx_vscreen_region_to_screen_oriented()` now prepare the next part of
+  the picture while the bus is still sending the previous one. The bus
+  buffer is split into two halves, so no extra RAM is needed: the CPU fills
+  one half while DMA sends the other. On SPI the next half is queued
+  behind the one under way, so the bus goes on without waiting for the CPU
+  to queue it. Before, the CPU filled the whole buffer, sent it and waited
+  for the transfer to finish. An area that fits in the buffer is still sent
+  in one piece.
+  Measured on a CYD (ESP32-2432S028R: ESP32-D0WD-V3 at 240 MHz, ILI9341,
+  SPI at 40 MHz, ESP-IDF 6.0.1, `-O2`), for the full 320x240 screen:
+  - an 8-bit virtual screen through a LUT in one call: 40.1 → 32.1 ms
+    (the pixel data alone takes 30.7 ms on the bus);
+  - the same picture in tiles of 64x64: 41.4 → 34.6 ms; 32x32:
+    45.4 → 41.3 ms; 32x4: 75.0 → 71.4 ms; in rows of 320x1:
+    57.4 → 53.3 ms;
+  - a 16-bit virtual screen as it is: 32.7 → 32.1 ms; mirrored or
+    rotated by 90°: 41.6 → 32.3 ms.
+
+  Very small areas gain nothing: one call per 1x1 or 2x2 pixels takes the
+  same time within 0.6%, and one-pixel-wide columns are about 1% slower
+  (69.1 → 70.0 ms for the screen as 320 columns).
+- SPI bus: `write_data_async()` queues a long transfer of pixels behind
+  the one under way and then waits for that one, instead of waiting first
+  and queuing after. When it returns, only the new transfer may still be
+  on its way, as before, so its callers see no difference; the bus just
+  goes from one transfer to the next with no pause. Window commands and
+  short transfers are polled as before.
+- New example `sprite_palette_demo` for a CYD: walkers of 4 bits in three
+  maps of colors, mirrored around their feet, one with a reflection and one
+  clipped to a window; an arrow of 1 bit in the eight orientations; coins of
+  8 bits; a day that turns to night, lightning and a fade to black by the
+  color table alone. About 28 FPS for a frame of 320x240 drawn anew.
+- Examples: `figures_scroll_demo`, `flip_clock_demo`, `hw_morph_demo` and
+  `hw_soft_pen_demo` build their tables with `dgx_lut_gradient()` instead
+  of a loop of their own. The old loops truncated, the gradient rounds, so
+  about a fifth of the entries move by one step of one RGB565 channel.
+  `morph_demo` keeps its loop: the glow renderer takes a table of 32-bit
+  colors of the screen format, not this one.
+- ESP32: an SPI clock of 60 MHz is not available. The clock is 80 MHz
+  divided by an integer, so a request for 60 MHz gives 40 MHz, as
+  `spi_device_get_actual_freq()` reports. On the CYD 80 MHz shows
+  artifacts in the morphing demo, so 40 MHz is the practical limit there.
+- Host tests: the test bus of `test_region` and `test_oriented` reads the
+  data of a transfer only when it is done with it, as a DMA bus does: when
+  the next transfer, a window or a wait comes, or, for a bus that queues
+  as SPI does, when the transfer after it has been queued. Code that
+  overwrites a buffer still being sent fails these tests.
 - docs: the banner for a light page shows the name as a matrix of dots too,
   as the banner for a dark page does; it had the name written by hand. The
   pictures for a light page use colors of a middle brightness, so they can
   be read on a dark page as well, where a viewer does not tell the themes
   apart.
+- ST7920: `dgx_st7920_orientation()` has been checked on a real 128x64
+  panel; the 0.5.4 entry said it had only been run against a host model.
+  All eight orientations are displayed correctly, including partial
+  updates of a rotated or mirrored screen. Measured on an ESP32-P4
+  (revision 1.3, 360 MHz, ESP-IDF 6.1) with SPI at 1 MHz: a full-screen
+  update takes 27.4 ms in the default orientation and 28.5 ms in the other
+  seven, so the rotation itself costs about 1 ms. No code changed.
 
 ## 0.5.7 - 2026-10-13
 

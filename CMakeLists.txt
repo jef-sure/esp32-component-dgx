@@ -5,7 +5,7 @@ file(GLOB dgx_font_sources
 # hw_font.c, bezier.c and hw_morph.c stand together: a text is written by the first calling the second for
 # every stroke, and the linker puts the code of an archive into flash in the order its files are needed. Code
 # that lies 16 KB apart shares the lines of the 2-way flash cache of the ESP32; side by side the two do not.
-set(srcs "src/drivers/dgx_lcd_init.c" "src/dgx_bus_optimized_funcs.c" "src/dgx_spi_area_protocol.c" "src/draw.c" "src/pixels.c" "src/font.c" "src/hw_font.c" "src/bezier.c" "src/hw_morph.c" "src/font_morph.c" "src/orientation.c" "src/bitmap.c" "src/gauge.c" "src/texture.c" "src/ellipse.c" "src/scroll.c")
+set(srcs "src/drivers/dgx_lcd_init.c" "src/dgx_bus_optimized_funcs.c" "src/dgx_spi_area_protocol.c" "src/draw.c" "src/pixels.c" "src/font.c" "src/hw_font.c" "src/bezier.c" "src/hw_morph.c" "src/font_morph.c" "src/orientation.c" "src/bitmap.c" "src/gauge.c" "src/texture.c" "src/ellipse.c" "src/scroll.c" "src/lut.c")
 
 list(APPEND srcs ${dgx_font_sources})
 
@@ -66,7 +66,7 @@ if(CONFIG_DGX_ENABLE_V_BW_SCREEN)
 endif()
 
 if(CONFIG_DGX_ENABLE_VSCREEN)
-	list(APPEND srcs "src/drivers/vscreen.c")
+	list(APPEND srcs "src/drivers/vscreen.c" "src/image.c")
 endif()
 
 if(CONFIG_DGX_ENABLE_VSCREEN_2H)

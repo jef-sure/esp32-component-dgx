@@ -14,6 +14,7 @@
 #include "dgx_bits.h"
 #include "dgx_colors.h"
 #include "dgx_draw.h"
+#include "dgx_lut.h"
 #include "dgx_font.h"
 #include "dgx_screen.h"
 #include "drivers/ili9341.h"
@@ -95,10 +96,7 @@ static bool draw_digit_texture(dgx_screen_t *tex, uint8_t digit)
     dgx_font_make_point8(point);
     /* Index 0 is transparent; the rest fade from black to the ink color. */
     uint16_t lut[256];
-    lut[0] = 0;
-    for (int i = 1; i < 256; ++i) {
-        lut[i] = (uint16_t)dgx_rgb_to_16((uint8_t)(238 * i / 255), (uint8_t)(242 * i / 255), (uint8_t)i);
-    }
+    dgx_lut_gradient(lut, 0, 256, 0x000000, dgx_rgb_to_24(238, 242, 255));
     dgx_font_sym8_params_t params = {
         .vpoint = point,
         .lut = lut,

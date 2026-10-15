@@ -41,33 +41,77 @@ static uint16_t expected(dgx_screen_t *src, int x, int y, int dx, int dy, bool t
     return transparent && !index ? MARK : lut[index];
 }
 
-/* a display behind a bus: it takes an area and then the bytes of its pixels, two a pixel, row by row */
-static uint16_t panel[DW * DH];
-static int      area_l, area_r, area_t, area_b, area_x, area_y;
-static int      sent_pixels, areas;
+/*
+ * A display behind a bus: it takes an area and then the bytes of its pixels, two a pixel, row by row.
+ * As a bus that sends by DMA, it reads the bytes of a piece only when it is done with it: when the
+ * next piece, an area or a wait comes, or, for a piece queued behind another, when that one is
+ * queued behind in turn. A piece written over before it has gone shows up as wrong pixels.
+ */
+static uint16_t       panel[DW * DH];
+static int            area_l, area_r, area_t, area_b, area_x, area_y;
+static int            sent_pixels, areas, pieces, queued_pieces;
+static uint32_t       piece_first, piece_most;
+static const uint8_t *pending[2];
+static uint32_t       pending_bits[2];
+static int            pendings;
 
-static void panel_set_area(dgx_screen_t *scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
+/* the oldest piece on its way is done */
+static void panel_take_oldest(void)
 {
-    (void)scr;
-    area_l = left, area_r = right, area_t = top, area_b = bottom;
-    area_x = left, area_y = top;
-    ++areas;
-}
-
-static void panel_write_area(dgx_screen_t *scr, uint8_t *data, uint32_t lenbits)
-{
-    (void)scr;
-    for (uint32_t i = 0; i + 1 < lenbits / 8; i += 2) {
+    const uint8_t *data = pending[0];
+    const uint32_t bits = pending_bits[0];
+    for (uint32_t i = 0; i + 1 < bits / 8; i += 2) {
         CHECK(area_y <= area_b && area_x < DW && area_y < DH);
         if (area_y <= area_b && area_x < DW && area_y < DH) panel[area_x + area_y * DW] = (uint16_t)(data[i] << 8 | data[i + 1]);
         ++sent_pixels;
         if (++area_x > area_r) area_x = area_l, ++area_y;
     }
+    pending[0] = pending[1], pending_bits[0] = pending_bits[1];
+    --pendings;
+}
+
+/* all the pieces on their way are done */
+static void panel_take(void)
+{
+    while (pendings) panel_take_oldest();
+}
+
+static void panel_piece(const uint8_t *data, uint32_t lenbits)
+{
+    CHECK(pendings < 2);
+    pending[pendings] = data, pending_bits[pendings] = lenbits;
+    ++pendings;
+    if (!pieces++) piece_first = lenbits / 8;
+    if (lenbits / 8 > piece_most) piece_most = lenbits / 8;
+}
+
+
+static void panel_set_area(dgx_screen_t *scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
+{
+    (void)scr;
+    panel_take();
+    area_l = left, area_r = right, area_t = top, area_b = bottom;
+    area_x = left, area_y = top;
+    ++areas;
+}
+
+/* a bus that waits for the piece on its way before it takes the next, or one that queues the next behind it */
+static bool queueing;
+
+static void panel_write_area(dgx_screen_t *scr, uint8_t *data, uint32_t lenbits)
+{
+    (void)scr;
+    if (!queueing) panel_take();
+    panel_piece(data, lenbits);
+    /* either way only this piece is on its way when it returns */
+    while (pendings > 1) panel_take_oldest();
+    queued_pieces += queueing;
 }
 
 static void panel_wait(dgx_screen_t *scr)
 {
     (void)scr;
+    panel_take();
 }
 
 /*
@@ -105,6 +149,7 @@ static uint8_t *panel_memory(uint32_t len)
 static void panel_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color)
 {
     (void)scr;
+    panel_take();
     if (x >= 0 && y >= 0 && x < DW && y < DH) panel[x + y * DW] = (uint16_t)color;
 }
 
@@ -136,6 +181,8 @@ static void test_region(void)
     lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait_buffer = panel_wait;
     lcd->set_pixel = panel_set_pixel, lcd->update_screen = panel_update;
 
+    /* rectangles the buffer takes whole, of rows that fit in a half of it, and of rows cut */
+    int in_one = 0, rows_fit = 0, rows_cut = 0;
     for (int round = 0; round < 12000; ++round) {
         bool transparent = round & 1, by_bus = (round >> 1) & 1;
         /* the bus of every third round takes rows, of every sixth it refuses some of them */
@@ -144,6 +191,8 @@ static void test_region(void)
         bus.memory_allocator = rows_kind ? panel_memory : NULL;
         rows_least = rows_kind ? 60 : 0;
         rows_refuse_every = rows_kind == 2 ? 3 : 0;
+        /* a bus that queues a piece behind the one on its way, in half the rounds */
+        queueing = (round >> 3) & 1;
         int  x = rnd(-SW - 3, DW + 3), y = rnd(-SH - 3, DH + 3); /* where the whole source is shown */
         int  left = rnd(-6, SW + 5), top = rnd(-6, SH + 5), width = rnd(-2, SW + 8), height = rnd(-2, SH + 8);
         if (round % 7 == 0) left = 0, top = 0, width = SW, height = SH;
@@ -161,7 +210,8 @@ static void test_region(void)
         /* a part of it: the same pixels within the part, nothing outside it */
         dgx_fill_rectangle(part, 0, 0, DW, DH, MARK);
         for (int i = 0; i < DW * DH; ++i) panel[i] = MARK;
-        sent_pixels = areas = 0;
+        sent_pixels = areas = pieces = 0;
+        piece_most = 0;
         dgx_vscreen8_region_to_screen16(by_bus ? lcd : part, x + left, y + top, src, left, top, width, height, lut, transparent);
         wrong = 0;
         int inside = 0;
@@ -178,7 +228,23 @@ static void test_region(void)
         if (by_bus && !transparent) CHECK(sent_pixels == inside);
         if (by_bus && !transparent && !rows_kind) CHECK(areas == (inside ? 1 : 0));
         if (by_bus && !inside) CHECK(sent_pixels == 0 && areas == 0);
+        if (by_bus && !transparent && !rows_kind && inside) {
+            /* the buffer in two halves of 32 bytes: whole rows in a half where a row fits in it */
+            const uint32_t all = 2u * (uint32_t)inside, row = 2u * (uint32_t)(area_r - area_l + 1), half = sizeof(bus_buffer) / 2;
+            if (all <= sizeof(bus_buffer)) {
+                CHECK(pieces == 1);
+                ++in_one;
+            } else if (row <= half) {
+                CHECK(piece_first == half / row * row && piece_most == piece_first);
+                ++rows_fit;
+            } else {
+                CHECK(piece_first == half && piece_most == half);
+                ++rows_cut;
+            }
+        }
     }
+    CHECK(in_one > 100 && rows_fit > 100 && rows_cut > 100);
+    CHECK(queued_pieces > 1000);
     /* the bus has taken rows, has refused some, and bands of several rows have gone both ways */
     CHECK(rows_taken > 1000 && rows_calls > rows_taken + 500 && bands_given > 1000);
     dgx_screen_destroy(&src);

@@ -343,29 +343,81 @@ static bool dgx_vscreen_rows_to_bus(dgx_screen_t *_scr_dst, int x_dst, int y_dst
 }
 
 /*
- * Append a run of whole pixels to the transfer buffer, sending the buffer
- * whenever it fills up. A virtual screen keeps its pixels in the byte order
- * of the wire, so this is a plain copy. Returns the new write position.
+ * The transfer buffer in two halves: while one goes to the display, the
+ * pixels of the next are put into the other. Sending a piece returns once
+ * the pieces before it have gone, so a half is never written while it is
+ * being sent; a bus that queues the piece before it waits, as SPI does, goes
+ * on to the next half with no pause. A half is of whole pixels, and of
+ * whole rows where a row fits in it: a row is then not cut, and a display
+ * whose window goes with its pixels is not told a window for the rest of a
+ * row. A rectangle the whole buffer takes goes in one piece: a second one
+ * would cost a transfer of its own. A buffer too small for two halves of a
+ * pixel each is one half, and every piece of it is waited for.
  */
-static uint8_t *dgx_vscreen_send_row(dgx_screen_t *_scr_dst, uint8_t *draw_buffer, size_t draw_buffer_len, uint8_t *cbuf, const uint8_t *src,
-                                     uint32_t bytes, uint32_t pixel_bytes)
+typedef struct {
+    dgx_screen_t *scr;
+    uint8_t      *half[2];
+    uint8_t      *at;    /* where the next byte goes */
+    uint32_t      len;   /* bytes of a half */
+    int           which; /* the half being filled */
+    bool          alone; /* one half only */
+} dgx_vscreen_halves_t;
+
+static inline void dgx_vscreen_halves_begin(dgx_vscreen_halves_t *h, dgx_screen_t *scr, uint8_t *buffer, size_t buffer_len, uint32_t pixel_bytes,
+                                            uint32_t row_bytes, uint32_t all_bytes)
+{
+    uint32_t len = (uint32_t)(buffer_len / 2u) / pixel_bytes * pixel_bytes;
+    h->alone     = false;
+    if (all_bytes <= buffer_len) {
+        len = all_bytes;
+    } else {
+        if (len == 0) len = (uint32_t)buffer_len / pixel_bytes * pixel_bytes, h->alone = true;
+        if (len >= row_bytes) len = len / row_bytes * row_bytes;
+    }
+    h->scr     = scr;
+    h->half[0] = h->at = buffer;
+    h->half[1]         = h->alone ? buffer : buffer + len;
+    h->len             = len;
+    h->which           = 0;
+}
+
+/* bytes left in the half being filled */
+static inline uint32_t dgx_vscreen_halves_room(const dgx_vscreen_halves_t *h)
+{
+    return h->len - (uint32_t)(h->at - h->half[h->which]);
+}
+
+/* the half filled goes to the display, the other one is filled next */
+static inline void dgx_vscreen_halves_send(dgx_vscreen_halves_t *h)
+{
+    h->scr->write_area(h->scr, h->half[h->which], 8u * (uint32_t)(h->at - h->half[h->which]));
+    if (h->alone) h->scr->wait_buffer(h->scr);
+    h->which ^= 1;
+    h->at = h->half[h->which];
+}
+
+/* what is left goes, and all of it has gone when this returns */
+static inline void dgx_vscreen_halves_end(dgx_vscreen_halves_t *h)
+{
+    if (h->at != h->half[h->which]) dgx_vscreen_halves_send(h);
+    h->scr->wait_buffer(h->scr);
+}
+
+/*
+ * A run of whole pixels put into the halves. A virtual screen keeps its
+ * pixels in the byte order of the wire, so this is a plain copy.
+ */
+static void dgx_vscreen_send_row(dgx_vscreen_halves_t *h, const uint8_t *src, uint32_t bytes)
 {
     while (bytes) {
-        size_t room = draw_buffer_len - (size_t)(cbuf - draw_buffer);
-        room -= room % pixel_bytes;
-        if (room == 0) {
-            _scr_dst->write_area(_scr_dst, draw_buffer, 8u * (cbuf - draw_buffer));
-            _scr_dst->wait_buffer(_scr_dst);
-            cbuf = draw_buffer;
-            continue;
-        }
-        size_t chunk = bytes < room ? bytes : room;
-        memcpy(cbuf, src, chunk);
-        cbuf += chunk;
+        const uint32_t room  = dgx_vscreen_halves_room(h);
+        const uint32_t chunk = bytes < room ? bytes : room;
+        memcpy(h->at, src, chunk);
+        h->at += chunk;
         src += chunk;
         bytes -= chunk;
+        if (chunk == room) dgx_vscreen_halves_send(h);
     }
-    return cbuf;
 }
 
 void dgx_vscreen_to_vscreen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, bool has_transparency)
@@ -618,13 +670,14 @@ void dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_scr
         size_t               draw_buffer_len = bus->buffer_len;
         _scr_dst->set_area(_scr_dst, x1, x1 + bw - 1, y1, y1 + bh - 1);
         _scr_dst->wait_buffer(_scr_dst);
-        uint8_t *cbuf = draw_buffer;
-        uint32_t bip  = dgx_color_points_to_bytes(_scr_src->color_bits, 1);
+        uint32_t             bip = dgx_color_points_to_bytes(_scr_src->color_bits, 1);
+        dgx_vscreen_halves_t halves;
+        dgx_vscreen_halves_begin(&halves, _scr_dst, draw_buffer, draw_buffer_len, bip, (uint32_t)bw * bip, (uint32_t)bw * bip * (uint32_t)bh);
         for (int br = 0; br < bh; ++br) {
             if (_scr_dst->color_bits % 8u == 0) {
                 uint32_t offset_src = DGX_VSCR_OFFSET(scr_src, skip_x, skip_y + br);
                 uint8_t *lp_src     = DGX_VSCR_PTR(scr_src, offset_src);
-                cbuf                = dgx_vscreen_send_row(_scr_dst, draw_buffer, draw_buffer_len, cbuf, lp_src, (uint32_t)bw * bip, bip);
+                dgx_vscreen_send_row(&halves, lp_src, (uint32_t)bw * bip);
             } else {
                 for (int bc = 0; bc < bw; ++bc) {
                     uint32_t color = _scr_src->get_pixel(_scr_src, skip_x + bc, skip_y + br);
@@ -632,10 +685,7 @@ void dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_scr
                 }
             }
         }
-        if (cbuf != draw_buffer) {
-            _scr_dst->write_area(_scr_dst, draw_buffer, 8u * (cbuf - draw_buffer));
-            _scr_dst->wait_buffer(_scr_dst);
-        }
+        dgx_vscreen_halves_end(&halves);
     } else if (_scr_dst->screen_subtype == DgxVirtualScreen || _scr_dst->screen_subtype == DgxVirtualBackScreen) {
         dgx_vscreen_t *scr_dst = (dgx_vscreen_t *)_scr_dst;
         uint32_t       bip     = dgx_color_points_to_bytes(_scr_src->color_bits, 1);
@@ -709,13 +759,14 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
     dgx_screen_progress_up(_scr_dst);
     _scr_dst->set_area(_scr_dst, x_dst, x_dst + width - 1, y_dst, y_dst + height - 1);
     _scr_dst->wait_buffer(_scr_dst);
-    uint8_t *cbuf = draw_buffer;
-    uint32_t bip  = dgx_color_points_to_bytes(_scr_src->color_bits, 1);
+    uint32_t             bip = dgx_color_points_to_bytes(_scr_src->color_bits, 1);
+    dgx_vscreen_halves_t halves;
+    dgx_vscreen_halves_begin(&halves, _scr_dst, draw_buffer, draw_buffer_len, bip, (uint32_t)width * bip, (uint32_t)width * bip * (uint32_t)height);
     for (int br = 0; br < height; ++br) {
         if (_scr_dst->color_bits % 8u == 0) {
             uint32_t offset_src = DGX_VSCR_OFFSET(scr_src, x_src, y_src + br);
             uint8_t *lp_src     = DGX_VSCR_PTR(scr_src, offset_src);
-            cbuf                = dgx_vscreen_send_row(_scr_dst, draw_buffer, draw_buffer_len, cbuf, lp_src, (uint32_t)width * bip, bip);
+            dgx_vscreen_send_row(&halves, lp_src, (uint32_t)width * bip);
         } else {
             for (int bc = 0; bc < width; ++bc) {
                 uint32_t color = _scr_src->get_pixel(_scr_src, x_src + bc, y_src + br);
@@ -723,10 +774,7 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
             }
         }
     }
-    if (cbuf != draw_buffer) {
-        _scr_dst->write_area(_scr_dst, draw_buffer, 8u * (cbuf - draw_buffer));
-        _scr_dst->wait_buffer(_scr_dst);
-    }
+    dgx_vscreen_halves_end(&halves);
     if (_scr_dst->screen_subtype != DgxPhysicalScreenWithBus) {
         free(draw_buffer);
     }
@@ -804,6 +852,16 @@ static bool dgx_vscreen8_two_colors(const uint16_t *lut)
     return true;
 }
 
+/* n indices made into colors of two bytes each, the high one first, as a display takes them */
+static inline void dgx_vscreen8_lut_run(uint8_t *restrict to, const uint8_t *restrict ink, int n, const uint16_t *restrict lut)
+{
+    for (int i = 0; i < n; ++i) {
+        const uint16_t color = lut[ink[i]];
+        to[2 * i]            = (uint8_t)(color >> 8);
+        to[2 * i + 1]        = (uint8_t)color;
+    }
+}
+
 void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width,
                                      int height, uint16_t *lut, uint32_t flags)
 {
@@ -846,25 +904,32 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
         } else if (!has_transparency) {
             _scr_dst->set_area(_scr_dst, rxd, rxd + bw - 1, ryd, ryd + bh - 1);
             _scr_dst->wait_buffer(_scr_dst);
-            uint8_t *cbuf = draw_buffer;
-            uint32_t sw   = _scr_src->width;
+            /* the colors of the next half are made while the one before it goes to the display */
+            const uint32_t       row_bytes = 2u * (uint32_t)bw;
+            dgx_vscreen_halves_t halves;
+            dgx_vscreen_halves_begin(&halves, _scr_dst, draw_buffer, draw_buffer_len, 2u, row_bytes, row_bytes * (uint32_t)bh);
+            const bool     whole_rows = halves.len % row_bytes == 0;
+            const uint32_t sw         = _scr_src->width;
             for (int br = 0; br < bh; ++br) {
-                for (int bc = 0; bc < bw; ++bc) {
-                    uint8_t  cidx  = scr_src->v_array[skip_x + bc + (skip_y + br) * sw];
-                    uint16_t color = lut[cidx];
-                    *cbuf++        = (uint8_t)(color >> 8);
-                    *cbuf++        = (uint8_t)color;
-                    if (cbuf - draw_buffer >= draw_buffer_len - 4) {
-                        _scr_dst->write_area(_scr_dst, draw_buffer, 8u * (cbuf - draw_buffer));
-                        _scr_dst->wait_buffer(_scr_dst);
-                        cbuf = draw_buffer;
-                    }
+                const uint8_t *ink = scr_src->v_array + skip_x + (skip_y + br) * sw;
+                if (whole_rows) {
+                    /* a row is never cut: the half is looked at after it */
+                    dgx_vscreen8_lut_run(halves.at, ink, bw, lut);
+                    halves.at += row_bytes;
+                    if (!dgx_vscreen_halves_room(&halves)) dgx_vscreen_halves_send(&halves);
+                    continue;
+                }
+                for (int bc = 0; bc < bw;) {
+                    /* as much of the row as the half has room for, then the half is sent if it is full */
+                    const int room = (int)(dgx_vscreen_halves_room(&halves) / 2u);
+                    const int n    = bw - bc < room ? bw - bc : room;
+                    dgx_vscreen8_lut_run(halves.at, ink + bc, n, lut);
+                    halves.at += 2 * n;
+                    bc += n;
+                    if (n == room) dgx_vscreen_halves_send(&halves);
                 }
             }
-            if (cbuf != draw_buffer) {
-                _scr_dst->write_area(_scr_dst, draw_buffer, 8u * (cbuf - draw_buffer));
-                _scr_dst->wait_buffer(_scr_dst);
-            }
+            dgx_vscreen_halves_end(&halves);
         } else {
             for (int br = 0; br < bh; ++br) {
                 for (int bc = 0; bc < bw; ++bc) {
@@ -986,7 +1051,9 @@ static bool dgx_vscreen_oriented_to_bus(dgx_screen_t *_scr_dst, int x_dst, int y
     }
     _scr_dst->set_area(_scr_dst, (uint16_t)left, (uint16_t)right, (uint16_t)top, (uint16_t)bottom);
     _scr_dst->wait_buffer(_scr_dst);
-    uint8_t *cbuf = draw_buffer;
+    const uint32_t       row_bytes = (uint32_t)(right - left + 1) * (uint32_t)bip;
+    dgx_vscreen_halves_t halves;
+    dgx_vscreen_halves_begin(&halves, _scr_dst, draw_buffer, draw_buffer_len, (uint32_t)bip, row_bytes, row_bytes * (uint32_t)(bottom - top + 1));
     for (int dy = top; dy <= bottom; ++dy) {
         /* the pixel of the region the first pixel of this row of the display shows */
         const int u = left - x_dst, v = dy - y_dst;
@@ -1003,19 +1070,20 @@ static bool dgx_vscreen_oriented_to_bus(dgx_screen_t *_scr_dst, int x_dst, int y
             step = down_back ? -(ptrdiff_t)pitch : (ptrdiff_t)pitch;
         }
         const uint8_t *from = scr_src->v_array + (size_t)(y_src + sy) * pitch + (size_t)(x_src + sx) * bip;
-        for (int count = right - left + 1; count; --count, from += step) {
-            if ((size_t)(cbuf - draw_buffer) + bip > draw_buffer_len) {
-                _scr_dst->write_area(_scr_dst, draw_buffer, (uint32_t)(8u * (cbuf - draw_buffer)));
-                _scr_dst->wait_buffer(_scr_dst);
-                cbuf = draw_buffer;
+        for (int count = right - left + 1; count;) {
+            /* as many pixels as the half has room for, then the half is sent if it is full */
+            const int room = (int)(dgx_vscreen_halves_room(&halves) / bip);
+            const int n    = count < room ? count : room;
+            uint8_t  *to   = halves.at;
+            for (int i = 0; i < n; ++i, from += step) {
+                for (size_t k = 0; k < bip; ++k) *to++ = from[k];
             }
-            for (size_t k = 0; k < bip; ++k) *cbuf++ = from[k];
+            halves.at = to;
+            count -= n;
+            if (n == room) dgx_vscreen_halves_send(&halves);
         }
     }
-    if (cbuf != draw_buffer) {
-        _scr_dst->write_area(_scr_dst, draw_buffer, (uint32_t)(8u * (cbuf - draw_buffer)));
-        _scr_dst->wait_buffer(_scr_dst);
-    }
+    dgx_vscreen_halves_end(&halves);
     return true;
 }
 

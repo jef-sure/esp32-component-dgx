@@ -440,7 +440,11 @@ band goes to the display in 16.7 ms. A step of the pen, a word written in 400
 steps, changes 24 pixels on average and goes in 0.09 ms, 0.1 ms at most. The
 place of one digit, 60 x 100, where a morph goes on: 3.2 ms. The time of a
 transfer goes by the number of pixels, about 0.52 us a pixel, and 30 us for
-the transfer itself however few they are.
+the transfer itself however few they are. These figures were taken with
+DGX 0.4.7. Since 0.6.0 the colors of the next part are made while the
+previous part is on its way, and a large transfer is faster: the whole
+screen of 320 x 240 goes in 32.1 ms instead of 40.1 ms (see CHANGES.md);
+the band was not timed again.
 
 The last argument of a transfer is flags. `false` and `true` mean what they
 did: nothing and `DGX_LUT_TRANSPARENT`, a pixel of byte 0 is not put. The

@@ -25,6 +25,7 @@
 #include "dgx_bits.h"
 #include "dgx_colors.h"
 #include "dgx_draw.h"
+#include "dgx_lut.h"
 #include "dgx_font.h"
 #include "dgx_screen.h"
 #include "drivers/vscreen.h"
@@ -573,10 +574,7 @@ void app_main(void)
     white  = dgx_rgb_to_16(255, 255, 255);
     dark   = dgx_rgb_to_16(40, 40, 48);
     /* the table of the page of ink: from the paper at 0 to the ink at 255 */
-    for (int i = 0; i < 256; ++i) {
-        lut[i] = (uint16_t)dgx_rgb_to_16((uint8_t)(250 - (250 - 24) * i / 255), (uint8_t)(246 - (246 - 36) * i / 255),
-                                        (uint8_t)(232 - (232 - 120) * i / 255));
-    }
+    dgx_lut_gradient(lut, 0, 256, dgx_rgb_to_24(250, 246, 232), dgx_rgb_to_24(24, 36, 120));
     printf("build %d, display %dx%d, read %d\n", BUILD, lcd->width, lcd->height, dgx_screen_is_readable(lcd));
     for (int round = 0;; ++round) {
         timings();

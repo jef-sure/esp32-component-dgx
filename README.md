@@ -29,6 +29,8 @@ written stroke by stroke by a pen or turns into another text.
   - [A pie chart, arcs, a Wi-Fi icon](#a-pie-chart-arcs-a-wi-fi-icon)
   - [Scrolling text](#scrolling-text)
   - [Scale, rotate or mirror a picture](#scale-rotate-or-mirror-a-picture)
+  - [A sprite or an icon from flash](#a-sprite-or-an-icon-from-flash)
+  - [A palette, a fade and a flash](#a-palette-a-fade-and-a-flash)
   - [Morph one glyph into another](#morph-one-glyph-into-another)
   - [Handwritten text](#handwritten-text)
   - [Morph handwritten text](#morph-handwritten-text)
@@ -64,14 +66,14 @@ DGX is an ESP-IDF component, published in the
 as `jef-sure/dgx`. Add it to a project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.5.7"
+idf.py add-dependency "jef-sure/dgx^0.6.0"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.5.7"
+  jef-sure/dgx: "^0.6.0"
 ```
 
 Then enable the drivers you need in `menuconfig`, under the **DGX** menu. A
@@ -318,6 +320,84 @@ wobbles a card (`card_corners()`),
 [examples/flip_clock_demo](examples/flip_clock_demo) folds the digits of a
 split-flap clock.
 
+### A sprite or an icon from flash
+
+Keep small pictures in flash as indexed pixels of 1, 4 or 8 bits and draw
+them into an 8-bit virtual screen, then show it through a LUT. Pixel value 0
+is transparent. A 4-bit picture gets its colors from a map of 15 indices, so
+the same data in other colors only needs another map.
+
+```c
+#include "dgx_image.h"
+
+// a gem of 4 x 3 pixels of 4 bits, two pixels a byte, the left one in the high half
+static const uint8_t gem_data[] = {0x01, 0x10, 0x12, 0x21, 0x01, 0x10};
+static const dgx_image_t gem = {
+    .width = 4, .height = 3,
+    .origin_x = 0, .origin_y = 1, // the pixel put at (x, y)
+    .format = DGX_IMAGE_4BPP, .data = gem_data,
+};
+
+static const uint8_t red[15] = {10, 11};   // value 1 -> index 10, value 2 -> 11
+dgx_image_blit(frame, 100, 50, &gem, &(dgx_image_blit_t){.map = red});
+
+// mirrored around its origin, and only inside a rectangle of the frame
+dgx_image_blit(frame, 100, 80, &gem, &(dgx_image_blit_t){
+    .map = red, .orientation = DgxOutputMirrorX,
+    .flags = DGX_IMAGE_CLIP, .clip_x = 0, .clip_y = 0, .clip_w = 120, .clip_h = 240,
+});
+
+// every visible pixel in one color: a shadow or a flash
+dgx_image_blit(frame, 102, 52, &gem, &(dgx_image_blit_t){.flags = DGX_IMAGE_SILHOUETTE, .color = 1});
+
+dgx_vscreen8_to_screen16(lcd, 0, 0, frame, lut, 0);
+```
+
+The picture is mirrored and rotated around its origin, so a sprite that
+turns round stays where it stands. A 1-bit picture is drawn in `color`; an
+8-bit one uses its values as indices, or a map of 255. Unlike
+`dgx_vscreen_to_vscreen()`, the source is constant data rather than a
+screen, it is clipped, and it can be recolored. On a CYD a 40x60 sprite of
+4 bits from flash takes about 0.1 ms, mirrored or not.
+Example: [examples/sprite_palette_demo](examples/sprite_palette_demo).
+
+### A palette, a fade and a flash
+
+An 8-bit virtual screen holds indices; its table of 256 RGB565 colors is
+used only when the frame goes to the display. Change the table and the whole
+frame changes color, without redrawing a pixel. `dgx_lut.h` fills the table:
+
+```c
+#include "dgx_bits.h"   // dgx_rgb_to_24()
+#include "dgx_colors.h" // DGX_SKYBLUE()
+#include "dgx_lut.h"
+
+static uint16_t lut[256];
+// the palette kept as RGB888, here in flash: entry k goes to lut[16 + k]
+static const uint8_t level[3][3] = {{20, 20, 40}, {90, 60, 30}, {200, 180, 120}};
+
+dgx_lut_gradient(lut, 0, 16, 0x000000, DGX_SKYBLUE(dgx_rgb_to_24)); // a ramp in 0..15
+dgx_lut_from_rgb(lut, 16, 3, level);                               // the palette in 16..18
+dgx_vscreen8_to_screen16(lcd, 0, 0, frame, lut, 0);
+
+// fade the palette to black in 16 steps: each step is mixed from RGB888 again
+for (int step = 1; step <= 16; ++step) {
+    dgx_lut_mix_color(lut, 16, 3, level, 0x000000, (uint8_t)(step * 255 / 16));
+    dgx_vscreen8_to_screen16(lcd, 0, 0, frame, lut, 0);
+}
+
+// a flash: halfway to white for one frame, then back
+dgx_lut_mix_color(lut, 16, 3, level, 0xffffff, 128);
+```
+
+`dgx_lut_mix()` mixes two palettes the same way, to change one into another.
+The colors are mixed from the RGB888 palette every time, so a fade in many
+steps does not gather rounding errors. A color given as one number is
+`0xRRGGBB`, as `dgx_rgb_to_24()` and `DGX_*(dgx_rgb_to_24)` make it. The
+table of a soft pen from the paper to the ink is
+`dgx_lut_gradient(lut, 0, 256, paper, ink)`.
+Example: [examples/sprite_palette_demo](examples/sprite_palette_demo).
+
 ### Morph one glyph into another
 
 A glyph becomes a matrix of dots, and the dots of one glyph fly to the
@@ -514,6 +594,7 @@ idf.py flash monitor
 | [dsi_demo](examples/dsi_demo) | JC1060P470 (ESP32-P4, 7-inch MIPI-DSI) | the same kind of test for a DSI display, update modes, an even frame rate |
 | [figures_scroll_demo](examples/figures_scroll_demo) | CYD or JC1060P470 | a pie chart, arcs, a Wi-Fi icon, a scrolling terminal and chart; prints timings |
 | [texture_demo](examples/texture_demo) | CYD | a textured card scaled, rotated and wobbled |
+| [sprite_palette_demo](examples/sprite_palette_demo) | CYD | sprites of 1, 4 and 8 bits in maps of colors, mirrored, turned and clipped; day, night, lightning and a fade by the color table alone |
 | [flip_clock_demo](examples/flip_clock_demo) | CYD | a split-flap clock built on textured quads |
 | [morph_demo](examples/morph_demo) | CYD | words morphing letter by letter |
 | [glyph_morph_demo](examples/glyph_morph_demo) | CYD | one large symbol morphing into the next |
@@ -602,6 +683,10 @@ For SSD1306, pick a geometry from `ssd1306_resolution_t`: `SSD1306_128X32`,
 - A color RAM-backed virtual screen and a 1-bit monochrome virtual screen.
   They are useful on their own, as staging buffers for animation, or as shadow
   buffers behind monochrome controllers.
+- Sprites and icons of 1, 4 or 8 bits a pixel kept in flash, drawn into an
+  8-bit virtual screen with a map of colors, clipped, mirrored and rotated.
+- Color tables for 8-bit virtual screens: from a palette, a ramp between two
+  colors, fades and flashes, without redrawing the frame.
 - A two-head compositor (`vscreen_2h`) that exposes two child screens as one
   logical screen.
 - Drawing primitives — pixels, lines, rectangles, circles, ellipses, their
@@ -916,6 +1001,23 @@ Available packers: `DGX_RGB_12` / `dgx_rgb_to_12`, `DGX_RGB_16` /
 `DGX_ORANGE`, `DGX_NAVY`, `DGX_GOLD`, `DGX_SILVER`, `DGX_SKYBLUE` and more.
 For most ESP32 TFT panels here, `DGX_RGB_16` is the right choice.
 
+#### Tables for 8-bit screens
+
+[include/dgx_lut.h](include/dgx_lut.h) fills the `uint16_t lut[256]` of RGB565
+colors that `dgx_vscreen8_to_screen16()` and
+`dgx_vscreen8_region_to_screen16()` take. Each function fills the entries
+`first .. first + count - 1` only; entries past 255 are skipped. A palette is
+RGB888 (`const uint8_t (*rgb)[3]`, may be in flash), its entry `k` going to
+`lut[first + k]`; a single color is `0xRRGGBB`. Mixing rounds to the nearest,
+and `t = 0` and `t = 255` give the two ends exactly.
+
+| Function | Description |
+| --- | --- |
+| `dgx_lut_from_rgb(lut, first, count, rgb)` | The entries from an RGB888 palette. |
+| `dgx_lut_gradient(lut, first, count, rgb_from, rgb_to)` | A ramp from one color to another; the first and the last entry exactly these colors. |
+| `dgx_lut_mix(lut, first, count, a, b, t)` | A mix of two RGB888 palettes: `t = 0` is `a`, `t = 255` is `b`. |
+| `dgx_lut_mix_color(lut, first, count, a, rgb, t)` | A mix of an RGB888 palette with one color: a fade to black, a flash to white. |
+
 ### Virtual screens (API)
 
 Virtual screens let you draw into RAM first and decide later when and where to
@@ -937,6 +1039,7 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_vscreen_to_screen_oriented(...)` / `dgx_vscreen_region_to_screen_oriented(...)` | Oriented variants. |
 | `dgx_vscreen8_to_screen16(dst, x, y, src, lut, flags)` | Expand an 8-bit indexed screen into 16-bit through a LUT. `flags` is 0 or `DGX_LUT_TRANSPARENT` (a pixel of index 0 is not put; `true` means the same) and `DGX_LUT_EXACT` (the colors of the table to the last bit, no hardware that mixes two colors) added together. |
 | `dgx_vscreen8_region_to_screen16(dst, x, y, src, x_src, y_src, w, h, lut, flags)` | The same for a sub-region; `x`, `y` are where the corner of the region goes. |
+| `dgx_image_blit(dst, x, y, image, how)` | Draw a picture of 1, 4 or 8 bits from flash or RAM (`dgx_image.h`) into a linear 8-bit screen: value 0 transparent, a map or one color for the others, clipped, mirrored or rotated around its origin. Returns `ESP_ERR_NOT_SUPPORTED` for another destination. |
 | `dgx_bw_init(width, height)` | Allocate a 1-bit monochrome RAM screen. |
 | `dgx_vscreen_2h_init(left, right)` | Compose two screens as one wide logical screen. |
 | `dgx_vscreen_is_linear(scr)` | True when the screen is a `dgx_vscreen_t` with row-major pixels in `v_array`. |
@@ -1229,7 +1332,7 @@ The platform-independent code (matrices, morphing, renderers, virtual and page
 screens, fills, lines, circles and ellipses with their arcs and sectors,
 scrolling in memory, the frame buffer of the DSI bus and the
 way its two frame buffers change places, fonts,
-textured quads, Bezier curves, handwritten fonts with their writing and
+textured quads, sprites of 1, 4 and 8 bits, color tables, Bezier curves, handwritten fonts with their writing and
 morphing, the arc gauge) has host tests built with gcc against small ESP-IDF
 stubs and run under ASan/UBSan. Two pieces that do depend on the platform
 are tested there too, each against a model of what is on its wires: the

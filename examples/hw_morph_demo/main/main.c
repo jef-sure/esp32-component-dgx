@@ -13,6 +13,7 @@
 #include "dgx_bits.h"
 #include "dgx_colors.h"
 #include "dgx_draw.h"
+#include "dgx_lut.h"
 #include "dgx_hw_font.h"
 #include "dgx_screen.h"
 #include "drivers/ili9341.h"
@@ -125,10 +126,7 @@ void app_main(void)
     }
     dgx_ili9341_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
     /* paper is color 0 of the band and ink is color 255 */
-    for (int i = 0; i < 256; ++i) {
-        lut[i] = (uint16_t)dgx_rgb_to_16((uint8_t)(250 - (250 - 24) * i / 255), (uint8_t)(246 - (246 - 36) * i / 255),
-                                        (uint8_t)(232 - (232 - 120) * i / 255));
-    }
+    dgx_lut_gradient(lut, 0, 256, dgx_rgb_to_24(250, 246, 232), dgx_rgb_to_24(24, 36, 120));
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, lut[0]);
 
     dgx_font_t *font = font0ss();

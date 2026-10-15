@@ -12,6 +12,7 @@
 #include "dgx_bits.h"
 #include "dgx_colors.h"
 #include "dgx_draw.h"
+#include "dgx_lut.h"
 #include "dgx_font.h"
 #include "dgx_hw_font.h"
 #include "dgx_screen.h"
@@ -306,10 +307,7 @@ void app_main(void)
         return;
     }
     /* paper is 0 on the page and all the ink is 255: the table runs from the one to the other, for the soft edge of the pen */
-    for (int i = 0; i < 256; ++i) {
-        lut[i] = (uint16_t)dgx_rgb_to_16((uint8_t)(250 - (250 - 24) * i / 255), (uint8_t)(246 - (246 - 36) * i / 255),
-                                        (uint8_t)(232 - (232 - 120) * i / 255));
-    }
+    dgx_lut_gradient(lut, 0, 256, dgx_rgb_to_24(250, 246, 232), dgx_rgb_to_24(24, 36, 120));
     font = font0ss();
     pace = dgx_hw_pace(font, EXAMPLE_BEND_EFFORT);
     for (int i = 0; i < LINES; ++i) {

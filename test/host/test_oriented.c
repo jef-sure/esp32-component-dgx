@@ -22,19 +22,23 @@ static int      panel_bytes;
 static int      area_l, area_r, area_t, area_b, area_x, area_y;
 static long     windows, single_pixels, sent_pixels;
 
-static void panel_set_area(dgx_screen_t *scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
-{
-    (void)scr;
-    CHECK(left <= right && top <= bottom && right < DW && bottom < DH);
-    area_l = left, area_r = right, area_t = top, area_b = bottom, area_x = left, area_y = top;
-    ++windows;
-}
+/*
+ * The bytes of a piece are read only when the bus is done with it, as a bus that sends by DMA reads them:
+ * when the next piece, a window or a wait comes, or, for a piece queued behind another, when that one is
+ * queued behind in turn.
+ */
+static const uint8_t *pending[2];
+static uint32_t       pending_bits[2];
+static int            pendings;
+static long           queued_pieces;
 
-static void panel_write_area(dgx_screen_t *scr, uint8_t *data, uint32_t lenbits)
+static void panel_take_oldest(void)
 {
-    (void)scr;
-    CHECK(lenbits % (8u * panel_bytes) == 0);
-    for (uint32_t i = 0; i + panel_bytes <= lenbits / 8; i += panel_bytes) {
+    const uint8_t *data = pending[0];
+    const uint32_t bits = pending_bits[0];
+    pending[0] = pending[1], pending_bits[0] = pending_bits[1];
+    --pendings;
+    for (uint32_t i = 0; i + panel_bytes <= bits / 8; i += panel_bytes) {
         uint32_t color = 0;
         for (int k = 0; k < panel_bytes; ++k) color = color << 8 | data[i + k];
         CHECK(area_y <= area_b);
@@ -44,14 +48,51 @@ static void panel_write_area(dgx_screen_t *scr, uint8_t *data, uint32_t lenbits)
     }
 }
 
+static void panel_take(void)
+{
+    while (pendings) panel_take_oldest();
+}
+
+static void panel_piece(const uint8_t *data, uint32_t lenbits)
+{
+    CHECK(lenbits % (8u * panel_bytes) == 0 && pendings < 2);
+    pending[pendings] = data, pending_bits[pendings] = lenbits;
+    ++pendings;
+}
+
+
+static void panel_set_area(dgx_screen_t *scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
+{
+    (void)scr;
+    panel_take();
+    CHECK(left <= right && top <= bottom && right < DW && bottom < DH);
+    area_l = left, area_r = right, area_t = top, area_b = bottom, area_x = left, area_y = top;
+    ++windows;
+}
+
+/* a bus that waits for the piece on its way before it takes the next, or one that queues the next behind it */
+static bool queueing;
+
+static void panel_write_area(dgx_screen_t *scr, uint8_t *data, uint32_t lenbits)
+{
+    (void)scr;
+    if (!queueing) panel_take();
+    panel_piece(data, lenbits);
+    /* either way only this piece is on its way when it returns */
+    while (pendings > 1) panel_take_oldest();
+    queued_pieces += queueing;
+}
+
 static void panel_wait(dgx_screen_t *scr)
 {
     (void)scr;
+    panel_take();
 }
 
 static void panel_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color)
 {
     (void)scr;
+    panel_take();
     ++single_pixels;
     if (x >= 0 && y >= 0 && x < DW && y < DH) panel[x + y * DW] = color;
 }
@@ -79,6 +120,8 @@ int main(void)
         panel_bytes = bits == 16 ? 2 : bits == 8 ? 1 : 3;
         const uint32_t mark = bits == 8 ? 0x5a : 0x1234;
         dgx_bus_protocols_t   bus = {.buffer = bus_buffer, .buffer_len = (size_t)buffers[rnd(0, 3)]};
+        /* a bus that queues a piece behind the one on its way, in half the rounds */
+        queueing = (round >> 2) & 1;
         dgx_screen_with_bus_t sbus = {.bus = &bus};
         dgx_screen_t         *lcd = &sbus.scr;
         lcd->width = DW, lcd->height = DH, lcd->color_bits = (uint8_t)bits, lcd->screen_subtype = DgxPhysicalScreenWithBus;
@@ -122,5 +165,6 @@ int main(void)
         dgx_screen_destroy(&model);
         if (wrong) break;
     }
+    CHECK(queued_pieces > 1000);
     CHECK_DONE();
 }

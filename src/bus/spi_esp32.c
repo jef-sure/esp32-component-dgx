@@ -19,7 +19,7 @@
 
 static const char TAG[] = "DGX SPI BUS";
 
-/* transfers the device may hold at once; one is queued at a time, the number is the one the bus has always been made with */
+/* transfers the device may hold at once; two of pixels are queued at most, one behind the other, the number is the one the bus has always been made with */
 #define DGX_SPI_QUEUE_SIZE 7
 
 // This function is called (in irq context!) just before a transmission starts. It will
@@ -51,14 +51,14 @@ void dgx_spi_wait_pending(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_spi_bus_t     *bus = (dgx_spi_bus_t *)_bus;
     spi_transaction_t *rtrans;
-    /* the only transfer left on its way when a call returns is that of pixels, trans_data */
-    while (!bus->is_trans_data_free) {
+    /* the only transfers left on their way when a call returns are those of pixels, in trans_data */
+    while (bus->data_queued) {
         esp_err_t ret = spi_device_get_trans_result(bus->spi, &rtrans, portMAX_DELAY);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "dgx_spi_wait_pending:spi_device_get_trans_result failed");
             assert(0); // Crash!
         }
-        if (rtrans == &bus->trans_data) bus->is_trans_data_free = true;
+        if (rtrans == &bus->trans_data[0] || rtrans == &bus->trans_data[1]) --bus->data_queued;
     }
 }
 
@@ -97,7 +97,7 @@ static void dgx_spi_send_commands(struct _dgx_bus_protocols_t *_bus, const uint8
 {
     dgx_spi_bus_t *bus = (dgx_spi_bus_t *)_bus;
     esp_err_t      ret;
-    if (!bus->is_trans_data_free) dgx_spi_sync_write(_bus);
+    if (bus->data_queued) dgx_spi_sync_write(_bus);
     memset(&bus->trans_sync, 0, sizeof(bus->trans_sync));
     bus->trans_sync.length    = len; // Command is 8 bits
     bus->trans_sync.flags     = 0;
@@ -161,36 +161,55 @@ static uint32_t dgx_spi_read_data(struct _dgx_bus_protocols_t *_bus, uint8_t *da
     return bus->trans_sync.rxlength;
 }
 
+/* the next of trans_data made a transfer of pixels; the transfers before it no longer use it */
+static spi_transaction_t *dgx_spi_data_trans(dgx_spi_bus_t *bus, const uint8_t *data, uint32_t len)
+{
+    spi_transaction_t *trans = &bus->trans_data[bus->data_slot];
+    bus->data_slot ^= 1u;
+    memset(trans, 0, sizeof(spi_transaction_t));
+    if (len <= 32) {
+        trans->flags = SPI_TRANS_USE_TXDATA;
+        memcpy(trans->tx_data, data, (len + 7u) / 8u);
+    } else {
+        trans->tx_buffer = data;
+    }
+    trans->length = len;
+    trans->user   = set_dc_pin(bus->dcio, 1);
+    return trans;
+}
+
+/*
+ * Pixels queued right behind those under way, and then the ones under way
+ * waited for: the bus goes from one transfer to the next with no pause for the
+ * processor to queue it, and only this one is on its way when it returns, as
+ * before. A short one is polled, after all the others.
+ */
 static void dgx_spi_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
 {
     dgx_spi_bus_t *bus = (dgx_spi_bus_t *)_bus;
-    size_t         len_bytes;
     if (len == 0) {
         ESP_LOGE(TAG, "dgx_spi_send_data_async len == 0!");
         return;
     }
-    if (!bus->is_trans_data_free) dgx_spi_wait_pending(_bus);
-    memset(&bus->trans_data, 0, sizeof(spi_transaction_t));
-    if (len <= 32) {
-        len_bytes             = (len + 7u) / 8u;
-        bus->trans_data.flags = SPI_TRANS_USE_TXDATA;
-        memcpy(bus->trans_data.tx_data, data, len_bytes);
-    } else {
-        bus->trans_data.tx_buffer = data;
-    }
-    bus->trans_data.length = len;
-    bus->trans_data.user   = set_dc_pin(bus->dcio, 1);
-    if (len > 2048) {
-        esp_err_t rc = spi_device_queue_trans(bus->spi, &bus->trans_data, portMAX_DELAY);
-        if (rc != ESP_OK) {
-            ESP_LOGE(TAG, "spi_device_queue_trans/dgx_spi_send_data_async failed");
-            assert(0);
-        }
-        bus->is_trans_data_free = false;
-    } else {
-        esp_err_t rc = spi_device_polling_transmit(bus->spi, &bus->trans_data);
+    if (len <= 2048) {
+        if (bus->data_queued) dgx_spi_wait_pending(_bus);
+        esp_err_t rc = spi_device_polling_transmit(bus->spi, dgx_spi_data_trans(bus, data, len));
         if (rc != ESP_OK) {
             ESP_LOGE(TAG, "spi_device_polling_transmit/dgx_spi_send_data_async failed");
+            assert(0);
+        }
+        return;
+    }
+    esp_err_t rc = spi_device_queue_trans(bus->spi, dgx_spi_data_trans(bus, data, len), portMAX_DELAY);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "spi_device_queue_trans/dgx_spi_send_data_async failed");
+        assert(0);
+    }
+    /* results come in the order the transfers were queued: the first ones are those before this one */
+    for (++bus->data_queued; bus->data_queued > 1; --bus->data_queued) {
+        spi_transaction_t *rtrans;
+        if (spi_device_get_trans_result(bus->spi, &rtrans, portMAX_DELAY) != ESP_OK) {
+            ESP_LOGE(TAG, "dgx_spi_send_data_async:spi_device_get_trans_result failed");
             assert(0);
         }
     }
@@ -259,7 +278,7 @@ dgx_bus_protocols_t *dgx_spi_init(spi_host_device_t host_id, spi_dma_chan_t dma_
     bus->sclk                  = sclk;
     bus->clock_speed_hz        = clock_speed_hz;
     bus->max_transfer_sz       = buscfg.max_transfer_sz;
-    bus->is_trans_data_free    = true;
+    bus->data_queued           = 0;
     bus->devcfg.clock_speed_hz = clock_speed_hz;
     bus->devcfg.spics_io_num   = cs;
     bus->devcfg.queue_size     = DGX_SPI_QUEUE_SIZE;
