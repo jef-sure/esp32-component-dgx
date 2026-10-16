@@ -1,5 +1,21 @@
 # Changes
 
+## 0.6.1 - 2026-10-16
+
+- **Fix: a character missing from the font now advances by the scaled
+  width.** `dgx_font_char_to_screen()` returned the advance of a missing
+  glyph unscaled, while `dgx_font_string_bounds()` counts it in full and
+  callers multiply the bounds by the scale. At scale 2 and above, the text
+  after such a character was drawn too far left, and a right-aligned line
+  ended short (by 12 pixels for "—" in `TerminusTTFMedium12` at scale 3).
+  Reported by the text harness of the dgx-ge sprite editor.
+- **Fix: dot fonts at scale 0.** A dot font drew nothing at scale 0 and
+  returned a zero advance. Scale 0 now means 1, as it already did for
+  bitmap and handwritten fonts.
+- The host test `test_fonts` now checks that drawing a string moves the pen
+  by its measured width times the scale, at scales 0 to 4, with missing
+  characters, for a bitmap, a dot and a handwritten font.
+
 ## 0.6.0 - 2026-10-15
 
 - **`dgx_image_blit()`, sprites and icons of 1, 4 or 8 bits a pixel**

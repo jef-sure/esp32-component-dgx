@@ -3,6 +3,7 @@
 
 #include "check.h"
 #include "dgx_font.h"
+#include "drivers/vscreen.h"
 #include "fonts/ArialRegular12.h"
 #include "fonts/CasusDotView.h"
 #include "fonts/DroidSansRegular9.h"
@@ -14,6 +15,7 @@
 #include "fonts/WeatherDotView25.h"
 #include "fonts/WeatherIconsRegular13.h"
 #include "fonts/WeatherIconsRegular27.h"
+#include "fonts/font0ss.h"
 
 /* Generated metrics must match a scan over the glyphs. */
 static void check_metrics(const char *name, dgx_font_t *font)
@@ -55,6 +57,31 @@ static void check_covers(dgx_font_t *font, const char *text)
     }
 }
 
+/*
+ * Drawing a string moves the pen as far as dgx_font_string_bounds() measures
+ * it times the scale (0 counts as 1), a character the font lacks included.
+ */
+static void check_advance(const char *name, dgx_font_t *font, const char *text)
+{
+    dgx_screen_t *scr = dgx_vscreen_init(64, 64, 16, DgxScreenRGB);
+    CHECK(scr != NULL);
+    int width = dgx_font_string_bounds(text, font, NULL, NULL);
+    for (int scale = 0; scale <= 4; ++scale) {
+        int pen = 0;
+        size_t idx = 0;
+        while (text[idx]) {
+            uint32_t cp = decodeUTF8next(text, &idx);
+            pen += dgx_font_char_to_screen(scr, 0, 32, cp, 0xffff, DgxOutputNormal, scale, font, NULL, NULL);
+        }
+        int want = width * (scale ? scale : 1);
+        if (pen != want) {
+            fprintf(stderr, "%s, \"%s\" at scale %d: drawn %d, measured %d\n", name, text, scale, pen, want);
+            ++check_failures;
+        }
+    }
+    dgx_screen_destroy(&scr);
+}
+
 int main(void)
 {
 #define FONT(f) check_metrics(#f, f())
@@ -73,6 +100,12 @@ int main(void)
 
     /* words of examples/morph_demo */
     check_covers(TerminusTTFMedium12(), " приветучастникамсоревнований");
+
+    /* U+2014 and U+10FFFF are in none of these fonts */
+    CHECK(dgx_font_find_glyph(0x2014, TerminusTTFMedium12(), NULL) == NULL);
+    check_advance("TerminusTTFMedium12", TerminusTTFMedium12(), "\u2014 \u041f\u0440\u0438\u0432\u0435\u0442 \U0010FFFF!");
+    check_advance("CasusDotView", CasusDotView(), "1\U0010FFFF2");
+    check_advance("font0ss", font0ss(), "a\U0010FFFFb");
 
     /* the advance is not always wanted */
     CHECK(dgx_font_find_glyph('A', TerminusTTFMedium12(), NULL) != NULL);

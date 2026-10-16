@@ -195,9 +195,11 @@ int dgx_font_char_to_screen(            //
     if (!draw_func) {
         int16_t        xAdvance;
         const glyph_t *g = dgx_font_find_glyph(codePoint, font, &xAdvance);
-        if (!g) return xAdvance;
+        if (!scale) scale = 1;
+        /* a missing glyph advances by the first glyph of the font, as dgx_font_string_bounds() counts it */
+        if (!g) return xAdvance * scale;
         /* a handwritten font is not drawn symbol by symbol, see dgx_hw_font.h */
-        if (font->f_type == DGX_FONT_HW) return xAdvance * (scale ? scale : 1);
+        if (font->f_type == DGX_FONT_HW) return xAdvance * scale;
         if (font->f_type == DGX_FONT_BITMAP_LINES || font->f_type == DGX_FONT_BITMAP_STREAM) {
             dgx_bw_bitmap_t bmap   = dgx_bw_bitmap_make_of((uint8_t *)g->bitmap, g->width, g->height,
                                                            font->f_type == DGX_FONT_BITMAP_STREAM);
@@ -205,7 +207,6 @@ int dgx_font_char_to_screen(            //
             int             right  = left + g->width - 1;
             int             top    = 0;
             int             bottom = top + g->height - 1;
-            if (!scale) scale = 1;
             int x_shift = g->xOffset * scale;
             int y_shift = g->yOffset * scale;
             if (swap_xy) {
