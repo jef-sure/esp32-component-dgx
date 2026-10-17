@@ -209,6 +209,13 @@ bool dgx_screen_is_readable(const dgx_screen_t *scr);
  * always works then: draw the text on a virtual screen, scroll that, and send
  * it to the display, in any orientation.
  *
+ * On such a panel the strip that leaves is filled with @p color before the
+ * move, so that it comes in at the other edge as the color already. That
+ * fill is the cost of the move: about 100 us a column of 240 rows on an
+ * ILI9341 at 40 MHz, against about 150 us for the commands of the panel. A
+ * caller that draws the strip that comes in anyway uses
+ * dgx_scroll_no_fill(), and the move is the commands alone.
+ *
  * @param scr   The screen.
  * @param x     The x coordinate of the top-left corner of the rectangle.
  * @param y     The y coordinate of the top-left corner of the rectangle.
@@ -223,6 +230,29 @@ bool dgx_screen_is_readable(const dgx_screen_t *scr);
  *         then.
  */
 esp_err_t dgx_scroll(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy, uint32_t color);
+
+/**
+ * @brief dgx_scroll() without the fill: the strips the picture has left are not touched, the caller draws them.
+ *
+ * The same moves, the same screens and the same return values as
+ * dgx_scroll(). On a screen that is read the strips keep the old picture. On
+ * a panel that scrolls itself the strip that comes in holds what has just
+ * left at the other edge, for the memory of the panel wraps round; the move
+ * costs the commands of the panel alone. A move as large as the rectangle
+ * draws nothing; on such a panel it still lets the area go, and the
+ * rectangle shows the rows of the panel in their own order until it is drawn
+ * over.
+ *
+ * @param scr   The screen.
+ * @param x     The x coordinate of the top-left corner of the rectangle.
+ * @param y     The y coordinate of the top-left corner of the rectangle.
+ * @param w     The width of the rectangle.
+ * @param h     The height of the rectangle.
+ * @param dx    How far the picture goes to the right; negative: to the left.
+ * @param dy    How far the picture goes down; negative: up.
+ * @return As dgx_scroll().
+ */
+esp_err_t dgx_scroll_no_fill(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy);
 
 /**
  * @brief Draws a filled triangle on the screen.

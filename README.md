@@ -276,6 +276,12 @@ display is scrolled in its frame buffer. The call is the same; it returns
 dgx_scroll(lcd, 0, 24, lcd->width, lcd->height - 24, 0, -line_height, paper);
 ```
 
+On an ILI9341 the cost of such a move is the fill of the strip that leaves,
+about 100 us a column of 240 rows at 40 MHz; the commands of the panel take
+about 150 us. When the new line or column is drawn right after the move
+anyway, use `dgx_scroll_no_fill()`: the same move without the fill, and on
+the panel it is the commands alone.
+
 In that case a virtual screen always works: scroll the virtual screen as
 above and send it to the display. It can be sent in any
 orientation, so the text scrolls the way you need whatever way the panel is
@@ -624,6 +630,7 @@ wire.
 | ST7565R | mono LCD | SPI | `dgx_st7565r_init(bus, rst)` | `CONFIG_DGX_ENABLE_ST7565R` |
 | ST7920 | mono LCD | SPI | `dgx_st7920_init(bus, rst, cs)` | `CONFIG_DGX_ENABLE_ST7920` |
 | JD9165 | color TFT, 1024x600 | DSI | `dgx_jd9165_init(bus, rst, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9165` |
+| JD9365 | color TFT, 800x1280 | DSI | `dgx_jd9365_init(bus, rst, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9365` |
 
 Common parameters:
 
@@ -632,8 +639,8 @@ Common parameters:
 - `rst` — reset GPIO, or `GPIO_NUM_NC` if the panel has no reset line.
 - `backlight` (ILI9341 only) — backlight GPIO, or `GPIO_NUM_NC` if it is not
   under software control.
-- `color_bits` — pixel depth; `16` (RGB565) is the usual choice. JD9165
-  takes `16` or `24`.
+- `color_bits` — pixel depth; `16` (RGB565) is the usual choice. JD9165 and
+  JD9365 take `16` or `24`.
 - `cbo` — channel order, `DgxScreenRGB` or `DgxScreenBGR`: the order colors
   come out in on the usual modules of the controller. The usual ILI9341
   modules show red as red with the BGR bit of the controller set, so there
@@ -653,8 +660,10 @@ JD9165 is a MIPI-DSI display for an ESP32-P4 with PSRAM. The chip keeps a
 frame buffer for it, 1.2 MB at 16 bits per pixel for 1024x600, and drawing
 changes that buffer, so a pixel can be read back and all eight orientations
 work. The driver has the init commands of the 7-inch panel of the Guition
-JC1060P470 board. The last argument of the constructor, `frames`, chooses how
-the screen is updated:
+JC1060P470 board. JD9365 works the same way: an 800x1280 portrait panel with
+the init commands of the newer panel of the 10.1-inch Guition JC8012P4A1C
+board, 2 MB a frame at 16 bits. The last argument of the constructor,
+`frames`, chooses how the screen is updated:
 
 | `frames` | Frame buffers | Tearing |
 | --- | --- | --- |
@@ -677,7 +686,7 @@ For SSD1306, pick a geometry from `ssd1306_resolution_t`: `SSD1306_128X32`,
 ## What's in the box
 
 - Panel drivers for ST7735, ST7789, ILI9341, GC9A01, SSD1351, SSD1306, ST7565R,
-  ST7920 and JD9165.
+  ST7920, JD9165 and JD9365.
 - SPI, I2C and 8-bit parallel (I80) transports for ESP32, and MIPI-DSI for
   ESP32-P4.
 - A color RAM-backed virtual screen and a 1-bit monochrome virtual screen.
@@ -753,6 +762,7 @@ Declared in [include/dgx_draw.h](include/dgx_draw.h):
 | `dgx_draw_arc(scr, x, y, rx, ry, from, to, width, color)` | Arc of an ellipse, of a circle with equal radii, between two angles in degrees, by a pen of `width`; `DGX_PEN_SOFT | width` gives it a soft edge. A hard pen of 1 draws the pixels of the outline between the rays. |
 | `dgx_solid_sector(scr, x, y, rx, ry, from, to, color)` | Filled sector of an ellipse between two angles; a whole turn is the ellipse filled. |
 | `dgx_scroll(scr, x, y, w, h, dx, dy, color)` | Move what a rectangle shows by `dx`, `dy` within it, any way, and fill what it has left with `color`. In memory where a screen is read, by the scroll of the panel where an ILI9341 can. Returns `ESP_OK`, or `ESP_ERR_NOT_SUPPORTED` when neither is possible. |
+| `dgx_scroll_no_fill(scr, x, y, w, h, dx, dy)` | The same move without the fill: what the picture has left is for the caller to draw. On a panel that scrolls itself the move is its commands alone. |
 | `dgx_draw_triangle_solid(scr, x0, y0, x1, y1, x2, y2, color)` | Filled triangle. |
 | `dgx_draw_polygon4_solid(scr, x0..y3, color)` | Filled simple quadrilateral (convex or concave). |
 | `dgx_draw_texture_quad(scr, quad, texture, tx, ty, tw, th)` | Stretch a region of a virtual screen onto a convex quadrilateral (affine, nearest texel). |
@@ -808,7 +818,13 @@ is drawn where it is seen whatever has been scrolled. A window that crosses
 the place where the rows turn round goes in pieces: two when the screen is
 upright, two for every row of it when the screen lies. The panel has one
 such area at a time: a rectangle that has been moved is filled, by a move as
-large as it, before another is moved. Any other move, across the long side
+large as it, before another is moved. Before the move the strip that leaves
+is filled with the color, and that fill is what the move costs: on a CYD at
+40 MHz a scroll of 240 rows by 1 column takes 247 us, by 8 columns 933 us, by
+32 columns 3361 us, while the commands of the panel take about 150 us.
+`dgx_scroll_no_fill()` skips the fill for a caller that draws the strip that
+comes in anyway; the strip then arrives holding what has just left at the
+other edge. Any other move, across the long side
 or aslant, returns `ESP_ERR_NOT_SUPPORTED` and draws nothing; a text that
 scrolls so is drawn on a virtual screen, which is moved and sent to the
 display, in any orientation:
@@ -1096,9 +1112,9 @@ controller that has registers of its own under those numbers gets them.
 [src/drivers/jd9165.c](src/drivers/jd9165.c) is such a driver in full.
 
 For a program the same header has `dgx_dsi_show()`, `dgx_dsi_counters()`,
-`dgx_dsi_frame_us()`, `dgx_dsi_frame_ended()`, `dgx_dsi_tiles()`, and `dgx_dsi_bench()`,
-`dgx_dsi_tune()` and `dgx_dsi_tuning()` with the structure
-`dgx_dsi_tuning_t`.
+`dgx_dsi_frame_us()`, `dgx_dsi_frame_ended()`, `dgx_dsi_tiles()`, and
+`dgx_dsi_bench()`, `dgx_dsi_tune()`, `dgx_dsi_tuning()` and
+`dgx_dsi_advise()` with the structure `dgx_dsi_tuning_t`.
 
 ### Flush control and batching
 
@@ -1266,6 +1282,7 @@ in the transports they require.
 | `CONFIG_DGX_ENABLE_ST7565R` | `drivers/st7565r.c` | needs SPI; selects `V_BW_SCREEN` |
 | `CONFIG_DGX_ENABLE_ST7920` | `drivers/st7920.c` | needs SPI; selects `VSCREEN` |
 | `CONFIG_DGX_ENABLE_JD9165` | `drivers/jd9165.c` | needs DSI |
+| `CONFIG_DGX_ENABLE_JD9365` | `drivers/jd9365.c` | needs DSI |
 | `CONFIG_DGX_ENABLE_V_BW_SCREEN` | `bw_screen.c` | 1-bit virtual screen |
 | `CONFIG_DGX_ENABLE_VSCREEN` | `drivers/vscreen.c` | color RAM-backed screen |
 | `CONFIG_DGX_ENABLE_VSCREEN_2H` | `drivers/vscreen_2h.c` | needs `VSCREEN` |

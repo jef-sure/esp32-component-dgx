@@ -10,7 +10,16 @@ what was measured and why it works this way is in
 [examples/dsi_demo](../examples/dsi_demo).
 
 The numbers below were measured on a Guition JC1060P470: an ESP32-P4 with a
-JD9165 panel of 1024x600.
+JD9165 panel of 1024x600, except where the 10.1-inch JC8012P4A1C is named.
+
+- [The display and its frame buffer](#the-display-and-its-frame-buffer)
+- [Tearing and the `frames` argument](#tearing-and-the-frames-argument)
+- [Two frame buffers](#two-frame-buffers)
+- [Large pieces bypass the processor](#large-pieces-bypass-the-processor)
+- [Scrolling](#scrolling)
+- [Settings that depend on the board](#settings-that-depend-on-the-board)
+- [One buffer, after the scan](#one-buffer-after-the-scan)
+- [Several tasks](#several-tasks)
 
 ## The display and its frame buffer
 
@@ -111,7 +120,8 @@ than 1 MB is copied in 10 seconds instead of 411 MB.
   `DGX_LUT_EXACT` to the call to get exactly the colors of the table; the
   screen then goes through its table.
 
-`CONFIG_DGX_DSI_HARDWARE_COPY` turns the DMA and the PPA paths off.
+Both paths are enabled by `CONFIG_DGX_DSI_HARDWARE_COPY`, which is on by
+default; with it off the processor does everything.
 
 ## Scrolling
 
@@ -129,9 +139,48 @@ margin the bus keeps ahead of the scan, depend on the chip, its memory and
 the display. The bus starts with the values of the board it was written on.
 `dgx_dsi_bench()` measures them on the board at hand, in memory of its own
 while the display keeps running, so nothing on the screen changes. It takes
-0.07 s, which is too long for every start. The result is a flat 40-byte
+about 0.3 s, which is too long for every start. The result is a flat 48-byte
 structure, `dgx_dsi_tuning_t`: keep it, in NVS for example, and give it to
-the bus with `dgx_dsi_tune()`. `examples/dsi_demo` does this.
+the bus with `dgx_dsi_tune()`. The bus does not take numbers of another
+panel, color depth or PSRAM clock: the program then measures again.
+`examples/dsi_demo` shows the whole cycle: the board measured and the
+numbers written to NVS at the first start, read from there at the next
+ones, and a second scene, "tuning", with the numbers on the screen. What the
+numbers change is seen there on one piece: a 60x100 part of a virtual
+screen reaches the display of the 10.1-inch board in 163 us with the
+built-in numbers and in 77 us with the measured ones, through the window
+against the 2D DMA.
+
+**Advice.** The last part of `dgx_dsi_bench()` has the 2D DMA copy for a
+dozen frames as fast as it can, while the bus watches the FIFO of the bridge
+that feeds the DSI host: how many times a frame it runs empty
+(`fifo_drops`). The structure also has how much of the lanes the pixels
+take (`lanes_percent`, by the timings). `dgx_dsi_advise()` reads the two and
+says how to use the display; it measures nothing, so a program can ask it
+with the numbers from NVS before it makes the display. `examples/dsi_demo`
+does so: at a start that finds the numbers in NVS the display gets two frame
+buffers when the advice says so; at the very first start, when the display
+was made before the measurement and the advice asks for two buffers, the
+example restarts once.
+
+```c
+dgx_dsi_tuning_t tuning;
+/* ... read from NVS, or dgx_dsi_bench() once ... */
+const uint8_t advice = dgx_dsi_advise(&tuning);
+const dgx_dsi_frames_t frames = advice & DGX_DSI_ADVISE_TWO_FRAMES ? DgxDsiTwoFrames : DgxDsiOneFrame;
+```
+
+| Flag | Means | What to do |
+| --- | --- | --- |
+| `DGX_DSI_ADVISE_TWO_FRAMES` | more than 15 drops a frame: with one frame buffer heavy drawing leaves the display short, and the screen flashes for a frame | `DgxDsiTwoFrames` |
+| `DGX_DSI_ADVISE_FASTER_PSRAM` | with the one above: the numbers were measured with PSRAM slower than this chip allows. The bus writes the chip revision into the structure itself; 250 MHz exists from revision 3 on | rebuild with `CONFIG_SPIRAM_SPEED_250M`; the second buffer is not needed then |
+| `DGX_DSI_ADVISE_FEWER_BITS` | the pixels take more than 85% of the lanes: the screen may flash with nothing drawn | 16 bits a pixel, or more lanes or a faster lane rate |
+
+The limits were found by eye on the 10.1-inch JC8012P4A1C, chip revision
+3.2, IDF 6.0.1: 16 bits, PSRAM at 200 MHz gave 29 to 33 drops a frame, a
+moving picture with one buffer flashed and with two did not; at 250 MHz 8
+to 10, no flashes; 24 bits took 96% of the lanes and flashed now and then
+with nothing drawn. Other boards may draw the line elsewhere.
 
 **Tile size.** The best size depends on what a program draws. The default
 is 32x4. Compared with 32x8, which is the fastest for the DGX demos, it is
@@ -144,6 +193,29 @@ sizes while a program runs.
 
 **PSRAM cache.** `examples/dsi_demo` has the settings of a board and shows
 what the size of the PSRAM cache costs and gives.
+
+**PSRAM speed.** The display reads its frame from PSRAM all the time:
+pixel clock times bytes a pixel within a row, 104 MB/s for the 1024x600
+panel and 160 MB/s for the 800x1280 one at 16 bits, 75 and 123 MB/s averaged
+over a frame. Drawing shares the same memory. When the bridge in front of
+the DSI host runs out of data, it sends a color of its own for the rest of
+the frame, and the screen flashes light blue for a frame, with torn rows
+around it. IDF has an interrupt for this, but on the 10.1-inch board it
+never fired, so the flash is the only sign. What was seen on the JC8012P4A1C
+with a chip of revision 3.2:
+
+- one frame buffer, PSRAM at 200 MHz: the moving bars of `examples/dsi_demo`
+  cause such flashes now and then; raising the AXI priority of the DMA that
+  reads the frame does not stop them;
+- one buffer, PSRAM at 250 MHz: no flashes. 250 MHz exists on chips of
+  revision 3 and later (`CONFIG_SPIRAM_SPEED_250M`);
+- two frame buffers (`DgxDsiTwoFrames`), PSRAM at 200 MHz: no flashes. That
+  is the way for an older chip, whose PSRAM goes up to 200 MHz; such a chip
+  has not been tried with this panel, this was seen on the chip of revision
+  3.2 with its PSRAM set to 200 MHz;
+- 24 bits a pixel: the display reads half as much again, and drawing leaves
+  the bridge short even at 250 MHz. IDF then prints "underrun happens", and
+  a flash is seen now and then. Prefer 16 bits there.
 
 ## One buffer, after the scan
 

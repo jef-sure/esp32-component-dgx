@@ -1,5 +1,23 @@
 menu "DGX DSI demo"
 
+choice EXAMPLE_BOARD
+    prompt "Board"
+    default EXAMPLE_BOARD_JC1060P470
+    help
+        The display, its lanes and its pins. The 10.1-inch board has a chip
+        of revision 3: build it with sdkconfig.defaults.jc8012p4a1c, see
+        the README.
+
+config EXAMPLE_BOARD_JC1060P470
+    bool "Guition JC1060P470: 7-inch 1024x600, JD9165"
+    select DGX_ENABLE_JD9165
+
+config EXAMPLE_BOARD_JC8012P4A1C
+    bool "Guition JC8012P4A1C: 10.1-inch 800x1280, JD9365"
+    select DGX_ENABLE_JD9365
+
+endchoice
+
 config EXAMPLE_LCD_COLOR_BITS
     int "Bits a pixel: 16 or 24"
     default 16
@@ -16,5 +34,9 @@ config EXAMPLE_LCD_TWO_FRAMES
         reading, and the moving bars of the demo are seen broken now and
         then. With two, a batch of drawing is shown whole at a frame
         boundary, for one more frame of PSRAM.
+
+        Without this the numbers measured on the board decide: when
+        dgx_dsi_advise() says that one frame buffer will run the display
+        short of data, the display gets two anyway. See the README.
 
 endmenu

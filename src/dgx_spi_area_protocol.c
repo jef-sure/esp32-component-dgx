@@ -365,7 +365,7 @@ void dgx_screen_with_bus_scroll_way(dgx_screen_with_bus_t *sbus, bool columns, b
     sbus->scroll.mirror  = mirror;
 }
 
-esp_err_t dgx_screen_with_bus_scroll(dgx_screen_with_bus_t *sbus, int x, int y, int w, int h, int dx, int dy, uint32_t color)
+esp_err_t dgx_screen_with_bus_scroll(dgx_screen_with_bus_t *sbus, int x, int y, int w, int h, int dx, int dy, bool fill, uint32_t color)
 {
     dgx_screen_t *scr     = &sbus->scr;
     const bool    columns = sbus->scroll.columns;
@@ -377,7 +377,7 @@ esp_err_t dgx_screen_with_bus_scroll(dgx_screen_with_bus_t *sbus, int x, int y, 
     const bool same   = sbus->scroll.count == count && sbus->scroll.first == first;
     if (dx >= w || dx <= -w || dy >= h || dy <= -h) {
         /* nothing of the picture stays. The area the panel scrolls is let go when it is the one filled: one color has no shift to it */
-        scr->fill_rectangle(scr, x, y, w, h, color);
+        if (fill) scr->fill_rectangle(scr, x, y, w, h, color);
         if (sbus->scroll.lines && sbus->scroll.count && same && (columns ? y == 0 && h == scr->height : x == 0 && w == scr->width)) {
             sbus->scroll.shift = 0;
             dgx_screen_with_bus_scroll_tell(sbus, false);
@@ -397,12 +397,16 @@ esp_err_t dgx_screen_with_bus_scroll(dgx_screen_with_bus_t *sbus, int x, int y, 
     }
     /*
      * The strip that leaves is filled before the move: it is the strip that
-     * comes in at the other end, and comes in as the color.
+     * comes in at the other end, and comes in as the color. The fill costs
+     * more than the commands of the panel, so a caller that draws the strip
+     * anyway asks to skip it.
      */
-    const int strip = move < 0 ? -move : move, at = move > 0 ? from + count - strip : from;
-    if (columns) scr->fill_rectangle(scr, at, y, strip, h, color);
-    else scr->fill_rectangle(scr, x, at, w, strip, color);
-    if (scr->wait_buffer) scr->wait_buffer(scr);
+    if (fill) {
+        const int strip = move < 0 ? -move : move, at = move > 0 ? from + count - strip : from;
+        if (columns) scr->fill_rectangle(scr, at, y, strip, h, color);
+        else scr->fill_rectangle(scr, x, at, w, strip, color);
+        if (scr->wait_buffer) scr->wait_buffer(scr);
+    }
     sbus->scroll.shift = (uint16_t)((sbus->scroll.shift + count - move) % count);
     dgx_screen_with_bus_scroll_tell(sbus, false);
     return ESP_OK;

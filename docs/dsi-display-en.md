@@ -7,13 +7,40 @@ measured on it, and why the screen is updated the way it is. What a program
 needs to know to use such a display is shorter and is in
 [dsi-usage-en.md](dsi-usage-en.md).
 
-It describes the code of version 0.5.4: the bus `src/bus/dsi_esp32.c`, the
-frame buffer core `src/bus/fb_area.c`, the tile maps `src/bus/fb_tiles.c`,
-the change of the two buffers `src/bus/fb_flip.c`, the driver
-`src/drivers/jd9165.c`.
+It describes the code of version 0.6.1 with the changes made since: the
+JD9365 driver, the PSRAM margin test of the board measurement and
+`dgx_dsi_advise()`. The bus is `src/bus/dsi_esp32.c`, the frame buffer core
+`src/bus/fb_area.c`, the tile maps `src/bus/fb_tiles.c`, the change of the
+two buffers `src/bus/fb_flip.c`, the drivers `src/drivers/jd9165.c` and
+`src/drivers/jd9365.c`. The note has grown with the code since release
+0.5.2: where a release is named, the text says how things were before that
+change.
 
 Every number here is either measured on the board or marked as calculated. A
 KB is 1024 bytes.
+
+## Contents
+
+- [What it was measured on](#what-it-was-measured-on): [the second board, revision 3](#the-second-board-revision-3)
+- [Terms](#terms): [window](#window), [batch](#batch), [tile](#tile)
+- [The board](#the-board)
+- [What the bus looks like to a driver](#what-the-bus-looks-like-to-a-driver)
+- [Byte order](#byte-order)
+- [The cache and PSRAM](#the-cache-and-psram)
+- [The scan](#the-scan): where it is now and how the end of a frame is reported
+- [Tearing](#tearing): [one buffer](#one-buffer), [two buffers](#two-buffers)
+  with several tasks, the copy after the change, counters and the time of a
+  frame, [behind the scan](#behind-the-scan)
+- [The cost of copying](#the-cost-of-copying)
+- [The catch-up copy by tiles](#the-catch-up-copy-by-tiles): when a tile is
+  copied, [the size of a tile](#the-size-of-a-tile), how LVGL 9 does it
+- [The 2D DMA and the PPA](#the-2d-dma-and-the-ppa): a virtual screen put to
+  the display, fills, [the working time of a batch](#the-working-time-of-a-batch),
+  [measuring the board](#measuring-the-board), internal RAM
+- [A picture scrolled](#a-picture-scrolled)
+- [Frame rate](#frame-rate)
+- [What is not done](#what-is-not-done)
+- [How it was checked](#how-it-was-checked)
 
 ## What it was measured on
 
@@ -38,8 +65,90 @@ driver of DGX worked.
 
 The chip revision is not a formality here. It decides at which moment the IDF
 driver reports the end of a frame, see "The scan". All timings and all checks
-for tearing were made on revision v1.3. There was no board with a chip of
-revision 3 or later.
+for tearing were made on revision v1.3, unless the text names the second
+board below.
+
+### The second board: revision 3
+
+On 2026-10-17 a board with a chip of revision 3 arrived. The bus, the end of
+a frame on that revision and PSRAM bandwidth were checked on it; the timing
+tables of this document were not taken again.
+
+| What | Value |
+| --- | --- |
+| Board | Guition JC8012P4A1C, 10.1 inches, ESP32-C6 for the radio |
+| Chip | ESP32-P4 revision v3.2 as `esptool` reports it ("Dual Core + LP Core, 400MHz"), ROM `esp32p4-eco7-20260109`, efuse block revision v1.2 |
+| Processor frequency | 400 MHz, `CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_400=y` |
+| Build for the revision | `CONFIG_ESP32P4_SELECTS_REV_LESS_V3` not set, minimum revision 3.1 (`CONFIG_ESP32P4_REV_MIN_FULL=301`) |
+| Flash | 16 MB, manufacturer 0x68, device 0x4018 (Boya; IDF warns that it uses the generic driver) |
+| PSRAM | 32 MB AP Memory, generation 4, X16 HEX mode, fixed latency of 18 cycles; 200 MHz and 250 MHz (`CONFIG_SPIRAM_SPEED_250M`, revision 3 and later only), the memory test at start passes at both |
+| Panel | JD9365, 800x1280 portrait, the newer of the two panels the board has shipped with; the factory firmware (`esp_brookesia_demo` 1.0.1, IDF v6.0.2) sends the 204-command table of that panel |
+| Panel driver | `dgx_jd9365_init()` of DGX, `src/drivers/jd9365.c` |
+| DSI | 2 lanes at 1000 Mbit/s; 70 MHz pixel clock asked, as the factory firmware does, which IDF makes 80 MHz with a longer row for the bridge, a frame measured at 16645 us, 60.08 frames a second; the driver now asks for 80 MHz with a row of 1008 pixels, 16682 us |
+| IDF | 6.0.1; the example also builds under 5.5.5 |
+
+What was found there.
+
+- **The bus.** It works on revision 3 with `on_refresh_done` (IDF 6.0.1),
+  the code branch where the end of a frame is reported after the buffer for
+  the next one has been chosen, see "The scan". All eight orientations of
+  `dgx_jd9365_orientation()` show as expected.
+- **Measuring the board.** `dgx_dsi_bench()` with PSRAM at 200 MHz: 23 KB/ms
+  through a window, 193 to 198 KB/ms out of the cache, 128 KB/ms by the 2D
+  DMA; at 250 MHz 26, 240 to 250 and 167 KB/ms, the measuring 302 to 310 ms.
+  Its PSRAM margin test, see "Measuring the board": 28 to 33 FIFO drops a
+  frame at 200 MHz, 8 to 11 at 250 MHz; at 24 bits the pixels take 96% of
+  the lanes. The thresholds of `dgx_dsi_advise()` were chosen by these
+  numbers: at 200 MHz it advises two frame buffers and, by the chip revision
+  3.2, a build with PSRAM at 250 MHz; at 250 MHz there is margin. What the
+  measured numbers change: a 60x100 piece of a virtual screen, 12 KB, goes
+  through the window in 163 us with the built-in numbers and by the 2D DMA
+  in 77 us with the measured ones (rows of a program from 3 to 3.6 KB
+  instead of 16).
+- **Running short of data.** The display reads 160 MB/s from PSRAM within a
+  row (80 MHz times 2 bytes) and 123 MB/s averaged over a frame; both are
+  calculated from the timings. With one frame buffer and PSRAM at 200 MHz,
+  moving bars of 800x427 copied 58 times a second made the bridge in front
+  of the DSI host run out of data now and then. The bridge then sends the
+  value of its register `dpi_rsv_dpi_data` (0x3FFF; with 16-bit output the
+  low 16 bits, a light blue) for the rest of the frame: a light-blue flash
+  with torn rows. Setting that register to 0 made the flashes dark, to
+  0xF800 red. The underrun interrupt of the bridge never fired, not even with
+  `fifo_underrun_discard_vcnt`, which IDF sets to the width of the frame, at
+  0. Raising the AXI priority of the DW-GDMA that reads the frame to 15 did
+  not help; PSRAM at 250 MHz did, and so did two frame buffers at 200 MHz.
+- **The level of the bridge FIFO.** `fifo_flow_status.raw_buf_depth` (up to
+  980) was read about 9.4 million times a second from the other core. With
+  nothing drawn it drops to 0 exactly once a frame, for about 4130 reads, in
+  the vertical blank; drawing adds short drops within the frame. Moving
+  bars:
+
+  | Mode | Short drops a second | Blank drop, reads | Flashes |
+  | --- | --- | --- | --- |
+  | One buffer, 200 MHz | 970 to 1260 | up to 6559 | seen |
+  | One buffer, 250 MHz | 227 to 334 | up to 5053 | none |
+  | Two buffers, 200 MHz, 45 frames a second | 311 to 401 | not stretched | none |
+
+- **70 and 80 MHz.** With 70 MHz asked, IDF 6.0.1 sets the row of the DSI
+  host by 70 MHz (1571 byte clocks, 12.568 us) and the row of the bridge by
+  the 80 MHz it really gets (1006 pixels, 12.575 us): the host takes every
+  row 7 ns early, about 740 pixels of the FIFO a frame. esp-idf issue 19188
+  is about this, with a patch. 80 MHz with a row of 1008 pixels makes the
+  two the same; the drops and the flashes with one buffer at 200 MHz stayed
+  as they were, so the flashes come from PSRAM bandwidth, not from this.
+- **24 bits.** PSRAM at 250 MHz, one buffer (build 318): a frame of 3 MB,
+  the bridge reads 240 MB/s within a row, the two lanes carry 1920 of their
+  2000 Mbit/s. With nothing drawn the FIFO drops to 0 only in the blank, so
+  the lanes keep up. Drawing makes it run dry far more than at 16 bits: 4800
+  to 11500 short drops a second while lines, circles and triangles are
+  drawn, one drop of 154243 reads, a whole frame; `dgx_dsi_bench()` measured
+  139 KB/ms for the 2D DMA. Here the underrun flag of the bridge was set (5
+  to 7 times a second in those seconds) and IDF printed "underrun happens" 6
+  times in 40 s. On the screen there was tearing and, over several rounds of
+  the demo, three flashes, blue: the same 0x3FFF of `dpi_rsv_dpi_data`,
+  whose low 24 bits are R 0x00, G 0x3F, B 0xFF. So the underrun report does
+  not tell a flash: at 16 bits flashes came with no report, at 24 bits
+  reports came much more often than flashes. Why, is not known.
 
 ## Terms
 
@@ -427,7 +536,8 @@ The bus uses `on_frame_buf_complete` if it is there, otherwise
 For the second row of the table of events the bus has a branch of its own:
 the rows of blanking before the first visible one are counted less by the
 front porch, and a safety pause is left when the buffers are changed, see
-"Frame rate". This branch builds, but was not run on a board.
+"Frame rate". This branch was run on the second board, revision 3.2 under
+IDF 6.0.1, see "The second board".
 
 ## Tearing
 
@@ -895,8 +1005,8 @@ if (dgx_dsi_frame_ended(bus, &ended)) {
 
 In full, with the choice of the frame and with what to do when late, it is
 the function `demo_pace()` of the example `dsi_demo`, a dozen and a half
-lines. With one buffer the bus does not count frames, the call returns
-`false`, and the pace is kept by the clock.
+lines. With `DgxDsiOneFrame` the bus does not count frames, the call
+returns `false`, and the pace is kept by the clock.
 
 Three ways were compared on the bench, build 194, two buffers, 10 seconds a
 scene. The cells tell how many times the next picture of a source came
@@ -1817,15 +1927,16 @@ if (dgx_dsi_bench(bus, &tuning)) dgx_dsi_tune(bus, &tuning);
 | Function | What it does |
 | --- | --- |
 | `dgx_dsi_bench(bus, &tuning)` | measures the board and gives the numbers. The bus stays with those it had |
-| `dgx_dsi_tune(bus, &tuning)` | gives the numbers to the bus. Numbers of another version of the structure, another panel or another color depth it does not take: it returns `false` and writes the reason to the log |
+| `dgx_dsi_tune(bus, &tuning)` | gives the numbers to the bus. Numbers of another version of the structure, another panel, another color depth or another PSRAM clock it does not take: it returns `false` and writes the reason to the log |
 | `dgx_dsi_tuning(bus, &tuning)` | reads the numbers the bus works with now |
 
 Why a call of its own and not a part of starting the panel.
 
-- The measuring takes 0.07 s at 16 bits and 0.09 s at 24. At every start
-  that is too much.
+- The measurements themselves take 0.07 s at 16 bits and 0.09 s at 24, and
+  the PSRAM margin test, described below, adds about a quarter of a second:
+  about 0.3 s in all. At every start that is too much.
 - The numbers do not change from start to start. `dgx_dsi_tuning_t` is a
-  flat structure of 40 bytes with no pointers. A program puts it into NVS
+  flat structure of 48 bytes with no pointers. A program puts it into NVS
   and gives it to the bus from there at the next start. The example
   `dsi_demo` does so.
 - The bus does not touch NVS itself. Where to keep the numbers and when to
@@ -1859,6 +1970,7 @@ thrown out of the cache.
 | A copy by the 2D DMA | 32x8, 1024x32 and 1024x128 | 62 to 68, 462 to 470 and 1676 to 1693 us |
 | A fill by the processor | 16x128 and 512x16 | 153 to 162 and 234 to 235 us |
 | A fill by the PPA | 16x16, 16x128 and 1024x64 | 78 to 85, 94 and 434 us |
+| PSRAM margin | the level of the FIFO of the bridge in front of the DSI host is read for 3 frames with nothing going on, then for 12 frames while the 2D DMA copies the pictures of the bench one after another; drops to zero are counted beyond the one a frame the blank makes | not taken on this board; on the second one 29 to 33 a frame with PSRAM at 200 MHz, see "The second board" |
 
 Two shapes of one operation give what a row costs and what a byte costs, a
 small operation gives what asking the DMA or the PPA costs. The thresholds
@@ -1905,6 +2017,23 @@ second transfer could be taken; that is not done.
 The size of the tiles the measuring does not choose. It depends on what a
 program draws, not on the board, and is given by a call of its own, see "The
 size of a tile".
+
+The advice. Three fields of the structure are not thresholds but facts about
+the board: `fifo_drops`, FIFO drops a frame under the DMA copy;
+`lanes_percent`, how much of what the DSI lanes carry the pixels of the panel
+take, calculated from the timings when the display is set up; `psram_mhz`,
+the PSRAM clock the numbers were measured at, `CONFIG_SPIRAM_SPEED`;
+`chip_revision`, as `esp_chip_info()` gives it. `dgx_dsi_advise()` reads them
+and measures nothing, so a program can ask it with the numbers from NVS before
+the display is made. More than 15 drops a frame: with one buffer heavy drawing
+will leave the display short of data, `DGX_DSI_ADVISE_TWO_FRAMES`; when the
+PSRAM is below 250 MHz on a chip of revision 3 and later, also
+`DGX_DSI_ADVISE_FASTER_PSRAM`: a build with `CONFIG_SPIRAM_SPEED_250M` does
+without the second buffer. More than 85% of the lanes: the screen may
+flash with nothing drawn, `DGX_DSI_ADVISE_FEWER_BITS`. The limits were chosen
+by eye on the second board, see its section; another board may draw the line
+elsewhere. Numbers measured at another PSRAM clock `dgx_dsi_tune()` does not
+take, and the program measures again.
 
 Do the numbers suit: the choice of the bus. Through `dgx_dsi_tune()` the bus
 is given numbers that make it do everything one way, then numbers that make
@@ -1966,10 +2095,11 @@ a model and the scenes of the bench were run again, IDF 6.0.1.
   instead of 0.4 ms: more fills fit one blanking. Nobody has looked at this
   scene with the new room with the eyes.
 
-What is not here. The measuring was made and checked on one board, the very
-one the set numbers were taken on. It shows that on that board it comes out
-no worse. That it comes out right on another chip, with another memory or
-another display, nobody has checked.
+What is not here. The comparison of the choices of the bus by the set
+numbers and by the measured ones was made on one board, the very one the set
+numbers were taken on. It shows that on that board it comes out no worse. On
+the second board the measuring was run and its numbers are in its section,
+but no such comparison was made there.
 
 ### Internal RAM
 
@@ -2112,63 +2242,69 @@ pause is gone, and no tearing is seen by eye after that.
 
 ## What is not done
 
-- A picture scrolled in a batch of its own is moved in two passes, the
-  catch-up copy and the move; the 2D DMA is not used for the move. See "A
-  picture scrolled".
-- The copy after the change works only by the 2D DMA. Without it, and with
-  the option of the DMA and the PPA off, the hidden buffer gets everything at
-  the end of the first batch of a frame, as in release 0.5.2.
-- The numbers the bus decides by were taken on one board. For another one
-  `dgx_dsi_bench()` takes them, but the bus does not run it and does not
-  keep what it gives: the program does, see "Measuring the board". Four
-  numbers it does not measure.
-- The measuring of the board was checked on one board, the very one the set
-  numbers were taken on. On another chip, with another memory or another
-  display nobody has run it.
-- After this change the code was only built under IDF 5.5.4, 6.0.3 and 6.1,
-  not run on the board: under 6.0.3 and 6.1 the exchange of bytes by the 2D
-  DMA is broken, see issue 19226, and 5.5.4 was replaced by 5.5.5.
-- How long a batch will take the bus judges by the last batches, and it has
-  one estimate. If the batches are of different lengths it is wrong, and a
-  ready picture waits an extra frame. In the check with random batches a
-  ready picture missed 5% of the ends of frames, see "How it was checked".
-- A picture that comes less often than a frame, and not after the same
-  number of frames every time, moves unevenly. The bus does not even that
-  out, see "The time of a frame", "Evenness".
-- The size of the tiles a display has unless a program gives another was
+- **Scrolling.** A picture scrolled in a batch of its own is moved in two
+  passes, the catch-up copy and the move; the 2D DMA is not used for the
+  move. See "A picture scrolled".
+- **The copy after the change** works only by the 2D DMA. Without it, and
+  with the option of the DMA and the PPA off, the hidden buffer gets
+  everything at the end of the first batch of a frame, as in release 0.5.2.
+  At 24 bits it is off.
+- **The numbers of the bus** were taken on one board. For another one
+  `dgx_dsi_bench()` takes them, but the bus does not run it and does not keep
+  what it gives: the program does, see "Measuring the board". Four numbers it
+  does not measure.
+- **Measuring the board** was compared with the choices of the bus on one
+  board, the very one the set numbers were taken on. On the second board it
+  was run and gave numbers, see "The second board", but no comparison was
+  made there. The limits of `dgx_dsi_advise()` were chosen by eye on the
+  second board.
+- **IDF versions.** After the 2D DMA change the code was only built under
+  IDF 5.5.4, 6.0.3 and 6.1, not run on the board: under 6.0.3 and 6.1 the
+  exchange of bytes by the 2D DMA is broken, see issue 19226, and 5.5.4 was
+  replaced by 5.5.5.
+- **The length of a batch.** How long a batch will take the bus judges by the
+  last batches, and it has one estimate. If the batches are of different
+  lengths it is wrong, and a ready picture waits an extra frame. In the check
+  with random batches a ready picture missed 5% of the ends of frames, see
+  "How it was checked".
+- **Evenness.** A picture that comes less often than a frame, and not after
+  the same number of frames every time, moves unevenly. The bus does not even
+  that out, see "The time of a frame", "Evenness".
+- **The size of the tiles** a display has unless a program gives another was
   chosen by the demos on one board. A tile of one row was not made faster,
   see "The size of a tile".
-- The threshold from which rows of a program go by the DMA counts bytes
-  only. Narrow tall areas it leaves to the window, though the DMA would
-  move them faster.
-- There is no way in DGX to wait for the end of a frame. The bus tells how
-  long a frame takes and when one ended, and a program sleeps and aims
-  itself, see "The time of a frame". For pictures to come evenly several
+- **The threshold for rows of a program** counts bytes only. Narrow tall
+  areas it leaves to the window, though the DMA would move them faster.
+- **The end of a frame.** There is no way in DGX to wait for it. The bus
+  tells how long a frame takes and when one ended, and a program sleeps and
+  aims itself, see "The time of a frame". For pictures to come evenly several
   sources need one drawing task and messages to it; with tasks that draw
   themselves under a mutex evenness is a matter of chance.
-- At 24 bits the copy after the change is off.
-- Behind the scan a batch is not shown as one: of many tall fills some
+- **Behind the scan** a batch is not shown as one: of many tall fills some
   appear a frame later. To mend that the fills of a batch would have to be
-  put off to its end, and they would still not fit one gap.
-- Behind the scan there is no way to wait for the next frame. A program that
-  updates more often than the display has to hold itself back.
-- A mirrored and a turned screen, and 24 bits, are moved by the processor.
-  Everything there is as it was before the DMA: 34 ms a screen. A fill by
-  the PPA works there as well.
-- The condition for writing by the processor behind the scan is twice as
-  strict as it has to be, see its section. After the DMA that changes little.
-- Nothing was checked on chips of revision 3 and later. For a chip of
-  revision 3.2 there is an
+  put off to its end, and they would still not fit one gap. There is no way
+  to wait for the next frame there either: a program that updates more often
+  than the display holds itself back. The condition for writing by the
+  processor is twice as strict as it has to be, see its section; after the
+  DMA that changes little.
+- **A mirrored and a turned screen, and 24 bits,** are moved by the
+  processor. Everything there is as it was before the DMA: 34 ms a screen. A
+  fill by the PPA works there as well.
+- **Revision 3.** The branch with `on_refresh_done` was run on the second
+  board under IDF 6.0.1, see its section; the timing tables were not taken
+  again there. The branch with `on_frame_buf_complete` on this revision was
+  only built, under 5.5.5. For the
   [issue 19188](https://github.com/espressif/esp-idf/issues/19188) by another
-  author: a display on DSI shows an even color instead of the frame buffer.
-  Under an IDF without the event `on_frame_buf_complete` the bus also has a
-  branch of its own for such chips, see the table of events in "The scan".
-- The 2D DMA is driven through a private interface of IDF and one field of a
-  register. There is no answer to
+  author about a DSI display on revision 3.2 see the same section: the rows
+  of the host and of the bridge differ by 7 ns, with a patch.
+- **The private interface.** The 2D DMA is driven through a private interface
+  of IDF and one field of a register. There is no answer to
   [issue 19226](https://github.com/espressif/esp-idf/issues/19226) yet.
-- 24 bits were checked only by reading the buffer back. The factory firmware
-  of the board works in 16 bits.
-- The benches all of this was taken on are not in the repository.
+- **24 bits** on the first board were checked only by reading the buffer
+  back; its factory firmware works in 16 bits. On the second board they were
+  looked at with one buffer: tearing and rare flashes from running short of
+  data, see "The second board".
+- **The benches** all of this was taken on are not in the repository.
 
 ## How it was checked
 

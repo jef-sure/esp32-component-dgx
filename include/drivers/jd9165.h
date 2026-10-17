@@ -22,7 +22,8 @@ extern "C" {
  * @param color_bits Pixel depth in bits: 16 (RGB565) or 24.
  * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR).
  * @param frames     DgxDsiOneFrame: drawing shows at once, no memory beyond one frame, a moving picture may tear.
- *                   DgxDsiTwoFrames: a batch of drawing is shown whole, for one more frame of PSRAM. See dgx_dsi_frames_t.
+ *                   DgxDsiTwoFrames: a batch of drawing is shown whole, for one more frame of PSRAM.
+ *                   DgxDsiOneFrameAfterScan: one frame, large pieces wait for the scan to leave their rows. See dgx_dsi_frames_t.
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */
 dgx_screen_t *dgx_jd9165_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo, dgx_dsi_frames_t frames);

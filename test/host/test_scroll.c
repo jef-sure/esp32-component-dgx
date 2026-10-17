@@ -53,10 +53,12 @@ static void scrolls(dgx_screen_t *scr, const char *name)
         /* rectangles that are cut by the screen and off it among them, and moves larger than they are */
         const int x = between(-8, W - 1), y = between(-8, H - 1), w = between(-2, W + 8), h = between(-2, H + 8);
         const int dx = n % 7 == 0 ? 0 : between(-W - 2, W + 2) / (n % 3 + 1), dy = n % 5 == 0 ? 0 : between(-H - 2, H + 2) / (n % 4 + 1);
+        /* every fourth move leaves the strips as they are: the caller draws them */
+        const bool keep = n % 4 == 3;
         /* a whole picture and a batch around it: one piece is shown, and it has all that has changed */
         int left, top, width, height;
         dgx_screen_progress_up(scr);
-        CHECK(dgx_scroll(scr, x, y, w, h, dx, dy, color) == ESP_OK);
+        CHECK((keep ? dgx_scroll_no_fill(scr, x, y, w, h, dx, dy) : dgx_scroll(scr, x, y, w, h, dx, dy, color)) == ESP_OK);
         const bool dirty = dgx_screen_take_dirty(scr, &left, &top, &width, &height);
         dgx_screen_progress_down(scr);
         /* the rectangle as the screen has it */
@@ -68,7 +70,7 @@ static void scrolls(dgx_screen_t *scr, const char *name)
                 uint32_t want = before[j][i];
                 if (i >= x0 && i <= x1 && j >= y0 && j <= y1) {
                     const int si = i - dx, sj = j - dy;
-                    want = si >= x0 && si <= x1 && sj >= y0 && sj <= y1 ? before[sj][si] : color;
+                    want = si >= x0 && si <= x1 && sj >= y0 && sj <= y1 ? before[sj][si] : keep ? before[j][i] : color;
                 }
                 const uint32_t got = dgx_get_pixel(scr, i, j);
                 wrong += got != want;
@@ -135,5 +137,9 @@ int main(void)
     CHECK(fills == 1 && filled == 200);
     CHECK(dgx_scroll(scr, -5, 40, 20, 10, 3, -70, 3) == ESP_OK);
     CHECK(fills == 2 && filled == 200 + 15 * 7);
+    /* the same, but the caller draws the rectangle itself: nothing is filled */
+    CHECK(dgx_scroll_no_fill(scr, 5, 5, 20, 10, 20, 0) == ESP_OK);
+    CHECK(dgx_scroll_no_fill(scr, 5, 5, 20, 10, 1, 0) == ESP_ERR_NOT_SUPPORTED);
+    CHECK(fills == 2 && pixels_set == 0);
     CHECK_DONE();
 }

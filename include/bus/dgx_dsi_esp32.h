@@ -196,8 +196,8 @@ uint32_t dgx_dsi_frame_us(dgx_bus_protocols_t *bus);
  *
  * @param bus      Bus from dgx_dsi_init(), with its display made.
  * @param ended_us Out: the time, as esp_timer_get_time() gives it.
- * @return false when the bus does not know: with one frame buffer it does not count frames, and neither it does
- *         before the first frame has ended or when the display has been stopped.
+ * @return false when the bus does not know: with DgxDsiOneFrame it does not count frames, and it does not know
+ *         before the first frame has ended or after the display has been stopped.
  */
 bool dgx_dsi_frame_ended(dgx_bus_protocols_t *bus, int64_t *ended_us);
 
@@ -244,7 +244,7 @@ esp_err_t dgx_dsi_tiles(dgx_bus_protocols_t *bus, uint16_t width, uint16_t heigh
 #define DGX_DSI_TILE_HEIGHT_MOST 128
 
 /** @brief The form of dgx_dsi_tuning_t: numbers stored in another form are not taken. */
-#define DGX_DSI_TUNING_VERSION 1
+#define DGX_DSI_TUNING_VERSION 3
 
 /**
  * @brief The numbers a DSI bus decides by.
@@ -269,7 +269,7 @@ typedef struct _dgx_dsi_tuning_t {
     uint8_t  pixel_bytes;    /*!< and bytes a pixel */
     uint8_t  scan_lead;      /*!< rows the display reads ahead of the row it shows; not measured */
     uint8_t  shared_halves;  /*!< a copy by the 2D DMA takes this many halves of its time while another transfer goes on; not measured */
-    uint8_t  reserved;
+    uint8_t  lanes_percent;  /*!< how much of what the DSI lanes carry the pixels of the panel take, by the timings; 0: not known */
     uint16_t window_kb_a_ms; /*!< KB the processor puts through a window in a millisecond, with room */
     uint16_t out_kb_a_ms;    /*!< KB the cache brings out in a millisecond, with room */
     uint16_t dma_kb_a_ms;    /*!< KB the 2D DMA copies in a millisecond; 0: not known, the bus finds it out as it goes */
@@ -282,7 +282,14 @@ typedef struct _dgx_dsi_tuning_t {
     uint16_t fill_from;
     uint32_t copy_from;
     uint32_t rows_from;      /*!< rows of pixels of a program go by the 2D DMA from this many bytes on */
+    uint16_t fifo_drops;     /*!< while the 2D DMA copies as fast as it can: times a frame the display runs short of data; DGX_DSI_NOT_MEASURED: not measured */
+    uint16_t psram_mhz;      /*!< the clock of the PSRAM the numbers were measured at, CONFIG_SPIRAM_SPEED; 0 without PSRAM */
+    uint16_t chip_revision;  /*!< of the chip, as esp_chip_info() gives it: 302 for v3.2; what PSRAM clocks it has follows from it */
+    uint16_t reserved;
 } dgx_dsi_tuning_t;
+
+/** @brief dgx_dsi_tuning_t.fifo_drops of a bus with no 2D DMA, or before dgx_dsi_bench(). */
+#define DGX_DSI_NOT_MEASURED 0xffffu
 
 /**
  * @brief Read the numbers the bus decides by now.
@@ -303,8 +310,11 @@ bool dgx_dsi_tune(dgx_bus_protocols_t *bus, const dgx_dsi_tuning_t *tuning);
  * megabyte for 1024 pixels in a row at 16 bits, given back at the end:
  * nothing on the screen changes. The display has to be running, for it
  * takes its share of the memory all the time and the numbers are to be
- * those of a display at work, and nothing may be drawn meanwhile. Takes
- * 0.07 s, so it is for once, not for every start: keep what it gives.
+ * those of a display at work, and nothing may be drawn meanwhile. Last, the
+ * 2D DMA copies for a dozen frames as fast as it can while the bus watches
+ * how often the display runs short of data (`fifo_drops`), for
+ * dgx_dsi_advise(). Takes about 0.3 s, so it is for once, not for every
+ * start: keep what it gives.
  *
  * The bus goes on with the numbers it had: give it the new ones by
  * dgx_dsi_tune().
@@ -313,6 +323,39 @@ bool dgx_dsi_tune(dgx_bus_protocols_t *bus, const dgx_dsi_tuning_t *tuning);
  * @return false when there is no display yet or no memory.
  */
 bool dgx_dsi_bench(dgx_bus_protocols_t *bus, dgx_dsi_tuning_t *tuning);
+
+/** @brief dgx_dsi_advise(): with one frame buffer heavy drawing leaves the display short of data, and the screen flashes for a frame. */
+#define DGX_DSI_ADVISE_TWO_FRAMES 0x01u
+/** @brief dgx_dsi_advise(): the pixels nearly fill the DSI lanes, and the screen may flash with nothing drawn. */
+#define DGX_DSI_ADVISE_FEWER_BITS 0x02u
+/** @brief dgx_dsi_advise(): the PSRAM runs below the clock this chip has, and a faster one would mend what DGX_DSI_ADVISE_TWO_FRAMES tells of. */
+#define DGX_DSI_ADVISE_FASTER_PSRAM 0x04u
+
+/**
+ * @brief What the numbers measured say about how to use the display.
+ *
+ * Measures nothing: it reads the numbers dgx_dsi_bench() gave, now or at an
+ * earlier start, so a program can ask before it makes the display, with the
+ * numbers it kept in NVS. When the bridge in front of the DSI host runs out
+ * of data, it sends a color of its own for the rest of the frame; the
+ * screen flashes for a frame, light blue at 16 bits, blue at 24.
+ *
+ * - DGX_DSI_ADVISE_TWO_FRAMES: give the display DgxDsiTwoFrames. A screen
+ *   that never draws much at once may do without.
+ * - DGX_DSI_ADVISE_FASTER_PSRAM: comes with the one above when the chip has
+ *   a faster PSRAM clock than the numbers were measured at: an ESP32-P4 of
+ *   revision 3 and later has 250 MHz, CONFIG_SPIRAM_SPEED_250M, and
+ *   with it one frame buffer did without flashes where 200 MHz did not.
+ *   That is a setting of the build, so it is for the next build; the two
+ *   frame buffers can be given now.
+ * - DGX_DSI_ADVISE_FEWER_BITS: 16 bits a pixel instead of 24, or more lanes
+ *   or a faster lane rate if the panel takes them.
+ *
+ * The limits were found by eye on one board, see docs/dsi-usage-en.md.
+ *
+ * @return DGX_DSI_ADVISE_* flags; 0 when the board has margin enough for any way of updating.
+ */
+uint8_t dgx_dsi_advise(const dgx_dsi_tuning_t *tuning);
 
 /*
  * The rest is for panel drivers.

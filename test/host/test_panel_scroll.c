@@ -154,6 +154,9 @@ static int mismatches(dgx_screen_t *scr, dgx_screen_t *ref)
     return wrong;
 }
 
+/* the strip of the picture that leaves when the strips are not filled: it comes in at the other edge */
+static uint32_t kept[PAGES][PAGES];
+
 static uint32_t seed = 987654321u;
 
 static int rnd(int lo, int hi)
@@ -206,19 +209,33 @@ int main(void)
                 const int  move = rnd(0, 5) ? rnd(-12, 12) : rnd(-count - 3, count + 3);
                 const int  rx = swap ? from : 0, ry = swap ? 0 : from, rw = swap ? count : scr->width, rh = swap ? scr->height : count;
                 const int  dx = swap ? move : 0, dy = swap ? 0 : move;
+                const bool fills = move >= count || move <= -count;
+                /* now and then the strip is not filled: the caller draws it, and the panel brings in what has just left */
+                const bool keep   = !fills && move && rnd(0, 3) == 0;
+                const int  strip  = move < 0 ? -move : move, across = swap ? scr->height : scr->width;
+                const int  leaves = move > 0 ? from + count - strip : from, comes = move > 0 ? from : from + count - strip;
+                if (keep) {
+                    for (int s = 0; s < strip; ++s) {
+                        for (int a = 0; a < across; ++a) kept[s][a] = dgx_get_pixel(ref, swap ? leaves + s : a, swap ? a : leaves + s);
+                    }
+                }
                 const long before = pixels_sent;
-                const esp_err_t result = dgx_scroll(scr, rx, ry, rw, rh, dx, dy, color);
+                const esp_err_t result = keep ? dgx_scroll_no_fill(scr, rx, ry, rw, rh, dx, dy) : dgx_scroll(scr, rx, ry, rw, rh, dx, dy, color);
                 const bool      done = result == ESP_OK;
                 CHECK(done || result == ESP_ERR_NOT_SUPPORTED);
                 /* the panel has one area: while it is shifted another cannot be moved, only filled */
-                const bool fills = move >= count || move <= -count;
                 const bool same = !shifted || (area_from == from && area_count == count);
                 CHECK(done == (move == 0 || fills || same));
                 if (done) {
                     CHECK(dgx_scroll(ref, rx, ry, rw, rh, dx, dy, color) == ESP_OK);
+                    if (keep) {
+                        for (int s = 0; s < strip; ++s) {
+                            for (int a = 0; a < across; ++a) dgx_set_pixel(ref, swap ? comes + s : a, swap ? a : comes + s, kept[s][a]);
+                        }
+                    }
                     if (move && !fills) {
-                        /* no pixel is sent but those of the strip that is filled */
-                        CHECK(pixels_sent - before == (long)(move < 0 ? -move : move) * (swap ? scr->height : scr->width));
+                        /* no pixel is sent but those of the strip that is filled, and none when it is not */
+                        CHECK(pixels_sent - before == (keep ? 0L : (long)strip * across));
                         area_from = from, area_count = count;
                         shifted = ((shifted - move) % count + count) % count;
                         ++by_panel;

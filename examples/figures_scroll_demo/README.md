@@ -78,10 +78,11 @@ line `CHECK` for each, and the screen says whether all the pixels agreed.
 The timings come first, lines that begin with `T`: the figures straight on the
 display and on a virtual screen of 8 bits, the sign of Wi-Fi by arcs and by
 curves, the scroll in memory on screens of 8, 16 and 12 bits, and the scroll
-on the display: by the panel lying and upright, with a picture sent across
-the place where the rows of a scrolled area turn round against the same
-picture sent beside it, or in the frame buffer, a part of the screen and the
-whole of it. Each is the least of three runs; a run is one batch, so on a
+on the display: by the panel lying and upright, with the strip that leaves
+filled and without the fill (`dgx_scroll_no_fill()`), by 3 and by 32
+columns, with a picture sent across the place where the rows of a scrolled
+area turn round against the same picture sent beside it, or in the frame
+buffer, a part of the screen and the whole of it. Each is the least of three runs; a run is one batch, so on a
 display with two frame buffers the time is that of the drawing. A time of code that has not changed moves by
 a fifth from one build to another, with the place the code gets in flash.
 

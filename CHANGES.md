@@ -1,5 +1,68 @@
 # Changes
 
+## 0.6.2 - 2026-10-17
+
+- **JD9365 driver** (`drivers/jd9365.h`, `CONFIG_DGX_ENABLE_JD9365`): an
+  800x1280 MIPI-DSI panel, with the init commands and timings of the newer
+  panel of the 10.1-inch Guition JC8012P4A1C board (80 MHz pixel clock,
+  60 frames a second, 2 lanes; the factory firmware asks for 70 MHz, which
+  IDF turns into 80 with rows of the DSI host and of its bridge 7 ns apart,
+  esp-idf issue 19188). It is used like the JD9165 driver:
+  `dgx_jd9365_init(bus, rst, color_bits, cbo, frames)` and
+  `dgx_jd9365_orientation()`; with `swap_xy` the screen is 1280x800.
+  Checked on a JC8012P4A1C with an ESP32-P4 of revision 3.2 under IDF
+  6.0.1, the first chip of revision 3 DGX has run on.
+- `examples/dsi_demo` builds for either board: a choice in its menu, and
+  `sdkconfig.defaults.jc8012p4a1c` for the 10.1-inch one (chip revision 3,
+  400 MHz, PSRAM at 250 MHz). Every scene shows the build number. The
+  example now shows the whole tuning cycle: the board measured once and the
+  numbers kept in NVS, the display made by `dgx_dsi_advise()` at the next
+  start (two frame buffers when the numbers say so, a restart after the
+  first measurement when that changes the choice), a "tuning" scene with the
+  built-in numbers beside the measured ones, and the time of a 60x100 piece
+  of a virtual screen with either set.
+- `docs/dsi-usage-en.md` (and the Russian one): how a display that runs
+  short of PSRAM bandwidth looks (a light-blue flash for a frame), that
+  IDF's interrupt for it did not fire on that board, and that PSRAM at
+  250 MHz cured it where a higher AXI priority did not. A chip older than
+  revision 3 has no 250 MHz: there two frame buffers are the way, which
+  showed no flashes on that board with its PSRAM at 200 MHz.
+- **`dgx_dsi_advise()`**: what the measured numbers say about the board.
+  `dgx_dsi_bench()` ends with a test of about a quarter of a second: the 2D
+  DMA copies as fast as it can while the bus counts how often the FIFO of
+  the DSI bridge runs empty within a frame. `dgx_dsi_tuning_t` (version 3,
+  48 bytes) keeps that count (`fifo_drops`), how much of the lanes the
+  pixels take (`lanes_percent`), the PSRAM clock the numbers were measured
+  at (`psram_mhz`) and the chip revision (`chip_revision`).
+  `dgx_dsi_advise()` measures nothing, it reads those numbers, from NVS for
+  example, and returns `DGX_DSI_ADVISE_TWO_FRAMES` (one frame buffer will
+  flash under heavy drawing), with it `DGX_DSI_ADVISE_FASTER_PSRAM` when the
+  chip has a faster PSRAM clock than the numbers were measured at (250 MHz
+  from revision 3 on: rebuild with `CONFIG_SPIRAM_SPEED_250M` instead of a
+  second buffer), and `DGX_DSI_ADVISE_FEWER_BITS` (the lanes are nearly full).
+  Numbers kept by an earlier version, or measured at another PSRAM clock,
+  are not taken by `dgx_dsi_tune()`, and a program that measures when they
+  are not taken, as `examples/dsi_demo` does, measures again.
+- The host test `test_circle` compares only the box a figure was drawn in:
+  3.5 s instead of 130 s, with the same checks.
+- **`dgx_scroll_no_fill()`**: `dgx_scroll()` without the fill, for a caller
+  that draws the freed strips itself. On an ILI9341 the strip that leaves is
+  filled before the scroll command of the panel, and that fill is the cost
+  of the move: measured on a CYD at 40 MHz with 0.6.1, a scroll by 1 column
+  of 240 rows 247 us, by 8 columns 933 us, by 32 columns 3361 us, the
+  commands themselves about 150 us. Without the fill the move is the
+  commands alone, and the strip comes in holding what has just left at the
+  other edge. On screens that are read the strips keep the old picture.
+  `test_scroll` and `test_panel_scroll` cover both; the time without the
+  fill is not measured yet, `figures_scroll_demo` prints it.
+- `docs/dsi-display-en.md` and the Russian one brought up to date with the
+  code: a table of contents, the second board's section with the PSRAM margin
+  numbers of the bench, the bench taking about 0.3 s and its 48-byte
+  structure, what the revision 3 board has and has not confirmed. The read
+  rate of the 800x1280 panel is 160 MB/s within a row (80 MHz pixel clock)
+  and 123 MB/s averaged over a frame, not 140, in the usage guide, the
+  example's README and its sdkconfig.
+
 ## 0.6.1 - 2026-10-16
 
 - **Fix: a character missing from the font now advances by the scaled

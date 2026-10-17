@@ -1,0 +1,14 @@
+# The Guition JC8012P4A1C, 10.1-inch: read after sdkconfig.defaults with
+#   idf.py -B build_jc8012p4a1c -D SDKCONFIG=build_jc8012p4a1c/sdkconfig \
+#          -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.jc8012p4a1c" build
+CONFIG_EXAMPLE_BOARD_JC8012P4A1C=y
+CONFIG_DGX_ENABLE_JD9365=y
+
+# Its chip is of revision 3.2: a build for revision 1 does not start on it
+# CONFIG_ESP32P4_SELECTS_REV_LESS_V3 is not set
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_400=y
+
+# The display reads 160 MB/s from the PSRAM within a row, and at 200 MHz drawing a moving
+# picture leaves it short now and then: the screen flashes light blue for a
+# frame. 250 MHz, which a chip of revision 3 has, leaves it enough.
+CONFIG_SPIRAM_SPEED_250M=y

@@ -538,6 +538,9 @@ static void timings(void)
             dgx_scroll(lcd, 0, 0, 320, 240, -100, 0, paper);
             TIME("16 bits 320x112 to the display, the panel scrolled by 100", 10, dgx_vscreen_to_screen(lcd, 0, 60, band));
             TIME("display: dgx_scroll left by 3, the panel", 50, dgx_scroll(lcd, 0, 0, 320, 240, -3, 0, paper));
+            TIME("display: dgx_scroll_no_fill left by 3, the panel", 50, dgx_scroll_no_fill(lcd, 0, 0, 320, 240, -3, 0));
+            TIME("display: dgx_scroll left by 32, the panel", 20, dgx_scroll(lcd, 0, 0, 320, 240, -32, 0, paper));
+            TIME("display: dgx_scroll_no_fill left by 32, the panel", 20, dgx_scroll_no_fill(lcd, 0, 0, 320, 240, -32, 0));
             dgx_scroll(lcd, 0, 0, 320, 240, 320, 0, paper);
             dgx_screen_destroy(&band);
         }

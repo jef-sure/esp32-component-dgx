@@ -21,6 +21,21 @@
 static uint8_t canvas[H][W], model[H][W];
 static int     fills, tall_fills, empty_fills, pixels_set;
 static long    written;
+/* the box of everything written to canvas or model since the last start(); both are zero outside it */
+static int     box_x0 = W, box_y0 = H, box_x1 = -1, box_y1 = -1;
+
+static void touch(int x, int y)
+{
+    if (x < box_x0) box_x0 = x;
+    if (x > box_x1) box_x1 = x;
+    if (y < box_y0) box_y0 = y;
+    if (y > box_y1) box_y1 = y;
+}
+
+static void clear_box(uint8_t (*a)[W])
+{
+    for (int y = box_y0; y <= box_y1; ++y) memset(&a[y][box_x0], 0, box_x1 - box_x0 + 1);
+}
 
 static void put_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t color)
 {
@@ -31,7 +46,7 @@ static void put_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, uint32_
     for (int j = y; j < y + h; ++j) {
         if (j < 0 || j >= H) continue;
         for (int i = x; i < x + w; ++i) {
-            if (i >= 0 && i < W) canvas[j][i] = (uint8_t)color, ++written;
+            if (i >= 0 && i < W) canvas[j][i] = (uint8_t)color, ++written, touch(i, j);
         }
     }
 }
@@ -40,12 +55,12 @@ static void put_pixel(dgx_screen_t *scr, int x, int y, uint32_t color)
 {
     (void)scr;
     ++pixels_set;
-    if (x >= 0 && x < W && y >= 0 && y < H) canvas[y][x] = (uint8_t)color, ++written;
+    if (x >= 0 && x < W && y >= 0 && y < H) canvas[y][x] = (uint8_t)color, ++written, touch(x, y);
 }
 
 static void dot(int x, int y)
 {
-    if (x >= 0 && x < W && y >= 0 && y < H) model[y][x] = 7;
+    if (x >= 0 && x < W && y >= 0 && y < H) model[y][x] = 7, touch(x, y);
 }
 
 static void row(int x, int y, int w)
@@ -107,23 +122,28 @@ static void bresenham(int x0, int y0, int x1, int y1)
 static long count(uint8_t (*a)[W])
 {
     long n = 0;
-    for (int y = 0; y < H; ++y) {
-        for (int x = 0; x < W; ++x) n += a[y][x] != 0;
+    for (int y = box_y0; y <= box_y1; ++y) {
+        for (int x = box_x0; x <= box_x1; ++x) n += a[y][x] != 0;
     }
     return n;
 }
 
 static void start(void)
 {
-    memset(canvas, 0, sizeof(canvas));
-    memset(model, 0, sizeof(model));
+    clear_box(canvas);
+    clear_box(model);
+    box_x0 = W, box_y0 = H, box_x1 = -1, box_y1 = -1;
     fills = tall_fills = empty_fills = pixels_set = 0;
     written = 0;
 }
 
 static void same(const char *what, int x, int y, int r)
 {
-    if (memcmp(canvas, model, sizeof(canvas)) != 0) {
+    bool differ = false;
+    for (int y = box_y0; y <= box_y1 && !differ; ++y) {
+        differ = memcmp(&canvas[y][box_x0], &model[y][box_x0], box_x1 - box_x0 + 1) != 0;
+    }
+    if (differ) {
         fprintf(stderr, "%s at (%d, %d), %d differs\n", what, x, y, r);
         ++check_failures;
     }
@@ -159,7 +179,7 @@ static void line(dgx_screen_t *scr, int x1, int y1, int x2, int y2)
     same("line to", x2, y2, x1 * 1000 + y1);
     CHECK(written == count(model));
     /* from the other end it is the same line */
-    memset(canvas, 0, sizeof(canvas));
+    clear_box(canvas);
     dgx_draw_line(scr, x2, y2, x1, y1, 7);
     same("line back to", x1, y1, x2 * 1000 + y2);
 }

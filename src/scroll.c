@@ -20,7 +20,8 @@
 #define DGX_SCROLL_MEMORY 1 /* a virtual screen is moved in its memory */
 #endif
 
-esp_err_t dgx_scroll(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy, uint32_t color)
+/* the move; the strips the picture has left are filled with `color` when `fill` says so, else left as they are */
+static esp_err_t dgx_scroll_with(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy, bool fill, uint32_t color)
 {
     /* of the rectangle, what the screen has */
     if (x < 0) {
@@ -39,11 +40,11 @@ esp_err_t dgx_scroll(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int 
      * itself moves the picture when the move is one it can make; no pixel is sent then.
      */
     if (scr->screen_subtype == DgxPhysicalScreenWithBus && !dgx_screen_is_readable(scr)) {
-        return dgx_screen_with_bus_scroll((dgx_screen_with_bus_t *)scr, x, y, w, h, dx, dy, color);
+        return dgx_screen_with_bus_scroll((dgx_screen_with_bus_t *)scr, x, y, w, h, dx, dy, fill, color);
     }
     /* a move as large as the rectangle leaves nothing of the picture: no pixel is read */
     if (dx >= w || dx <= -w || dy >= h || dy <= -h) {
-        scr->fill_rectangle(scr, x, y, w, h, color);
+        if (fill) scr->fill_rectangle(scr, x, y, w, h, color);
         return ESP_OK;
     }
     if (!dgx_screen_is_readable(scr)) return ESP_ERR_NOT_SUPPORTED;
@@ -90,9 +91,21 @@ esp_err_t dgx_scroll(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int 
             }
         }
     }
-    /* what the picture has left: the rows above or below it, and the columns beside it */
-    if (ay) scr->fill_rectangle(scr, x, dy > 0 ? y : y + rows, w, ay, color);
-    if (ax) scr->fill_rectangle(scr, dx > 0 ? x : x + columns, to_y, ax, rows, color);
+    /* what the picture has left: the rows above or below it, and the columns beside it, unless the caller draws them */
+    if (fill) {
+        if (ay) scr->fill_rectangle(scr, x, dy > 0 ? y : y + rows, w, ay, color);
+        if (ax) scr->fill_rectangle(scr, dx > 0 ? x : x + columns, to_y, ax, rows, color);
+    }
     dgx_screen_progress_down(scr);
     return ESP_OK;
+}
+
+esp_err_t dgx_scroll(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy, uint32_t color)
+{
+    return dgx_scroll_with(scr, x, y, w, h, dx, dy, true, color);
+}
+
+esp_err_t dgx_scroll_no_fill(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy)
+{
+    return dgx_scroll_with(scr, x, y, w, h, dx, dy, false, 0);
 }

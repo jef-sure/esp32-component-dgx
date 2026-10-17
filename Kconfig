@@ -68,6 +68,11 @@ config DGX_ENABLE_JD9165
     depends on DGX_ENABLE_DSI
     default n
 
+config DGX_ENABLE_JD9365
+    bool "Enable JD9365 panel driver"
+    depends on DGX_ENABLE_DSI
+    default n
+
 config DGX_ENABLE_SSD1306
     bool "Enable SSD1306 controller"
     depends on DGX_ENABLE_SPI || DGX_ENABLE_I2C

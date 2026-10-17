@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "esp_cache.h"
+#include "esp_chip_info.h"
 #include "esp_heap_caps.h"
 #include "esp_lcd_mipi_dsi.h"
 #include "esp_lcd_panel_io.h"
@@ -29,6 +30,7 @@
 #include "freertos/semphr.h"
 
 #include "sdkconfig.h"
+#include "soc/mipi_dsi_bridge_struct.h"
 #include "soc/soc_caps.h"
 
 #include "bus/dgx_dsi_esp32.h"
@@ -202,6 +204,8 @@ struct _dgx_dsi_bus_t {
     esp_ldo_channel_handle_t  phy_power;
     dgx_fb_area_t             area; /* area.fb is NULL until dgx_dsi_video_setup(); the frame buffer drawing goes into */
     uint8_t                   data_lanes;
+    uint16_t                  lane_mbps;       /* the bit rate of a lane */
+    uint32_t                  pixel_clock_khz; /* the pixel clock the display was set up with, 0 before */
     /*
      * With two frame buffers drawing goes into the one the display is not
      * reading. A batch of drawing ends with the display told to read that
@@ -252,6 +256,7 @@ struct _dgx_dsi_bus_t {
     uint32_t          frames_from_us;
 #if DGX_DSI_HARDWARE_COPY
     dgx_dsi_late_t *late; /* what a finished picture lacks and is given after the display has taken it; NULL when nothing is left for later */
+    struct _dgx_dsi_fifo_watch_t *watch; /* dgx_dsi_bench(): a transfer by the 2D DMA is waited for by looking at the FIFO of the bridge */
 #endif
     dgx_dsi_tuning_t tuning; /* the numbers the bus decides by: those of the board it was written on, until a program gives its own */
     /* counted since the start, for dgx_dsi_counters() */
@@ -583,6 +588,31 @@ static void dgx_dsi_dma_describe(dma2d_descriptor_t *desc, const uint8_t *first,
 }
 
 /*
+ * How full the FIFO of the bridge in front of the DSI host is, looked at
+ * again and again: with nothing drawn it is empty once a frame, in the
+ * vertical blank. A drop to empty besides that one is data the display came
+ * short of, and a blank drop longer than usual is a frame that started short.
+ */
+typedef struct _dgx_dsi_fifo_watch_t {
+    uint32_t looks;   /* times the FIFO was looked at */
+    uint32_t drops;   /* times it was found empty after being not */
+    uint32_t run;     /* looks in a row it is empty now */
+    uint32_t longest; /* the most looks in a row it was empty */
+} dgx_dsi_fifo_watch_t;
+
+static inline void dgx_dsi_fifo_look(dgx_dsi_fifo_watch_t *watch)
+{
+    if (!MIPI_DSI_BRIDGE.fifo_flow_status.raw_buf_depth) {
+        ++watch->run;
+    } else if (watch->run) {
+        ++watch->drops;
+        if (watch->run > watch->longest) watch->longest = watch->run;
+        watch->run = 0;
+    }
+    ++watch->looks;
+}
+
+/*
  * Move a rectangle of `width` by `rows` pixels by the 2D DMA and wait until
  * it is there. `from` and `to` are the first rows of the rectangle in their
  * pictures, rows of `from_stride` pixels and of the width of the panel, and
@@ -623,6 +653,11 @@ static bool dgx_dsi_dma(dgx_dsi_bus_t *bus, const uint8_t *from, uint32_t from_s
     const bool     undisturbed = bus->late && !bus->late->left;
     const uint32_t started     = (uint32_t)esp_timer_get_time();
     if (dma2d_enqueue(bus->dma_pool, &config, bus->dma_trans) != ESP_OK) return false;
+    if (bus->watch) {
+        while (!uxSemaphoreGetCount(bus->dma_done)) {
+            for (int i = 0; i < 64; ++i) dgx_dsi_fifo_look(bus->watch);
+        }
+    }
     xSemaphoreTake(bus->dma_done, portMAX_DELAY);
     /* how fast the 2D DMA is here is what tells whether a piece may be left for later */
     if (undisturbed && !bus->late->left) dgx_dsi_late_timed(bus->late, width * rows * bytes, (uint32_t)esp_timer_get_time() - started);
@@ -1374,6 +1409,7 @@ dgx_bus_protocols_t *dgx_dsi_init(int bus_id, uint8_t data_lanes, uint32_t lane_
         return NULL;
     }
     bus->data_lanes                 = data_lanes;
+    bus->lane_mbps                  = (uint16_t)lane_bit_rate_mbps;
     bus->tile_shift_x               = (uint8_t)DGX_DSI_TILE_SHIFT_X;
     bus->tile_shift_y               = (uint8_t)DGX_DSI_TILE_SHIFT_Y;
     bus->tuning = (dgx_dsi_tuning_t){
@@ -1392,7 +1428,17 @@ dgx_bus_protocols_t *dgx_dsi_init(int bus_id, uint8_t data_lanes, uint32_t lane_
         .fill_from      = DGX_DSI_HARDWARE_FILL_FROM,
         .copy_from      = DGX_DSI_HARDWARE_COPY_FROM,
         .rows_from      = DGX_DSI_HARDWARE_ROWS_FROM,
+        .fifo_drops     = DGX_DSI_NOT_MEASURED,
+#ifdef CONFIG_SPIRAM_SPEED
+        .psram_mhz = CONFIG_SPIRAM_SPEED,
+#endif
     };
+    {
+        /* what PSRAM clocks the chip has follows from its revision: dgx_dsi_advise() wants it with the numbers */
+        esp_chip_info_t chip;
+        esp_chip_info(&chip);
+        bus->tuning.chip_revision = chip.revision;
+    }
     bus->protocols.bus_type         = DGX_BUS_DSI;
     bus->protocols.bus_name         = "DSI";
     bus->protocols.write_command    = dgx_dsi_send_command;
@@ -1483,6 +1529,12 @@ bool dgx_dsi_video_setup(dgx_bus_protocols_t *_bus, const dgx_dsi_video_t *video
     bus->tuning.pixel_bytes = (uint8_t)(color_bits / 8u);
     if (two) bus->tile_shift_x = bus->tiles.shift_x; /* as wide as the panel made it */
     bus->lines_total = (uint16_t)(video->height + video->vsync_front_porch + video->vsync_pulse_width + video->vsync_back_porch);
+    bus->pixel_clock_khz = video->pixel_clock_khz;
+    {
+        const uint64_t lanes        = (uint64_t)bus->data_lanes * bus->lane_mbps * 1000u;
+        const uint64_t percent      = lanes ? (uint64_t)video->pixel_clock_khz * color_bits * 100u / lanes : 0;
+        bus->tuning.lanes_percent   = (uint8_t)(percent > 255u ? 255u : percent);
+    }
     {
         const uint64_t row = (uint64_t)video->width + video->hsync_front_porch + video->hsync_pulse_width + video->hsync_back_porch;
         bus->frame_us_256  = video->pixel_clock_khz ? (uint32_t)(row * bus->lines_total * 256000u / video->pixel_clock_khz) : 0;
@@ -1877,6 +1929,8 @@ bool dgx_dsi_tune(dgx_bus_protocols_t *_bus, const dgx_dsi_tuning_t *tuning)
         why = "they are of another version of DGX";
     } else if (tuning->width != has->width || tuning->height != has->height || tuning->pixel_bytes != has->pixel_bytes) {
         why = "they are of another panel or color depth";
+    } else if (tuning->psram_mhz != has->psram_mhz) {
+        why = "they were measured with the PSRAM at another clock";
     } else if (!tuning->window_kb_a_ms || !tuning->out_kb_a_ms || !tuning->fill_div || tuning->shared_halves < 2u || tuning->scan_lead >= tuning->height ||
                tuning->guard_us >= 20000u || tuning->dma_start_us >= 20000u || tuning->scan_room_us >= 20000u) {
         /* what the bus divides by, and what would make it wait for ever or never */
@@ -2024,38 +2078,91 @@ static void dgx_dsi_bench_costs(uint32_t a, uint32_t a_rows, uint32_t a_bytes, u
 }
 #endif
 
+#if DGX_DSI_HARDWARE_COPY
+/*
+ * The margin the display has in PSRAM: the FIFO of the bridge is looked at
+ * for a few frames with nothing else going on, then for a dozen while the 2D
+ * DMA copies the pictures of the bench one after another, as fast as it can,
+ * the heaviest load the bus itself puts on that memory.
+ */
+#define DGX_DSI_BENCH_IDLE_FRAMES 3u
+#define DGX_DSI_BENCH_LOAD_FRAMES 12u
+
+static void dgx_dsi_bench_margin(dgx_dsi_bench_t *bench, uint32_t *drops, uint32_t *frames, uint32_t *kb_a_ms)
+{
+    /* frames are counted by time: with one frame buffer the bus does not count them */
+    dgx_dsi_bus_t       *bus      = bench->bus;
+    const int64_t        frame_us = (bus->frame_us_256 + 128u) >> 8;
+    dgx_dsi_fifo_watch_t idle = {0}, load = {0};
+    const int64_t        idle_from = esp_timer_get_time();
+    while (esp_timer_get_time() - idle_from < DGX_DSI_BENCH_IDLE_FRAMES * frame_us) {
+        for (int i = 0; i < 64; ++i) dgx_dsi_fifo_look(&idle);
+    }
+    const int64_t load_from = esp_timer_get_time();
+    uint32_t      copies    = 0;
+    bus->watch              = &load;
+    while (esp_timer_get_time() - load_from < DGX_DSI_BENCH_LOAD_FRAMES * frame_us) {
+        if (!dgx_dsi_dma(bus, bench->from, bench->width, 0, bench->to, 0, bench->width, DGX_DSI_BENCH_ROWS, false, false)) break;
+        ++copies;
+    }
+    bus->watch            = NULL;
+    const int64_t load_us = esp_timer_get_time() - load_from;
+    *frames               = frame_us ? (uint32_t)((load_us + frame_us / 2) / frame_us) : 0;
+    /* the blank of a frame is a drop of its own, loaded or not */
+    *drops                = load.drops > *frames ? load.drops - *frames : 0;
+    *kb_a_ms              = load_us ? (uint32_t)((int64_t)copies * bench->size * 1000 / 1024 / load_us) : 0;
+    ESP_LOGD(TAG, "margin: idle, %u drops of the FIFO in %u frames, the longest %u looks; loaded, %u drops in %u frames, the longest %u looks",
+             (unsigned)idle.drops, (unsigned)DGX_DSI_BENCH_IDLE_FRAMES, (unsigned)idle.longest, (unsigned)load.drops, (unsigned)*frames, (unsigned)load.longest);
+}
+#endif
+
 static inline uint32_t dgx_dsi_bench_within(int64_t value, uint32_t from, uint32_t to)
 {
     return value < (int64_t)from ? from : value > (int64_t)to ? to : (uint32_t)value;
 }
 
-bool dgx_dsi_bench(dgx_bus_protocols_t *_bus, dgx_dsi_tuning_t *tuning)
+/* the pictures of the bench, in memory of the kind the frame buffer is in */
+static bool dgx_dsi_bench_open(dgx_dsi_bus_t *bus, dgx_dsi_bench_t *bench, const char *who)
 {
-    dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)_bus;
     if (!bus->panel || !bus->started) {
-        ESP_LOGE(TAG, "dgx_dsi_bench before dgx_dsi_video_start");
+        ESP_LOGE(TAG, "%s before dgx_dsi_video_start", who);
         return false;
     }
-    dgx_dsi_bench_t bench = {.bus = bus, .width = bus->area.fb_width, .bytes = bus->area.pixel_bytes};
-    bench.pitch           = (size_t)bench.width * bench.bytes;
-    bench.size            = (bench.pitch * DGX_DSI_BENCH_ROWS + DGX_DSI_BENCH_ALIGN - 1u) & ~(size_t)(DGX_DSI_BENCH_ALIGN - 1u);
-    const uint32_t caps   = esp_ptr_external_ram(bus->frame[0]) ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
-    bench.from            = (uint8_t *)heap_caps_aligned_alloc(DGX_DSI_BENCH_ALIGN, bench.size, caps);
-    bench.to              = (uint8_t *)heap_caps_aligned_alloc(DGX_DSI_BENCH_ALIGN, bench.size, caps);
-    bench.pixels          = (uint8_t *)heap_caps_malloc(DGX_DSI_BUFFER_LEN, MALLOC_CAP_INTERNAL);
-    if (!bench.from || !bench.to || !bench.pixels) {
-        ESP_LOGE(TAG, "dgx_dsi_bench: no memory");
-        heap_caps_free(bench.from);
-        heap_caps_free(bench.to);
-        heap_caps_free(bench.pixels);
+    *bench              = (dgx_dsi_bench_t){.bus = bus, .width = bus->area.fb_width, .bytes = bus->area.pixel_bytes};
+    bench->pitch        = (size_t)bench->width * bench->bytes;
+    bench->size         = (bench->pitch * DGX_DSI_BENCH_ROWS + DGX_DSI_BENCH_ALIGN - 1u) & ~(size_t)(DGX_DSI_BENCH_ALIGN - 1u);
+    const uint32_t caps = esp_ptr_external_ram(bus->frame[0]) ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
+    bench->from         = (uint8_t *)heap_caps_aligned_alloc(DGX_DSI_BENCH_ALIGN, bench->size, caps);
+    bench->to           = (uint8_t *)heap_caps_aligned_alloc(DGX_DSI_BENCH_ALIGN, bench->size, caps);
+    bench->pixels       = (uint8_t *)heap_caps_malloc(DGX_DSI_BUFFER_LEN, MALLOC_CAP_INTERNAL);
+    if (!bench->from || !bench->to || !bench->pixels) {
+        ESP_LOGE(TAG, "%s: no memory", who);
+        heap_caps_free(bench->from);
+        heap_caps_free(bench->to);
+        heap_caps_free(bench->pixels);
         return false;
     }
     /* what a finished picture still lacks is not copied in the middle of the measuring */
     dgx_dsi_late_idle(bus);
-    memset(bench.from, 0x5a, bench.size);
-    memset(bench.to, 0, bench.size);
-    memset(bench.pixels, 0xa5, DGX_DSI_BUFFER_LEN);
-    dgx_fb_area_init(&bench.area, bench.to, (uint16_t)bench.width, DGX_DSI_BENCH_ROWS, (uint8_t)bench.bytes, bus->area.swap_rb);
+    memset(bench->from, 0x5a, bench->size);
+    memset(bench->to, 0, bench->size);
+    memset(bench->pixels, 0xa5, DGX_DSI_BUFFER_LEN);
+    dgx_fb_area_init(&bench->area, bench->to, (uint16_t)bench->width, DGX_DSI_BENCH_ROWS, (uint8_t)bench->bytes, bus->area.swap_rb);
+    return true;
+}
+
+static void dgx_dsi_bench_close(dgx_dsi_bench_t *bench)
+{
+    heap_caps_free(bench->from);
+    heap_caps_free(bench->to);
+    heap_caps_free(bench->pixels);
+}
+
+bool dgx_dsi_bench(dgx_bus_protocols_t *_bus, dgx_dsi_tuning_t *tuning)
+{
+    dgx_dsi_bus_t  *bus = (dgx_dsi_bus_t *)_bus;
+    dgx_dsi_bench_t bench;
+    if (!dgx_dsi_bench_open(bus, &bench, "dgx_dsi_bench")) return false;
     *tuning = bus->tuning;
 
     const uint32_t bytes = bench.bytes, wide = bench.width, all = DGX_DSI_BENCH_ROWS;
@@ -2118,6 +2225,10 @@ bool dgx_dsi_bench(dgx_bus_protocols_t *_bus, dgx_dsi_tuning_t *tuning)
             /* rows of a program: the window against the DMA, and more room: what comes through a window stays in the cache, to be drawn over */
             tuning->rows_from = window_byte > dma_byte ? dgx_dsi_bench_within((asked << 16) * 8 / 5 / (window_byte - dma_byte), 1, UINT32_MAX) : UINT32_MAX;
         }
+        uint32_t drops, frames, kb_a_ms;
+        dgx_dsi_bench_margin(&bench, &drops, &frames, &kb_a_ms);
+        tuning->fifo_drops = (uint16_t)dgx_dsi_bench_within(frames ? drops / frames : 0, 0, DGX_DSI_NOT_MEASURED - 1u);
+        ESP_LOGD(TAG, "bench: while the 2D DMA copies (%u KB/ms) the display runs short of data %u times a frame", (unsigned)kb_a_ms, (unsigned)tuning->fifo_drops);
     }
 #endif
 #if DGX_DSI_HARDWARE_FILL
@@ -2165,10 +2276,35 @@ bool dgx_dsi_bench(dgx_bus_protocols_t *_bus, dgx_dsi_tuning_t *tuning)
         }
     }
 #endif
-    heap_caps_free(bench.from);
-    heap_caps_free(bench.to);
-    heap_caps_free(bench.pixels);
+    dgx_dsi_bench_close(&bench);
     return true;
+}
+
+/*
+ * dgx_dsi_advise(): the limits were found on a JC8012P4A1C (800x1280, chip
+ * revision 3.2, IDF 6.0.1) by eye. At 16 bits the test of the bench gave 29
+ * to 33 drops a frame with PSRAM at 200 MHz, where a moving picture with one
+ * frame buffer flashed and with two did not, and 8 to 10 at 250 MHz, where
+ * it did not flash. At 24 bits the pixels took 96% of the lanes, and the
+ * display flashed now and then with nothing drawn.
+ */
+#define DGX_DSI_ADVISE_DROPS         15u
+#define DGX_DSI_ADVISE_LANES_PERCENT 85u
+/* the PSRAM clock an ESP32-P4 of revision 3 and later has and an older one has not: with it the flashes at 200 MHz were gone */
+#define DGX_DSI_FAST_PSRAM_MHZ      250u
+#define DGX_DSI_FAST_PSRAM_REVISION 300u
+
+uint8_t dgx_dsi_advise(const dgx_dsi_tuning_t *tuning)
+{
+    uint8_t advice = 0;
+    if (tuning->fifo_drops != DGX_DSI_NOT_MEASURED && tuning->fifo_drops > DGX_DSI_ADVISE_DROPS) {
+        advice |= DGX_DSI_ADVISE_TWO_FRAMES;
+        if (tuning->psram_mhz && tuning->psram_mhz < DGX_DSI_FAST_PSRAM_MHZ && tuning->chip_revision >= DGX_DSI_FAST_PSRAM_REVISION) {
+            advice |= DGX_DSI_ADVISE_FASTER_PSRAM;
+        }
+    }
+    if (tuning->lanes_percent > DGX_DSI_ADVISE_LANES_PERCENT) advice |= DGX_DSI_ADVISE_FEWER_BITS;
+    return advice;
 }
 
 

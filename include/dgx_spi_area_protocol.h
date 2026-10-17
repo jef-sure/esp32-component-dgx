@@ -68,14 +68,15 @@ void dgx_screen_with_bus_scroll_way(dgx_screen_with_bus_t *sbus, bool columns, b
  * the rows of its memory, the rectangle takes the screen from edge to edge
  * across them, and no other area is scrolled at the moment: a panel has one.
  * The strip that leaves is filled first, so what comes in at the other end
- * is the color already. An area is let go when a move as large as it fills
- * it.
+ * is the color already; without @p fill it is not, and what comes in is what
+ * has just left. An area is let go when a move as large as it fills it, or
+ * would fill it without @p fill.
  *
  * The rectangle is one cut by the screen, and the move is not nothing.
  *
  * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED when the picture had to be moved and the panel cannot move it.
  */
-esp_err_t dgx_screen_with_bus_scroll(dgx_screen_with_bus_t *sbus, int x, int y, int w, int h, int dx, int dy, uint32_t color);
+esp_err_t dgx_screen_with_bus_scroll(dgx_screen_with_bus_t *sbus, int x, int y, int w, int h, int dx, int dy, bool fill, uint32_t color);
 
 #ifdef __cplusplus
 }

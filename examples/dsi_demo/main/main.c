@@ -3,6 +3,7 @@
 
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -16,6 +17,7 @@
 #include "dgx_font.h"
 #include "dgx_screen.h"
 #include "drivers/jd9165.h"
+#include "drivers/jd9365.h"
 #include "drivers/vscreen.h"
 #include "fonts/ArialRegular12.h"
 #include "fonts/VerdanaRegular32.h"
@@ -24,6 +26,26 @@ static const char *TAG = "dgx_dsi_demo";
 
 static dgx_bus_protocols_t *demo_bus;
 
+/* a number of its own for every build that is looked at on a display */
+#define BUILD 333
+
+#ifdef CONFIG_EXAMPLE_BOARD_JC8012P4A1C
+/* Guition JC8012P4A1C: a 10.1-inch 800x1280 display with a JD9365 on two DSI lanes */
+enum
+{
+    EXAMPLE_LCD_DSI_LANES     = 2,
+    EXAMPLE_LCD_DSI_LANE_MBPS = 1000,
+    EXAMPLE_LCD_PHY_LDO_CHAN  = 3,    /* the regulator of the chip that powers the DSI PHY */
+    EXAMPLE_LCD_PHY_LDO_MV    = 2500,
+    EXAMPLE_LCD_PIN_NUM_RST   = 27,
+    EXAMPLE_LCD_PIN_NUM_BL    = 23,
+    EXAMPLE_LCD_BL_ON_LEVEL   = 1,
+    EXAMPLE_LCD_PANEL_WIDTH   = 800, /* of the panel, before any orientation */
+    EXAMPLE_LCD_PANEL_HEIGHT  = 1280,
+};
+#define example_lcd_init        dgx_jd9365_init
+#define example_lcd_orientation dgx_jd9365_orientation
+#else
 /* Guition JC1060P470: a 7-inch 1024x600 display with a JD9165 on two DSI lanes */
 enum
 {
@@ -34,7 +56,12 @@ enum
     EXAMPLE_LCD_PIN_NUM_RST   = 0,
     EXAMPLE_LCD_PIN_NUM_BL    = 23,
     EXAMPLE_LCD_BL_ON_LEVEL   = 1,
+    EXAMPLE_LCD_PANEL_WIDTH   = 1024, /* of the panel, before any orientation */
+    EXAMPLE_LCD_PANEL_HEIGHT  = 600,
 };
+#define example_lcd_init        dgx_jd9165_init
+#define example_lcd_orientation dgx_jd9165_orientation
+#endif
 
 /* How the screen lies on the panel. If "top left" is not at the top left, change these. */
 #define EXAMPLE_LCD_DIR_X   DgxScreenLeftRight
@@ -45,17 +72,40 @@ typedef void (*demo_step_fn_t)(dgx_screen_t *screen);
 
 #define EXAMPLE_LCD_COLOR_BITS CONFIG_EXAMPLE_LCD_COLOR_BITS
 
-/* What the display may spend to show a picture whole: nothing, or one more frame buffer in PSRAM */
+/*
+ * What the display may spend to show a picture whole: nothing, or one more
+ * frame buffer in PSRAM. The menu may ask for two; otherwise the numbers
+ * measured on the board decide, see demo_tune().
+ */
 #ifdef CONFIG_EXAMPLE_LCD_TWO_FRAMES
 #define EXAMPLE_LCD_FRAMES DgxDsiTwoFrames
 #else
 #define EXAMPLE_LCD_FRAMES DgxDsiOneFrame
 #endif
 
+/* the numbers of the board, where they came from and what they say; shown by demo_tuning_card() */
+typedef struct {
+    dgx_dsi_tuning_t built_in;    /* the numbers the bus starts with */
+    dgx_dsi_tuning_t tuning;      /* the numbers it works with now */
+    bool             from_nvs;    /* read at this start, measured at an earlier one */
+    bool             measured;    /* measured at this start */
+    bool             kept;        /* and written to NVS */
+    uint32_t         bench_ms;    /* how long dgx_dsi_bench() took */
+    uint8_t          advice;      /* dgx_dsi_advise() of the numbers in use */
+    dgx_dsi_frames_t frames;      /* what the display was made with */
+    bool             by_advice;   /* and that was chosen by the advice, not by the menu */
+    bool             restart;     /* the advice asks for two frame buffers and the display has one: the next start makes it so */
+    uint32_t         piece_built_in_us, piece_measured_us; /* a 60x100 piece of a virtual screen to the display, with either set of numbers */
+} demo_tuning_t;
+
+static demo_tuning_t demo_numbers;
+
 static inline uint32_t demo_rgb(uint8_t r, uint8_t g, uint8_t b)
 {
     return EXAMPLE_LCD_COLOR_BITS == 24 ? dgx_rgb_to_24(r, g, b) : dgx_rgb_to_16(r, g, b);
 }
+
+static void demo_build_label(dgx_screen_t *screen);
 
 static void demo_text(dgx_screen_t *screen, int x, int y, const char *text, uint32_t color)
 {
@@ -87,8 +137,8 @@ static void demo_test_card(dgx_screen_t *screen)
     char size[48];
     snprintf(size, sizeof(size), "DGX on MIPI-DSI, %dx%d", w, h);
     demo_text(screen, bar, top - 30, size, demo_rgb(255, 200, 40));
-    dgx_font_string_utf8_screen(screen, bar, top + 170, EXAMPLE_LCD_COLOR_BITS == 24 ? "JD9165, 24-bit color" : "JD9165, 16-bit color",
-                                demo_rgb(60, 190, 255), DgxOutputNormal, 1, ArialRegular12(), NULL, NULL);
+    snprintf(size, sizeof(size), "%s, %d-bit color, build %d", screen->screen_name, EXAMPLE_LCD_COLOR_BITS, BUILD);
+    dgx_font_string_utf8_screen(screen, bar, top + 170, size, demo_rgb(60, 190, 255), DgxOutputNormal, 1, ArialRegular12(), NULL, NULL);
 }
 
 /* a color of the rainbow, hue from 0 to 1535 */
@@ -245,7 +295,8 @@ static void demo_moving_bars(dgx_screen_t *screen, uint32_t run_ms)
     if (!band) return;
     dgx_screen_progress_up(screen);
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, DGX_BLACK(demo_rgb));
-    demo_text(screen, 16, 44, EXAMPLE_LCD_FRAMES == DgxDsiTwoFrames ? "two frame buffers" : "one frame buffer", DGX_WHITE(demo_rgb));
+    demo_text(screen, 16, 44, demo_numbers.frames == DgxDsiTwoFrames ? "two frame buffers" : "one frame buffer", DGX_WHITE(demo_rgb));
+    demo_build_label(screen);
     dgx_screen_progress_down(screen);
     int64_t     start = esp_timer_get_time();
     int         frames = 0, offset = 0;
@@ -259,8 +310,94 @@ static void demo_moving_bars(dgx_screen_t *screen, uint32_t run_ms)
         ++frames;
         demo_pace(&pace, began);
     }
-    ESP_LOGI(TAG, "moving bars: %d frames a second", (int)(frames * 1000LL / run_ms));
+    ESP_LOGI(TAG, "moving bars: %d frames a second, a frame of the display takes %u us", (int)(frames * 1000LL / run_ms),
+             (unsigned)dgx_dsi_frame_us(demo_bus));
     dgx_screen_destroy(&band);
+}
+
+/* a number of the tuning, or a dash where the bus does not have it */
+static const char *demo_number(char *buffer, size_t size, uint32_t value, uint32_t none)
+{
+    if (value == none) return "-";
+    snprintf(buffer, size, "%u", (unsigned)value);
+    return buffer;
+}
+
+/*
+ * The numbers of the board on the screen: those the bus is built with
+ * beside those measured, where they came from, what they say and what was
+ * done about it.
+ */
+static void demo_tuning_card(dgx_screen_t *screen)
+{
+    const demo_tuning_t    *n = &demo_numbers;
+    const dgx_dsi_tuning_t *a = &n->built_in, *b = &n->tuning;
+    const uint32_t          white = DGX_WHITE(demo_rgb), yellow = demo_rgb(255, 200, 40), cyan = demo_rgb(60, 190, 255), grey = demo_rgb(150, 160, 180);
+    /* 16 lines of Verdana 32 at most, above the build label: 34 pixels a line fit the 600 rows of the 7-inch panel */
+    const int               left = 16, col_a = screen->width * 58 / 100, col_b = screen->width * 79 / 100, step = 34;
+    char                    line[80], va[16], vb[16];
+    int                     y = 36;
+
+    dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, demo_rgb(6, 10, 20));
+    demo_text(screen, left, y, "dgx_dsi_bench(): numbers of this board", yellow);
+    y += step;
+    if (n->from_nvs) snprintf(line, sizeof(line), "from NVS, measured at an earlier start");
+    else if (n->measured) snprintf(line, sizeof(line), "measured now in %u ms, %s", (unsigned)n->bench_ms, n->kept ? "kept in NVS" : "NVS failed");
+    else snprintf(line, sizeof(line), "not measured: the built-in numbers");
+    demo_text(screen, left, y, line, grey);
+    y += step;
+    demo_text(screen, col_a, y, "built-in", grey);
+    demo_text(screen, col_b, y, n->measured || n->from_nvs ? "measured" : "in use", grey);
+    y += step;
+
+    struct {
+        const char *name;
+        uint32_t    a, b, none;
+    } rows[] = {
+        {"window, KB/ms", a->window_kb_a_ms, b->window_kb_a_ms, 0},
+        {"out of cache, KB/ms", a->out_kb_a_ms, b->out_kb_a_ms, 0},
+        {"2D DMA, KB/ms", a->dma_kb_a_ms, b->dma_kb_a_ms, 0},
+        {"rows by DMA from, B", a->rows_from, b->rows_from, UINT32_MAX},
+        {"copy by DMA from", a->copy_from, b->copy_from, UINT32_MAX},
+        {"fill by PPA from", a->fill_from, b->fill_from, 65535},
+        {"lanes taken, %", a->lanes_percent, b->lanes_percent, 0},
+        {"FIFO drops a frame", a->fifo_drops, b->fifo_drops, DGX_DSI_NOT_MEASURED},
+        {"PSRAM, MHz", a->psram_mhz, b->psram_mhz, 0},
+    };
+    for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); ++i) {
+        demo_text(screen, left, y, rows[i].name, white);
+        demo_text(screen, col_a, y, demo_number(va, sizeof(va), rows[i].a, rows[i].none), grey);
+        demo_text(screen, col_b, y, demo_number(vb, sizeof(vb), rows[i].b, rows[i].none), cyan);
+        y += step;
+    }
+    y += step / 2;
+    snprintf(line, sizeof(line), "advice: %s%s%s", n->advice ? "" : "margin enough", n->advice & DGX_DSI_ADVISE_TWO_FRAMES ? "two frame buffers " : "",
+             n->advice & DGX_DSI_ADVISE_FEWER_BITS ? "16 bits a pixel" : "");
+    demo_text(screen, left, y, line, yellow);
+    y += step;
+    if (n->advice & DGX_DSI_ADVISE_FASTER_PSRAM) {
+        snprintf(line, sizeof(line), "or PSRAM at 250 MHz: chip v%u.%u has it", (unsigned)(b->chip_revision / 100), (unsigned)(b->chip_revision % 100));
+        demo_text(screen, left, y, line, yellow);
+        y += step;
+    }
+    snprintf(line, sizeof(line), "display: %s, by the %s", n->frames == DgxDsiTwoFrames ? "two frame buffers" : "one frame buffer", n->by_advice ? "advice" : "menu");
+    demo_text(screen, left, y, line, white);
+    y += step;
+    if (n->piece_built_in_us) {
+        snprintf(line, sizeof(line), "60x100 piece: %u us, then %u us", (unsigned)n->piece_built_in_us, (unsigned)n->piece_measured_us);
+        demo_text(screen, left, y, line, white);
+        y += step;
+    }
+    if (n->restart) demo_text(screen, left, y, "restarting with two frame buffers...", yellow);
+}
+
+/* the number of the build, large, in the lower left corner of every scene */
+static void demo_build_label(dgx_screen_t *screen)
+{
+    char label[16];
+    snprintf(label, sizeof(label), "b%d", BUILD);
+    dgx_fill_rectangle(screen, 0, screen->height - 48, 120, 48, DGX_BLACK(demo_rgb));
+    demo_text(screen, 12, screen->height - 12, label, demo_rgb(255, 200, 40));
 }
 
 static void demo_run_step(dgx_screen_t *screen, const char *name, demo_step_fn_t step, uint32_t hold_ms)
@@ -269,6 +406,7 @@ static void demo_run_step(dgx_screen_t *screen, const char *name, demo_step_fn_t
     /* one batch: what a scene has drawn is brought out to the display once, at its end */
     dgx_screen_progress_up(screen);
     step(screen);
+    demo_build_label(screen);
     dgx_screen_progress_down(screen);
     int64_t elapsed_ms = (esp_timer_get_time() - start_us) / 1000;
     ESP_LOGI(TAG, "%s rendered in %" PRId64 " ms", name, elapsed_ms);
@@ -276,40 +414,120 @@ static void demo_run_step(dgx_screen_t *screen, const char *name, demo_step_fn_t
 }
 
 /*
+ * Tuning the bus to the board.
+ *
  * When a rectangle goes by the 2D DMA or the accelerator of the chip and
  * when by the processor, and how much room the bus leaves before the scan
  * of the display, is decided by numbers that depend on the chip, its
  * memory and the display. The bus starts with those of the board DGX was
  * written on. dgx_dsi_bench() measures them on the board at hand, in
- * memory of its own, so nothing shows on the screen. It takes 0.07 s, so
- * it is done once and the numbers are kept in NVS: at the next start the
- * bus gets them from there. Numbers kept for another panel or another color
- * depth are not taken, and the board is measured again.
+ * memory of its own, so nothing shows on the screen. It takes about 0.3 s,
+ * so it is done once and the numbers are kept in NVS, namespace "dgx", key
+ * "dsi_tuning": at the next start the bus gets them from there,
+ * dgx_dsi_tune(). Numbers kept for another panel, another color depth or
+ * another PSRAM clock are not taken, and the board is measured again.
+ *
+ * The numbers also say how to use the display, dgx_dsi_advise(): whether
+ * one frame buffer will run the display short of data under heavy drawing,
+ * and whether the pixels nearly fill the DSI lanes. The advice needs no
+ * display, so at a start that has the numbers in NVS the display is made
+ * by it: two frame buffers when it says so. At the first start there are no
+ * numbers yet; the display is made as the menu says, measured, and when the
+ * advice asks for two frame buffers it does not have, the example restarts
+ * once, with the numbers in NVS.
  */
-static void demo_tune(dgx_bus_protocols_t *bus)
+
+/* the numbers of an earlier start, when NVS has them and they are for this panel and this build */
+static bool demo_tuning_kept(dgx_dsi_tuning_t *tuning)
 {
-    dgx_dsi_tuning_t tuning;
-    size_t           size = sizeof(tuning);
-    nvs_handle_t     nvs;
-    esp_err_t        err = nvs_flash_init();
+    nvs_handle_t nvs;
+    size_t       size = sizeof(*tuning);
+    esp_err_t    err  = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         nvs_flash_erase();
         err = nvs_flash_init();
     }
-    if (err != ESP_OK || nvs_open("dgx", NVS_READWRITE, &nvs) != ESP_OK) {
-        ESP_LOGW(TAG, "no NVS: the bus keeps the numbers it has");
-        return;
-    }
-    if (nvs_get_blob(nvs, "dsi_tuning", &tuning, &size) == ESP_OK && size == sizeof(tuning) && dgx_dsi_tune(bus, &tuning)) {
-        ESP_LOGI(TAG, "the bus has the numbers kept in NVS");
-    } else if (dgx_dsi_bench(bus, &tuning) && dgx_dsi_tune(bus, &tuning)) {
-        nvs_set_blob(nvs, "dsi_tuning", &tuning, sizeof(tuning));
-        nvs_commit(nvs);
-        ESP_LOGI(TAG, "the board was measured, the numbers are kept in NVS");
-    } else {
-        ESP_LOGW(TAG, "the board could not be measured: the bus keeps the numbers it has");
-    }
+    if (err != ESP_OK || nvs_open("dgx", NVS_READONLY, &nvs) != ESP_OK) return false;
+    const bool found = nvs_get_blob(nvs, "dsi_tuning", tuning, &size) == ESP_OK && size == sizeof(*tuning);
     nvs_close(nvs);
+    /* what dgx_dsi_tune() will check as well, but before the display is made: the panel, the color depth, the PSRAM clock */
+    return found && tuning->version == DGX_DSI_TUNING_VERSION && tuning->size == sizeof(*tuning) && tuning->width == EXAMPLE_LCD_PANEL_WIDTH &&
+           tuning->height == EXAMPLE_LCD_PANEL_HEIGHT && tuning->pixel_bytes == EXAMPLE_LCD_COLOR_BITS / 8
+#ifdef CONFIG_SPIRAM_SPEED
+           && tuning->psram_mhz == CONFIG_SPIRAM_SPEED
+#endif
+        ;
+}
+
+static bool demo_tuning_keep(const dgx_dsi_tuning_t *tuning)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("dgx", NVS_READWRITE, &nvs) != ESP_OK) return false;
+    const bool kept = nvs_set_blob(nvs, "dsi_tuning", tuning, sizeof(*tuning)) == ESP_OK && nvs_commit(nvs) == ESP_OK;
+    nvs_close(nvs);
+    return kept;
+}
+
+/*
+ * What the numbers change: a 60x100 piece of a virtual screen sent to the
+ * display 50 times in one batch, microseconds a piece. At 16 bits the piece
+ * is 12 KB: with the built-in numbers it goes through the window, with the
+ * measured ones by the 2D DMA.
+ */
+static uint32_t demo_time_piece(dgx_screen_t *screen)
+{
+    dgx_screen_t *piece = dgx_vscreen_init(60, 100, screen->color_bits, DgxScreenRGB);
+    if (!piece) return 0;
+    dgx_fill_rectangle(piece, 0, 0, piece->width, piece->height, demo_rgb(40, 40, 60));
+    dgx_screen_progress_up(screen);
+    dgx_vscreen_to_screen(screen, 0, 0, piece); /* the first one may wait for the display */
+    const int64_t from = esp_timer_get_time();
+    for (int i = 0; i < 50; ++i) dgx_vscreen_to_screen(screen, 0, 0, piece);
+    const uint32_t us = (uint32_t)((esp_timer_get_time() - from) / 50);
+    dgx_screen_progress_down(screen);
+    dgx_screen_destroy(&piece);
+    return us;
+}
+
+/* after the display is made: the numbers from NVS, or the board measured; kept is what demo_tuning_kept() found */
+static void demo_tune(dgx_bus_protocols_t *bus, dgx_screen_t *screen, const dgx_dsi_tuning_t *kept)
+{
+    demo_tuning_t *n = &demo_numbers;
+    dgx_dsi_tuning(bus, &n->built_in);
+    n->tuning = n->built_in;
+    if (kept && dgx_dsi_tune(bus, kept)) {
+        n->tuning   = *kept;
+        n->from_nvs = true;
+        ESP_LOGI(TAG, "the bus has the numbers kept in NVS");
+    } else {
+        const int64_t from = esp_timer_get_time();
+        if (dgx_dsi_bench(bus, &n->tuning)) {
+            n->bench_ms = (uint32_t)((esp_timer_get_time() - from) / 1000);
+            n->measured = true;
+            /* the same piece with the built-in numbers, then with the measured ones */
+            n->piece_built_in_us = demo_time_piece(screen);
+            dgx_dsi_tune(bus, &n->tuning);
+            n->piece_measured_us = demo_time_piece(screen);
+            n->kept = demo_tuning_keep(&n->tuning);
+            ESP_LOGI(TAG, "the board was measured in %u ms, the numbers are %s; a 60x100 piece of a virtual screen took %u us, now %u us", (unsigned)n->bench_ms,
+                     n->kept ? "kept in NVS" : "NOT kept, NVS failed", (unsigned)n->piece_built_in_us, (unsigned)n->piece_measured_us);
+        } else {
+            n->tuning = n->built_in;
+            ESP_LOGW(TAG, "the board could not be measured: the bus keeps the numbers it has");
+        }
+    }
+    const dgx_dsi_tuning_t *t = &n->tuning;
+    ESP_LOGI(TAG, "the bus puts %u KB/ms through a window, the cache brings out %u KB/ms, the 2D DMA copies %u KB/ms; rows by the 2D DMA from %u bytes",
+             (unsigned)t->window_kb_a_ms, (unsigned)t->out_kb_a_ms, (unsigned)t->dma_kb_a_ms, (unsigned)t->rows_from);
+    /* what the numbers say about this board, see dgx_dsi_advise() */
+    n->advice = dgx_dsi_advise(t);
+    ESP_LOGI(TAG, "the pixels take %u%% of the lanes, the display runs short of data %u times a frame under the 2D DMA: %s%s%s%s", (unsigned)t->lanes_percent,
+             (unsigned)t->fifo_drops, n->advice ? "" : "margin enough",
+             n->advice & DGX_DSI_ADVISE_TWO_FRAMES ? "with one frame buffer heavy drawing will flash, give it two. " : "",
+             n->advice & DGX_DSI_ADVISE_FASTER_PSRAM ? "Or build with CONFIG_SPIRAM_SPEED_250M: this chip has it. " : "",
+             n->advice & DGX_DSI_ADVISE_FEWER_BITS ? "the lanes are nearly full, use 16 bits a pixel." : "");
+    /* measured only now, and the advice asks for two frame buffers the display was not given: the next start reads the numbers and makes it so */
+    n->restart = n->measured && n->kept && n->frames == DgxDsiOneFrame && (n->advice & DGX_DSI_ADVISE_TWO_FRAMES);
 }
 
 void app_main(void)
@@ -324,18 +542,35 @@ void app_main(void)
         return;
     }
 
-    dgx_screen_t *screen = dgx_jd9165_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, EXAMPLE_LCD_COLOR_BITS, DgxScreenRGB, EXAMPLE_LCD_FRAMES);
+    /* the numbers of an earlier start, if there are any, say how to make the display; the menu may ask for two frame buffers anyway */
+    dgx_dsi_tuning_t kept;
+    const bool       have_kept = demo_tuning_kept(&kept);
+    demo_numbers.frames        = EXAMPLE_LCD_FRAMES;
+    if (have_kept && demo_numbers.frames == DgxDsiOneFrame && (dgx_dsi_advise(&kept) & DGX_DSI_ADVISE_TWO_FRAMES)) {
+        demo_numbers.frames    = DgxDsiTwoFrames;
+        demo_numbers.by_advice = true;
+        ESP_LOGI(TAG, "the numbers kept in NVS ask for two frame buffers: the display gets them");
+    }
+
+    dgx_screen_t *screen = example_lcd_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, EXAMPLE_LCD_COLOR_BITS, DgxScreenRGB, demo_numbers.frames);
     if (!screen) {
-        ESP_LOGE(TAG, "dgx_jd9165_init failed");
+        ESP_LOGE(TAG, "the display could not be set up");
         return;
     }
-    dgx_jd9165_orientation(screen, EXAMPLE_LCD_DIR_X, EXAMPLE_LCD_DIR_Y, EXAMPLE_LCD_SWAP_XY);
-    ESP_LOGI(TAG, "Display initialized: %dx%d", screen->width, screen->height);
+    example_lcd_orientation(screen, EXAMPLE_LCD_DIR_X, EXAMPLE_LCD_DIR_Y, EXAMPLE_LCD_SWAP_XY);
+    ESP_LOGI(TAG, "build %d: %s, %dx%d, %s", BUILD, screen->screen_name, screen->width, screen->height,
+             demo_numbers.frames == DgxDsiTwoFrames ? "two frame buffers" : "one frame buffer");
     demo_bus = bus;
-    demo_tune(bus);
+    demo_tune(bus, screen, have_kept ? &kept : NULL);
+    if (demo_numbers.restart) {
+        ESP_LOGW(TAG, "the advice asks for two frame buffers: restarting to make the display with them");
+        demo_run_step(screen, "tuning", demo_tuning_card, 6000);
+        esp_restart();
+    }
 
     while (1) {
         demo_run_step(screen, "test card", demo_test_card, 5000);
+        demo_run_step(screen, "tuning", demo_tuning_card, 8000);
         demo_run_step(screen, "ramps", demo_ramps, 6000);
         demo_run_step(screen, "lines", demo_lines, 2500);
         demo_run_step(screen, "circles", demo_circles, 2500);
