@@ -1710,8 +1710,10 @@ indices. The processor reads an index, looks it up in the table, repeats the
 colour as many times as the scale asks, and writes it straight in the order
 the panel keeps its pixels, whatever the orientation. A row of the panel
 that has the same indices as the one above it is a copy of that row. The
-rows go into one of two bands of 32 KB of internal RAM, and while the 2D DMA
-moves one band into the frame buffer, the processor makes the next. The
+rows go into one of two bands of internal RAM, 64 KB each by default
+(`CONFIG_DGX_DSI_INDEXED_BAND_KB`; half and a quarter of it are tried where
+there is no room), and while the 2D DMA moves one band into the frame
+buffer, the processor makes the next. The
 memory is taken for the duration of the call. The bus takes the job on the
 same conditions as `write_rows`, except the orientation: 16-bit pixels, red
 and blue as the panel takes them, at least the `rows_from` bytes of
@@ -1750,6 +1752,37 @@ smaller pictures are kept for the whole call, two rows of the panel that
 are a pair are made together, and two pixels go as one word. The smoothed
 frame before was the game's own Scale2x, 26 ms on this board, followed by
 the window.
+
+An overlay layer of the screen (`dgx_overlay.h`) is mixed into the same
+bands: after the processor has made a band, the part of it under the layer
+gets the layer's colours mixed in. The layer is read along its own rows
+whatever the orientation, empty indices four at a time, and a map of tiles
+of 32 by 32 pixels lets the empty parts be passed over whole. A 16-bit
+virtual screen under the layer cannot go by `write_rows`, which takes its
+rows as they lie, and goes through the window.
+
+The same board and settings as the table above, with a bench of its own
+instead of the game: a 320x200 picture at `DGX_LUT_SCALE(4)` to the whole
+screen, the call timed alone (the swap of buffers waited out between
+calls), bands of 64 KB. "Buttons" is a cross and four circles at the
+bottom, as a game pad on a tablet, at alpha 160; "half" is the left half of
+the screen.
+
+| | No layer | Buttons | Half, alpha 128 | Half, opaque |
+| --- | --- | --- | --- | --- |
+| Squares | 9.9 ms | 13.8 ms | 49.6 ms | 38.1 ms |
+| Smoothed | 26.0 ms | 29.9 ms | 65.8 ms | — |
+| 16-bit virtual screen of 1280x800 | 76.4 ms | 80.9 ms | — | — |
+
+Mixing costs about 30 processor cycles a pixel under the layer, much of it
+waiting for the PSRAM, which the 2D DMA writes the frame buffer into at the
+same time; an opaque layer saves the multiplication. The size of the bands
+counts too, in the same bench without a layer:
+
+| Bands | 32 KB | 48 KB | 64 KB | 100 KB |
+| --- | --- | --- | --- | --- |
+| Squares | 11.1 ms | 10.5 ms | 9.9 ms | 9.3 ms |
+| Smoothed | 27.2 ms | 26.2 ms | 25.8 ms | 25.2 ms |
 
 Before `write_indexed` the colours were prepared in strips of up to 64 KB
 and each strip went through `write_rows`, which took only a screen neither
@@ -2498,3 +2531,4 @@ built.
 | 0.6.3 | the option `CONFIG_DGX_DSI_HARDWARE_COPY` became `CONFIG_DGX_DSI_PRIVATE_DMA2D` and turns off only the 2D DMA through the private interface; the PPA is built with no option. `dgx_dsi_advise()` keeps one flag, `DGX_DSI_ADVISE_TWO_FRAMES`; the rest is words in `dgx_dsi_tuning_text()` and in the log of the measurement |
 | 0.6.4 | the bus function `write_indexed`: an 8-bit screen through a colour table goes to the panel in its own order by the 2D DMA, in every orientation, and with `DGX_LUT_SCALE(n)` every pixel a square of n by n, smoothed by Scale2x with `DGX_LUT_SMOOTH`; the strips through `write_rows` are gone |
 | 0.6.5 | the smoothed rows of `write_indexed` faster: a full smoothed frame of the game 27 ms instead of 34 |
+| 0.6.6 | an overlay layer of the screen mixed into the bands of `write_indexed`, with a map of tiles; a 16-bit transfer under it goes through the window; bands of 64 KB by default, `CONFIG_DGX_DSI_INDEXED_BAND_KB` |

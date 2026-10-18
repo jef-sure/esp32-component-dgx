@@ -9,6 +9,7 @@
 #include "drivers/dgx_lcd_init.h"
 #include "drivers/vscreen.h"
 #include "../dgx_indexed_priv.h"
+#include "../dgx_overlay_priv.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -422,6 +423,25 @@ static void dgx_vscreen_send_row(dgx_vscreen_halves_t *h, const uint8_t *src, ui
     }
 }
 
+/*
+ * A row of 16-bit pixels into the halves, the overlay layer of the screen
+ * mixed in on the way: the pixels from x on of the row y of the screen.
+ */
+static void dgx_vscreen_send_row_over(dgx_vscreen_halves_t *h, const uint8_t *src, uint32_t bytes, const dgx_bus_overlay_t *overlay, int x, int y)
+{
+    while (bytes) {
+        const uint32_t room  = dgx_vscreen_halves_room(h);
+        const uint32_t chunk = bytes < room ? bytes : room;
+        memcpy(h->at, src, chunk);
+        dgx_overlay_row(overlay, h->at, x, y, (int)(chunk / 2u));
+        x += (int)(chunk / 2u);
+        h->at += chunk;
+        src += chunk;
+        bytes -= chunk;
+        if (chunk == room) dgx_vscreen_halves_send(h);
+    }
+}
+
 void dgx_vscreen_to_vscreen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, bool has_transparency)
 {
     if (_scr_src->screen_subtype != DgxVirtualScreen && _scr_src->screen_subtype != DgxVirtualBackScreen) {
@@ -663,8 +683,10 @@ void dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_scr
     if (bh <= 0 || bw <= 0) return;
     int skip_x = x1 - x_dst;
     int skip_y = y1 - y_dst;
+    /* a layer over the rectangle is mixed in on the way: not where the bus would take the rows as they lie */
+    const dgx_bus_overlay_t *over = _scr_dst->color_bits == 16 ? dgx_overlay_over(_scr_dst, x1, y1, x1 + bw - 1, y1 + bh - 1) : NULL;
     dgx_screen_progress_up(_scr_dst);
-    if (dgx_vscreen_rows_to_bus(_scr_dst, x1, y1, scr_src, skip_x, skip_y, bw, bh)) {
+    if (!over && dgx_vscreen_rows_to_bus(_scr_dst, x1, y1, scr_src, skip_x, skip_y, bw, bh)) {
         /* the bus has taken the pixels as they lie in memory */
     } else if (_scr_dst->screen_subtype == DgxPhysicalScreenWithBus) {
         dgx_bus_protocols_t *bus             = ((dgx_screen_with_bus_t *)_scr_dst)->bus;
@@ -679,7 +701,8 @@ void dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_scr
             if (_scr_dst->color_bits % 8u == 0) {
                 uint32_t offset_src = DGX_VSCR_OFFSET(scr_src, skip_x, skip_y + br);
                 uint8_t *lp_src     = DGX_VSCR_PTR(scr_src, offset_src);
-                dgx_vscreen_send_row(&halves, lp_src, (uint32_t)bw * bip);
+                if (over) dgx_vscreen_send_row_over(&halves, lp_src, (uint32_t)bw * bip, over, x1, y1 + br);
+                else dgx_vscreen_send_row(&halves, lp_src, (uint32_t)bw * bip);
             } else {
                 for (int bc = 0; bc < bw; ++bc) {
                     uint32_t color = _scr_src->get_pixel(_scr_src, skip_x + bc, skip_y + br);
@@ -699,6 +722,7 @@ void dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_scr
                 uint8_t *lp_dst     = DGX_VSCR_PTR(scr_dst, offset_dst);
                 for (int bc = 0; bc < bw; ++bc) {
                     uint32_t color = _DGX_READ_COLOR(_scr_src->color_bits, lp_src);
+                    if (over) color = dgx_overlay_pixel(over, x1 + bc, y1 + br, (uint16_t)color);
                     _DGX_WRITE_COLOR(_scr_dst->color_bits, lp_dst, color);
                     lp_src += bip;
                     lp_dst += bip;
@@ -739,7 +763,9 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
     if (width <= 0 || height <= 0) return;
     x_src += x_dst - x_req;
     y_src += y_dst - y_req;
-    if (dgx_vscreen_rows_to_bus(_scr_dst, x_dst, y_dst, scr_src, x_src, y_src, width, height)) {
+    /* a layer over the rectangle is mixed in on the way: not where the bus would take the rows as they lie */
+    const dgx_bus_overlay_t *over = _scr_dst->color_bits == 16 ? dgx_overlay_over(_scr_dst, x_dst, y_dst, x_dst + width - 1, y_dst + height - 1) : NULL;
+    if (!over && dgx_vscreen_rows_to_bus(_scr_dst, x_dst, y_dst, scr_src, x_src, y_src, width, height)) {
         /* the bus has taken the pixels as they lie in memory */
         dgx_screen_touch(_scr_dst, x_dst, x_dst + width - 1, y_dst, y_dst + height - 1);
         return;
@@ -768,7 +794,8 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
         if (_scr_dst->color_bits % 8u == 0) {
             uint32_t offset_src = DGX_VSCR_OFFSET(scr_src, x_src, y_src + br);
             uint8_t *lp_src     = DGX_VSCR_PTR(scr_src, offset_src);
-            dgx_vscreen_send_row(&halves, lp_src, (uint32_t)width * bip);
+            if (over) dgx_vscreen_send_row_over(&halves, lp_src, (uint32_t)width * bip, over, x_dst, y_dst + br);
+            else dgx_vscreen_send_row(&halves, lp_src, (uint32_t)width * bip);
         } else {
             for (int bc = 0; bc < width; ++bc) {
                 uint32_t color = _scr_src->get_pixel(_scr_src, x_src + bc, y_src + br);
@@ -848,6 +875,7 @@ static void dgx_vscreen8_lut_scaled(uint8_t *restrict to, const uint8_t *restric
  */
 static void dgx_vscreen8_smooth_put(dgx_screen_t *_scr_dst, int rxd, int ryd, int bw, int bh, const dgx_bus_indexed_t *picture, bool transparent)
 {
+    const dgx_bus_overlay_t *over = picture->overlay;
     uint8_t *line = malloc((size_t)bw + dgx_indexed_lines_scratch((uint32_t)bw));
     if (!line) {
         ESP_LOGE(TAG, "vscreen8_to_screen16: no memory for a smoothed row of %d", bw);
@@ -870,6 +898,7 @@ static void dgx_vscreen8_smooth_put(dgx_screen_t *_scr_dst, int rxd, int ryd, in
                 const int room = (int)(dgx_vscreen_halves_room(&halves) / 2u);
                 const int n    = bw - bc < room ? bw - bc : room;
                 dgx_vscreen8_lut_run(halves.at, line + bc, n, lut);
+                if (over) dgx_overlay_row(over, halves.at, rxd + bc, ryd + br, n);
                 halves.at += 2 * n;
                 bc += n;
                 if (n == room) dgx_vscreen_halves_send(&halves);
@@ -880,7 +909,9 @@ static void dgx_vscreen8_smooth_put(dgx_screen_t *_scr_dst, int rxd, int ryd, in
         for (int br = 0; br < bh; ++br) {
             dgx_indexed_line(&lines, (int32_t)picture->y + br, line);
             for (int bc = 0; bc < bw; ++bc) {
-                if (line[bc]) _scr_dst->set_pixel(_scr_dst, rxd + bc, ryd + br, lut[line[bc]]);
+                if (!line[bc]) continue;
+                const uint16_t color = lut[line[bc]];
+                _scr_dst->set_pixel(_scr_dst, rxd + bc, ryd + br, over ? dgx_overlay_pixel(over, rxd + bc, ryd + br, color) : color);
             }
         }
     } else {
@@ -890,7 +921,7 @@ static void dgx_vscreen8_smooth_put(dgx_screen_t *_scr_dst, int rxd, int ryd, in
             uint8_t *lp_dst = DGX_VSCR_PTR(scr_dst, DGX_VSCR_OFFSET(scr_dst, rxd, ryd + br));
             for (int bc = 0; bc < bw; ++bc) {
                 if (!line[bc] && transparent) continue;
-                const uint16_t color = lut[line[bc]];
+                const uint16_t color = over ? dgx_overlay_pixel(over, rxd + bc, ryd + br, lut[line[bc]]) : lut[line[bc]];
                 lp_dst[2 * bc]       = (uint8_t)(color >> 8);
                 lp_dst[2 * bc + 1]   = (uint8_t)color;
             }
@@ -949,7 +980,10 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
         .scale  = (uint8_t)scale,
         .smooth = smooth,
         .lut    = lut,
+        /* the overlay layer of the screen, when it is over the rectangle */
+        .overlay = dgx_overlay_over(_scr_dst, rxd, ryd, rxd + bw - 1, ryd + bh - 1),
     };
+    const dgx_bus_overlay_t *over = picture.overlay;
     /* the index the pixel (bc, br) of the rectangle has */
 #define DGX_VSCREEN8_INDEX(bc, br) first[((uint32_t)(br) + cut_y) / (uint32_t)scale * sw + ((uint32_t)(bc) + cut_x) / (uint32_t)scale]
     dgx_screen_progress_up(_scr_dst);
@@ -957,7 +991,7 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
         dgx_bus_protocols_t *bus             = ((dgx_screen_with_bus_t *)_scr_dst)->bus;
         uint8_t             *draw_buffer     = bus->buffer;
         size_t               draw_buffer_len = bus->buffer_len;
-        if (!has_transparency && scale == 1 && !(flags & DGX_LUT_EXACT) && bus->write_ink && dgx_vscreen8_two_colors(lut) &&
+        if (!has_transparency && scale == 1 && !over && !(flags & DGX_LUT_EXACT) && bus->write_ink && dgx_vscreen8_two_colors(lut) &&
             bus->write_ink(bus, (uint16_t)rxd, (uint16_t)ryd, (uint16_t)bw, (uint16_t)bh, first, sw, lut[0], lut[255])) {
             /* the bus has mixed the two colors of the table itself */
         } else if (!has_transparency && bus->write_indexed && bus->write_indexed(bus, (uint16_t)rxd, (uint16_t)ryd, (uint16_t)bw, (uint16_t)bh, &picture)) {
@@ -977,6 +1011,7 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
                 if (whole_rows) {
                     /* a row is never cut: the half is looked at after it */
                     dgx_vscreen8_lut_scaled(halves.at, ink, cut_x, bw, (uint32_t)scale, lut);
+                    if (over) dgx_overlay_row(over, halves.at, rxd, ryd + br, bw);
                     halves.at += row_bytes;
                     if (!dgx_vscreen_halves_room(&halves)) dgx_vscreen_halves_send(&halves);
                     continue;
@@ -986,6 +1021,7 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
                     const int room = (int)(dgx_vscreen_halves_room(&halves) / 2u);
                     const int n    = bw - bc < room ? bw - bc : room;
                     dgx_vscreen8_lut_scaled(halves.at, ink, cut_x + (uint32_t)bc, n, (uint32_t)scale, lut);
+                    if (over) dgx_overlay_row(over, halves.at, rxd + bc, ryd + br, n);
                     halves.at += 2 * n;
                     bc += n;
                     if (n == room) dgx_vscreen_halves_send(&halves);
@@ -996,7 +1032,8 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
             for (int br = 0; br < bh; ++br) {
                 for (int bc = 0; bc < bw; ++bc) {
                     uint8_t cidx = DGX_VSCREEN8_INDEX(bc, br);
-                    if (cidx) _scr_dst->set_pixel(_scr_dst, rxd + bc, ryd + br, lut[cidx]);
+                    if (!cidx) continue;
+                    _scr_dst->set_pixel(_scr_dst, rxd + bc, ryd + br, over ? dgx_overlay_pixel(over, rxd + bc, ryd + br, lut[cidx]) : lut[cidx]);
                 }
             }
         }
@@ -1010,7 +1047,7 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
                 uint8_t *lp_dst     = DGX_VSCR_PTR(scr_dst, offset_dst);
                 for (int bc = 0; bc < bw; ++bc) {
                     uint8_t  cidx  = DGX_VSCREEN8_INDEX(bc, br);
-                    uint32_t color = lut[cidx];
+                    uint32_t color = over ? dgx_overlay_pixel(over, rxd + bc, ryd + br, lut[cidx]) : lut[cidx];
                     if (cidx || !has_transparency) {
                         uint8_t *dst_ptr = lp_dst + bc * 2u;
                         dst_ptr[0]       = (uint8_t)(color >> 8);
@@ -1021,7 +1058,7 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
                 for (int bc = 0; bc < bw; ++bc) {
                     uint8_t cidx = DGX_VSCREEN8_INDEX(bc, br);
                     if (cidx || !has_transparency) {
-                        _scr_dst->set_pixel(_scr_dst, rxd + bc, ryd + br, lut[cidx]);
+                        _scr_dst->set_pixel(_scr_dst, rxd + bc, ryd + br, over ? dgx_overlay_pixel(over, rxd + bc, ryd + br, lut[cidx]) : lut[cidx]);
                     }
                 }
             }

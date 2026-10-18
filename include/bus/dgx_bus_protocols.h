@@ -75,6 +75,40 @@ typedef bool (*dgx_bus_write_ink_func)(struct _dgx_bus_protocols_t *bus, uint16_
                                        const uint8_t *ink, uint32_t pitch, uint32_t paper, uint32_t color);
 
 /**
+ * @brief An overlay layer as the bus sees it: 8-bit indices over a part of the screen, mixed with what goes under them.
+ *
+ * Index 0 is empty and leaves the pixel under it as it is. Another index
+ * gives its color mixed with the pixel under it: `pre[index]` is the color
+ * times the weight of the layer, and `under` the weight of the pixel under
+ * it, the two adding up to 32. A color is spread over a word as
+ * 0x07E0F81F masks it: green in the high half, red and blue in the low one.
+ */
+typedef struct {
+    const uint8_t  *pixels; /*!< the layer, row after row */
+    uint32_t        pitch;  /*!< bytes from a row to the next one */
+    int32_t         x;      /*!< where its pixel (0, 0) lies on the screen */
+    int32_t         y;
+    /*! the part of the screen outside which the layer has nothing, both ends included; inside the screen and the layer */
+    int32_t         left, top, right, bottom;
+    const uint32_t *pre;    /*!< 256 colors times the weight of the layer, spread */
+    uint32_t        under;  /*!< the weight of what lies under the layer, 0 to 32 */
+    /*! a byte for every 32 by 32 pixels of the layer, row after row, 0 where it has nothing; NULL when it may have something anywhere */
+    const uint8_t  *tiles;
+    uint32_t        tiles_across; /*!< tiles in a row of them */
+} dgx_bus_overlay_t;
+
+/** @brief The tiles of a layer are 1 << this pixels on a side. */
+#define DGX_BUS_OVERLAY_TILE_SHIFT 5
+
+/** @brief A color of the layer mixed with the RGB565 color under it. */
+static inline uint16_t dgx_bus_overlay_mix(uint16_t color, uint32_t pre, uint32_t under)
+{
+    uint32_t spread = (color | (uint32_t)color << 16) & 0x07E0F81Fu;
+    spread          = ((spread * under + pre) >> 5) & 0x07E0F81Fu;
+    return (uint16_t)(spread | spread >> 16);
+}
+
+/**
  * @brief A picture of 8-bit indices put through a table of colors, every index a square of `scale` pixels.
  *
  * With `smooth`, the picture is made larger by Scale2x on the indices,
@@ -93,6 +127,8 @@ typedef struct {
     uint8_t         scale;   /*!< 1 to 255 */
     bool            smooth;  /*!< Scale2x; only at scale 2 and 4 */
     const uint16_t *lut;     /*!< the 256 colors, RGB565 */
+    /*! the overlay layer of the screen to mix in, NULL when none or when it is not over the rectangle */
+    const dgx_bus_overlay_t *overlay;
 } dgx_bus_indexed_t;
 
 /**

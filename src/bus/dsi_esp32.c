@@ -1411,8 +1411,40 @@ static bool dgx_dsi_write_rows(struct _dgx_bus_protocols_t *_bus, uint16_t left,
 
 /* bytes of a band a picture of indices is made into on its way to the frame buffer; there are two of them */
 #ifndef DGX_DSI_INDEXED_BAND_BYTES
-#define DGX_DSI_INDEXED_BAND_BYTES 32768u
+#ifdef CONFIG_DGX_DSI_INDEXED_BAND_KB
+#define DGX_DSI_INDEXED_BAND_BYTES (CONFIG_DGX_DSI_INDEXED_BAND_KB * 1024u)
+#else
+#define DGX_DSI_INDEXED_BAND_BYTES 65536u
 #endif
+#endif
+
+/*
+ * Two bands of internal RAM for `rows` rows of `row_bytes` each, as large
+ * as DGX_DSI_INDEXED_BAND_BYTES, else half and a quarter of it; only when
+ * none of them fits, wherever the allocator of the bus finds room, which is
+ * slower. Returns the rows of a band, 0 with no memory at all.
+ */
+static uint32_t dgx_dsi_indexed_bands(dgx_dsi_bus_t *bus, uint32_t row_bytes, uint32_t rows, uint8_t *band[2])
+{
+    for (uint32_t bytes = DGX_DSI_INDEXED_BAND_BYTES;; bytes /= 2u) {
+        const bool last      = bytes < DGX_DSI_INDEXED_BAND_BYTES / 4u + 1u;
+        uint32_t   band_rows = bytes / row_bytes;
+        if (band_rows < 1) band_rows = 1;
+        if (band_rows > rows) band_rows = rows;
+        const size_t size = (size_t)band_rows * row_bytes;
+        if (!last) {
+            band[0] = (uint8_t *)heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            band[1] = band[0] ? (uint8_t *)heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) : NULL;
+        } else {
+            band[0] = bus->protocols.memory_allocator((uint32_t)size);
+            band[1] = band[0] ? bus->protocols.memory_allocator((uint32_t)size) : NULL;
+        }
+        if (band[0] && band[1]) return band_rows;
+        free(band[0]);
+        band[0] = band[1] = NULL;
+        if (last) return 0;
+    }
+}
 
 /*
  * A picture of 8-bit indices through a table of colors, every index a
@@ -1435,22 +1467,20 @@ static bool dgx_dsi_write_indexed(struct _dgx_bus_protocols_t *_bus, uint16_t le
     const uint32_t columns   = (uint32_t)x1 - x0 + 1u;
     const uint32_t rows      = (uint32_t)y1 - y0 + 1u;
     const uint32_t row_bytes = columns * 2u;
-    uint32_t       band_rows = DGX_DSI_INDEXED_BAND_BYTES / row_bytes;
-    if (band_rows < 1) band_rows = 1;
-    if (band_rows > rows) band_rows = rows;
     /*
      * Two bands, and what a smoothed picture is made in on its way, each a
-     * block of its own: three smaller blocks find room in internal memory
-     * where one large one may not, and a band left to the PSRAM is slower
-     * both to make and to move.
+     * block of its own: smaller blocks find room in internal memory where
+     * one large one may not, and a band left to the PSRAM is slower both to
+     * make and to move.
      */
+    uint8_t       *band[2];
+    const uint32_t band_rows = dgx_dsi_indexed_bands(bus, row_bytes, rows, band);
+    if (!band_rows) return false;
     const size_t band_bytes = (size_t)band_rows * row_bytes;
-    uint8_t     *band[2]    = {bus->protocols.memory_allocator((uint32_t)band_bytes), bus->protocols.memory_allocator((uint32_t)band_bytes)};
     uint8_t     *scratch    = bus->protocols.memory_allocator((uint32_t)dgx_fb_area_indexed_scratch(columns));
-    if (!band[0] || !band[1] || !scratch) {
+    if (!scratch) {
         free(band[0]);
         free(band[1]);
-        free(scratch);
         return false;
     }
     static bool told;
@@ -1474,6 +1504,7 @@ static bool dgx_dsi_write_indexed(struct _dgx_bus_protocols_t *_bus, uint16_t le
         const uint32_t n    = rows - r < band_rows ? rows - r : band_rows;
         /* made while the DMA moves the band before it */
         dgx_fb_area_indexed_rows(&bus->area, band[k], left, top, width, height, picture, (uint16_t)r, (uint16_t)n, &lines);
+        if (picture->overlay) dgx_fb_area_overlay_rows(&bus->area, band[k], left, top, width, height, picture->overlay, (uint16_t)r, (uint16_t)n);
         if (moving) dgx_dsi_dma_wait(bus);
         uint8_t *to = bus->area.fb + (size_t)(y0 + r) * pitch_fb;
         moving      = dgx_dsi_dma_start(bus, band[k], columns, 0, to, x0, columns, n, false, bus->after_scan);

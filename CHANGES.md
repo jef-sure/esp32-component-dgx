@@ -1,5 +1,35 @@
 # Changes
 
+## 0.6.6 - 2026-10-18
+
+- **An overlay layer of a screen, `dgx_overlay.h`.** An 8-bit virtual
+  screen laid over a part of a 16-bit screen with `dgx_overlay_set()`: its
+  index 0 is empty, its other indices are colors of their own table, mixed
+  with what lies under them by one transparency for the whole layer, in 32
+  steps. What goes to the screen from virtual screens is mixed with it on
+  the way: `dgx_vscreen8_to_screen16()` and
+  `dgx_vscreen8_region_to_screen16()` with all their flags, scaled and
+  smoothed among them, `dgx_vscreen_to_screen()` and
+  `dgx_vscreen_region_to_screen()`. On a DSI display the layer is mixed into
+  the rows of the panel `write_indexed` makes, in every orientation; a 16-bit
+  transfer under the layer goes through the window instead of the 2D DMA.
+  Lines, texts and fills drawn straight on the screen, and the oriented
+  transfers, are not mixed. The screen cannot redraw what lies under the
+  layer, so drawing into the layer, moving it and taking it away mark the
+  place, and `dgx_overlay_take_dirty()` hands it to whoever puts the picture
+  on the screen. A screen without a layer costs a pointer; a layer, a block
+  of about 1.1 KB and a byte for every 32 by 32 of its pixels besides its
+  own pixels: empty tiles are passed over whole. Translucent buttons and a
+  keyboard over a game are what it is for. On the 10.1-inch JC8012P4A1C
+  turned to 1280x800, a whole 320x200 frame at a scale of 4 took 9.9 ms with
+  no layer, 13.8 ms under a game pad of a cross and four buttons, 49.6 ms
+  with half the screen under a translucent layer.
+- **The bands an 8-bit screen goes to a DSI display in are 64 KB each, not
+  32**, and `CONFIG_DGX_DSI_INDEXED_BAND_KB` sets them: larger is faster (a
+  whole 1280x800 frame 11.1 ms at 32 KB, 9.9 at 64, 9.3 at 100), and where
+  internal RAM has no room for two of them, half and a quarter of the size
+  are tried before the PSRAM.
+
 ## 0.6.5 - 2026-10-18
 
 - **A smoothed picture goes to a DSI display faster.** The lines of the

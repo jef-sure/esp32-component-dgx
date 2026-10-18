@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "dgx_fb_area_priv.h"
+#include "../dgx_overlay_priv.h"
 
 #define DGX_FB_AREA_CACHE_LINE 64u
 
@@ -450,6 +451,75 @@ void dgx_fb_area_indexed_rows(const dgx_fb_area_t *area, uint8_t *to, uint16_t l
             run = scale;
         }
     }
+}
+
+/* a pixel of the band mixed with the layer's index */
+static inline void dgx_fb_area_overlay_mix(uint16_t *out, const uint32_t *pre, uint32_t under, uint8_t index)
+{
+    *out = under ? dgx_bus_overlay_mix(*out, pre[index], under) : (uint16_t)((pre[index] >> 5) | (pre[index] >> 21));
+}
+
+void dgx_fb_area_overlay_rows(const dgx_fb_area_t *area, uint8_t *to, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
+                              const dgx_bus_overlay_t *overlay, uint16_t first, uint16_t rows)
+{
+    /* the part of the rectangle the layer has something in, and where both lie on the panel */
+    const int l = left > overlay->left ? left : overlay->left, r = left + width - 1 < overlay->right ? left + width - 1 : overlay->right;
+    const int t = top > overlay->top ? top : overlay->top, b = top + height - 1 < overlay->bottom ? top + height - 1 : overlay->bottom;
+    if (l > r || t > b) return;
+    uint16_t x0, y0, x1, y1, px0, py0, px1, py1;
+    dgx_fb_area_to_panel(area, left, left + width - 1, top, top + height - 1, &x0, &y0, &x1, &y1);
+    dgx_fb_area_to_panel(area, l, r, t, b, &px0, &py0, &px1, &py1);
+    /* the rows of the band under the layer */
+    const uint32_t band_first = (uint32_t)y0 + first, band_last = band_first + rows - 1u;
+    const uint32_t from_py = band_first > py0 ? band_first : py0, to_py = band_last < py1 ? band_last : py1;
+    if (from_py > to_py) return;
+    const uint32_t  columns = (uint32_t)x1 - x0 + 1u, count = (uint32_t)px1 - px0 + 1u;
+    const uint32_t *pre = overlay->pre, under = overlay->under;
+    uint16_t       *band = (uint16_t *)to;
+    /* where a point of the panel lies on the screen, across the rows and along them */
+#define DGX_ACROSS(py) ((int32_t)(area->mirror_y ? area->fb_height - 1u - (py) : (py)))
+#define DGX_ALONG(px) ((int32_t)(area->mirror_x ? area->fb_width - 1u - (px) : (px)))
+    if (!area->swap_xy) {
+        /* a row of the panel is a row of the screen and of the layer: the layer is read along it */
+        for (uint32_t py = from_py; py <= to_py; ++py) {
+            const int32_t  sy = DGX_ACROSS(py), sx = area->mirror_x ? DGX_ALONG(px1) : DGX_ALONG(px0);
+            const uint8_t *index = overlay->pixels + (size_t)(sy - overlay->y) * overlay->pitch + (size_t)(sx - overlay->x);
+            uint16_t      *row   = band + (size_t)(py - band_first) * columns;
+            /* the layer's points from the left of the screen on; on the panel from px0 on, or from px1 back when mirrored */
+            /* the pixel of the band the layer's point j goes to, and the step to the next one */
+            uint16_t *const base = row + ((area->mirror_x ? px1 : px0) - x0);
+            const ptrdiff_t step = area->mirror_x ? -1 : 1;
+            const int32_t lx = sx - overlay->x, ly = sy - overlay->y;
+            for (uint32_t j = dgx_overlay_next_in(overlay, index, lx, ly, 0, count); j < count; j = dgx_overlay_next_in(overlay, index, lx, ly, j, count)) {
+                uint16_t *out = base + (ptrdiff_t)j * step;
+                for (; j < count && index[j]; ++j, out += step) dgx_fb_area_overlay_mix(out, pre, under, index[j]);
+            }
+        }
+    } else {
+        /*
+         * A row of the panel is a column of the screen. The layer is read
+         * along its own rows all the same: for every column of the panel,
+         * the row of the layer at that y, over the x of the band's rows.
+         */
+        const int32_t  sx_a = DGX_ACROSS(from_py), sx_b = DGX_ACROSS(to_py);
+        const int32_t  sx_lo = sx_a < sx_b ? sx_a : sx_b;
+        const uint32_t n     = to_py - from_py + 1u;
+        for (uint32_t k = 0; k < count; ++k) {
+            const uint32_t px    = px0 + k;
+            const int32_t  sy    = DGX_ALONG(px);
+            const uint8_t *index = overlay->pixels + (size_t)(sy - overlay->y) * overlay->pitch + (size_t)(sx_lo - overlay->x);
+            /* the screen's x = sx_lo + j is across the panel row from_py + j, or to_py - j when mirrored: a column of the band */
+            uint16_t *const base = band + (size_t)((area->mirror_y ? to_py : from_py) - band_first) * columns + (px - x0);
+            const ptrdiff_t step = area->mirror_y ? -(ptrdiff_t)columns : (ptrdiff_t)columns;
+            const int32_t lx = sx_lo - overlay->x, ly = sy - overlay->y;
+            for (uint32_t j = dgx_overlay_next_in(overlay, index, lx, ly, 0, n); j < n; j = dgx_overlay_next_in(overlay, index, lx, ly, j, n)) {
+                uint16_t *out = base + (ptrdiff_t)j * step;
+                for (; j < n && index[j]; ++j, out += step) dgx_fb_area_overlay_mix(out, pre, under, index[j]);
+            }
+        }
+    }
+#undef DGX_ACROSS
+#undef DGX_ALONG
 }
 
 bool dgx_fb_area_command(dgx_fb_area_t *area, uint8_t command)

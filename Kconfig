@@ -38,6 +38,21 @@ config DGX_DSI_PRIVATE_DMA2D
         of two colors by the pixel processing accelerator use a public
         interface and do not depend on this option.
 
+config DGX_DSI_INDEXED_BAND_KB
+    int "Band of an 8-bit screen on its way to a DSI display, KB"
+    depends on DGX_DSI_PRIVATE_DMA2D
+    range 8 256
+    default 64
+    help
+        An 8-bit screen put to a DSI display through a color table is made
+        into rows of the panel by the processor, a band at a time, while the
+        2D DMA moves the band before it into the frame buffer. There are two
+        bands, in internal RAM, taken for the time of the call. Larger bands
+        are faster: on a 1280x800 screen a full picture took 11.1 ms with 32
+        KB, 9.9 with 64 and 9.3 with 100, and an overlay layer is mixed in
+        faster too. Where internal RAM has no room for two bands of this
+        size, smaller ones are tried, down to a quarter of it.
+
 config DGX_ENABLE_SPI_ST7735
     bool "Enable ST7735 panel driver"
     depends on DGX_ENABLE_SPI || DGX_ENABLE_P8

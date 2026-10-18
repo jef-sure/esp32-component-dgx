@@ -159,6 +159,8 @@ typedef struct _dgx_screen_t
     dgx_scr_line_func           draw_line;
     dgx_scr_circle_func         circle;
     dgx_scr_solid_circle_func   solid_circle;
+    /* the overlay layer of the screen, or of the screen this one is the layer of; NULL when none: see dgx_overlay.h */
+    struct _dgx_overlay_t *overlay;
 } dgx_screen_t;
 
 typedef struct dgx_point_2d
@@ -191,11 +193,15 @@ dgx_point_2d_t _dgx_move_to_next_area_pixel( //
  * @brief Destroy a screen allocated by a driver or virtual-screen constructor.
  * @param _pscr In/out pointer to the screen pointer. Set to NULL on return.
  */
+/* the overlay layer the screen has, or is, let go of: see dgx_overlay.h */
+void dgx_overlay_forget(dgx_screen_t *scr);
+
 static inline void dgx_screen_destroy(dgx_screen_t **_pscr)
-{                                      //
-    if (*_pscr && (*_pscr)->destroy) { //
-        (*_pscr)->destroy(_pscr);      //
-    } //
+{
+    if (*_pscr && (*_pscr)->overlay) dgx_overlay_forget(*_pscr);
+    if (*_pscr && (*_pscr)->destroy) {
+        (*_pscr)->destroy(_pscr);
+    }
 }
 
 /**

@@ -31,6 +31,7 @@ written stroke by stroke by a pen or turns into another text.
   - [Scale, rotate or mirror a picture](#scale-rotate-or-mirror-a-picture)
   - [A sprite or an icon from flash](#a-sprite-or-an-icon-from-flash)
   - [A palette, a fade and a flash](#a-palette-a-fade-and-a-flash)
+  - [Translucent buttons over a picture](#translucent-buttons-over-a-picture)
   - [Morph one glyph into another](#morph-one-glyph-into-another)
   - [Handwritten text](#handwritten-text)
   - [Morph handwritten text](#morph-handwritten-text)
@@ -418,6 +419,33 @@ steps does not gather rounding errors. A color given as one number is
 table of a soft pen from the paper to the ink is
 `dgx_lut_gradient(lut, 0, 256, paper, ink)`.
 Example: [examples/sprite_palette_demo](examples/sprite_palette_demo).
+
+### Translucent buttons over a picture
+
+A screen can have one overlay layer: an 8-bit virtual screen that lies over
+a part of it, with its own colors and one transparency for all of them.
+Index 0 is empty. Whatever goes to the screen from a virtual screen is mixed
+with the layer on the way, so the picture shows through the buttons.
+
+```c
+dgx_screen_t *buttons = dgx_vscreen_init(1280, 800, 8, DgxScreenRGB);
+dgx_solid_circle(buttons, 120, 680, 60, 1);                  // index 1
+dgx_overlay_set(display, buttons, 0, 0, button_lut, 160);    // 160 of 255: mostly the button
+
+// every frame: the places the layer changed are put again from the picture, a 320x200 frame shown x4 at (0, 0)
+int x, y, w, h;
+if (dgx_overlay_take_dirty(display, &x, &y, &w, &h)) {
+    const int sx = x / 4, sy = y / 4;   // the pixels of the frame that cover the place
+    dgx_vscreen8_region_to_screen16(display, 4 * sx, 4 * sy, frame, sx, sy, (x + w + 3) / 4 - sx, (y + h + 3) / 4 - sy, lut,
+                                    DGX_LUT_SCALE(4) | DGX_LUT_SMOOTH);
+}
+```
+
+The screen cannot redraw what lies under a button by itself, so drawing
+into the layer, moving it or taking it away only marks the place; whoever
+owns the picture puts that place again. Lines, texts and fills drawn
+straight on the screen are not mixed. The drawing into the layer and the
+output to the screen belong to one task.
 
 ### Morph one glyph into another
 
@@ -1092,8 +1120,11 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_vscreen_to_screen(dst, x, y, src)` | Push a RAM screen to any destination (incl. hardware). |
 | `dgx_vscreen_region_to_screen(dst, x, y, src, x_src, y_src, w, h)` | Push a sub-region. |
 | `dgx_vscreen_to_screen_oriented(...)` / `dgx_vscreen_region_to_screen_oriented(...)` | Oriented variants. |
-| `dgx_vscreen8_to_screen16(dst, x, y, src, lut, flags)` | Expand an 8-bit indexed screen into 16-bit through a LUT. `flags` is 0 or `DGX_LUT_TRANSPARENT` (a pixel of index 0 is not put; `true` means the same), `DGX_LUT_EXACT` (the colors of the table to the last bit, no hardware that mixes two colors) `DGX_LUT_SCALE(n)` (every pixel a square of n by n, n up to 255) and `DGX_LUT_SMOOTH` (with a scale of 2 or 4, Scale2x on the indices instead of plain squares) added together. |
+| `dgx_vscreen8_to_screen16(dst, x, y, src, lut, flags)` | Expand an 8-bit indexed screen into 16-bit through a LUT. `flags` is 0 or `DGX_LUT_TRANSPARENT` (a pixel of index 0 is not put; `true` means the same), `DGX_LUT_EXACT` (the colors of the table to the last bit, no hardware that mixes two colors), `DGX_LUT_SCALE(n)` (every pixel a square of n by n, n up to 255) and `DGX_LUT_SMOOTH` (with a scale of 2 or 4, Scale2x on the indices instead of plain squares) added together. |
 | `dgx_vscreen8_region_to_screen16(dst, x, y, src, x_src, y_src, w, h, lut, flags)` | The same for a sub-region; `x`, `y` are where the corner of the region goes, and with `DGX_LUT_SCALE(n)` the region covers `n * w` by `n * h` there. |
+| `dgx_overlay_set(display, layer, x, y, lut, alpha)` | Lay an 8-bit virtual screen over a 16-bit screen at `x`, `y` (`dgx_overlay.h`), or move it, or give it other colors: index 0 empty, the others the colors of `lut` mixed with what lies under them by `alpha` (0 to 255, in 32 steps). One layer a screen. Mixed into what comes from virtual screens: `dgx_vscreen8_to_screen16()`, `dgx_vscreen8_region_to_screen16()` with all their flags, `dgx_vscreen_to_screen()`, `dgx_vscreen_region_to_screen()`; not into the oriented variants or what is drawn straight on the screen. |
+| `dgx_overlay_clear(display)` | Take the layer away; its place becomes changed. |
+| `dgx_overlay_take_dirty(display, &x, &y, &w, &h)` | The rectangle the layer changed since the last call: drawn into, laid, moved, taken away. Put it again from the picture. |
 | `dgx_image_blit(dst, x, y, image, how)` | Draw a picture of 1, 4 or 8 bits from flash or RAM (`dgx_image.h`) into a linear 8-bit screen: value 0 transparent, a map or one color for the others, clipped, mirrored or rotated around its origin. Returns `ESP_ERR_NOT_SUPPORTED` for another destination. |
 | `dgx_bw_init(width, height)` | Allocate a 1-bit monochrome RAM screen. |
 | `dgx_vscreen_2h_init(left, right)` | Compose two screens as one wide logical screen. |
@@ -1329,6 +1360,7 @@ in the transports they require.
 | `CONFIG_DGX_ENABLE_VSCREEN_2H` | `drivers/vscreen_2h.c` | needs `VSCREEN` |
 | `CONFIG_DGX_ENABLE_MORPH` | `matrix.c`, `morph*.c` | dot morphing; selects `VSCREEN` |
 | `CONFIG_DGX_DSI_PRIVATE_DMA2D` | nothing | DSI on chips with a 2D DMA: large pieces are moved past the processor through the private 2D DMA interface of IDF; on by default, an escape hatch for an IDF that no longer builds it |
+| `CONFIG_DGX_DSI_INDEXED_BAND_KB` | nothing | DSI: the size of each of the two bands of internal RAM an 8-bit screen is made into on its way to the frame buffer, 64 KB by default; larger is faster, smaller ones are tried where there is no room |
 | `CONFIG_DGX_HW_FONT_IN_IRAM` | nothing | ESP32 only: the code that lays out a handwritten text is kept in IRAM, 4.1 KB |
 | `CONFIG_DGX_BEZIER_IN_IRAM` | nothing | ESP32 only: the code of the pen of Bezier curves is kept in IRAM, 9.3 KB |
 

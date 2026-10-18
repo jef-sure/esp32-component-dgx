@@ -175,6 +175,15 @@ void dgx_fb_area_indexed_lines(const dgx_fb_area_t *area, dgx_indexed_lines_t *l
                                const dgx_bus_indexed_t *picture, uint8_t *scratch);
 
 /**
+ * @brief Mix an overlay layer into rows of the panel dgx_fb_area_indexed_rows() has made, in the frame buffer's byte order.
+ *
+ * The same rectangle, the same rows: `rows` of them from its row `first`
+ * on the panel, in `to`. Only where the layer has something.
+ */
+void dgx_fb_area_overlay_rows(const dgx_fb_area_t *area, uint8_t *to, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
+                              const dgx_bus_overlay_t *overlay, uint16_t first, uint16_t rows);
+
+/**
  * @brief Take a command if it is one of the window: set the columns or the rows, write or read the memory.
  * @return false when the command is not for the frame buffer and has to go to the display.
  */
