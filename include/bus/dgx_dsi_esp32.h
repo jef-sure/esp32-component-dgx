@@ -8,6 +8,7 @@
  */
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -284,7 +285,7 @@ typedef struct _dgx_dsi_tuning_t {
     uint32_t rows_from;      /*!< rows of pixels of a program go by the 2D DMA from this many bytes on */
     uint16_t fifo_drops;     /*!< while the 2D DMA copies as fast as it can: times a frame the display runs short of data; DGX_DSI_NOT_MEASURED: not measured */
     uint16_t psram_mhz;      /*!< the clock of the PSRAM the numbers were measured at, CONFIG_SPIRAM_SPEED; 0 without PSRAM */
-    uint16_t chip_revision;  /*!< of the chip, as esp_chip_info() gives it: 302 for v3.2; what PSRAM clocks it has follows from it */
+    uint16_t chip_revision;  /*!< of the chip, as esp_chip_info() gives it: 302 for v3.2; a fact for whoever reads the numbers */
     uint16_t reserved;
 } dgx_dsi_tuning_t;
 
@@ -313,8 +314,9 @@ bool dgx_dsi_tune(dgx_bus_protocols_t *bus, const dgx_dsi_tuning_t *tuning);
  * those of a display at work, and nothing may be drawn meanwhile. Last, the
  * 2D DMA copies for a dozen frames as fast as it can while the bus watches
  * how often the display runs short of data (`fifo_drops`), for
- * dgx_dsi_advise(). Takes about 0.3 s, so it is for once, not for every
- * start: keep what it gives.
+ * dgx_dsi_advise() and dgx_dsi_tuning_text(). What the numbers say about
+ * the board is logged, as a warning when it has little margin. Takes about
+ * 0.3 s, so it is for once, not for every start: keep what it gives.
  *
  * The bus goes on with the numbers it had: give it the new ones by
  * dgx_dsi_tune().
@@ -326,13 +328,9 @@ bool dgx_dsi_bench(dgx_bus_protocols_t *bus, dgx_dsi_tuning_t *tuning);
 
 /** @brief dgx_dsi_advise(): with one frame buffer heavy drawing leaves the display short of data, and the screen flashes for a frame. */
 #define DGX_DSI_ADVISE_TWO_FRAMES 0x01u
-/** @brief dgx_dsi_advise(): the pixels nearly fill the DSI lanes, and the screen may flash with nothing drawn. */
-#define DGX_DSI_ADVISE_FEWER_BITS 0x02u
-/** @brief dgx_dsi_advise(): the PSRAM runs below the clock this chip has, and a faster one would mend what DGX_DSI_ADVISE_TWO_FRAMES tells of. */
-#define DGX_DSI_ADVISE_FASTER_PSRAM 0x04u
 
 /**
- * @brief What the numbers measured say about how to use the display.
+ * @brief What the numbers measured tell a program to do: the one choice a program makes at run time.
  *
  * Measures nothing: it reads the numbers dgx_dsi_bench() gave, now or at an
  * earlier start, so a program can ask before it makes the display, with the
@@ -342,20 +340,31 @@ bool dgx_dsi_bench(dgx_bus_protocols_t *bus, dgx_dsi_tuning_t *tuning);
  *
  * - DGX_DSI_ADVISE_TWO_FRAMES: give the display DgxDsiTwoFrames. A screen
  *   that never draws much at once may do without.
- * - DGX_DSI_ADVISE_FASTER_PSRAM: comes with the one above when the chip has
- *   a faster PSRAM clock than the numbers were measured at: an ESP32-P4 of
- *   revision 3 and later has 250 MHz, CONFIG_SPIRAM_SPEED_250M, and
- *   with it one frame buffer did without flashes where 200 MHz did not.
- *   That is a setting of the build, so it is for the next build; the two
- *   frame buffers can be given now.
- * - DGX_DSI_ADVISE_FEWER_BITS: 16 bits a pixel instead of 24, or more lanes
- *   or a faster lane rate if the panel takes them.
  *
- * The limits were found by eye on one board, see docs/dsi-usage-en.md.
+ * What else the numbers say is for the developer, not the program: the
+ * color depth, the PSRAM clock and the lanes are settings of the build and
+ * the board. dgx_dsi_tuning_text() puts it in words, and dgx_dsi_bench()
+ * logs those words. The limit was found by eye on one board, see
+ * docs/dsi-usage-en.md.
  *
- * @return DGX_DSI_ADVISE_* flags; 0 when the board has margin enough for any way of updating.
+ * @return DGX_DSI_ADVISE_* flags; 0 when one frame buffer will do.
  */
 uint8_t dgx_dsi_advise(const dgx_dsi_tuning_t *tuning);
+
+/**
+ * @brief What the numbers measured say about the board, in words, for whoever reads them: a log, a screen, a bug report.
+ *
+ * The PSRAM clock and the chip revision; how often the display ran short of
+ * data under the 2D DMA and whether that is margin enough, and if not what
+ * mends it (two frame buffers, or a faster PSRAM clock if the chip has
+ * one); how much of what the DSI lanes carry the pixels take and whether
+ * that leaves room. A library that cannot act on this hands the text on to
+ * its user. English, one paragraph, under 400 characters.
+ *
+ * @param text Where to write; always a string, cut when `size` is small.
+ * @return The length of the whole text, as snprintf(): `size` or more when it was cut.
+ */
+int dgx_dsi_tuning_text(const dgx_dsi_tuning_t *tuning, char *text, size_t size);
 
 /*
  * The rest is for panel drivers.

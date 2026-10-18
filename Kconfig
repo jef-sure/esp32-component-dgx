@@ -18,25 +18,25 @@ config DGX_ENABLE_DSI
     depends on SOC_MIPI_DSI_SUPPORTED
     default n
 
-config DGX_DSI_HARDWARE_COPY
-    bool "Move and fill pixels of a DSI display by the hardware of the chip"
+config DGX_DSI_PRIVATE_DMA2D
+    bool "Drive the 2D DMA of a DSI display through the private interface of IDF"
     depends on DGX_ENABLE_DSI && SOC_DMA2D_SUPPORTED
     default y
     help
-        Large pieces go past the processor, several times as fast: a part
-        of a 16-bit virtual screen put to the display and, with two frame
-        buffers, what one of them lacks of the other by the 2D DMA; a
-        rectangle filled with a color by the pixel processing accelerator
-        (PPA), and an 8-bit screen whose table is two colors mixed of them
-        by it, unless the call that sends the screen has DGX_LUT_EXACT. It
-        costs 0.8 KB of RAM.
+        An escape hatch, not a setting. The bus moves large pieces of pixels
+        by the 2D DMA of the chip: a part of a 16-bit virtual screen put to
+        the display and, with two frame buffers, what one of them lacks of
+        the other. The 2D DMA can exchange the two bytes of a pixel on the
+        way, which only the private interface of IDF, esp_private/dma2d.h,
+        gives; the bus also sets one field of a register directly, since IDF
+        6.0.3 and later do not set it for 16-bit pixels. A private interface
+        may change in any release of IDF.
 
-        The accelerator has a public interface. The 2D DMA is driven
-        through a private interface of IDF, esp_private/dma2d.h, and one
-        field of a register of the chip is set directly, for IDF 6.0.3 and
-        later do not set it for 16-bit pixels. Should an IDF not build with
-        it, or the 2D DMA and the accelerator be wanted for something else,
-        turn this off: the processor does all of it then.
+        Leave it on. Turn it off only when an IDF no longer builds this code:
+        the processor then moves the pieces, several times slower, and
+        everything else works as before. The fill of a rectangle and the mix
+        of two colors by the pixel processing accelerator use a public
+        interface and do not depend on this option.
 
 config DGX_ENABLE_SPI_ST7735
     bool "Enable ST7735 panel driver"
@@ -75,6 +75,18 @@ config DGX_ENABLE_JD9365
 
 config DGX_ENABLE_SSD1306
     bool "Enable SSD1306 controller"
+    depends on DGX_ENABLE_SPI || DGX_ENABLE_I2C
+    select DGX_ENABLE_V_BW_SCREEN
+    default n
+
+config DGX_ENABLE_SSD1309
+    bool "Enable SSD1309 controller"
+    depends on DGX_ENABLE_SPI || DGX_ENABLE_I2C
+    select DGX_ENABLE_V_BW_SCREEN
+    default n
+
+config DGX_ENABLE_SH1106
+    bool "Enable SH1106 controller"
     depends on DGX_ENABLE_SPI || DGX_ENABLE_I2C
     select DGX_ENABLE_V_BW_SCREEN
     default n

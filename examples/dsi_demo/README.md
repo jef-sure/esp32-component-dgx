@@ -45,15 +45,18 @@ was written on. The example shows the whole cycle, `demo_tune()` in
    `dgx`, key `dsi_tuning`. At the next starts they come from there; numbers
    of another panel, color depth or PSRAM clock are not taken, and the board
    is measured again.
-3. `dgx_dsi_advise()` reads the numbers and says how to use the display: how
-   much of the DSI lanes the pixels take, how often the display ran short of
-   data while the 2D DMA copied, and so whether one frame buffer will flash
-   under heavy drawing or the color depth is too high for the lanes. The
-   advice needs no display, so a start that finds the numbers in NVS makes
-   the display by it: two frame buffers when it says so, unless the menu asks
-   for two anyway. At the first start, when the display was made before the
+3. `dgx_dsi_advise()` reads the numbers and says whether the display needs
+   two frame buffers: whether it ran short of data often enough under the 2D
+   DMA that one frame buffer will flash under heavy drawing. The advice
+   needs no display, so a start that finds the numbers in NVS makes the
+   display by it: two frame buffers when it says so, unless the menu asks for
+   two anyway. At the first start, when the display was made before the
    numbers were there and the advice asks for two frame buffers it does not
-   have, the example restarts once.
+   have, the example restarts once. The rest of what the numbers say, the
+   PSRAM clock and the chip revision, the margin, how much of the lanes the
+   pixels take and whether that is too much for the color depth, is for the
+   developer: `dgx_dsi_tuning_text()` puts it in words, and the example logs
+   them.
 
 The second scene, "tuning", shows all of this on the screen: the built-in
 numbers beside the measured ones, where they came from, the advice, what the

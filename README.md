@@ -113,8 +113,8 @@ dgx_font_string_utf8_screen(scr, 10, 18, "Hello world",
                             NULL, NULL);
 ```
 
-A working version of this lives in
-[examples/screen_demo](examples/screen_demo).
+[examples/screen_demo](examples/screen_demo) is the same program in full,
+for an ILI9341 on the usual pins of an ESP32.
 
 ## Recipes
 
@@ -171,6 +171,21 @@ dgx_screen_t *oled = dgx_ssd1306_init(bus, SSD1306_128X64, 0, GPIO_NUM_NC);
 dgx_fill_rectangle(oled, 0, 0, oled->width, oled->height, 0);
 dgx_font_string_utf8_screen(oled, 0, 12, "Hello OLED", 1, DgxOutputNormal, 1,
                             TerminusTTFMedium12(), NULL, NULL);
+```
+
+Every monochrome panel here is drawn into a virtual screen in RAM, and the
+driver sends the panel what has changed: SSD1306, SSD1309, SH1106 and ST7565R
+keep a page screen laid out as the controller wants its bytes, ST7920 an
+ordinary virtual screen at 1 bit a pixel.
+Outside a batch the changed rectangle goes to the panel after every
+primitive, so a frame drawn in several calls can be seen half done.
+Wrap the frame in a batch and it reaches the panel in one transfer, with no
+flicker and no second screen of your own:
+
+```c
+dgx_screen_progress_up(oled);
+draw_frame(oled);               // clear, text, figures: nothing is sent yet
+dgx_screen_progress_down(oled); // the changed rectangle goes to the panel once
 ```
 
 ### Text in your own font
@@ -597,7 +612,7 @@ idf.py flash monitor
 | Example | Board | What it shows |
 | --- | --- | --- |
 | [screen_demo](examples/screen_demo) | ESP32 with an ILI9341 | a graphics test: fills, text, lines, rectangles, circles, triangles |
-| [dsi_demo](examples/dsi_demo) | JC1060P470 (ESP32-P4, 7-inch MIPI-DSI) | the same kind of test for a DSI display, update modes, an even frame rate |
+| [dsi_demo](examples/dsi_demo) | JC1060P470 or JC8012P4A1C (ESP32-P4, 7-inch or 10.1-inch MIPI-DSI) | the same kind of test for a DSI display, update modes, an even frame rate, the board measured and the numbers kept |
 | [figures_scroll_demo](examples/figures_scroll_demo) | CYD or JC1060P470 | a pie chart, arcs, a Wi-Fi icon, a scrolling terminal and chart; prints timings |
 | [texture_demo](examples/texture_demo) | CYD | a textured card scaled, rotated and wobbled |
 | [sprite_palette_demo](examples/sprite_palette_demo) | CYD | sprites of 1, 4 and 8 bits in maps of colors, mirrored, turned and clipped; day, night, lightning and a fade by the color table alone |
@@ -627,6 +642,8 @@ wire.
 | GC9A01 | round color TFT | SPI, P8 | `dgx_gc9a01_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_GC9A01` |
 | SSD1351 | color OLED | SPI, P8 | `dgx_ssd1351_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SSD1351` |
 | SSD1306 | mono OLED | SPI, I2C | `dgx_ssd1306_init(bus, resolution, is_ext_vcc, rst)` | `CONFIG_DGX_ENABLE_SSD1306` |
+| SSD1309 | mono OLED | SPI, I2C | `dgx_ssd1309_init(bus, resolution, rst)` | `CONFIG_DGX_ENABLE_SSD1309` |
+| SH1106 | mono OLED | SPI, I2C | `dgx_sh1106_init(bus, resolution, rst)` | `CONFIG_DGX_ENABLE_SH1106` |
 | ST7565R | mono LCD | SPI | `dgx_st7565r_init(bus, rst)` | `CONFIG_DGX_ENABLE_ST7565R` |
 | ST7920 | mono LCD | SPI | `dgx_st7920_init(bus, rst, cs)` | `CONFIG_DGX_ENABLE_ST7920` |
 | JD9165 | color TFT, 1024x600 | DSI | `dgx_jd9165_init(bus, rst, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9165` |
@@ -653,8 +670,9 @@ is told its scan direction. An ST7920 has no command for that: its driver
 turns the picture where it sends it to the panel, and with `swap_xy` the
 screen is 64x128. A few drivers add extras: ILI9341 has
 `dgx_ili9341_backlight()`, GC9A01 has `dgx_gc9a01_display_off()` /
-`dgx_gc9a01_display_on()`, SSD1351 has `dgx_ssd1351_brightness()`, and SSD1306
-has `dgx_ssd1306_contrast()`.
+`dgx_gc9a01_display_on()`, SSD1351 has `dgx_ssd1351_brightness()`, SSD1306
+has `dgx_ssd1306_contrast()`, SSD1309 has `dgx_ssd1309_contrast()` and
+`dgx_ssd1309_column_offset()`, and SH1106 the same two under its own name.
 
 JD9165 is a MIPI-DSI display for an ESP32-P4 with PSRAM. The chip keeps a
 frame buffer for it, 1.2 MB at 16 bits per pixel for 1024x600, and drawing
@@ -683,10 +701,31 @@ tasks. How the bus is built and what was measured on it is in
 For SSD1306, pick a geometry from `ssd1306_resolution_t`: `SSD1306_128X32`,
 `SSD1306_128X64`, `SSD1306_96X16`, `SSD1306_64X48` or `SSD1306_72X40`.
 
+SSD1309 is the controller of the larger modules, 2.42 inches as a rule. It
+takes the commands of the SSD1306 but has no charge pump, so its constructor
+has no supply argument: `dgx_ssd1309_init(bus, SSD1309_128X64, rst)`, or
+`SSD1309_128X32`. The init commands are those of the u8g2 driver. Some
+modules wire the first column of the glass to segment 2 of the controller
+and show the picture shifted right by two pixels: tell the driver with
+`dgx_ssd1309_column_offset(scr, 2)`.
+
+SH1106 is what most 1.3-inch 128x64 modules have, and they are often sold
+as SSD1306. The two are easy to confuse and easy to tell apart: an SH1106
+under the SSD1306 driver shows garbage in the top eight rows and nothing
+below, because it does not know the addressing commands of the SSD1306 and
+takes the whole picture into one page. It has 132 segments and the page
+addressing mode only, so the driver sends a changed rectangle page by page,
+each with its own address. `dgx_sh1106_init(bus, SH1106_128X64, rst)` or
+`SH1106_64X32`, the 0.42-inch glass. The glass takes a run of the segments:
+from segment 2 for 128 columns and from 32 for 64, as u8g2 has it; if a
+module of yours shows a blank stripe at an edge, pass the segment of its
+first column to `dgx_sh1106_column_offset()`. The init commands are those
+of the u8g2 driver written for the controller after its datasheet.
+
 ## What's in the box
 
-- Panel drivers for ST7735, ST7789, ILI9341, GC9A01, SSD1351, SSD1306, ST7565R,
-  ST7920, JD9165 and JD9365.
+- Panel drivers for ST7735, ST7789, ILI9341, GC9A01, SSD1351, SSD1306, SSD1309,
+  SH1106, ST7565R, ST7920, JD9165 and JD9365.
 - SPI, I2C and 8-bit parallel (I80) transports for ESP32, and MIPI-DSI for
   ESP32-P4.
 - A color RAM-backed virtual screen and a 1-bit monochrome virtual screen.
@@ -1059,7 +1098,7 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_bw_init(width, height)` | Allocate a 1-bit monochrome RAM screen. |
 | `dgx_vscreen_2h_init(left, right)` | Compose two screens as one wide logical screen. |
 | `dgx_vscreen_is_linear(scr)` | True when the screen is a `dgx_vscreen_t` with row-major pixels in `v_array`. |
-| `dgx_bw_screen_is_paged(scr)` | True when the screen keeps its bits in 8-row pages (`dgx_bw_init()`, SSD1306, ST7565R). |
+| `dgx_bw_screen_is_paged(scr)` | True when the screen keeps its bits in 8-row pages (`dgx_bw_init()`, SSD1306, SSD1309, SH1106, ST7565R). |
 | `dgx_bw_blit_or(scr, x, y, bmap)` | OR a 1-bpp bitmap into a page screen, clipped. |
 
 Free any screen with `dgx_screen_destroy(&scr)`.
@@ -1113,8 +1152,8 @@ controller that has registers of its own under those numbers gets them.
 
 For a program the same header has `dgx_dsi_show()`, `dgx_dsi_counters()`,
 `dgx_dsi_frame_us()`, `dgx_dsi_frame_ended()`, `dgx_dsi_tiles()`, and
-`dgx_dsi_bench()`, `dgx_dsi_tune()`, `dgx_dsi_tuning()` and
-`dgx_dsi_advise()` with the structure `dgx_dsi_tuning_t`.
+`dgx_dsi_bench()`, `dgx_dsi_tune()`, `dgx_dsi_tuning()`, `dgx_dsi_advise()`
+and `dgx_dsi_tuning_text()` with the structure `dgx_dsi_tuning_t`.
 
 ### Flush control and batching
 
@@ -1125,7 +1164,7 @@ the frame is ready with `dgx_vscreen_to_screen()` (see
 pixel buffer.
 
 Some screens stage changes and commit them when `update_screen()` is called
-(ST7920, SSD1306, ST7565R, the two-head compositor). Every primitive marks
+(ST7920, SSD1306, SSD1309, SH1106, ST7565R, the two-head compositor). Every primitive marks
 what it changed with `dgx_screen_touch()`; the screen keeps one pending dirty
 rectangle. Outside a batch the rectangle is committed at once. Inside a batch
 (`in_progress > 0`) rectangles are merged, and the outermost
@@ -1279,6 +1318,8 @@ in the transports they require.
 | `CONFIG_DGX_ENABLE_SPI_ILI_9341` | `drivers/ili9341.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SSD1351` | `drivers/ssd1351.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SSD1306` | `drivers/ssd1306.c` | needs SPI or I2C; selects `V_BW_SCREEN` |
+| `CONFIG_DGX_ENABLE_SSD1309` | `drivers/ssd1309.c` | needs SPI or I2C; selects `V_BW_SCREEN` |
+| `CONFIG_DGX_ENABLE_SH1106` | `drivers/sh1106.c` | needs SPI or I2C; selects `V_BW_SCREEN` |
 | `CONFIG_DGX_ENABLE_ST7565R` | `drivers/st7565r.c` | needs SPI; selects `V_BW_SCREEN` |
 | `CONFIG_DGX_ENABLE_ST7920` | `drivers/st7920.c` | needs SPI; selects `VSCREEN` |
 | `CONFIG_DGX_ENABLE_JD9165` | `drivers/jd9165.c` | needs DSI |
@@ -1287,7 +1328,7 @@ in the transports they require.
 | `CONFIG_DGX_ENABLE_VSCREEN` | `drivers/vscreen.c` | color RAM-backed screen |
 | `CONFIG_DGX_ENABLE_VSCREEN_2H` | `drivers/vscreen_2h.c` | needs `VSCREEN` |
 | `CONFIG_DGX_ENABLE_MORPH` | `matrix.c`, `morph*.c` | dot morphing; selects `VSCREEN` |
-| `CONFIG_DGX_DSI_HARDWARE_COPY` | nothing | DSI on chips with a 2D DMA: large pieces are moved and filled past the processor; on by default |
+| `CONFIG_DGX_DSI_PRIVATE_DMA2D` | nothing | DSI on chips with a 2D DMA: large pieces are moved past the processor through the private 2D DMA interface of IDF; on by default, an escape hatch for an IDF that no longer builds it |
 | `CONFIG_DGX_HW_FONT_IN_IRAM` | nothing | ESP32 only: the code that lays out a handwritten text is kept in IRAM, 4.1 KB |
 | `CONFIG_DGX_BEZIER_IN_IRAM` | nothing | ESP32 only: the code of the pen of Bezier curves is kept in IRAM, 9.3 KB |
 
@@ -1312,8 +1353,8 @@ A couple of practical limitations are worth knowing up front:
 
 - **Pixel readback works only from RAM.** `get_pixel()` reads virtual screens,
   panels that draw into a virtual back screen first (ST7920, SSD1306,
-  ST7565R) and a DSI display, whose frame buffer is memory of the chip
-  (JD9165). Direct panels (ILI9341, ST7789, ...) return 0: many SPI modules
+  SSD1309, SH1106, ST7565R) and a DSI display, whose frame buffer is memory of the chip
+  (JD9165, JD9365). Direct panels (ILI9341, ST7789, ...) return 0: many SPI modules
   have no MISO line at all, and where RAMRD works it is far too slow. If you
   need to read what you drew, draw into a `vscreen` and push it with
   `dgx_vscreen_to_screen()`. `dgx_screen_is_readable()` tells which of the two
@@ -1351,10 +1392,11 @@ scrolling in memory, the frame buffer of the DSI bus and the
 way its two frame buffers change places, fonts,
 textured quads, sprites of 1, 4 and 8 bits, color tables, Bezier curves, handwritten fonts with their writing and
 morphing, the arc gauge) has host tests built with gcc against small ESP-IDF
-stubs and run under ASan/UBSan. Two pieces that do depend on the platform
+stubs and run under ASan/UBSan. A few pieces that do depend on the platform
 are tested there too, each against a model of what is on its wires: the
 8-bit parallel bus with both drivers of IDF under it, the ST7920 driver in
-all its orientations, and the ILI9341 driver with the scroll of its panel:
+all its orientations, the ILI9341 driver with the scroll of its panel, and
+the SSD1309 and SH1106 drivers against models of their controllers:
 
 ```sh
 make -C test/host

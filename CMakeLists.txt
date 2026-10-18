@@ -65,6 +65,14 @@ if(CONFIG_DGX_ENABLE_SSD1306)
 	list(APPEND srcs "src/drivers/ssd1306.c")
 endif()
 
+if(CONFIG_DGX_ENABLE_SSD1309)
+	list(APPEND srcs "src/drivers/ssd1309.c")
+endif()
+
+if(CONFIG_DGX_ENABLE_SH1106)
+	list(APPEND srcs "src/drivers/sh1106.c")
+endif()
+
 if(CONFIG_DGX_ENABLE_V_BW_SCREEN)
 	list(APPEND srcs "src/bw_screen.c")
 endif()

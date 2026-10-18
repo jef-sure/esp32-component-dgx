@@ -1,5 +1,66 @@
 # Changes
 
+## 0.6.3 - 2026-10-18
+
+- **`CONFIG_DGX_DSI_HARDWARE_COPY` is now `CONFIG_DGX_DSI_PRIVATE_DMA2D`**
+  and covers only what needs a safeguard. The 2D DMA of a DSI display is
+  driven through a private interface of IDF, which may change in any
+  release; the option, on by default, is the escape hatch for an IDF that
+  no longer builds it, and off it hands the moves to the processor. The
+  fill of a rectangle and the mix of two colors by the pixel processing
+  accelerator use a public interface and are now built wherever the chip
+  has one, with no option. An `sdkconfig` that set the old name to `n` has
+  to set the new one.
+- **`dgx_dsi_advise()` keeps the one flag a program can act on**,
+  `DGX_DSI_ADVISE_TWO_FRAMES`. `DGX_DSI_ADVISE_FASTER_PSRAM` and
+  `DGX_DSI_ADVISE_FEWER_BITS` are gone: the PSRAM clock, the color depth and
+  the lanes are settings of the build and the board, so they are the
+  developer's to change, not the program's, and the clocks a chip has are
+  not something the bus can know (250 MHz today, something else in another
+  revision). What the numbers say about the board is now words, for whoever
+  reads them: `dgx_dsi_tuning_text()` writes a paragraph from
+  `dgx_dsi_tuning_t`, with the PSRAM clock and the chip revision, the margin
+  under the 2D DMA and what mends a short one, and how much of the lanes the
+  pixels take; `dgx_dsi_bench()` logs it, as a warning when the margin is
+  short. A library that cannot act on it hands the text on to its user. The
+  facts stay in the structure as they were (`fifo_drops`, `lanes_percent`,
+  `psram_mhz`, `chip_revision`), and `dgx_dsi_tune()` still refuses numbers
+  measured at another PSRAM clock.
+- **`src/bus/dsi_esp32.c` is written for a reader**: the long one-line
+  comments are wrapped, the quantities carry their units in their names
+  (`takes_us`, `cpu_row_cost`), the arithmetic that was repeated is in
+  small named functions (where the scan is, what asking the 2D DMA costs),
+  and `dgx_dsi_bench()` is three parts: the window and the cache, the copy,
+  the fill. The internal flags are named by the block they stand for,
+  `DGX_DSI_DMA2D`, `DGX_DSI_PPA_FILL`, `DGX_DSI_PPA_MIX`. No behaviour
+  changed; the two configurations build without warnings under IDF 6.0.1.
+- **SSD1309 driver** (`drivers/ssd1309.h`, `CONFIG_DGX_ENABLE_SSD1309`): the
+  monochrome OLED controller of the 2.42-inch modules, over SPI or I2C. It
+  takes the commands of the SSD1306 but has no charge pump, so the
+  constructor has no supply argument: `dgx_ssd1309_init(bus, resolution, rst)`
+  with `SSD1309_128X64` or `SSD1309_128X32`, and `dgx_ssd1309_contrast()`.
+  The init commands and their values are those of the u8g2 driver of the
+  controller (`u8x8_d_ssd1309.c`, BSD-2-Clause); the addressing mode is
+  horizontal, so a changed rectangle goes in one transfer like on the
+  SSD1306. `dgx_ssd1309_column_offset(scr, 2)` is for the modules that wire
+  the glass from segment 2, the "noname2" variant of u8g2. Checked by a host
+  test against a model of the controller (`test_ssd1309`) and by a build for
+  the ESP32, not yet on a panel.
+- **SH1106 driver** (`drivers/sh1106.h`, `CONFIG_DGX_ENABLE_SH1106`): the
+  controller of most 1.3-inch 128x64 OLED modules, over SPI or I2C. The
+  commands of the SSD1306, but 132 segments and the page addressing mode
+  only, so the driver sends a changed rectangle page by page with a page and
+  a column command before each. `dgx_sh1106_init(bus, resolution, rst)` with
+  `SH1106_128X64` or `SH1106_64X32`, `dgx_sh1106_contrast()`,
+  `dgx_sh1106_column_offset()` for a glass wired from another segment than
+  the usual (2 for 128 columns, 32 for 64, as in u8g2). The init commands are
+  the u8g2 sequence written for the SH1106 after its datasheet (the "winstar"
+  one of `u8x8_d_ssd1306_128x64_noname.c`, BSD-2-Clause) with the segment
+  remap and the scan direction of the generic sequence, so that the picture
+  lies as on an SSD1306 module. Checked by a host test against a model of
+  the controller (`test_sh1106`) and by a build for the ESP32, not on a
+  panel.
+
 ## 0.6.2 - 2026-10-17
 
 - **JD9365 driver** (`drivers/jd9365.h`, `CONFIG_DGX_ENABLE_JD9365`): an

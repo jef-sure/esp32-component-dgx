@@ -120,8 +120,10 @@ than 1 MB is copied in 10 seconds instead of 411 MB.
   `DGX_LUT_EXACT` to the call to get exactly the colors of the table; the
   screen then goes through its table.
 
-Both paths are enabled by `CONFIG_DGX_DSI_HARDWARE_COPY`, which is on by
-default; with it off the processor does everything.
+The 2D DMA is driven through a private interface of IDF, and in case a new
+IDF stops building it there is `CONFIG_DGX_DSI_PRIVATE_DMA2D`: on by default,
+off it hands the moves back to the processor. The fill and the mix by the
+accelerator do not depend on it.
 
 ## Scrolling
 
@@ -155,13 +157,13 @@ against the 2D DMA.
 dozen frames as fast as it can, while the bus watches the FIFO of the bridge
 that feeds the DSI host: how many times a frame it runs empty
 (`fifo_drops`). The structure also has how much of the lanes the pixels
-take (`lanes_percent`, by the timings). `dgx_dsi_advise()` reads the two and
-says how to use the display; it measures nothing, so a program can ask it
-with the numbers from NVS before it makes the display. `examples/dsi_demo`
-does so: at a start that finds the numbers in NVS the display gets two frame
-buffers when the advice says so; at the very first start, when the display
-was made before the measurement and the advice asks for two buffers, the
-example restarts once.
+take (`lanes_percent`, by the timings). Of this a program needs one decision, and `dgx_dsi_advise()` gives
+it: whether the display needs two frame buffers. It measures nothing, so a
+program can ask it with the numbers from NVS before it makes the display.
+`examples/dsi_demo` does so: at a start that finds the numbers in NVS the
+display gets two frame buffers when the advice says so; at the very first
+start, when the display was made before the measurement and the advice asks
+for two buffers, the example restarts once.
 
 ```c
 dgx_dsi_tuning_t tuning;
@@ -173,8 +175,23 @@ const dgx_dsi_frames_t frames = advice & DGX_DSI_ADVISE_TWO_FRAMES ? DgxDsiTwoFr
 | Flag | Means | What to do |
 | --- | --- | --- |
 | `DGX_DSI_ADVISE_TWO_FRAMES` | more than 15 drops a frame: with one frame buffer heavy drawing leaves the display short, and the screen flashes for a frame | `DgxDsiTwoFrames` |
-| `DGX_DSI_ADVISE_FASTER_PSRAM` | with the one above: the numbers were measured with PSRAM slower than this chip allows. The bus writes the chip revision into the structure itself; 250 MHz exists from revision 3 on | rebuild with `CONFIG_SPIRAM_SPEED_250M`; the second buffer is not needed then |
-| `DGX_DSI_ADVISE_FEWER_BITS` | the pixels take more than 85% of the lanes: the screen may flash with nothing drawn | 16 bits a pixel, or more lanes or a faster lane rate |
+
+The rest of what the numbers say is for the developer, not the program: the
+PSRAM clock and the color depth are settings of the build, the lanes and
+the panel are the board. `dgx_dsi_tuning_text()` puts it in words, one
+paragraph: the PSRAM clock and the chip revision; how often the display ran
+short of data under the 2D DMA and whether that is margin enough, and if
+not what mends it (two frame buffers, or a faster PSRAM clock if the chip
+has one); how much of the lanes the pixels take and whether that is too
+much for the color depth. `dgx_dsi_bench()` logs the same text, as a warning
+when the margin is short. A library that cannot act on it hands the text on
+to its user.
+
+```c
+char text[400];
+dgx_dsi_tuning_text(&tuning, text, sizeof(text));
+ESP_LOGI(TAG, "%s", text);
+```
 
 The limits were found by eye on the 10.1-inch JC8012P4A1C, chip revision
 3.2, IDF 6.0.1: 16 bits, PSRAM at 200 MHz gave 29 to 33 drops a frame, a

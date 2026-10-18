@@ -27,7 +27,7 @@ static const char *TAG = "dgx_dsi_demo";
 static dgx_bus_protocols_t *demo_bus;
 
 /* a number of its own for every build that is looked at on a display */
-#define BUILD 333
+#define BUILD 335
 
 #ifdef CONFIG_EXAMPLE_BOARD_JC8012P4A1C
 /* Guition JC8012P4A1C: a 10.1-inch 800x1280 display with a JD9365 on two DSI lanes */
@@ -371,15 +371,9 @@ static void demo_tuning_card(dgx_screen_t *screen)
         y += step;
     }
     y += step / 2;
-    snprintf(line, sizeof(line), "advice: %s%s%s", n->advice ? "" : "margin enough", n->advice & DGX_DSI_ADVISE_TWO_FRAMES ? "two frame buffers " : "",
-             n->advice & DGX_DSI_ADVISE_FEWER_BITS ? "16 bits a pixel" : "");
+    snprintf(line, sizeof(line), "advice: %s", n->advice & DGX_DSI_ADVISE_TWO_FRAMES ? "two frame buffers" : "margin enough");
     demo_text(screen, left, y, line, yellow);
     y += step;
-    if (n->advice & DGX_DSI_ADVISE_FASTER_PSRAM) {
-        snprintf(line, sizeof(line), "or PSRAM at 250 MHz: chip v%u.%u has it", (unsigned)(b->chip_revision / 100), (unsigned)(b->chip_revision % 100));
-        demo_text(screen, left, y, line, yellow);
-        y += step;
-    }
     snprintf(line, sizeof(line), "display: %s, by the %s", n->frames == DgxDsiTwoFrames ? "two frame buffers" : "one frame buffer", n->by_advice ? "advice" : "menu");
     demo_text(screen, left, y, line, white);
     y += step;
@@ -519,13 +513,11 @@ static void demo_tune(dgx_bus_protocols_t *bus, dgx_screen_t *screen, const dgx_
     const dgx_dsi_tuning_t *t = &n->tuning;
     ESP_LOGI(TAG, "the bus puts %u KB/ms through a window, the cache brings out %u KB/ms, the 2D DMA copies %u KB/ms; rows by the 2D DMA from %u bytes",
              (unsigned)t->window_kb_a_ms, (unsigned)t->out_kb_a_ms, (unsigned)t->dma_kb_a_ms, (unsigned)t->rows_from);
-    /* what the numbers say about this board, see dgx_dsi_advise() */
+    /* what the numbers say about this board: the one thing the program acts on, and the whole story in words for the developer */
     n->advice = dgx_dsi_advise(t);
-    ESP_LOGI(TAG, "the pixels take %u%% of the lanes, the display runs short of data %u times a frame under the 2D DMA: %s%s%s%s", (unsigned)t->lanes_percent,
-             (unsigned)t->fifo_drops, n->advice ? "" : "margin enough",
-             n->advice & DGX_DSI_ADVISE_TWO_FRAMES ? "with one frame buffer heavy drawing will flash, give it two. " : "",
-             n->advice & DGX_DSI_ADVISE_FASTER_PSRAM ? "Or build with CONFIG_SPIRAM_SPEED_250M: this chip has it. " : "",
-             n->advice & DGX_DSI_ADVISE_FEWER_BITS ? "the lanes are nearly full, use 16 bits a pixel." : "");
+    char text[400];
+    dgx_dsi_tuning_text(t, text, sizeof(text));
+    ESP_LOGI(TAG, "%s", text);
     /* measured only now, and the advice asks for two frame buffers the display was not given: the next start reads the numbers and makes it so */
     n->restart = n->measured && n->kept && n->frames == DgxDsiOneFrame && (n->advice & DGX_DSI_ADVISE_TWO_FRAMES);
 }
