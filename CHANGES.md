@@ -1,5 +1,35 @@
 # Changes
 
+## 0.6.4 - 2026-10-18
+
+- **`DGX_LUT_SCALE(n)` makes `dgx_vscreen8_to_screen16()` and
+  `dgx_vscreen8_region_to_screen16()` show the picture n times as large**,
+  every pixel a square of n by n, n up to 255. A 320x200 game picture fills
+  a 1280x800 display with `DGX_LUT_SCALE(4)` in one call. The pixels are
+  repeated, never blended, and a destination may cut a square on its edges.
+  It is a flag rather than a new function, so the family of transfer calls
+  does not grow.
+- **`DGX_LUT_SMOOTH` smooths a picture scaled by 2 or 4 with Scale2x**, on
+  the indices before the table: once at 2, twice at 4. A corner of a square
+  where two equal neighbours meet, while the other two differ, takes their
+  index, so the steps of a slanted edge are filled in. A region looks past
+  its edges into the source for their neighbours and gives the same pixels
+  as the whole source; past the edges of the source its last pixel goes on.
+  This is the smoothing of the game engine built on DGX, pixel for pixel; on
+  a DSI display it is made in the panel's order like the plain scale, with
+  no picture of the larger size in between.
+- **An 8-bit screen goes to a turned DSI display the same way as to an
+  upright one.** Through the window, a screen rotated by 90 degrees wrote
+  each pixel a whole panel row away from the previous one. The bus now has
+  an optional function, `write_indexed`: the processor looks the indices
+  up and writes the colors in the panel's own order into internal RAM,
+  scaled and smoothed if asked, and the 2D DMA moves each band into the
+  frame buffer while the next one is being made. It replaces the strips
+  through `write_rows`, which served only a screen neither mirrored nor
+  rotated. On the 10.1-inch JC8012P4A1C turned
+  to 1280x800, a 320x200 game frame at `DGX_LUT_SCALE(4)` now takes 17 ms
+  instead of 123–157, and 40 ms smoothed instead of about 145.
+
 ## 0.6.3 - 2026-10-18
 
 - **`CONFIG_DGX_DSI_HARDWARE_COPY` is now `CONFIG_DGX_DSI_PRIVATE_DMA2D`**

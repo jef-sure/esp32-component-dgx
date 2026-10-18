@@ -249,6 +249,10 @@ struct _dgx_dsi_bus_t {
     dma2d_trans_t      *dma_trans;
     SemaphoreHandle_t   dma_done;
     bool                dma_exchange; /* the transfer under way exchanges the bytes of 16-bit pixels */
+    /* the transfer under way: no piece was being copied when it started, its bytes, when it started */
+    bool                dma_undisturbed;
+    uint32_t            dma_bytes;
+    uint32_t            dma_started_us;
 #endif
 #if DGX_DSI_PPA_FILL
     /* the accelerator that fills rectangles; NULL when there is none: the processor fills then */
@@ -703,10 +707,12 @@ static inline void dgx_dsi_fifo_look(dgx_dsi_fifo_watch_t *watch)
 }
 
 /*
- * Move a rectangle of `width` by `rows` pixels by the 2D DMA and wait until
- * it is there. `from` and `to` are the first rows of the rectangle in their
- * pictures, rows of `from_stride` pixels and of the width of the panel, and
- * the rectangle starts at the columns `from_x` and `to_x` of them.
+ * Start moving a rectangle of `width` by `rows` pixels by the 2D DMA;
+ * dgx_dsi_dma_wait() waits until it is there, and nothing else may be moved
+ * by the DMA of the bus before that. `from` and `to` are the first rows of
+ * the rectangle in their pictures, rows of `from_stride` pixels and of the
+ * width of the panel, and the rectangle starts at the columns `from_x` and
+ * `to_x` of them.
  *
  * The DMA reads and writes memory itself, so what the cache holds of the
  * source is brought out first, and what it holds of the place written is
@@ -716,8 +722,8 @@ static inline void dgx_dsi_fifo_look(dgx_dsi_fifo_watch_t *watch)
  * `behind_scan` makes it start when the display is not reading the rows:
  * the DMA writes faster than the display reads and stays ahead of it.
  */
-static bool dgx_dsi_dma(dgx_dsi_bus_t *bus, const uint8_t *from, uint32_t from_stride, uint32_t from_x, uint8_t *to, uint32_t to_x, uint32_t width,
-                        uint32_t rows, bool exchange, bool behind_scan)
+static bool dgx_dsi_dma_start(dgx_dsi_bus_t *bus, const uint8_t *from, uint32_t from_stride, uint32_t from_x, uint8_t *to, uint32_t to_x,
+                              uint32_t width, uint32_t rows, bool exchange, bool behind_scan)
 {
     const uint32_t bytes      = bus->area.pixel_bytes;
     const size_t   to_pitch   = (size_t)bus->area.fb_width * bytes;
@@ -748,9 +754,15 @@ static bool dgx_dsi_dma(dgx_dsi_bus_t *bus, const uint8_t *from, uint32_t from_s
     config.user_config   = bus;
     xSemaphoreTake(bus->dma_done, 0); /* nothing is left over from a transfer that was given up */
     /* a transfer with no piece being copied meanwhile tells how fast the 2D DMA is here */
-    const bool     undisturbed = bus->late && !bus->late->left;
-    const uint32_t started_us  = (uint32_t)esp_timer_get_time();
-    if (dma2d_enqueue(bus->dma_pool, &config, bus->dma_trans) != ESP_OK) return false;
+    bus->dma_undisturbed = bus->late && !bus->late->left;
+    bus->dma_bytes       = width * rows * bytes;
+    bus->dma_started_us  = (uint32_t)esp_timer_get_time();
+    return dma2d_enqueue(bus->dma_pool, &config, bus->dma_trans) == ESP_OK;
+}
+
+/* wait until what dgx_dsi_dma_start() has started is there */
+static void dgx_dsi_dma_wait(dgx_dsi_bus_t *bus)
+{
     if (bus->watch) {
         /* dgx_dsi_bench() looks at the FIFO of the bridge all the while */
         while (!uxSemaphoreGetCount(bus->dma_done)) {
@@ -759,9 +771,17 @@ static bool dgx_dsi_dma(dgx_dsi_bus_t *bus, const uint8_t *from, uint32_t from_s
     }
     xSemaphoreTake(bus->dma_done, portMAX_DELAY);
     /* how fast the 2D DMA is here is what tells whether a piece may be left for later */
-    if (undisturbed && !bus->late->left) {
-        dgx_dsi_late_timed(bus->late, width * rows * bytes, (uint32_t)esp_timer_get_time() - started_us);
+    if (bus->dma_undisturbed && !bus->late->left) {
+        dgx_dsi_late_timed(bus->late, bus->dma_bytes, (uint32_t)esp_timer_get_time() - bus->dma_started_us);
     }
+}
+
+/* move a rectangle by the 2D DMA as dgx_dsi_dma_start() tells, and wait until it is there */
+static bool dgx_dsi_dma(dgx_dsi_bus_t *bus, const uint8_t *from, uint32_t from_stride, uint32_t from_x, uint8_t *to, uint32_t to_x, uint32_t width,
+                        uint32_t rows, bool exchange, bool behind_scan)
+{
+    if (!dgx_dsi_dma_start(bus, from, from_stride, from_x, to, to_x, width, rows, exchange, behind_scan)) return false;
+    dgx_dsi_dma_wait(bus);
     return true;
 }
 
@@ -1388,6 +1408,85 @@ static bool dgx_dsi_write_rows(struct _dgx_bus_protocols_t *_bus, uint16_t left,
     bus->rows_written = true;
     return true;
 }
+
+/* bytes of a band a picture of indices is made into on its way to the frame buffer; there are two of them */
+#ifndef DGX_DSI_INDEXED_BAND_BYTES
+#define DGX_DSI_INDEXED_BAND_BYTES 32768u
+#endif
+
+/*
+ * A picture of 8-bit indices through a table of colors, every index a
+ * square of `scale` pixels, smoothed by Scale2x when asked. Rows of the
+ * panel are made by the processor in a band of internal memory, in the
+ * order the panel has them however the screen lies on it, and the 2D DMA
+ * moves the band into the frame buffer while the processor makes the next
+ * one. A turned screen this way is not written pixel by pixel through the
+ * window, each pixel a row of the panel away from the one before.
+ */
+static bool dgx_dsi_write_indexed(struct _dgx_bus_protocols_t *_bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
+                                  const dgx_bus_indexed_t *picture)
+{
+    dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)_bus;
+    if (!bus->area.fb || bus->area.pixel_bytes != 2 || bus->area.swap_rb || !picture->scale) return false;
+    if ((uint32_t)width * height * 2u < bus->tuning.rows_from) return false;
+    if ((uint32_t)left + width > dgx_fb_area_width(&bus->area) || (uint32_t)top + height > dgx_fb_area_height(&bus->area)) return false;
+    uint16_t x0, y0, x1, y1;
+    dgx_fb_area_to_panel(&bus->area, left, left + width - 1, top, top + height - 1, &x0, &y0, &x1, &y1);
+    const uint32_t columns   = (uint32_t)x1 - x0 + 1u;
+    const uint32_t rows      = (uint32_t)y1 - y0 + 1u;
+    const uint32_t row_bytes = columns * 2u;
+    uint32_t       band_rows = DGX_DSI_INDEXED_BAND_BYTES / row_bytes;
+    if (band_rows < 1) band_rows = 1;
+    if (band_rows > rows) band_rows = rows;
+    /*
+     * Two bands, and what a smoothed picture is made in on its way, each a
+     * block of its own: three smaller blocks find room in internal memory
+     * where one large one may not, and a band left to the PSRAM is slower
+     * both to make and to move.
+     */
+    const size_t band_bytes = (size_t)band_rows * row_bytes;
+    uint8_t     *band[2]    = {bus->protocols.memory_allocator((uint32_t)band_bytes), bus->protocols.memory_allocator((uint32_t)band_bytes)};
+    uint8_t     *scratch    = bus->protocols.memory_allocator((uint32_t)dgx_fb_area_indexed_scratch(columns));
+    if (!band[0] || !band[1] || !scratch) {
+        free(band[0]);
+        free(band[1]);
+        free(scratch);
+        return false;
+    }
+    static bool told;
+    if (!told && (!esp_ptr_internal(band[0]) || !esp_ptr_internal(band[1]))) {
+        told = true;
+        ESP_LOGW(TAG, "no %u bytes of internal memory for a band of indices, the largest block is %u: the band is in the PSRAM, which is slower",
+                 (unsigned)band_bytes, (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    }
+    if (bus->frames == 2) {
+        dgx_dsi_draw_ready(bus);
+        if (dgx_dsi_late_busy(bus)) dgx_dsi_late_clear(bus, x0, y0, x1, y1);
+        /* every pixel of the rectangle is written: of its tiles only what lies outside it is brought up to date */
+        dgx_dsi_tiles_ready(bus, left, left + width - 1, top, top + height - 1, true, true);
+    }
+    const size_t pitch_fb = (size_t)bus->area.fb_width * 2u;
+    bool         moving   = false;
+    for (uint32_t r = 0, k = 0; r < rows; r += band_rows, k ^= 1u) {
+        const uint32_t n    = rows - r < band_rows ? rows - r : band_rows;
+        /* made while the DMA moves the band before it */
+        dgx_fb_area_indexed_rows(&bus->area, band[k], left, top, width, height, picture, (uint16_t)r, (uint16_t)n, scratch);
+        if (moving) dgx_dsi_dma_wait(bus);
+        uint8_t *to = bus->area.fb + (size_t)(y0 + r) * pitch_fb;
+        moving      = dgx_dsi_dma_start(bus, band[k], columns, 0, to, x0, columns, n, false, bus->after_scan);
+        if (!moving) {
+            /* the DMA has not taken it: the processor copies the band */
+            for (uint32_t i = 0; i < n; ++i) memcpy(to + (size_t)i * pitch_fb + (size_t)x0 * 2u, band[k] + (size_t)i * row_bytes, row_bytes);
+            dgx_dsi_bring_out(to + (size_t)x0 * 2u, (size_t)(n - 1u) * pitch_fb + row_bytes);
+        }
+    }
+    if (moving) dgx_dsi_dma_wait(bus);
+    free(band[0]);
+    free(band[1]);
+    free(scratch);
+    bus->rows_written = true;
+    return true;
+}
 #endif
 
 static inline void dgx_dsi_written(dgx_dsi_bus_t *bus)
@@ -1752,7 +1851,8 @@ bool dgx_dsi_video_setup(dgx_bus_protocols_t *_bus, const dgx_dsi_video_t *video
 #if DGX_DSI_DMA2D
     dgx_dsi_dma_init(bus);
     if (bus->dma_pool) {
-        bus->protocols.write_rows = dgx_dsi_write_rows;
+        bus->protocols.write_rows    = dgx_dsi_write_rows;
+        bus->protocols.write_indexed = dgx_dsi_write_indexed;
         if (two) {
             bus->tiles.copier         = dgx_dsi_dma2d_copy;
             bus->tiles.copier_context = bus;

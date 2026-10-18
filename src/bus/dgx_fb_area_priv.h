@@ -17,6 +17,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "../dgx_indexed_priv.h"
+
 #ifdef __cplusplus
 // @formatter:off
 extern "C" {
@@ -137,6 +139,29 @@ static inline void dgx_fb_area_point_to_panel(const dgx_fb_area_t *area, int x, 
     uint32_t ax = area->swap_xy ? (uint32_t)y : (uint32_t)x, ay = area->swap_xy ? (uint32_t)x : (uint32_t)y;
     *px = (uint16_t)(area->mirror_x ? area->fb_width - 1u - ax : ax);
     *py = (uint16_t)(area->mirror_y ? area->fb_height - 1u - ay : ay);
+}
+
+/**
+ * @brief Make rows of the panel from a picture of 8-bit indices through a table of colors.
+ *
+ * The rectangle `left, top, width, height` of the screen lies on the panel
+ * as dgx_fb_area_to_panel() tells. This makes `rows` of its rows on the
+ * panel, from its row `first` on, counted from its top there, into `to`:
+ * one after another, as many pixels a row as the rectangle is wide on the
+ * panel, in the byte order of the frame buffer. They are ready to be copied
+ * into it as they are, whatever the orientation. Only for 2 bytes a pixel
+ * and red and blue as the panel takes them.
+ *
+ * @param picture What goes into the rectangle, see dgx_bus_indexed_t.
+ * @param scratch dgx_fb_area_indexed_scratch() bytes, for a smoothed picture; NULL will do for one that is not.
+ */
+void dgx_fb_area_indexed_rows(const dgx_fb_area_t *area, uint8_t *to, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
+                              const dgx_bus_indexed_t *picture, uint16_t first, uint16_t rows, uint8_t *scratch);
+
+/** @brief Bytes of scratch dgx_fb_area_indexed_rows() needs for a smoothed picture in a rectangle `columns` wide on the panel. */
+static inline size_t dgx_fb_area_indexed_scratch(uint32_t columns)
+{
+    return dgx_indexed_lines_scratch(columns);
 }
 
 /**

@@ -69,6 +69,23 @@ dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src);
  * nothing where there is no such hardware.
  */
 #define DGX_LUT_EXACT 2u
+/**
+ * Every pixel of the source as a square of @p n by @p n pixels of the
+ * destination, @p n from 1 to 255; 0 and 1 are the same as no scale. A
+ * 320x200 picture of a game is shown on a 1280x800 display with
+ * DGX_LUT_SCALE(4). The pixels are repeated, not mixed.
+ */
+#define DGX_LUT_SCALE(n) (((uint32_t)(n) & 0xffu) << 8)
+/**
+ * With DGX_LUT_SCALE(2) or DGX_LUT_SCALE(4), the picture is made larger by
+ * Scale2x on the indices, once at 2 and twice at 4: a corner of a square
+ * where two equal neighbours meet, and the other two differ, takes their
+ * index, so the steps of a slanted edge are filled in. It looks past the
+ * region into the source for the neighbours of its edge, so a region gives
+ * the pixels the whole source gives there; past the edges of the source its
+ * last pixel goes on. At any other scale it changes nothing.
+ */
+#define DGX_LUT_SMOOTH 4u
 
 /**
  * @brief Expand an 8-bit indexed virtual screen into a 16-bit destination through a LUT.
@@ -84,14 +101,21 @@ dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src);
  * from the table by a step of red, green or blue: 3.2% of the range of red
  * or blue, 1.6% of green. A table is taken for such when none of its colors
  * is further than a step from the straight way between its first and its
- * last, and nothing is transparent. DGX_LUT_EXACT in @p flags asks for the
- * colors of the table whatever it is.
+ * last, nothing is transparent and nothing is scaled. DGX_LUT_EXACT in
+ * @p flags asks for the colors of the table whatever it is.
+ *
+ * DGX_LUT_SCALE(n) in @p flags makes the picture n times as large: the
+ * source goes to a rectangle n times as wide and n times as high. A DSI
+ * display of an ESP32-P4 makes the colors and the squares by the processor
+ * straight in the order of its panel and moves them in by the 2D DMA, the
+ * same way in every orientation: a turned screen does not go pixel by pixel
+ * through the window.
  *
  * @param _scr_dst     Destination 16-bit screen.
  * @param x_dst,y_dst  Top-left placement on the destination.
  * @param _scr_src     Source 8-bit indexed virtual screen.
  * @param lut          256-entry RGB565 lookup table.
- * @param flags        0, or DGX_LUT_TRANSPARENT and DGX_LUT_EXACT added together.
+ * @param flags        0, or DGX_LUT_TRANSPARENT, DGX_LUT_EXACT, DGX_LUT_SCALE(n) and DGX_LUT_SMOOTH added together.
  */
 void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint16_t *lut, uint32_t flags);
 
@@ -103,16 +127,18 @@ void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_
  * in the same place. As with dgx_vscreen_region_to_screen(), @p x_dst and
  * @p y_dst are where the corner of the region goes, not of the whole source:
  * a region taken at (x_src, y_src) of a source shown at (x, y) goes to
- * (x + x_src, y + y_src). The region is cut by the source and by the
- * destination; nothing is done when nothing is left of it.
+ * (x + x_src, y + y_src), and with DGX_LUT_SCALE(n) to
+ * (x + n * x_src, y + n * y_src). The region is cut by the source and by the
+ * destination; nothing is done when nothing is left of it. A destination
+ * may cut a square of a scaled pixel in the middle.
  *
  * @param _scr_dst         Destination 16-bit screen.
  * @param x_dst,y_dst      Where the top-left corner of the region goes on the destination.
  * @param _scr_src         Source 8-bit indexed virtual screen.
  * @param x_src,y_src      Top-left corner of the region in the source.
- * @param width,height     Size of the region.
+ * @param width,height     Size of the region in the source.
  * @param lut              256-entry RGB565 lookup table.
- * @param flags            0, or DGX_LUT_TRANSPARENT and DGX_LUT_EXACT added together.
+ * @param flags            0, or DGX_LUT_TRANSPARENT, DGX_LUT_EXACT, DGX_LUT_SCALE(n) and DGX_LUT_SMOOTH added together.
  */
 void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width,
                                      int height, uint16_t *lut, uint32_t flags);

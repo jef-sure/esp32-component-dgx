@@ -1092,8 +1092,8 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_vscreen_to_screen(dst, x, y, src)` | Push a RAM screen to any destination (incl. hardware). |
 | `dgx_vscreen_region_to_screen(dst, x, y, src, x_src, y_src, w, h)` | Push a sub-region. |
 | `dgx_vscreen_to_screen_oriented(...)` / `dgx_vscreen_region_to_screen_oriented(...)` | Oriented variants. |
-| `dgx_vscreen8_to_screen16(dst, x, y, src, lut, flags)` | Expand an 8-bit indexed screen into 16-bit through a LUT. `flags` is 0 or `DGX_LUT_TRANSPARENT` (a pixel of index 0 is not put; `true` means the same) and `DGX_LUT_EXACT` (the colors of the table to the last bit, no hardware that mixes two colors) added together. |
-| `dgx_vscreen8_region_to_screen16(dst, x, y, src, x_src, y_src, w, h, lut, flags)` | The same for a sub-region; `x`, `y` are where the corner of the region goes. |
+| `dgx_vscreen8_to_screen16(dst, x, y, src, lut, flags)` | Expand an 8-bit indexed screen into 16-bit through a LUT. `flags` is 0 or `DGX_LUT_TRANSPARENT` (a pixel of index 0 is not put; `true` means the same), `DGX_LUT_EXACT` (the colors of the table to the last bit, no hardware that mixes two colors) `DGX_LUT_SCALE(n)` (every pixel a square of n by n, n up to 255) and `DGX_LUT_SMOOTH` (with a scale of 2 or 4, Scale2x on the indices instead of plain squares) added together. |
+| `dgx_vscreen8_region_to_screen16(dst, x, y, src, x_src, y_src, w, h, lut, flags)` | The same for a sub-region; `x`, `y` are where the corner of the region goes, and with `DGX_LUT_SCALE(n)` the region covers `n * w` by `n * h` there. |
 | `dgx_image_blit(dst, x, y, image, how)` | Draw a picture of 1, 4 or 8 bits from flash or RAM (`dgx_image.h`) into a linear 8-bit screen: value 0 transparent, a map or one color for the others, clipped, mirrored or rotated around its origin. Returns `ESP_ERR_NOT_SUPPORTED` for another destination. |
 | `dgx_bw_init(width, height)` | Allocate a 1-bit monochrome RAM screen. |
 | `dgx_vscreen_2h_init(left, right)` | Compose two screens as one wide logical screen. |

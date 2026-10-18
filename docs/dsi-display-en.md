@@ -333,9 +333,11 @@ mirror and swapped axes, eight combinations.
 The drawing functions the bus gives the screen are `set_pixel`, `get_pixel`,
 `fill_rectangle` and `update_screen`. They put a pixel and a rectangle into
 the frame buffer directly, without a window. On top of them the DSI bus has
-two optional functions no other bus has: `write_rows` takes rows of pixels
+three optional functions no other bus has: `write_rows` takes rows of pixels
 from memory and puts them into a rectangle of the screen, see "A virtual
-screen put to the display"; `move` moves a rectangle of the screen to
+screen put to the display"; `write_indexed` does the same with 8-bit indices
+through a colour table, see "An 8-bit screen through a colour table";
+`move` moves a rectangle of the screen to
 another place on it, see "A picture scrolled".
 
 ## Byte order
@@ -1700,14 +1702,53 @@ scan the bus waits before starting for the scan to leave the rows.
 ### An 8-bit screen through a colour table
 
 A screen of 8 bits a pixel goes to a 16-bit display through a colour table,
-`dgx_vscreen8_region_to_screen16()`. It has no ready rows in colours. The
-processor used to translate pixels into the window buffer, 4 KB, and carry
-them into the frame buffer itself. Now, when the bus takes rows, the colours
-are prepared in strips of up to 64 KB in memory the bus provides, internal
-RAM for DSI, and each strip goes through `write_rows`. The memory is taken
-for the duration of the call. A strip the bus did not take goes through a
-window; if the bus declined the first one, the whole rectangle goes through
-a window.
+`dgx_vscreen8_region_to_screen16()`. It has no ready rows in colours. For
+it the bus has a third optional function, `write_indexed`: "take a picture
+of indices, a colour table and a scale, and put the picture into a
+rectangle of the screen". The DSI bus makes rows of the panel from the
+indices. The processor reads an index, looks it up in the table, repeats the
+colour as many times as the scale asks, and writes it straight in the order
+the panel keeps its pixels, whatever the orientation. A row of the panel
+that has the same indices as the one above it is a copy of that row. The
+rows go into one of two bands of 32 KB of internal RAM, and while the 2D DMA
+moves one band into the frame buffer, the processor makes the next. The
+memory is taken for the duration of the call. The bus takes the job on the
+same conditions as `write_rows`, except the orientation: 16-bit pixels, red
+and blue as the panel takes them, at least the `rows_from` bytes of
+"Measuring the board". A rectangle the bus declines goes through a window.
+
+This is what makes a turned screen fast. Through a window, a screen rotated
+by 90 degrees writes each pixel a row of the panel away from the one before,
+1600 bytes on the 10" panel, and the cache brings in a line of 64 bytes for
+every 2 bytes written. The same path serves `DGX_LUT_SCALE(n)`: a 320x200
+game picture goes to a 1280x800 screen with every pixel a 4x4 square. The
+processor reads 64 000 indices, and three of every four rows of the panel
+are copies. With `DGX_LUT_SMOOTH` as well, every row of the panel is a line
+of the picture smoothed by Scale2x, a row of it or a column of it: Scale2x
+gives the same picture whichever way it is turned, so it is computed along
+the panel's rows directly. The lines of the picture at half the size that a
+line needs are kept, four of them, and the next row of the panel reuses
+them.
+
+JC8012P4A1C (10"), JD9365, ESP32-P4 revision 3.2, PSRAM at 250 MHz, 256 KB
+cache, IDF 6.0.1 at `-O2`, two buffers, the screen turned to 1280x800
+landscape (axes swapped). A game frame of 320x200 indices goes to the whole
+screen at `DGX_LUT_SCALE(4)`, measured inside the Prince of Persia port.
+"The call" is `dgx_vscreen8_region_to_screen16()`, "the frame" is the whole
+picture of the game, before is 0.6.3 through the window.
+
+| | Frame before | Frame now | The call | Of it, the processor making rows | Of it, waiting for the DMA |
+| --- | --- | --- | --- | --- | --- |
+| Squares | 123–157 ms | 16.8–17.6 ms | 10.9–11.1 ms | 8.1 ms | 0.2 ms |
+| Smoothed, `DGX_LUT_SMOOTH` | about 145 ms | 39.9–40.6 ms | 33.9–34.0 ms | 30.9–31.1 ms | 0.2 ms |
+
+The DMA keeps up with the processor; what is left is making the rows. The
+smoothed frame before was the game's own Scale2x, 26 ms on this board,
+followed by the window.
+
+Before `write_indexed` the colours were prepared in strips of up to 64 KB
+and each strip went through `write_rows`, which took only a screen neither
+mirrored nor rotated. The table below measures that path.
 
 The `hw_soft_pen_demo` example: every frame a rectangle of 367 thousand
 pixels from a 1024x600 page goes to the display. JD9165 (7"), two buffers,
@@ -2449,4 +2490,5 @@ built.
 | 0.5.5 | `dgx_scroll()` on DSI pixel by pixel through the screen: right, but half a second for the whole screen |
 | 0.5.6 | the bus function `move`: scroll by rows of the frame buffer |
 | 0.6.2 | the JD9365 driver and the JD9365 (10"), the first board with a revision 3 chip; the PSRAM margin check in the board measurement, the fields `fifo_drops`, `lanes_percent`, `psram_mhz`, `chip_revision`; `dgx_dsi_advise()` |
-| unreleased | the option `CONFIG_DGX_DSI_HARDWARE_COPY` became `CONFIG_DGX_DSI_PRIVATE_DMA2D` and turns off only the 2D DMA through the private interface; the PPA is built with no option. `dgx_dsi_advise()` keeps one flag, `DGX_DSI_ADVISE_TWO_FRAMES`; the rest is words in `dgx_dsi_tuning_text()` and in the log of the measurement |
+| 0.6.3 | the option `CONFIG_DGX_DSI_HARDWARE_COPY` became `CONFIG_DGX_DSI_PRIVATE_DMA2D` and turns off only the 2D DMA through the private interface; the PPA is built with no option. `dgx_dsi_advise()` keeps one flag, `DGX_DSI_ADVISE_TWO_FRAMES`; the rest is words in `dgx_dsi_tuning_text()` and in the log of the measurement |
+| 0.6.4 | the bus function `write_indexed`: an 8-bit screen through a colour table goes to the panel in its own order by the 2D DMA, in every orientation, and with `DGX_LUT_SCALE(n)` every pixel a square of n by n, smoothed by Scale2x with `DGX_LUT_SMOOTH`; the strips through `write_rows` are gone |

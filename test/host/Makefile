@@ -6,13 +6,11 @@ CC      ?= gcc
 CFLAGS  ?= -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer
 # -Wno-format: ESP32 logs print size_t with %u, which is 32-bit only there.
 CFLAGS  += -std=gnu11 -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -Wno-format
-# a small band, for a transfer of the tests to take several of them
-CFLAGS  += -DDGX_VSCREEN8_BAND_BYTES=200u
 CPPFLAGS += -Istubs -I$(ROOT)/include -I$(ROOT)/src -include stubs/esp_log.h
 LDLIBS  += -lm
 
 LIB_SRCS := $(addprefix $(ROOT)/src/, matrix.c morph.c morph_sources.c morph_render.c \
-              font.c pixels.c ellipse.c scroll.c hw_font.c hw_morph.c font_morph.c bitmap.c draw.c bezier.c texture.c orientation.c drivers/vscreen.c image.c lut.c \
+              font.c pixels.c ellipse.c scroll.c hw_font.c hw_morph.c font_morph.c bitmap.c draw.c bezier.c texture.c orientation.c drivers/vscreen.c image.c lut.c indexed.c \
               bw_screen.c dgx_bus_optimized_funcs.c dgx_spi_area_protocol.c gauge.c bus/fb_area.c bus/fb_tiles.c bus/fb_flip.c) \
             $(wildcard $(ROOT)/src/fonts/*.c)
 

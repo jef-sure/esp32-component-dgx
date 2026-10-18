@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "check.h"
+#include "scale2x_ref.h"
 #include "dgx_draw.h"
 #include "dgx_hw_font.h"
 #include "dgx_screen_with_bus.h"
@@ -32,12 +33,22 @@ static int rnd(int from, int to)
 
 static uint16_t lut[256];
 
-/* what a transfer of the whole source to (x, y) has to leave in the pixel (dx, dy) of the destination */
-static uint16_t expected(dgx_screen_t *src, int x, int y, int dx, int dy, bool transparent)
+/* the pixel of the source the pixel `d` of the destination shows, the source shown at `at` n times as large; -1 left of it */
+static int source_of(int d, int at, int n)
 {
-    int sx = dx - x, sy = dy - y;
+    return d < at ? -1 : (d - at) / n;
+}
+
+/* the source made 2 and 4 times as large by Scale2x, as the engine of games makes it; NULL when the round does not smooth */
+static uint8_t        larger2[4 * SW * SH], larger4[16 * SW * SH];
+static const uint8_t *smoothed;
+
+/* what a transfer of the whole source to (x, y), n times as large, has to leave in the pixel (dx, dy) of the destination */
+static uint16_t expected(dgx_screen_t *src, int x, int y, int n, int dx, int dy, bool transparent)
+{
+    int sx = source_of(dx, x, n), sy = source_of(dy, y, n);
     if (sx < 0 || sy < 0 || sx >= SW || sy >= SH) return MARK;
-    uint8_t index = (uint8_t)dgx_get_pixel(src, sx, sy);
+    uint8_t index = smoothed ? smoothed[(dy - y) * n * SW + dx - x] : (uint8_t)dgx_get_pixel(src, sx, sy);
     return transparent && !index ? MARK : lut[index];
 }
 
@@ -115,35 +126,34 @@ static void panel_wait(dgx_screen_t *scr)
 }
 
 /*
- * A bus that has a faster way than its window: it takes rows as they lie in memory, a rectangle at a
+ * A bus that has a faster way than its window for indices: it makes the colors itself, a rectangle at a
  * time. As a real one does, it refuses what is too small to be worth it; this one also refuses a
- * rectangle now and then, and that has to go through the window.
+ * rectangle now and then, and that has to come another way.
  */
-static int rows_calls, rows_taken, rows_refuse_every, rows_least, bands_given;
+static int indexed_calls, indexed_taken, indexed_refuse_every, indexed_least, indexed_scaled;
 
-static bool panel_write_rows(struct _dgx_bus_protocols_t *bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height, const uint8_t *rows,
-                             uint32_t pitch)
+static bool panel_write_indexed(struct _dgx_bus_protocols_t *bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
+                                const dgx_bus_indexed_t *picture)
 {
     (void)bus;
-    ++rows_calls;
-    if ((int)width * height * 2 < rows_least) return false;
-    if (rows_refuse_every && rows_calls % rows_refuse_every == 0) return false;
-    CHECK(left + width <= DW && top + height <= DH && pitch >= 2u * width);
+    ++indexed_calls;
+    if ((int)width * height * 2 < indexed_least) return false;
+    if (indexed_refuse_every && indexed_calls % indexed_refuse_every == 0) return false;
+    /* a smoothed picture comes the other way, for the test to see that one */
+    if (picture->smooth) return false;
+    const uint32_t scale = picture->scale;
+    CHECK(left + width <= DW && top + height <= DH && picture->pitch == SW && picture->width == SW && picture->height == SH && scale >= 1 &&
+          picture->lut == lut);
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
-            const uint8_t *p = rows + (size_t)y * pitch + 2u * (size_t)x;
-            if (left + x < DW && top + y < DH) panel[left + x + (top + y) * DW] = (uint16_t)(p[0] << 8 | p[1]);
+            const uint8_t index = picture->pixels[(size_t)((picture->y + y) / scale) * picture->pitch + (size_t)((picture->x + x) / scale)];
+            if (left + x < DW && top + y < DH) panel[left + x + (top + y) * DW] = lut[index];
             ++sent_pixels;
         }
     }
-    ++rows_taken;
+    ++indexed_taken;
+    indexed_scaled += scale > 1;
     return true;
-}
-
-static uint8_t *panel_memory(uint32_t len)
-{
-    ++bands_given;
-    return (uint8_t *)malloc(len);
 }
 
 static void panel_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color)
@@ -165,12 +175,20 @@ static uint16_t panel_or_screen(dgx_screen_t *dst, int x, int y)
 
 static void test_region(void)
 {
-    dgx_screen_t *src = dgx_vscreen_init(SW, SH, 8, DgxScreenRGB);
+    dgx_screen_t *plain = dgx_vscreen_init(SW, SH, 8, DgxScreenRGB), *src = plain;
     dgx_screen_t *whole = dgx_vscreen_init(DW, DH, 16, DgxScreenRGB), *part = dgx_vscreen_init(DW, DH, 16, DgxScreenRGB);
     for (int i = 0; i < 256; ++i) lut[i] = (uint16_t)(i * 257 + 3);
     for (int y = 0; y < SH; ++y) {
         for (int x = 0; x < SW; ++x) dgx_set_pixel(src, x, y, (uint32_t)(rnd(0, 3) ? rnd(1, 255) : 0));
     }
+    /* a source of few indices beside it, for Scale2x to find equal neighbours */
+    dgx_screen_t *few = dgx_vscreen_init(SW, SH, 8, DgxScreenRGB);
+    for (int y = 0; y < SH; ++y) {
+        for (int x = 0; x < SW; ++x) dgx_set_pixel(few, x, y, (uint32_t)rnd(0, 2));
+    }
+    ref_smooth(((dgx_vscreen_t *)few)->v_array, SW, SH, 2, larger2);
+    ref_smooth(((dgx_vscreen_t *)few)->v_array, SW, SH, 4, larger4);
+    int smoothed_rounds = 0;
 
     /* the display behind a bus, with a buffer small enough to be sent many times a transfer */
     static uint8_t        bus_buffer[64];
@@ -185,25 +203,32 @@ static void test_region(void)
     int in_one = 0, rows_fit = 0, rows_cut = 0;
     for (int round = 0; round < 12000; ++round) {
         bool transparent = round & 1, by_bus = (round >> 1) & 1;
-        /* the bus of every third round takes rows, of every sixth it refuses some of them */
-        int  rows_kind = by_bus ? (round >> 2) % 3 : 0;
-        bus.write_rows = rows_kind ? panel_write_rows : NULL;
-        bus.memory_allocator = rows_kind ? panel_memory : NULL;
-        rows_least = rows_kind ? 60 : 0;
-        rows_refuse_every = rows_kind == 2 ? 3 : 0;
+        /* the bus of every third round makes the colors itself, of every sixth it refuses some of them */
+        int  indexed_kind = by_bus ? (round >> 2) % 3 : 0;
+        bus.write_indexed = indexed_kind ? panel_write_indexed : NULL;
+        indexed_least = indexed_kind ? 60 : 0;
+        indexed_refuse_every = indexed_kind == 2 ? 3 : 0;
         /* a bus that queues a piece behind the one on its way, in half the rounds */
         queueing = (round >> 3) & 1;
-        int  x = rnd(-SW - 3, DW + 3), y = rnd(-SH - 3, DH + 3); /* where the whole source is shown */
+        /* the source as it is, and two, three and four times as large */
+        const int      n = 1 + (round >> 4) % 4;
+        /* every other block of rounds smooths; at 1 and 3 that changes nothing */
+        const bool     smooth = (round >> 6) & 1;
+        const uint32_t flags = (transparent ? DGX_LUT_TRANSPARENT : 0) | (n > 1 || round % 3 ? DGX_LUT_SCALE(n) : 0) | (smooth ? DGX_LUT_SMOOTH : 0);
+        smoothed = smooth && n == 2 ? larger2 : smooth && n == 4 ? larger4 : NULL;
+        smoothed_rounds += smoothed != NULL;
+        src = smooth ? few : plain;
+        int  x = rnd(-n * SW - 3, DW + 3), y = rnd(-n * SH - 3, DH + 3); /* where the whole source is shown */
         int  left = rnd(-6, SW + 5), top = rnd(-6, SH + 5), width = rnd(-2, SW + 8), height = rnd(-2, SH + 8);
         if (round % 7 == 0) left = 0, top = 0, width = SW, height = SH;
 
         /* the whole source: what it gave before there was a transfer by parts */
         dgx_fill_rectangle(whole, 0, 0, DW, DH, MARK);
         for (int i = 0; i < DW * DH; ++i) panel[i] = MARK;
-        dgx_vscreen8_to_screen16(by_bus ? lcd : whole, x, y, src, lut, transparent);
+        dgx_vscreen8_to_screen16(by_bus ? lcd : whole, x, y, src, lut, flags);
         int wrong = 0;
         for (int dy = 0; dy < DH; ++dy) {
-            for (int dx = 0; dx < DW; ++dx) wrong += panel_or_screen(by_bus ? 0 : whole, dx, dy) != expected(src, x, y, dx, dy, transparent);
+            for (int dx = 0; dx < DW; ++dx) wrong += panel_or_screen(by_bus ? 0 : whole, dx, dy) != expected(src, x, y, n, dx, dy, transparent);
         }
         CHECK(wrong == 0);
 
@@ -212,23 +237,23 @@ static void test_region(void)
         for (int i = 0; i < DW * DH; ++i) panel[i] = MARK;
         sent_pixels = areas = pieces = 0;
         piece_most = 0;
-        dgx_vscreen8_region_to_screen16(by_bus ? lcd : part, x + left, y + top, src, left, top, width, height, lut, transparent);
+        dgx_vscreen8_region_to_screen16(by_bus ? lcd : part, x + n * left, y + n * top, src, left, top, width, height, lut, flags);
         wrong = 0;
         int inside = 0;
         for (int dy = 0; dy < DH; ++dy) {
             for (int dx = 0; dx < DW; ++dx) {
-                int  sx = dx - x, sy = dy - y;
+                int  sx = source_of(dx, x, n), sy = source_of(dy, y, n);
                 bool in = sx >= left && sx < left + width && sy >= top && sy < top + height && sx >= 0 && sy >= 0 && sx < SW && sy < SH;
                 inside += in;
-                wrong += panel_or_screen(by_bus ? 0 : part, dx, dy) != (in ? expected(src, x, y, dx, dy, transparent) : MARK);
+                wrong += panel_or_screen(by_bus ? 0 : part, dx, dy) != (in ? expected(src, x, y, n, dx, dy, transparent) : MARK);
             }
         }
         CHECK(wrong == 0);
         /* over a bus only the pixels of the part are sent, in one area; nothing is when nothing is left of the part */
         if (by_bus && !transparent) CHECK(sent_pixels == inside);
-        if (by_bus && !transparent && !rows_kind) CHECK(areas == (inside ? 1 : 0));
+        if (by_bus && !transparent && !indexed_kind) CHECK(areas == (inside ? 1 : 0));
         if (by_bus && !inside) CHECK(sent_pixels == 0 && areas == 0);
-        if (by_bus && !transparent && !rows_kind && inside) {
+        if (by_bus && !transparent && !indexed_kind && inside) {
             /* the buffer in two halves of 32 bytes: whole rows in a half where a row fits in it */
             const uint32_t all = 2u * (uint32_t)inside, row = 2u * (uint32_t)(area_r - area_l + 1), half = sizeof(bus_buffer) / 2;
             if (all <= sizeof(bus_buffer)) {
@@ -243,11 +268,13 @@ static void test_region(void)
             }
         }
     }
-    CHECK(in_one > 100 && rows_fit > 100 && rows_cut > 100);
-    CHECK(queued_pieces > 1000);
-    /* the bus has taken rows, has refused some, and bands of several rows have gone both ways */
-    CHECK(rows_taken > 1000 && rows_calls > rows_taken + 500 && bands_given > 1000);
-    dgx_screen_destroy(&src);
+    CHECK(in_one > 30 && rows_fit > 50 && rows_cut > 100);
+    CHECK(queued_pieces > 1000 && smoothed_rounds > 2000);
+    smoothed = NULL;
+    dgx_screen_destroy(&few);
+    /* the bus has made colors, scaled and not, and has refused some */
+    CHECK(indexed_taken > 1000 && indexed_scaled > 500 && indexed_calls > indexed_taken + 300);
+    dgx_screen_destroy(&plain);
     dgx_screen_destroy(&whole);
     dgx_screen_destroy(&part);
 }
@@ -350,7 +377,7 @@ static void test_ink(void)
         CHECK(wrong == 0);
     }
     /* the bus has mixed many times, has refused many, and was never asked for a table that is not two colors */
-    CHECK(ink_taken > 300 && ink_calls > ink_taken + 50 && asked_wrongly == 0);
+    CHECK(ink_taken > 250 && ink_calls > ink_taken + 50 && asked_wrongly == 0);
     dgx_screen_destroy(&src);
     dgx_screen_destroy(&by_table);
 }

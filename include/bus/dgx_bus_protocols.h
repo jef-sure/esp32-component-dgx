@@ -75,6 +75,38 @@ typedef bool (*dgx_bus_write_ink_func)(struct _dgx_bus_protocols_t *bus, uint16_
                                        const uint8_t *ink, uint32_t pitch, uint32_t paper, uint32_t color);
 
 /**
+ * @brief A picture of 8-bit indices put through a table of colors, every index a square of `scale` pixels.
+ *
+ * With `smooth`, the picture is made larger by Scale2x on the indices,
+ * once at scale 2 and twice at scale 4: a corner of a square where two
+ * equal neighbours meet takes their index. Scale2x looks at the neighbours
+ * of the pixels on the edge of a rectangle too, so the whole picture is
+ * given; past the edges of the picture its last pixel goes on.
+ */
+typedef struct {
+    const uint8_t  *pixels;  /*!< the whole picture, row after row */
+    uint32_t        pitch;   /*!< bytes from a row to the next one */
+    uint16_t        width;   /*!< of the whole picture */
+    uint16_t        height;
+    uint32_t        x;       /*!< where the pixel (left, top) of the rectangle lies in the picture made `scale` times as large */
+    uint32_t        y;
+    uint8_t         scale;   /*!< 1 to 255 */
+    bool            smooth;  /*!< Scale2x; only at scale 2 and 4 */
+    const uint16_t *lut;     /*!< the 256 colors, RGB565 */
+} dgx_bus_indexed_t;
+
+/**
+ * @brief Put a picture of 8-bit indices into a rectangle of the display through a table of colors, when the bus has a faster way than its window.
+ *
+ * @param left,top     The rectangle on the screen, inside it.
+ * @param width,height Its size in pixels of the screen.
+ * @param picture      What goes there.
+ * @return false when the bus has not done it, and has put nothing: the pixels are to be sent another way then.
+ */
+typedef bool (*dgx_bus_write_indexed_func)(struct _dgx_bus_protocols_t *bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
+                                           const dgx_bus_indexed_t *picture);
+
+/**
  * @brief Move the pixels of a rectangle of the display to another place of it, when the pixels are memory of the bus.
  *
  * The two places may overlap; what the picture leaves behind stays as it was.
@@ -103,6 +135,7 @@ typedef struct _dgx_bus_protocols_t {
     dgx_bus_write_rows_func write_rows; /*!< NULL for a bus that has only its window */
     dgx_bus_write_ink_func write_ink;   /*!< NULL for a bus that cannot mix two colors by an amount itself */
     dgx_bus_move_func move;             /*!< NULL for a bus whose pixels are not memory at hand */
+    dgx_bus_write_indexed_func write_indexed; /*!< NULL for a bus that has only its window for indices */
 } dgx_bus_protocols_t;
 
 #ifdef __cplusplus
