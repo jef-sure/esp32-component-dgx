@@ -1465,12 +1465,15 @@ static bool dgx_dsi_write_indexed(struct _dgx_bus_protocols_t *_bus, uint16_t le
         /* every pixel of the rectangle is written: of its tiles only what lies outside it is brought up to date */
         dgx_dsi_tiles_ready(bus, left, left + width - 1, top, top + height - 1, true, true);
     }
+    /* the lines of a smoothed picture are begun once: the bands share what they are made of */
+    dgx_indexed_lines_t lines;
+    dgx_fb_area_indexed_lines(&bus->area, &lines, left, top, width, height, picture, scratch);
     const size_t pitch_fb = (size_t)bus->area.fb_width * 2u;
     bool         moving   = false;
     for (uint32_t r = 0, k = 0; r < rows; r += band_rows, k ^= 1u) {
         const uint32_t n    = rows - r < band_rows ? rows - r : band_rows;
         /* made while the DMA moves the band before it */
-        dgx_fb_area_indexed_rows(&bus->area, band[k], left, top, width, height, picture, (uint16_t)r, (uint16_t)n, scratch);
+        dgx_fb_area_indexed_rows(&bus->area, band[k], left, top, width, height, picture, (uint16_t)r, (uint16_t)n, &lines);
         if (moving) dgx_dsi_dma_wait(bus);
         uint8_t *to = bus->area.fb + (size_t)(y0 + r) * pitch_fb;
         moving      = dgx_dsi_dma_start(bus, band[k], columns, 0, to, x0, columns, n, false, bus->after_scan);

@@ -71,14 +71,61 @@ static void dgx_indexed_scale2x(uint8_t *out, const uint8_t *up, const uint8_t *
     }
 }
 
+/* a word of two pixels, where the pointer is on a boundary of a word */
+static inline void dgx_indexed_put_word(uint32_t *to, uint32_t word)
+{
+    memcpy(to, &word, sizeof(word));
+}
+
+/*
+ * The same as dgx_indexed_scale2x() for both halves at once, into `top`
+ * and `bottom`: they share every index they look at.
+ */
+static void dgx_indexed_scale2x_pair(uint8_t *restrict top, uint8_t *restrict bottom, const uint8_t *restrict up, const uint8_t *restrict mid,
+                                     const uint8_t *restrict down, int32_t base, int32_t from, uint32_t count)
+{
+    if (!count) return;
+    uint32_t k = (uint32_t)(dgx_indexed_half(from) - base);
+    uint8_t  d = mid[k - 1], e = mid[k], f = mid[k + 1];
+    uint32_t left = count;
+    if (from & 1) {
+        const uint8_t b = up[k], h = down[k];
+        const bool    edge = b != h && d != f;
+        *top++             = edge && b == f ? f : e;
+        *bottom++          = edge && h == f ? f : e;
+        --left;
+        ++k;
+        d = e, e = f, f = mid[k + 1];
+    }
+    for (; left >= 2; left -= 2, ++k, d = e, e = f, f = mid[k + 1]) {
+        const uint8_t b = up[k], h = down[k];
+        if (b == h || d == f) {
+            top[0] = top[1] = bottom[0] = bottom[1] = e;
+        } else {
+            top[0]    = d == b ? d : e;
+            top[1]    = b == f ? f : e;
+            bottom[0] = d == h ? d : e;
+            bottom[1] = h == f ? f : e;
+        }
+        top += 2, bottom += 2;
+    }
+    if (left) {
+        const uint8_t b = up[k], h = down[k];
+        const bool    edge = b != h && d != f;
+        *top               = edge && d == b ? d : e;
+        *bottom            = edge && d == h ? d : e;
+    }
+}
+
 /*
  * The same as dgx_indexed_scale2x() for both halves at once, straight into
  * colors: half 0 into `top`, half 1 into `bottom`, a point `step` pixels
  * from the one before it (-1 for a line made backwards). The two halves
  * share every index they look at.
  */
-static void dgx_indexed_scale2x_colors(uint16_t *top, uint16_t *bottom, ptrdiff_t step, const uint8_t *up, const uint8_t *mid, const uint8_t *down,
-                                       int32_t base, int32_t from, uint32_t count, const uint16_t *lut)
+static void dgx_indexed_scale2x_colors(uint16_t *restrict top, uint16_t *restrict bottom, ptrdiff_t step, const uint8_t *restrict up,
+                                       const uint8_t *restrict mid, const uint8_t *restrict down, int32_t base, int32_t from, uint32_t count,
+                                       const uint16_t *restrict lut)
 {
     if (!count) return;
     uint32_t k = (uint32_t)(dgx_indexed_half(from) - base);
@@ -95,17 +142,45 @@ static void dgx_indexed_scale2x_colors(uint16_t *top, uint16_t *bottom, ptrdiff_
         ++k;
         d = e, e = f, f = mid[k + 1];
     }
+    /*
+     * The two points of a pair lie side by side in memory, the first one at
+     * the higher address when the line is made backwards. Where both rows
+     * have a pair on a boundary of a word, a pair goes as one word.
+     */
+    uint32_t *word_top = (uint32_t *)(step > 0 ? top : top - 1), *word_bottom = (uint32_t *)(step > 0 ? bottom : bottom - 1);
+    if (left >= 2 && !(((uintptr_t)word_top | (uintptr_t)word_bottom) & 3u)) {
+        /* where the first point and the second go in a word: the low half is the lower address */
+        const unsigned first_at = step > 0 ? 0u : 16u, second_at = 16u - first_at;
+        for (; left >= 2; left -= 2, ++k, d = e, e = f, f = mid[k + 1]) {
+            const uint8_t  b = up[k], h = down[k];
+            const uint32_t c = lut[e];
+            if (b == h || d == f) {
+                /* no edge here: most of a picture */
+                const uint32_t both = c | c << 16;
+                dgx_indexed_put_word(word_top, both);
+                dgx_indexed_put_word(word_bottom, both);
+            } else {
+                const uint32_t cd = lut[d], cf = lut[f];
+                dgx_indexed_put_word(word_top, (d == b ? cd : c) << first_at | (b == f ? cf : c) << second_at);
+                dgx_indexed_put_word(word_bottom, (d == h ? cd : c) << first_at | (h == f ? cf : c) << second_at);
+            }
+            word_top += step, word_bottom += step;
+        }
+        top    = (uint16_t *)word_top + (step > 0 ? 0 : 1);
+        bottom = (uint16_t *)word_bottom + (step > 0 ? 0 : 1);
+    }
     for (; left >= 2; left -= 2, ++k, d = e, e = f, f = mid[k + 1]) {
-        const uint8_t b = up[k], h = down[k];
+        const uint8_t  b = up[k], h = down[k];
+        const uint16_t c = lut[e];
         if (b == h || d == f) {
             /* no edge here: most of a picture */
-            const uint16_t color = lut[e];
-            top[0] = top[step] = bottom[0] = bottom[step] = color;
+            top[0] = top[step] = bottom[0] = bottom[step] = c;
         } else {
-            top[0]       = lut[d == b ? d : e];
-            top[step]    = lut[b == f ? f : e];
-            bottom[0]    = lut[d == h ? d : e];
-            bottom[step] = lut[h == f ? f : e];
+            const uint16_t cd = lut[d], cf = lut[f];
+            top[0]            = d == b ? cd : c;
+            top[step]         = b == f ? cf : c;
+            bottom[0]         = d == h ? cd : c;
+            bottom[step]      = h == f ? cf : c;
         }
         top += 2 * step, bottom += 2 * step;
     }
@@ -168,15 +243,20 @@ static const uint8_t *dgx_indexed_line1(dgx_indexed_lines_t *lines, int32_t t)
     return line;
 }
 
-/* the line t of the picture twice as large */
+/*
+ * The line t of the picture twice as large. It is made with the other line
+ * of its pair, into the slots next to each other: three lines in a row,
+ * all a line of the larger picture needs, lie in two pairs and four slots.
+ */
 static const uint8_t *dgx_indexed_line2(dgx_indexed_lines_t *lines, int32_t t)
 {
     uint8_t *line = lines->line2[t & 3];
     if (lines->tag2[t & 3] == t) return line;
-    lines->tag2[t & 3] = t;
-    const int32_t  half = dgx_indexed_half(t);
+    const int32_t half = dgx_indexed_half(t), even = 2 * half;
+    lines->tag2[even & 3]       = even;
+    lines->tag2[(even + 1) & 3] = even + 1;
     const uint8_t *up = dgx_indexed_line1(lines, half - 1), *mid = dgx_indexed_line1(lines, half), *down = dgx_indexed_line1(lines, half + 1);
-    dgx_indexed_scale2x(line, up, mid, down, lines->base1, lines->base2, lines->len2, (unsigned)(t & 1));
+    dgx_indexed_scale2x_pair(lines->line2[even & 3], lines->line2[(even + 1) & 3], up, mid, down, lines->base1, lines->base2, lines->len2);
     return line;
 }
 

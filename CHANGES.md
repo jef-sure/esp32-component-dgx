@@ -1,5 +1,16 @@
 # Changes
 
+## 0.6.5 - 2026-10-18
+
+- **A smoothed picture goes to a DSI display faster.** The lines of the
+  smaller pictures Scale2x works from are kept for the whole call instead
+  of being made again for every band; the two rows of the panel that are a
+  pair are made together from the same indices; two pixels go as one word
+  where the rows are aligned; each color is looked up once. On the
+  10.1-inch JC8012P4A1C turned to 1280x800, a smoothed 320x200 game frame
+  at `DGX_LUT_SCALE(4)` takes 27 ms in the call instead of 34, and the
+  whole frame of the game 32 ms instead of 40. The pixels are the same.
+
 ## 0.6.4 - 2026-10-18
 
 - **`DGX_LUT_SCALE(n)` makes `dgx_vscreen8_to_screen16()` and

@@ -1737,14 +1737,19 @@ screen at `DGX_LUT_SCALE(4)`, measured inside the Prince of Persia port.
 "The call" is `dgx_vscreen8_region_to_screen16()`, "the frame" is the whole
 picture of the game, before is 0.6.3 through the window.
 
-| | Frame before | Frame now | The call | Of it, the processor making rows | Of it, waiting for the DMA |
-| --- | --- | --- | --- | --- | --- |
-| Squares | 123–157 ms | 16.8–17.6 ms | 10.9–11.1 ms | 8.1 ms | 0.2 ms |
-| Smoothed, `DGX_LUT_SMOOTH` | about 145 ms | 39.9–40.6 ms | 33.9–34.0 ms | 30.9–31.1 ms | 0.2 ms |
+| | Frame before | Frame now | The call |
+| --- | --- | --- | --- |
+| Squares | 123–157 ms | 16.1–16.9 ms | 11.0–11.7 ms |
+| Smoothed, `DGX_LUT_SMOOTH` | about 145 ms | 31.9–32.6 ms | 26.8–27.4 ms |
 
-The DMA keeps up with the processor; what is left is making the rows. The
-smoothed frame before was the game's own Scale2x, 26 ms on this board,
-followed by the window.
+The DMA keeps up with the processor; what is left is making the rows.
+Timed inside the bus in 0.6.4, the processor took 8.1 ms of the call for
+squares and 31 ms of the call for the smoothed frame, and the waits for the
+DMA 0.2 ms in either. 0.6.5 made the smoothed rows faster: the lines of the
+smaller pictures are kept for the whole call, two rows of the panel that
+are a pair are made together, and two pixels go as one word. The smoothed
+frame before was the game's own Scale2x, 26 ms on this board, followed by
+the window.
 
 Before `write_indexed` the colours were prepared in strips of up to 64 KB
 and each strip went through `write_rows`, which took only a screen neither
@@ -2492,3 +2497,4 @@ built.
 | 0.6.2 | the JD9365 driver and the JD9365 (10"), the first board with a revision 3 chip; the PSRAM margin check in the board measurement, the fields `fifo_drops`, `lanes_percent`, `psram_mhz`, `chip_revision`; `dgx_dsi_advise()` |
 | 0.6.3 | the option `CONFIG_DGX_DSI_HARDWARE_COPY` became `CONFIG_DGX_DSI_PRIVATE_DMA2D` and turns off only the 2D DMA through the private interface; the PPA is built with no option. `dgx_dsi_advise()` keeps one flag, `DGX_DSI_ADVISE_TWO_FRAMES`; the rest is words in `dgx_dsi_tuning_text()` and in the log of the measurement |
 | 0.6.4 | the bus function `write_indexed`: an 8-bit screen through a colour table goes to the panel in its own order by the 2D DMA, in every orientation, and with `DGX_LUT_SCALE(n)` every pixel a square of n by n, smoothed by Scale2x with `DGX_LUT_SMOOTH`; the strips through `write_rows` are gone |
+| 0.6.5 | the smoothed rows of `write_indexed` faster: a full smoothed frame of the game 27 ms instead of 34 |

@@ -360,11 +360,13 @@ static void test_smooth(bool mirror_x, bool mirror_y, bool swap_xy)
         const int               columns = x1 - x0 + 1, rows = y1 - y0 + 1;
         const dgx_bus_indexed_t picture = {.pixels = ink, .pitch = IW, .width = IW, .height = IH, .x = (uint32_t)px, .y = (uint32_t)py,
                                            .scale = (uint8_t)scale, .smooth = true, .lut = table};
-        uint8_t *scratch = malloc(dgx_fb_area_indexed_scratch((uint32_t)columns));
+        uint8_t            *scratch = malloc(dgx_fb_area_indexed_scratch((uint32_t)columns));
+        dgx_indexed_lines_t lines;
+        dgx_fb_area_indexed_lines(&area, &lines, (uint16_t)left, (uint16_t)top, (uint16_t)width, (uint16_t)height, &picture, scratch);
         for (int r = 0; r < rows;) {
             const int n = rnd(1, rows - r);
             dgx_fb_area_indexed_rows(&area, band, (uint16_t)left, (uint16_t)top, (uint16_t)width, (uint16_t)height, &picture, (uint16_t)r,
-                                     (uint16_t)n, scratch);
+                                     (uint16_t)n, &lines);
             for (int i = 0; i < n; ++i) memcpy(fb + ((y0 + r + i) * FW + x0) * 2, band + i * columns * 2, (size_t)columns * 2);
             r += n;
         }

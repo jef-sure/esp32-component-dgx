@@ -153,16 +153,26 @@ static inline void dgx_fb_area_point_to_panel(const dgx_fb_area_t *area, int x, 
  * and red and blue as the panel takes them.
  *
  * @param picture What goes into the rectangle, see dgx_bus_indexed_t.
- * @param scratch dgx_fb_area_indexed_scratch() bytes, for a smoothed picture; NULL will do for one that is not.
+ * @param lines   For a smoothed picture, what dgx_fb_area_indexed_lines() has begun for the same rectangle; NULL will do for one that is not.
  */
 void dgx_fb_area_indexed_rows(const dgx_fb_area_t *area, uint8_t *to, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
-                              const dgx_bus_indexed_t *picture, uint16_t first, uint16_t rows, uint8_t *scratch);
+                              const dgx_bus_indexed_t *picture, uint16_t first, uint16_t rows, dgx_indexed_lines_t *lines);
 
-/** @brief Bytes of scratch dgx_fb_area_indexed_rows() needs for a smoothed picture in a rectangle `columns` wide on the panel. */
+/** @brief Bytes of scratch dgx_fb_area_indexed_lines() needs for a rectangle `columns` wide on the panel. */
 static inline size_t dgx_fb_area_indexed_scratch(uint32_t columns)
 {
     return dgx_indexed_lines_scratch(columns);
 }
+
+/**
+ * @brief Begin the lines of a smoothed picture for a rectangle, once for all the rows of it dgx_fb_area_indexed_rows() makes.
+ *
+ * The rows made one call after another, in order, share what the lines of
+ * the smaller pictures are made of; `scratch` holds
+ * dgx_fb_area_indexed_scratch() bytes and lasts as long as they are made.
+ */
+void dgx_fb_area_indexed_lines(const dgx_fb_area_t *area, dgx_indexed_lines_t *lines, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
+                               const dgx_bus_indexed_t *picture, uint8_t *scratch);
 
 /**
  * @brief Take a command if it is one of the window: set the columns or the rows, write or read the memory.
