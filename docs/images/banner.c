@@ -4,20 +4,18 @@
  *   banner <variant> <out.pam> [dark|light]
  *
  * Variants: a - the banner for a light page, b - the banner for a dark page, c - the name by a pen alone;
- * f - fonts, g - gauges, h - a handwritten text, p - figures, each for a dark page or, with `light`, a light one.
+ * f - fonts, g - gauges, h - a handwritten text, p - figures, s - pixel art made larger, each for a dark page or,
+ * with `light`, a light one.
  *
  * A picture is drawn twice the size it is shown at, on a 16-bit virtual screen, and written as a PAM file
  * with transparency: it has no background, the page shows through it.
  * To build it and make the two banners, from the root of the repository:
  *
  *   cc -O2 -std=gnu11 -Itest/host/stubs -Iinclude -Isrc -include test/host/stubs/esp_log.h docs/images/banner.c \
- *      src/matrix.c src/morph.c src/morph_sources.c src/morph_render.c src/font.c src/pixels.c src/ellipse.c src/scroll.c \
- *      src/hw_font.c src/hw_morph.c src/font_morph.c src/bitmap.c src/draw.c src/bezier.c src/texture.c src/orientation.c \
- *      src/drivers/vscreen.c src/bw_screen.c src/dgx_bus_optimized_funcs.c src/dgx_spi_area_protocol.c src/gauge.c \
- *      src/fonts/?*.c -lm -o /tmp/banner
+ *      src/screen/*.c src/draw/*.c src/vscreen/*.c src/text/*.c src/morph/*.c src/fonts/?*.c -lm -o /tmp/banner
  *   /tmp/banner b /tmp/x.pam && convert /tmp/x.pam docs/images/banner-dark.png
  *   /tmp/banner a /tmp/x.pam && convert /tmp/x.pam docs/images/banner-light.png
- *   for v in f:fonts g:gauge h:handwriting p:figures; do for t in dark light; do
+ *   for v in f:fonts g:gauge h:handwriting p:figures s:pixel-scale; do for t in dark light; do
  *       /tmp/banner ${v%%:*} /tmp/x.pam $t && convert /tmp/x.pam docs/images/${v#*:}-$t.png; done; done
  */
 #include <math.h>
@@ -199,6 +197,34 @@ static void recipe(char variant, bool dark)
         dgx_hw_writing_draw_to(&writing, 0.56f * dgx_hw_text_effort(font, words, true, &pace));
         break;
     }
+    case 's': { /* pixel art made larger: a small picture three times as large by squares, by Scale3x and by Scale3xSFX */
+        enum { PW = 64, PH = 40, N = 3, SHOW = 2, GAP = 40, LEFT = 24, TOP = 16 };
+        dgx_screen_t   *pic = dgx_vscreen_init(PW, PH, 8, DgxScreenRGB), *big = dgx_vscreen_init(N * PW, N * PH, 16, DgxScreenRGB);
+        static uint16_t lut[256];
+        /* index 0 is the page itself */
+        lut[0] = NOTHING, lut[1] = (uint16_t)line, lut[2] = (uint16_t)warm, lut[3] = (uint16_t)cold;
+        dgx_fill_rectangle(pic, 0, 0, PW, PH, 0);
+        /* thin lines at three slopes from one corner: where plain smoothing grows lumps */
+        dgx_draw_line(pic, 3, PH - 4, 21, 4, 1);
+        dgx_draw_line(pic, 3, PH - 4, 29, 13, 2);
+        dgx_draw_line(pic, 3, PH - 4, 33, 26, 3);
+        /* a ring with a dot, and a word in a bitmap font */
+        dgx_draw_circle(pic, 50, 12, 9, 3);
+        dgx_solid_circle(pic, 50, 12, 3, 2);
+        dgx_font_string_utf8_screen(pic, 36, PH - 2, "DGX", 1, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+        static const uint32_t ways[3]  = {0, DGX_VSCREEN_SMOOTH, DGX_VSCREEN_SMOOTH_SFX};
+        static const char    *names[3] = {"squares", "Scale3x", "Scale3xSFX"};
+        for (int i = 0; i < 3; ++i) {
+            /* the larger picture is shown at two pixels of the file a pixel: one of the page */
+            const int x = LEFT + i * (SHOW * N * PW + GAP);
+            dgx_fill_rectangle(big, 0, 0, big->width, big->height, NOTHING);
+            dgx_vscreen8_to_screen16(big, 0, 0, pic, lut, DGX_VSCREEN_SCALE(N) | ways[i]);
+            dgx_vscreen_to_screen(canvas, x, TOP, big, DGX_VSCREEN_SCALE(SHOW));
+            text(TerminusTTFMedium12(), x, TOP + SHOW * N * PH + 40, 2, dim, names[i]);
+        }
+        dgx_screen_destroy(&pic), dgx_screen_destroy(&big);
+        break;
+    }
     default: { /* figures: a pie, sectors, arcs by pens, the sign of Wi-Fi */
         const uint32_t red = rgb(215, 70, 55), green = rgb(45, 160, 95), blue = rgb(50, 110, 225), yellow = rgb(240, 195, 50);
         const int      y = H / 2, r = 110;
@@ -235,6 +261,7 @@ int main(int argc, char **argv)
     if (variant == 'g') W = 1200, H = 420;
     if (variant == 'h') W = 1400, H = 420;
     if (variant == 'p') W = 1560, H = 300;
+    if (variant == 's') W = 1280, H = 320;
     canvas = dgx_vscreen_init(W, H, 16, DgxScreenRGB);
     ink = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
     lights = dgx_vscreen_init(W, H, 16, DgxScreenRGB);

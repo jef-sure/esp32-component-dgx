@@ -108,25 +108,35 @@ static inline uint16_t dgx_bus_overlay_mix(uint16_t color, uint32_t pre, uint32_
     return (uint16_t)(spread | spread >> 16);
 }
 
+/** @brief dgx_bus_indexed_t::smooth: Scale2x at scale 2, Scale3x at 3, Scale2x twice at 4. */
+#define DGX_BUS_SMOOTH 1
+/** @brief dgx_bus_indexed_t::smooth: Scale2xSFX at scale 2, Scale3xSFX at 3, Scale2xSFX twice at 4. */
+#define DGX_BUS_SMOOTH_SFX 2
+
 /**
  * @brief A picture of 8-bit indices put through a table of colors, every index a square of `scale` pixels.
  *
- * With `smooth`, the picture is made larger by Scale2x on the indices,
- * once at scale 2 and twice at scale 4: a corner of a square where two
- * equal neighbours meet takes their index. Scale2x looks at the neighbours
+ * With `smooth`, the picture is made larger by Scale2x or Scale3x on the
+ * indices, or by their SFX variants: a corner of a square where two equal
+ * neighbours meet takes their index. The smoothing looks at the neighbours
  * of the pixels on the edge of a rectangle too, so the whole picture is
  * given; past the edges of the picture its last pixel goes on.
+ *
+ * The larger picture is turned by `orientation` on the screen, around its
+ * own corner: with DgxOutputRotate90CW its left column is the top row of
+ * the rectangle. Smoothing is the same turned or not.
  */
 typedef struct {
-    const uint8_t  *pixels;  /*!< the whole picture, row after row */
-    uint32_t        pitch;   /*!< bytes from a row to the next one */
-    uint16_t        width;   /*!< of the whole picture */
+    const uint8_t  *pixels;      /*!< the whole picture, row after row */
+    uint32_t        pitch;       /*!< bytes from a row to the next one */
+    uint16_t        width;       /*!< of the whole picture */
     uint16_t        height;
-    uint32_t        x;       /*!< where the pixel (left, top) of the rectangle lies in the picture made `scale` times as large */
+    uint32_t        x;           /*!< where the pixel (left, top) of the rectangle lies in the picture made `scale` times as large and turned */
     uint32_t        y;
-    uint8_t         scale;   /*!< 1 to 255 */
-    bool            smooth;  /*!< Scale2x; only at scale 2 and 4 */
-    const uint16_t *lut;     /*!< the 256 colors, RGB565 */
+    uint8_t         scale;       /*!< 1 to 255 */
+    uint8_t         smooth;      /*!< 0, DGX_BUS_SMOOTH or DGX_BUS_SMOOTH_SFX; only at scale 2, 3 and 4 */
+    uint8_t         orientation; /*!< a dgx_output_orientation_t: bit 0 the columns of the picture counted from the right, bit 1 its rows from the bottom, bit 2 its axes swapped */
+    const uint16_t *lut;         /*!< the 256 colors, RGB565 */
     /*! the overlay layer of the screen to mix in, NULL when none or when it is not over the rectangle */
     const dgx_bus_overlay_t *overlay;
 } dgx_bus_indexed_t;

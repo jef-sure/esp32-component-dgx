@@ -78,7 +78,7 @@
  * the second there is: what a table of two colors does for an 8-bit screen.
  * It rounds in its own way, so a color between the two may differ from the
  * table by a step of a channel; a program that wants the colors of its
- * table and nothing else says so when it sends the screen, DGX_LUT_EXACT.
+ * table and nothing else says so when it sends the screen, DGX_VSCREEN_EXACT.
  */
 #define DGX_DSI_PPA_MIX 1
 #endif
@@ -1448,12 +1448,13 @@ static uint32_t dgx_dsi_indexed_bands(dgx_dsi_bus_t *bus, uint32_t row_bytes, ui
 
 /*
  * A picture of 8-bit indices through a table of colors, every index a
- * square of `scale` pixels, smoothed by Scale2x when asked. Rows of the
- * panel are made by the processor in a band of internal memory, in the
- * order the panel has them however the screen lies on it, and the 2D DMA
- * moves the band into the frame buffer while the processor makes the next
- * one. A turned screen this way is not written pixel by pixel through the
- * window, each pixel a row of the panel away from the one before.
+ * square of `scale` pixels, smoothed when asked, turned on the screen when
+ * asked. Rows of the panel are made by the processor in a band of internal
+ * memory, in the order the panel has them however the screen lies on it,
+ * and the 2D DMA moves the band into the frame buffer while the processor
+ * makes the next one. A turned screen this way is not written pixel by
+ * pixel through the window, each pixel a row of the panel away from the one
+ * before.
  */
 static bool dgx_dsi_write_indexed(struct _dgx_bus_protocols_t *_bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
                                   const dgx_bus_indexed_t *picture)
@@ -1477,7 +1478,7 @@ static bool dgx_dsi_write_indexed(struct _dgx_bus_protocols_t *_bus, uint16_t le
     const uint32_t band_rows = dgx_dsi_indexed_bands(bus, row_bytes, rows, band);
     if (!band_rows) return false;
     const size_t band_bytes = (size_t)band_rows * row_bytes;
-    uint8_t     *scratch    = bus->protocols.memory_allocator((uint32_t)dgx_fb_area_indexed_scratch(columns));
+    uint8_t     *scratch    = bus->protocols.memory_allocator((uint32_t)dgx_fb_area_indexed_scratch(picture, columns));
     if (!scratch) {
         free(band[0]);
         free(band[1]);
@@ -1496,7 +1497,7 @@ static bool dgx_dsi_write_indexed(struct _dgx_bus_protocols_t *_bus, uint16_t le
         dgx_dsi_tiles_ready(bus, left, left + width - 1, top, top + height - 1, true, true);
     }
     /* the lines of a smoothed picture are begun once: the bands share what they are made of */
-    dgx_indexed_lines_t lines;
+    dgx_scale_lines_t lines;
     dgx_fb_area_indexed_lines(&bus->area, &lines, left, top, width, height, picture, scratch);
     const size_t pitch_fb = (size_t)bus->area.fb_width * 2u;
     bool         moving   = false;

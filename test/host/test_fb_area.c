@@ -4,7 +4,7 @@
 
 #include "bus/dgx_fb_area_priv.h"
 #include "check.h"
-#include "scale2x_ref.h"
+#include "scale_ref.h"
 
 /*
  * A frame buffer written as a display behind a bus is: commands set a
@@ -280,100 +280,80 @@ static void test_long_rows(void)
 }
 
 /*
- * Rows of the panel made from indices through a table, every index a square of `scale` pixels, in
- * every orientation: copied into the frame buffer as they come, by bands of any height, they give
- * the pixels of the screen the model puts one by one, and nothing outside the rectangle changes.
+ * Rows of the panel made from indices through a table: every index a square of `scale` pixels, or the
+ * picture smoothed by Scale2x, Scale3x or their SFX kin, the picture turned on the screen in any of
+ * its eight ways and the screen on the panel in any of its eight. Copied into the frame buffer as they
+ * come, by bands of any height, they give the pixels of the screen the model puts one by one, from the
+ * point-at-a-time shaders of scale_ref.h, and nothing outside the rectangle changes.
  */
 #define IW 9 /* of the picture of indices */
 #define IH 6
 
-static void test_indexed(bool mirror_x, bool mirror_y, bool swap_xy)
+/* the point (u, v) of the picture made larger, `wide` by `high`, before it is turned, that its turned point (tx, ty) is */
+static void unturned(unsigned turn, int wide, int high, int tx, int ty, int *u, int *v)
 {
-    static uint16_t table[256];
-    static uint8_t  ink[IW * IH], band[FW * FH * 2];
-    for (int i = 0; i < 256; ++i) table[i] = (uint16_t)rnd(0, 0xffff);
-    for (int i = 0; i < IW * IH; ++i) ink[i] = (uint8_t)rnd(0, 255);
-    dgx_fb_area_t area;
-    dgx_fb_area_init(&area, fb, FW, FH, 2, false);
-    dgx_fb_area_orientation(&area, mirror_x, mirror_y, swap_xy);
-    const int sw = dgx_fb_area_width(&area), sh = dgx_fb_area_height(&area);
-    for (int round = 0; round < 400; ++round) {
-        const int scale = rnd(1, 5), skip_x = rnd(0, scale - 1), skip_y = rnd(0, scale - 1);
-        /* the rectangle no larger than the picture covers */
-        const int left = rnd(0, sw - 1), top = rnd(0, sh - 1);
-        const int most_w = IW * scale - skip_x, most_h = IH * scale - skip_y;
-        const int width = rnd(1, sw - left < most_w ? sw - left : most_w), height = rnd(1, sh - top < most_h ? sh - top : most_h);
-        for (int i = 0; i < FW * FH * 2; ++i) fb[i] = model[i] = (uint8_t)rnd(0, 255);
-        for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) model_put(&area, left + x, top + y, table[ink[(y + skip_y) / scale * IW + (x + skip_x) / scale]]);
-        }
-        uint16_t x0, y0, x1, y1;
-        dgx_fb_area_to_panel(&area, left, left + width - 1, top, top + height - 1, &x0, &y0, &x1, &y1);
-        const int columns = x1 - x0 + 1, rows = y1 - y0 + 1;
-        /* the rectangle starts in the first index of the picture, skip_x and skip_y into its square */
-        const dgx_bus_indexed_t picture = {.pixels = ink, .pitch = IW, .width = IW, .height = IH, .x = (uint32_t)skip_x, .y = (uint32_t)skip_y,
-                                           .scale = (uint8_t)scale, .lut = table};
-        for (int r = 0; r < rows;) {
-            const int n = rnd(1, rows - r);
-            dgx_fb_area_indexed_rows(&area, band, (uint16_t)left, (uint16_t)top, (uint16_t)width, (uint16_t)height, &picture, (uint16_t)r,
-                                     (uint16_t)n, NULL);
-            for (int i = 0; i < n; ++i) memcpy(fb + ((y0 + r + i) * FW + x0) * 2, band + i * columns * 2, (size_t)columns * 2);
-            r += n;
-        }
-        if (memcmp(fb, model, FW * FH * 2) != 0) {
-            fprintf(stderr, "indexed rows: mirror %d %d swap %d, %dx%d at %d,%d, scale %d, skip %d,%d differ\n", mirror_x, mirror_y, swap_xy, width,
-                    height, left, top, scale, skip_x, skip_y);
-            ++check_failures;
-        }
+    if (!(turn & 4u)) {
+        *u = turn & 1u ? wide - 1 - tx : tx;
+        *v = turn & 2u ? high - 1 - ty : ty;
+    } else {
+        *u = turn & 1u ? wide - 1 - ty : ty;
+        *v = turn & 2u ? high - 1 - tx : tx;
     }
 }
 
-/*
- * The same with the picture smoothed by Scale2x, at 2 and at 4, in every orientation: the pixels of
- * the screen are those of the picture made larger whole, as the engine of games makes it, wherever in
- * it the rectangle lies; few indices, for many neighbours to be equal.
- */
-static void test_smooth(bool mirror_x, bool mirror_y, bool swap_xy)
+static void test_pictures(bool mirror_x, bool mirror_y, bool swap_xy)
 {
-    static uint16_t table[256];
-    static uint8_t  ink[IW * IH], larger[16 * IW * IH], band[FW * FH * 2];
+    static const uint8_t bus_smooth[3] = {0, DGX_BUS_SMOOTH, DGX_BUS_SMOOTH_SFX};
+    static const int     ref_smooth_of[3] = {REF_BLOCKS, REF_SMOOTH, REF_SFX};
+    static uint16_t      table[256];
+    static uint32_t      values[IW * IH];
+    static uint8_t       ink[IW * IH], band[FW * FH * 2];
     for (int i = 0; i < 256; ++i) table[i] = (uint16_t)rnd(0, 0xffff);
     dgx_fb_area_t area;
     dgx_fb_area_init(&area, fb, FW, FH, 2, false);
     dgx_fb_area_orientation(&area, mirror_x, mirror_y, swap_xy);
-    const int sw = dgx_fb_area_width(&area), sh = dgx_fb_area_height(&area);
-    for (int round = 0; round < 400; ++round) {
-        if (round % 50 == 0) {
-            for (int i = 0; i < IW * IH; ++i) ink[i] = (uint8_t)rnd(0, 2);
+    const int           sw = dgx_fb_area_width(&area), sh = dgx_fb_area_height(&area);
+    const ref_picture_t ref = {values, IW, IH};
+    for (int round = 0; round < 1600; ++round) {
+        if (round % 40 == 0) {
+            /* many indices for squares, few for smoothing to find equal neighbours */
+            const int kinds = round % 80 ? 3 : 256;
+            for (int i = 0; i < IW * IH; ++i) ink[i] = (uint8_t)(values[i] = (uint32_t)rnd(0, kinds - 1));
         }
-        const int scale = round & 1 ? 4 : 2, lw = scale * IW, lh = scale * IH;
-        ref_smooth(ink, IW, IH, scale, larger);
+        const int      kind = round % 3, scale = kind ? rnd(2, 4) : rnd(1, 5);
+        const unsigned turn = (unsigned)(round / 3) % 8u;
+        const int      wide = scale * IW, high = scale * IH, tw = turn & 4u ? high : wide, th = turn & 4u ? wide : high;
+        /* the rectangle no larger than the turned picture covers, and where in it it starts */
         const int left = rnd(0, sw - 1), top = rnd(0, sh - 1);
-        const int width = rnd(1, sw - left < lw ? sw - left : lw), height = rnd(1, sh - top < lh ? sh - top : lh);
-        const int px = rnd(0, lw - width), py = rnd(0, lh - height);
+        const int width = rnd(1, sw - left < tw ? sw - left : tw), height = rnd(1, sh - top < th ? sh - top : th);
+        const int px = rnd(0, tw - width), py = rnd(0, th - height);
         for (int i = 0; i < FW * FH * 2; ++i) fb[i] = model[i] = (uint8_t)rnd(0, 255);
         for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) model_put(&area, left + x, top + y, table[larger[(py + y) * lw + px + x]]);
+            for (int x = 0; x < width; ++x) {
+                int u, v;
+                unturned(turn, wide, high, px + x, py + y, &u, &v);
+                model_put(&area, left + x, top + y, table[ref_larger(&ref, scale, ref_smooth_of[kind], u, v)]);
+            }
         }
         uint16_t x0, y0, x1, y1;
         dgx_fb_area_to_panel(&area, left, left + width - 1, top, top + height - 1, &x0, &y0, &x1, &y1);
         const int               columns = x1 - x0 + 1, rows = y1 - y0 + 1;
         const dgx_bus_indexed_t picture = {.pixels = ink, .pitch = IW, .width = IW, .height = IH, .x = (uint32_t)px, .y = (uint32_t)py,
-                                           .scale = (uint8_t)scale, .smooth = true, .lut = table};
-        uint8_t            *scratch = malloc(dgx_fb_area_indexed_scratch((uint32_t)columns));
-        dgx_indexed_lines_t lines;
+                                           .scale = (uint8_t)scale, .smooth = bus_smooth[kind], .orientation = (uint8_t)turn, .lut = table};
+        uint8_t          *scratch = malloc(dgx_fb_area_indexed_scratch(&picture, (uint32_t)columns));
+        dgx_scale_lines_t lines;
         dgx_fb_area_indexed_lines(&area, &lines, (uint16_t)left, (uint16_t)top, (uint16_t)width, (uint16_t)height, &picture, scratch);
         for (int r = 0; r < rows;) {
             const int n = rnd(1, rows - r);
             dgx_fb_area_indexed_rows(&area, band, (uint16_t)left, (uint16_t)top, (uint16_t)width, (uint16_t)height, &picture, (uint16_t)r,
-                                     (uint16_t)n, &lines);
+                                     (uint16_t)n, kind ? &lines : NULL);
             for (int i = 0; i < n; ++i) memcpy(fb + ((y0 + r + i) * FW + x0) * 2, band + i * columns * 2, (size_t)columns * 2);
             r += n;
         }
         free(scratch);
         if (memcmp(fb, model, FW * FH * 2) != 0) {
-            fprintf(stderr, "smooth rows: mirror %d %d swap %d, %dx%d at %d,%d from %d,%d, scale %d differ\n", mirror_x, mirror_y, swap_xy, width,
-                    height, left, top, px, py, scale);
+            fprintf(stderr, "picture rows: screen mirror %d %d swap %d, picture turned %u, %dx%d at %d,%d from %d,%d, scale %d smooth %d differ\n",
+                    mirror_x, mirror_y, swap_xy, turn, width, height, left, top, px, py, scale, kind);
             ++check_failures;
         }
     }
@@ -412,8 +392,7 @@ int main(void)
         test_move(bits & 16 ? 3 : 2, bits & 8, bits & 4, bits & 2, bits & 1);
     }
     for (int bits = 0; bits < 8; ++bits) {
-        test_indexed(bits & 4, bits & 2, bits & 1);
-        test_smooth(bits & 4, bits & 2, bits & 1);
+        test_pictures(bits & 4, bits & 2, bits & 1);
     }
     test_long_rows();
     test_bounds();

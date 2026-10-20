@@ -192,7 +192,7 @@ void app_main(void)
             dgx_fill_rectangle(frame, 0, 0, FRAME_SIDE, FRAME_SIDE, back);
             dgx_draw_texture_quad(frame, quad, card, 0, 0, CARD_W, CARD_H);
             drawing_us += esp_timer_get_time() - now_us;
-            dgx_vscreen_to_screen(screen, frame_x, frame_y, frame);
+            dgx_vscreen_to_screen(screen, frame_x, frame_y, frame, 0);
             ++frames;
             vTaskDelay(1);
         } while (now_us - start_us < EXAMPLE_ACT_US);

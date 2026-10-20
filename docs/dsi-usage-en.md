@@ -117,7 +117,7 @@ than 1 MB is copied in 10 seconds instead of 411 MB.
   are exactly those of the table. A color in between can differ from the
   table by one step of a channel: 3.2% of the range of red or blue, 1.6% of
   green, at most 2.3% of full brightness and 0.5% on average. Pass
-  `DGX_LUT_EXACT` to the call to get exactly the colors of the table; the
+  `DGX_VSCREEN_EXACT` to the call to get exactly the colors of the table; the
   screen then goes through its table.
 
 The 2D DMA is driven through a private interface of IDF, and in case a new

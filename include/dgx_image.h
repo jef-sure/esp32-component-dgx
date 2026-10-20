@@ -84,7 +84,7 @@ typedef struct {
 /**
  * @brief Draw a picture with its origin at (x, y) of the destination.
  *
- * Unlike dgx_vscreen_to_vscreen(), the source is not a screen but constant
+ * Unlike dgx_vscreen_to_screen(), the source is not a screen but constant
  * data, of 1, 4 or 8 bits a pixel, mapped to indices of the destination, and
  * it is clipped, mirrored and rotated around its origin. Nothing is
  * allocated. The changed area is marked as by other drawing functions.

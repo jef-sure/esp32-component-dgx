@@ -13,9 +13,11 @@ screens simultaneously.
 
 Today it lives as an ESP-IDF component with drivers for a handful of common
 panels, a couple of RAM-backed virtual screens, a UTF-8 text renderer, and a
-small offline tool for converting fonts. On top of that it animates: dots
-that morph one glyph into another, and handwritten fonts whose text is
-written stroke by stroke by a pen or turns into another text.
+small offline tool for converting fonts. It drives the MIPI-DSI panels of an
+ESP32-P4 without tearing, and puts a picture drawn small on a large display
+scaled and smoothed on the way, as a game port needs. On top of that it
+animates: dots that morph one glyph into another, and handwritten fonts
+whose text is written stroke by stroke by a pen or turns into another text.
 
 ## Contents
 
@@ -28,7 +30,8 @@ written stroke by stroke by a pen or turns into another text.
   - [A gauge](#a-gauge)
   - [A pie chart, arcs, a Wi-Fi icon](#a-pie-chart-arcs-a-wi-fi-icon)
   - [Scrolling text](#scrolling-text)
-  - [Scale, rotate or mirror a picture](#scale-rotate-or-mirror-a-picture)
+  - [A picture at any size and angle](#a-picture-at-any-size-and-angle)
+  - [Pixel art made larger](#pixel-art-made-larger)
   - [A sprite or an icon from flash](#a-sprite-or-an-icon-from-flash)
   - [A palette, a fade and a flash](#a-palette-a-fade-and-a-flash)
   - [Translucent buttons over a picture](#translucent-buttons-over-a-picture)
@@ -67,14 +70,14 @@ DGX is an ESP-IDF component, published in the
 as `jef-sure/dgx`. Add it to a project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.6.0"
+idf.py add-dependency "jef-sure/dgx^0.7.0"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.6.0"
+  jef-sure/dgx: "^0.7.0"
 ```
 
 Then enable the drivers you need in `menuconfig`, under the **DGX** menu. A
@@ -136,7 +139,7 @@ dgx_screen_t *frame = dgx_vscreen_init(scr->width, scr->height, 16, DgxScreenRGB
 for (int x = 0; x < scr->width; ++x) {
     dgx_fill_rectangle(frame, 0, 0, frame->width, frame->height, DGX_BLACK(dgx_rgb_to_16));
     dgx_solid_circle(frame, x, frame->height / 2, 12, DGX_CYAN(dgx_rgb_to_16));
-    dgx_vscreen_to_screen(scr, 0, 0, frame);
+    dgx_vscreen_to_screen(scr, 0, 0, frame, 0);
 }
 ```
 
@@ -149,7 +152,7 @@ dgx_screen_progress_up(frame);          // once: changes are collected while a b
 draw_something(frame);
 int left, top, width, height;
 if (dgx_screen_take_dirty(frame, &left, &top, &width, &height)) {
-    dgx_vscreen_region_to_screen(scr, left, top, frame, left, top, width, height);
+    dgx_vscreen_region_to_screen(scr, left, top, frame, left, top, width, height, 0);
 }
 ```
 
@@ -279,7 +282,7 @@ The usual way is to scroll a virtual screen and send it to the display:
 dgx_scroll(page, 0, 0, page->width, page->height, 0, -line_height, paper);
 dgx_font_string_utf8_screen(page, 4, page->height - 4, text, ink, DgxOutputNormal, 1,
                             font, NULL, NULL);
-dgx_vscreen_to_screen(lcd, 0, 0, page);
+dgx_vscreen_to_screen(lcd, 0, 0, page, 0);
 ```
 
 Some displays can be scrolled directly, without a virtual screen: an ILI9341
@@ -304,14 +307,14 @@ orientation, so the text scrolls the way you need whatever way the panel is
 mounted:
 
 ```c
-dgx_vscreen_to_screen_oriented(lcd, 0, 0, page, DgxOutputRotate90CW);
+dgx_vscreen_to_screen(lcd, 0, 0, page, DGX_VSCREEN_ORIENTED(DgxOutputRotate90CW));
 ```
 
 Example: [examples/figures_scroll_demo](examples/figures_scroll_demo), a
 terminal and a chart on both kinds of display. The rules are under
 [Drawing primitives](#drawing-primitives).
 
-### Scale, rotate or mirror a picture
+### A picture at any size and angle
 
 Draw the picture once into a virtual screen, then put it on the display at
 any size and onto any four corners.
@@ -337,10 +340,51 @@ dgx_draw_texture_quad(scr, mirrored, tex, 0, 0, tex->width, tex->height);
 
 To rotate or animate the picture, compute the four corners again for every
 frame. The quad must be convex; the mapping is affine, without perspective.
+For a whole number of times larger, a quarter turn or a mirror image, the
+flags of a transfer do the same pixel for pixel, faster and with smoothing:
+see [Pixel art made larger](#pixel-art-made-larger).
 Examples: [examples/texture_demo](examples/texture_demo) scales, rotates and
 wobbles a card (`card_corners()`),
 [examples/flip_clock_demo](examples/flip_clock_demo) folds the digits of a
 split-flap clock.
+
+### Pixel art made larger
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/jef-sure/esp32-component-dgx/main/docs/images/pixel-scale-dark.png">
+  <img src="https://raw.githubusercontent.com/jef-sure/esp32-component-dgx/main/docs/images/pixel-scale-light.png" width="640" alt="A small picture three times as large: by squares, by Scale3x and by Scale3xSFX">
+</picture>
+
+A virtual screen can be put on a screen larger than it is: every pixel a
+square of 2, 3 or more pixels, or smoothed at 2, 3 and 4, where the steps
+of a slanted edge are filled in. The same flags turn the picture by a
+quarter or mirror it and leave its pixels of value 0 out, on every
+transfer:
+
+```c
+// a 160x120 frame of 8-bit indices on a 320x240 display, smoothed
+dgx_vscreen8_to_screen16(lcd, 0, 0, frame, lut, DGX_VSCREEN_SCALE(2) | DGX_VSCREEN_SMOOTH);
+
+// a 16-bit sprite into the 16-bit virtual screen of a scene:
+// three times larger, mirrored, its pixels of value 0 left out
+dgx_vscreen_to_screen(scene, x, y, sprite,
+                      DGX_VSCREEN_SCALE(3) | DGX_VSCREEN_SMOOTH_SFX |
+                      DGX_VSCREEN_ORIENTED(DgxOutputMirrorX) | DGX_VSCREEN_TRANSPARENT);
+```
+
+`DGX_VSCREEN_SMOOTH` is Scale2x at 2, Scale3x at 3 and Scale2x twice at 4:
+a corner where two equal neighbours meet takes their pixel. Pixels are equal
+when their values are, the indices and not their colors through a table.
+`DGX_VSCREEN_SMOOTH_SFX` is Scale2xSFX and Scale3xSFX: a thin diagonal line
+stays thin where Scale2x gives it lumps, and edges at 45 degrees come out
+even at 3; it looks at more neighbours and does more work per pixel. A region
+is smoothed as the whole picture is, so a frame may be sent by its changed
+parts. Put a sprite with transparent pixels into the scene in RAM rather than
+straight on a display behind a bus, which takes a transparent picture as runs
+of pixels, a window each. Any other size or angle is a textured quad, see
+[A picture at any size and angle](#a-picture-at-any-size-and-angle).
+Example: [examples/pixel_scale_demo](examples/pixel_scale_demo) shows every
+way in turn, with the time each takes.
 
 ### A sprite or an icon from flash
 
@@ -378,7 +422,7 @@ dgx_vscreen8_to_screen16(lcd, 0, 0, frame, lut, 0);
 The picture is mirrored and rotated around its origin, so a sprite that
 turns round stays where it stands. A 1-bit picture is drawn in `color`; an
 8-bit one uses its values as indices, or a map of 255. Unlike
-`dgx_vscreen_to_vscreen()`, the source is constant data rather than a
+`dgx_vscreen_to_screen()`, the source is constant data rather than a
 screen, it is clipped, and it can be recolored. On a CYD a 40x60 sprite of
 4 bits from flash takes about 0.1 ms, mirrored or not.
 Example: [examples/sprite_palette_demo](examples/sprite_palette_demo).
@@ -437,7 +481,7 @@ int x, y, w, h;
 if (dgx_overlay_take_dirty(display, &x, &y, &w, &h)) {
     const int sx = x / 4, sy = y / 4;   // the pixels of the frame that cover the place
     dgx_vscreen8_region_to_screen16(display, 4 * sx, 4 * sy, frame, sx, sy, (x + w + 3) / 4 - sx, (y + h + 3) / 4 - sy, lut,
-                                    DGX_LUT_SCALE(4) | DGX_LUT_SMOOTH);
+                                    DGX_VSCREEN_SCALE(4) | DGX_VSCREEN_SMOOTH);
 }
 ```
 
@@ -575,7 +619,7 @@ do {
     if (t > 1) t = 1;
     dgx_fill_rectangle(band, 0, 0, band->width, band->height, 0);
     dgx_hw_morph_draw(morph, t * t * (3 - 2 * t), band, 10, 70, 0.4f, 4, 255);
-    dgx_vscreen8_to_screen16(scr, 0, 70, band, lut, false);
+    dgx_vscreen8_to_screen16(scr, 0, 70, band, lut, 0);
     vTaskDelay(1);
 } while (t < 1);
 
@@ -617,6 +661,10 @@ and the width and height of the screen with them.
 dgx_ili9341_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);   // landscape on a CYD
 ```
 
+A virtual screen is not turned; it is put on the display turned, with
+`DGX_VSCREEN_ORIENTED(o)` among the flags of the transfer, see
+[Scrolling text](#scrolling-text).
+
 See [Coordinates and orientation](#coordinates-and-orientation).
 
 ### Draw from several tasks
@@ -644,6 +692,7 @@ idf.py flash monitor
 | [figures_scroll_demo](examples/figures_scroll_demo) | CYD or JC1060P470 | a pie chart, arcs, a Wi-Fi icon, a scrolling terminal and chart; prints timings |
 | [texture_demo](examples/texture_demo) | CYD | a textured card scaled, rotated and wobbled |
 | [sprite_palette_demo](examples/sprite_palette_demo) | CYD | sprites of 1, 4 and 8 bits in maps of colors, mirrored, turned and clipped; day, night, lightning and a fade by the color table alone |
+| [pixel_scale_demo](examples/pixel_scale_demo) | CYD, JC1060P470 or JC8012P4A1C | a small picture two, three and four times as large by squares, Scale2x and Scale3x, Scale2xSFX and Scale3xSFX, each timed |
 | [flip_clock_demo](examples/flip_clock_demo) | CYD | a split-flap clock built on textured quads |
 | [morph_demo](examples/morph_demo) | CYD | words morphing letter by letter |
 | [glyph_morph_demo](examples/glyph_morph_demo) | CYD | one large symbol morphing into the next |
@@ -758,7 +807,12 @@ of the u8g2 driver written for the controller after its datasheet.
   ESP32-P4.
 - A color RAM-backed virtual screen and a 1-bit monochrome virtual screen.
   They are useful on their own, as staging buffers for animation, or as shadow
-  buffers behind monochrome controllers.
+  buffers behind monochrome controllers. A virtual screen goes to a display or
+  to another screen as it is, or larger by squares or smoothed (Scale2x,
+  Scale3x and their SFX variants), turned or mirrored, with transparent
+  pixels; an 8-bit one through a table of colors.
+- One translucent overlay layer per screen, mixed into everything that comes
+  from a virtual screen: buttons over a game.
 - Sprites and icons of 1, 4 or 8 bits a pixel kept in flash, drawn into an
   8-bit virtual screen with a map of colors, clipped, mirrored and rotated.
 - Color tables for 8-bit virtual screens: from a palette, a ramp between two
@@ -900,7 +954,7 @@ display, in any orientation:
 /* a line of text more: the picture goes up by the height of a line */
 dgx_scroll(page, 0, 0, page->width, page->height, 0, -line_height, paper);
 /* ... draw the new line at the bottom of `page` ... */
-dgx_vscreen_to_screen(lcd, 0, 0, page);
+dgx_vscreen_to_screen(lcd, 0, 0, page, 0);
 ```
 
 On a CYD, an ESP32 at 240 MHz with an ILI9341 on SPI at 40 MHz, a line of 14
@@ -927,7 +981,7 @@ through, `dgx_vscreen8_to_screen16()`, runs then from the color of the paper
 at 0 to the color of the ink. A display that mixes two colors itself, a DSI
 display of an ESP32-P4 with two frame buffers, takes such a table as its
 first and its last color and mixes the rest, within a step of a channel of
-the table; `DGX_LUT_EXACT` for the last argument of the call asks for the
+the table; `DGX_VSCREEN_EXACT` for the last argument of the call asks for the
 colors of the table to the last bit. On any other screen a pen asked to be
 soft draws as a hard one; see
 [A soft edge](docs/handwriting-en.md#a-soft-edge).
@@ -935,7 +989,7 @@ soft draws as a hard one; see
 `quad` is four `dgx_point_2d_t` vertices in the order of the region's corners:
 top-left, top-right, bottom-right, bottom-left. The texture needs the same
 color depth as the target screen; see
-[Scale, rotate or mirror a picture](#scale-rotate-or-mirror-a-picture), and
+[A picture at any size and angle](#a-picture-at-any-size-and-angle), and
 `examples/flip_clock_demo` uses both functions.
 
 ### Text and fonts
@@ -1115,14 +1169,11 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_vscreen_init(width, height, color_bits, cbo)` | Allocate a color RAM screen. |
 | `dgx_vscreen_clone(src)` | Allocate a copy with the same geometry and pixels. |
 | `dgx_vscreen_copy(dst, src)` | Copy a whole same-sized screen. |
-| `dgx_vscreen_to_vscreen(dst, x, y, src, has_transparency)` | Blit one RAM screen onto another. |
-| `dgx_vscreen_to_vscreen_oriented(dst, x, y, src, has_transparency, orientation)` | Blit with rotation/mirroring. |
-| `dgx_vscreen_to_screen(dst, x, y, src)` | Push a RAM screen to any destination (incl. hardware). |
-| `dgx_vscreen_region_to_screen(dst, x, y, src, x_src, y_src, w, h)` | Push a sub-region. |
-| `dgx_vscreen_to_screen_oriented(...)` / `dgx_vscreen_region_to_screen_oriented(...)` | Oriented variants. |
-| `dgx_vscreen8_to_screen16(dst, x, y, src, lut, flags)` | Expand an 8-bit indexed screen into 16-bit through a LUT. `flags` is 0 or `DGX_LUT_TRANSPARENT` (a pixel of index 0 is not put; `true` means the same), `DGX_LUT_EXACT` (the colors of the table to the last bit, no hardware that mixes two colors), `DGX_LUT_SCALE(n)` (every pixel a square of n by n, n up to 255) and `DGX_LUT_SMOOTH` (with a scale of 2 or 4, Scale2x on the indices instead of plain squares) added together. |
-| `dgx_vscreen8_region_to_screen16(dst, x, y, src, x_src, y_src, w, h, lut, flags)` | The same for a sub-region; `x`, `y` are where the corner of the region goes, and with `DGX_LUT_SCALE(n)` the region covers `n * w` by `n * h` there. |
-| `dgx_overlay_set(display, layer, x, y, lut, alpha)` | Lay an 8-bit virtual screen over a 16-bit screen at `x`, `y` (`dgx_overlay.h`), or move it, or give it other colors: index 0 empty, the others the colors of `lut` mixed with what lies under them by `alpha` (0 to 255, in 32 steps). One layer a screen. Mixed into what comes from virtual screens: `dgx_vscreen8_to_screen16()`, `dgx_vscreen8_region_to_screen16()` with all their flags, `dgx_vscreen_to_screen()`, `dgx_vscreen_region_to_screen()`; not into the oriented variants or what is drawn straight on the screen. |
+| `dgx_vscreen_to_screen(dst, x, y, src, flags)` | Put a RAM screen on a screen of the same depth: a display or another RAM screen. |
+| `dgx_vscreen_region_to_screen(dst, x, y, src, x_src, y_src, w, h, flags)` | The same for a sub-region; `x`, `y` are where the corner of the region goes, scaled and turned as the flags ask. |
+| `dgx_vscreen8_to_screen16(dst, x, y, src, lut, flags)` | Expand an 8-bit indexed screen into 16-bit through a LUT. |
+| `dgx_vscreen8_region_to_screen16(dst, x, y, src, x_src, y_src, w, h, lut, flags)` | The same for a sub-region. |
+| `dgx_overlay_set(display, layer, x, y, lut, alpha)` | Lay an 8-bit virtual screen over a 16-bit screen at `x`, `y` (`dgx_overlay.h`), or move it, or give it other colors: index 0 empty, the others the colors of `lut` mixed with what lies under them by `alpha` (0 to 255, in 32 steps). One layer a screen. Mixed into what comes from virtual screens: `dgx_vscreen8_to_screen16()`, `dgx_vscreen8_region_to_screen16()`, `dgx_vscreen_to_screen()`, `dgx_vscreen_region_to_screen()`, with all their flags; not into what is drawn straight on the screen. |
 | `dgx_overlay_clear(display)` | Take the layer away; its place becomes changed. |
 | `dgx_overlay_take_dirty(display, &x, &y, &w, &h)` | The rectangle the layer changed since the last call: drawn into, laid, moved, taken away. Put it again from the picture. |
 | `dgx_image_blit(dst, x, y, image, how)` | Draw a picture of 1, 4 or 8 bits from flash or RAM (`dgx_image.h`) into a linear 8-bit screen: value 0 transparent, a map or one color for the others, clipped, mirrored or rotated around its origin. Returns `ESP_ERR_NOT_SUPPORTED` for another destination. |
@@ -1131,6 +1182,17 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_vscreen_is_linear(scr)` | True when the screen is a `dgx_vscreen_t` with row-major pixels in `v_array`. |
 | `dgx_bw_screen_is_paged(scr)` | True when the screen keeps its bits in 8-row pages (`dgx_bw_init()`, SSD1306, SSD1309, SH1106, ST7565R). |
 | `dgx_bw_blit_or(scr, x, y, bmap)` | OR a 1-bpp bitmap into a page screen, clipped. |
+
+The last argument of the four transfers is 0 or these added together:
+
+| Flag | What it does |
+| --- | --- |
+| `DGX_VSCREEN_TRANSPARENT` | A pixel of value 0, index 0 through a table, is not put; `true` is the same. |
+| `DGX_VSCREEN_SCALE(n)` | Every pixel a square of `n` by `n`, `n` up to 255. |
+| `DGX_VSCREEN_SMOOTH` | With a scale of 2, 3 or 4: Scale2x, Scale3x, Scale2x twice, instead of plain squares. |
+| `DGX_VSCREEN_SMOOTH_SFX` | The same by Scale2xSFX and Scale3xSFX: fewer lumps on thin lines, more work. |
+| `DGX_VSCREEN_ORIENTED(o)` | Turned or mirrored, `o` a `dgx_output_orientation_t`; scaled and smoothed first. |
+| `DGX_VSCREEN_EXACT` | Through a table only: its colors to the last bit, no hardware that mixes two colors. |
 
 Free any screen with `dgx_screen_destroy(&scr)`.
 
@@ -1355,10 +1417,10 @@ in the transports they require.
 | `CONFIG_DGX_ENABLE_ST7920` | `drivers/st7920.c` | needs SPI; selects `VSCREEN` |
 | `CONFIG_DGX_ENABLE_JD9165` | `drivers/jd9165.c` | needs DSI |
 | `CONFIG_DGX_ENABLE_JD9365` | `drivers/jd9365.c` | needs DSI |
-| `CONFIG_DGX_ENABLE_V_BW_SCREEN` | `bw_screen.c` | 1-bit virtual screen |
-| `CONFIG_DGX_ENABLE_VSCREEN` | `drivers/vscreen.c` | color RAM-backed screen |
-| `CONFIG_DGX_ENABLE_VSCREEN_2H` | `drivers/vscreen_2h.c` | needs `VSCREEN` |
-| `CONFIG_DGX_ENABLE_MORPH` | `matrix.c`, `morph*.c` | dot morphing; selects `VSCREEN` |
+| `CONFIG_DGX_ENABLE_V_BW_SCREEN` | `vscreen/bw_screen.c` | 1-bit virtual screen |
+| `CONFIG_DGX_ENABLE_VSCREEN` | `vscreen/vscreen.c`, `vscreen/transfer.c`, `vscreen/image.c` | color RAM-backed screen and the transfers |
+| `CONFIG_DGX_ENABLE_VSCREEN_2H` | `vscreen/vscreen_2h.c` | needs `VSCREEN` |
+| `CONFIG_DGX_ENABLE_MORPH` | `morph/*.c` | dot morphing; selects `VSCREEN` |
 | `CONFIG_DGX_DSI_PRIVATE_DMA2D` | nothing | DSI on chips with a 2D DMA: large pieces are moved past the processor through the private 2D DMA interface of IDF; on by default, an escape hatch for an IDF that no longer builds it |
 | `CONFIG_DGX_DSI_INDEXED_BAND_KB` | nothing | DSI: the size of each of the two bands of internal RAM an 8-bit screen is made into on its way to the frame buffer, 64 KB by default; larger is faster, smaller ones are tried where there is no room |
 | `CONFIG_DGX_HW_FONT_IN_IRAM` | nothing | ESP32 only: the code that lays out a handwritten text is kept in IRAM, 4.1 KB |
@@ -1400,7 +1462,9 @@ A couple of practical limitations are worth knowing up front:
 
 - **Virtual screens don't honor `dir_x`/`dir_y`/`swap_xy` for framebuffer
   access.** Those fields describe orientation metadata, but they do not
-  rotate or mirror the stored pixel data.
+  rotate or mirror the stored pixel data. A virtual screen is turned where
+  it is put on another screen: `DGX_VSCREEN_ORIENTED(o)` in the flags of the
+  transfer.
 
 - **Handwritten text goes left to right only.** There is no orientation
   parameter. A soft edge of the lines, `DGX_PEN_SOFT`, comes out on a virtual
@@ -1408,8 +1472,9 @@ A couple of practical limitations are worth knowing up front:
   of another depth, the lines are not antialiased. The direction has a plain
   reason: I have never written right to left or top to bottom
   myself, have no handwritten fonts of that kind and do not know such
-  languages, so there was nothing to build it on. Rotate a virtual screen on
-  its way to the display if you need the text turned.
+  languages, so there was nothing to build it on. Send the virtual screen to
+  the display turned, with `DGX_VSCREEN_ORIENTED(o)`, if you need the text
+  turned.
 
 - **The handwritten font knows Latin with German letters and Russian.** That
   is all `font0ss` has. Other alphabets are to be drawn in the
@@ -1422,7 +1487,8 @@ The platform-independent code (matrices, morphing, renderers, virtual and page
 screens, fills, lines, circles and ellipses with their arcs and sectors,
 scrolling in memory, the frame buffer of the DSI bus and the
 way its two frame buffers change places, fonts,
-textured quads, sprites of 1, 4 and 8 bits, color tables, Bezier curves, handwritten fonts with their writing and
+textured quads, sprites of 1, 4 and 8 bits, color tables, the transfers of virtual screens with every flag, scaling
+and smoothing against the shaders it comes from, Bezier curves, handwritten fonts with their writing and
 morphing, the arc gauge) has host tests built with gcc against small ESP-IDF
 stubs and run under ASan/UBSan. A few pieces that do depend on the platform
 are tested there too, each against a model of what is on its wires: the
@@ -1447,9 +1513,18 @@ include/                 public headers
   bus/                   transport interfaces (SPI, I2C, P8, DSI)
   drivers/               panel drivers + virtual screens
   fonts/                 generated font headers
-src/                     implementations matching include/
-  bus/                   ESP32 bus backends
-  drivers/               panel + virtual screen sources
+src/                     implementations, by topic
+  screen/                what every screen does: the window of a display behind a bus,
+                         pixel runs, 1-bit bitmaps
+  draw/                  drawing on any screen: lines, circles, polygons, ellipses and arcs,
+                         Bezier curves and the pen, textures, scrolling, the gauge
+  vscreen/               virtual screens and what puts them on screens: transfers with
+                         their flags, scaling and smoothing, the overlay layer, sprites,
+                         tables of colors, the 1-bit page screen, two screens as one
+  text/                  bitmap and dot fonts, handwritten text and its morphs
+  morph/                 the dot morphing framework and its renderers
+  bus/                   ESP32 bus backends and the frame buffer of a DSI display
+  drivers/               panel drivers
   fonts/                 generated font sources (glob-built)
 font2c/                  offline TTF/BDF -> C font generator
 examples/                one project per example, see "Examples"

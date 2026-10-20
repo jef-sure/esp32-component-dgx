@@ -1,5 +1,124 @@
 # Changes
 
+## 0.7.0 - 2026-10-21
+
+This release changes the transfer API. The calls of 0.6 without flags
+still build through macros of the same names; the turned calls and a few
+others are gone and need a one-line edit each, see the table below.
+
+- **One set of flags for every transfer of a virtual screen.** The four
+  transfers take flags as their last argument:
+  `dgx_vscreen_to_screen(dst, x, y, src, flags)`,
+  `dgx_vscreen_region_to_screen(dst, x, y, src, x_src, y_src, w, h, flags)`,
+  `dgx_vscreen8_to_screen16()` and `dgx_vscreen8_region_to_screen16()`.
+  - `DGX_VSCREEN_TRANSPARENT`: pixels of value 0 are not put; `true` still
+    means this.
+  - `DGX_VSCREEN_SCALE(n)`: every pixel becomes an n by n square, n up to
+    255.
+  - `DGX_VSCREEN_SMOOTH`: Scale2x at a scale of 2, Scale3x at 3, Scale2x
+    twice at 4.
+  - `DGX_VSCREEN_SMOOTH_SFX`: Scale2xSFX and Scale3xSFX instead (see
+    below).
+  - `DGX_VSCREEN_ORIENTED(o)`: the picture is rotated or mirrored, `o` being
+    a `dgx_output_orientation_t`; it is scaled and smoothed first.
+  - `DGX_VSCREEN_EXACT`: as before, the colors of the table to the last bit.
+
+  Every flag works with every transfer, on every destination and at every
+  depth: a 16-bit sprite can be put mirrored, three times larger, smoothed
+  and with transparent pixels, and an 8-bit picture can be turned on its way
+  through a table. The old names `DGX_LUT_TRANSPARENT`, `DGX_LUT_EXACT`,
+  `DGX_LUT_SCALE(n)` and `DGX_LUT_SMOOTH` remain as the same values, so the
+  table transfers of 0.6 build unchanged.
+- **The calls that the flags replace are removed:**
+
+  | 0.6 | now |
+  | --- | --- |
+  | `dgx_vscreen_to_screen(dst, x, y, src)` | `dgx_vscreen_to_screen(dst, x, y, src, 0)` |
+  | `dgx_vscreen_region_to_screen(dst, x, y, src, sx, sy, w, h)` | `dgx_vscreen_region_to_screen(dst, x, y, src, sx, sy, w, h, 0)` |
+  | `dgx_vscreen_to_screen_oriented(dst, x, y, src, o)` | `dgx_vscreen_to_screen(dst, x, y, src, DGX_VSCREEN_ORIENTED(o))` |
+  | `dgx_vscreen_region_to_screen_oriented(dst, x, y, src, sx, sy, w, h, o)` | `dgx_vscreen_region_to_screen(dst, x, y, src, sx, sy, w, h, DGX_VSCREEN_ORIENTED(o))` |
+  | `dgx_vscreen_to_vscreen(dst, x, y, src, transparent)` | `dgx_vscreen_to_screen(dst, x, y, src, transparent)` |
+  | `dgx_vscreen_to_vscreen_oriented(dst, x, y, src, transparent, o)` | `dgx_vscreen_to_screen(dst, x, y, src, transparent \| DGX_VSCREEN_ORIENTED(o))` |
+
+  The first two rows and `dgx_vscreen_to_vscreen()` need no edit:
+  `drivers/vscreen.h` keeps them as macros that call the new functions with
+  the flags of the right column.
+
+  Also removed: `dgx_vscreen_output_orientation_t` and
+  `dgx_vscreen_output_orientation_make()` (use `dgx_output_orientation_t`
+  and `dgx_output_orientation_make()`), `_dgx_start_area_pixel()` and
+  `_dgx_move_to_next_area_pixel()`, which nothing in the library used, and
+  the empty header `dgx_bw_page_screen.h`. The table of a transfer is
+  `const uint16_t *` now.
+- **Scale3x, Scale2xSFX and Scale3xSFX.** `DGX_VSCREEN_SMOOTH` at a scale
+  of 3 is Scale3x. `DGX_VSCREEN_SMOOTH_SFX` is Scale2xSFX and Scale3xSFX by
+  Sp00kyFox (2015), from the shaders of libretro: a corner is not filled
+  where its diagonal is a thin line of one pixel that goes on, which keeps
+  thin slanted lines from the lumps of Scale2x, and Scale3xSFX fills the
+  corners of edges at 45 degrees more evenly. They look at a pixel two
+  steps away in each direction as well and do more work per pixel. Pixels
+  are compared exactly, by index or by value, where the shaders compare
+  colors with a threshold. The real Scale3xSFX is the Cg one in
+  `libretro/common-shaders`; the slang and GLSL files with that name hold a
+  copy of Scale2xSFX. At 4 the SFX variant is applied twice. A DSI display
+  makes all of them in the order of its panel, as it made Scale2x.
+- **Transparent transfers to a display go by runs.** A transparent picture
+  is sent to a display behind a bus as runs of the pixels it puts, one
+  window per run, instead of one window per pixel. A transfer that is not
+  transparent goes through one window, now also when it is scaled, smoothed
+  or turned. An 18-bit virtual screen goes to an 18-bit
+  display through the window, three bytes a pixel, instead of pixel by
+  pixel. A DSI display, whose pixels the processor writes itself, takes a
+  transparent picture pixel by pixel, which costs less there than a window.
+- **The overlay layer is mixed into every transfer**, the turned ones
+  included.
+- **The sources are grouped by topic.** `src/screen/` holds what every
+  screen does (the window of a display behind a bus, pixel runs, bitmaps),
+  `src/draw/` drawing (lines, circles, polygons, ellipses, Bezier curves,
+  textures, scrolling, the gauge), `src/vscreen/` virtual screens and the
+  transfers (with the scaling, the overlay, sprites and tables), `src/text/`
+  fonts and handwritten text, `src/morph/` morphing. `src/bus/`,
+  `src/drivers/` (now only panels) and `src/fonts/` stay. The public headers
+  are where they were. A build that lists the sources of DGX by name, as a
+  host test of another project may, needs the new paths.
+- **`examples/pixel_scale_demo`**, for a CYD and both DSI boards: a small
+  picture two, three and four times as large by squares, by Scale2x and
+  Scale3x and by their SFX variants, each way timed on the screen and in the log.
+- Tests: `test_scale` checks the smoothing against the shaders written out a
+  point at a time, which in turn are checked against the Scale2x of the game
+  engine and shown to give the same picture rotated and mirrored; `test_transfer`
+  checks every flag on every destination against a model that carries each
+  point of the larger picture forward to the pixel it lands on;
+  `test_fb_area` checks the rows of a DSI panel for every turn of the
+  picture on every turn of the screen. On both DSI boards
+  `pixel_scale_demo` checks itself: 320 transfers with every flag, 8-bit
+  through the table and 16-bit as it is, to the display and into a virtual
+  screen, and no pixel differs.
+- **Timed against 0.6.6** on a CYD (ESP32, ILI9341 at 40 MHz over SPI), a
+  JC1060P470 (ESP32-P4 rev 1.3, JD9165 1024x600) and a JC8012P4A1C (ESP32-P4
+  rev 3.2, JD9365 turned to 1280x800), IDF at `-O2`:
+  - between virtual screens, a transparent copy is 30–49% faster, a turned
+    one 27–72%, a transparent 8-bit sprite 47–60%;
+  - to a DSI display, an 8-bit picture at 1:1 is 15% faster on the
+    JC1060P470, by squares at 2 12–13% on both, a 16-bit one mirrored or
+    turned by a quarter 20–30%; filled shapes, whose rows are filled two
+    pixels a word now, 19–21% (the triangles of `dsi_demo`);
+  - a transparent 8-bit sprite to the CYD is 45% faster, a 5x5 dot stamped
+    into a virtual screen 100 times, as a dot font is drawn, 7–10%, a
+    320x112 band copied between virtual screens on the CYD 8% (13 us);
+    everything else is within about 2% of 0.6.6 either way.
+
+  Over SPI smoothing costs nothing visible: the bus sets the pace, and a
+  160x120 picture made 320x240 takes 32.1 ms by squares and 32.3 ms by
+  Scale2xSFX. On a DSI display the processor makes every pixel, and
+  smoothing costs its time. On the JC8012P4A1C, by squares, plain and SFX:
+
+  | Picture to 1280x800 | Squares | Scale2x or Scale3x | SFX |
+  | --- | --- | --- | --- |
+  | 640x400 at 2 | 19.0 ms | 31.3 ms | 33.6 ms |
+  | 426x266 at 3 | 14.9 ms | 21.8 ms | 27.7 ms |
+  | 320x200 at 4 | 9.9 ms | 24.9 ms | 28.1 ms |
+
 ## 0.6.6 - 2026-10-18
 
 - **An overlay layer of a screen, `dgx_overlay.h`.** An 8-bit virtual

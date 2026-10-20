@@ -74,10 +74,10 @@ static void dgx_vscreen_2h_update_area(dgx_screen_t *_scr, int left, int right, 
         }
     } else {
         if (lw > 0) {
-            dgx_vscreen_region_to_screen(scr->left_screen, ll, top, _scr, ll, top, lw, bottom - top + 1);
+            dgx_vscreen_region_to_screen(scr->left_screen, ll, top, _scr, ll, top, lw, bottom - top + 1, 0);
         }
         if (rw > 0) {
-            dgx_vscreen_region_to_screen(scr->right_screen, rl - scr->left_screen->width, top, _scr, rl, top, rw, bottom - top + 1);
+            dgx_vscreen_region_to_screen(scr->right_screen, rl - scr->left_screen->width, top, _scr, rl, top, rw, bottom - top + 1, 0);
         }
     }
 }

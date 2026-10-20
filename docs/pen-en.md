@@ -2,7 +2,7 @@
 
 [Русская версия](pen-ru.md)
 
-A technical note on how `src/bezier.c` draws a curve with a pen: what figures
+A technical note on how `src/draw/bezier.c` draws a curve with a pen: what figures
 it puts on a screen, what it counts with, what it calls and what that costs
 on an ESP32. How to use a pen is in [handwriting-en.md](handwriting-en.md);
 here is only how it is built.

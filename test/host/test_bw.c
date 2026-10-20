@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "area_walk_ref.h"
 #include "check.h"
 #include "dgx_bits.h"
 #include "dgx_bw_screen.h"
@@ -189,14 +190,14 @@ static int reference_char(dgx_screen_t *scr, int x, int y, uint32_t cp, dgx_outp
         right   = bottom;
         bottom  = t;
     }
-    dgx_point_2d_t p = _dgx_start_area_pixel(0, right, 0, bottom, xdir, ydir);
+    dgx_point_2d_t p = ref_area_first_pixel(0, right, 0, bottom, xdir, ydir);
     for (int by = 0; by < g->height; ++by) {
         for (int bx = 0; bx < g->width; ++bx) {
             if (dgx_bw_bitmap_get_pixel(&bmap, bx, by)) {
                 for (int dy = 0; dy < scale; ++dy)
                     for (int dx = 0; dx < scale; ++dx) dgx_set_pixel(scr, x + x_shift + p.x * scale + dx, y + y_shift + p.y * scale + dy, 1);
             }
-            p = _dgx_move_to_next_area_pixel(p, 0, right, 0, bottom, xdir, ydir, swap);
+            p = ref_area_next_pixel(p, 0, right, 0, bottom, xdir, ydir, swap);
         }
     }
     return advance * scale;
@@ -363,7 +364,7 @@ static void test_region_crop(void)
         const int *c = cases[i];
         for (int o = DgxOutputNormal; o <= DgxOutputTransverse; ++o) {
             dgx_screen_t *dst = dgx_vscreen_init(12, 11, 8, DgxScreenRGB);
-            dgx_vscreen_region_to_screen_oriented(dst, c[0], c[1], src, c[2], c[3], c[4], c[5], (dgx_output_orientation_t)o);
+            dgx_vscreen_region_to_screen(dst, c[0], c[1], src, c[2], c[3], c[4], c[5], DGX_VSCREEN_ORIENTED(o));
             if (!region_matches(dst, c[0], c[1], c[2], c[3], c[4], c[5], (dgx_output_orientation_t)o)) {
                 fprintf(stderr, "region crop: case %d, orientation %d\n", (int)i, o);
                 ++check_failures;

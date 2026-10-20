@@ -169,33 +169,13 @@ typedef struct dgx_point_2d
     int16_t y;
 } dgx_point_2d_t;
 
-dgx_point_2d_t _dgx_start_area_pixel( //
-    int               left,           //
-    int               right,          //
-    int               top,            //
-    int               bottom,         //
-    dgx_orientation_t dir_x,          //
-    dgx_orientation_t dir_y           //
-);
-
-dgx_point_2d_t _dgx_move_to_next_area_pixel( //
-    dgx_point_2d_t    current_point,         //
-    int               left,                  //
-    int               right,                 //
-    int               top,                   //
-    int               bottom,                //
-    dgx_orientation_t dir_x,                 //
-    dgx_orientation_t dir_y,                 //
-    bool              swap_xy                //
-);
+/* the overlay layer the screen has, or is, let go of: see dgx_overlay.h */
+void dgx_overlay_forget(dgx_screen_t *scr);
 
 /**
  * @brief Destroy a screen allocated by a driver or virtual-screen constructor.
  * @param _pscr In/out pointer to the screen pointer. Set to NULL on return.
  */
-/* the overlay layer the screen has, or is, let go of: see dgx_overlay.h */
-void dgx_overlay_forget(dgx_screen_t *scr);
-
 static inline void dgx_screen_destroy(dgx_screen_t **_pscr)
 {
     if (*_pscr && (*_pscr)->overlay) dgx_overlay_forget(*_pscr);

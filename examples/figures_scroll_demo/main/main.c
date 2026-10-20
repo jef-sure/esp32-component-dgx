@@ -270,24 +270,24 @@ static void page_memory(void)
         /* a line of text more: the picture goes up by the height of a line, the new line is drawn at the bottom */
         dgx_scroll(band, 0, 0, band->width, band->height, 0, -S(14), yellow);
         TEXT(band, S(4), band->height - S(4), ink, "строка %d уходит вверх на высоту строки", i + 1);
-        dgx_vscreen_to_screen(lcd, X(0), Y(60), band);
+        dgx_vscreen_to_screen(lcd, X(0), Y(60), band, 0);
         pause_ms(110);
     }
     for (int i = 0; i < 40; ++i) {
         dgx_scroll(band, 0, 0, band->width, band->height, S(6), 0, i & 1 ? green : yellow);
-        dgx_vscreen_to_screen(lcd, X(0), Y(60), band);
+        dgx_vscreen_to_screen(lcd, X(0), Y(60), band, 0);
         pause_ms(40);
     }
     for (int i = 0; i < 26; ++i) {
         dgx_scroll(band, 0, 0, band->width, band->height, 0, S(14), yellow);
         TEXT(band, S(4), S(10), ink, "строка %d приходит сверху", i + 1);
-        dgx_vscreen_to_screen(lcd, X(0), Y(60), band);
+        dgx_vscreen_to_screen(lcd, X(0), Y(60), band, 0);
         pause_ms(60);
     }
     /* a part of the band, aslant */
     for (int i = 0; i < 30; ++i) {
         dgx_scroll(band, S(40), S(10), S(200), S(90), -S(5), S(3), blue);
-        dgx_vscreen_to_screen(lcd, X(0), Y(60), band);
+        dgx_vscreen_to_screen(lcd, X(0), Y(60), band, 0);
         pause_ms(50);
     }
     dgx_screen_destroy(&band);
@@ -505,7 +505,7 @@ static void timings(void)
         dgx_screen_progress_up(band);
         TIME("16 bits 320x112: dgx_scroll up by 14", 50, dgx_scroll(band, 0, 0, 320, 112, 0, -14, 0));
         TIME("16 bits 320x112: dgx_scroll left by 4", 50, dgx_scroll(band, 0, 0, 320, 112, -4, 0, 0));
-        TIME("16 bits 320x112: dgx_vscreen_to_screen to the display", 10, dgx_vscreen_to_screen(lcd, 0, 60, band));
+        TIME("16 bits 320x112: dgx_vscreen_to_screen to the display", 10, dgx_vscreen_to_screen(lcd, 0, 60, band, 0));
         dgx_screen_destroy(&band);
     }
     dgx_screen_t *twelve = dgx_vscreen_init(320, 112, 12, DgxScreenRGB);
@@ -536,7 +536,7 @@ static void timings(void)
         band = dgx_vscreen_init(320, 112, 16, DgxScreenRGB);
         if (band) {
             dgx_scroll(lcd, 0, 0, 320, 240, -100, 0, paper);
-            TIME("16 bits 320x112 to the display, the panel scrolled by 100", 10, dgx_vscreen_to_screen(lcd, 0, 60, band));
+            TIME("16 bits 320x112 to the display, the panel scrolled by 100", 10, dgx_vscreen_to_screen(lcd, 0, 60, band, 0));
             TIME("display: dgx_scroll left by 3, the panel", 50, dgx_scroll(lcd, 0, 0, 320, 240, -3, 0, paper));
             TIME("display: dgx_scroll_no_fill left by 3, the panel", 50, dgx_scroll_no_fill(lcd, 0, 0, 320, 240, -3, 0));
             TIME("display: dgx_scroll left by 32, the panel", 20, dgx_scroll(lcd, 0, 0, 320, 240, -32, 0, paper));
@@ -551,8 +551,8 @@ static void timings(void)
         dgx_scroll(lcd, 0, 24, 240, 280, 0, -100, paper);
         dgx_screen_t *lines = dgx_vscreen_init(240, 112, 16, DgxScreenRGB);
         if (lines) {
-            TIME("display upright: 240x112 sent across the turn of the rows", 10, dgx_vscreen_to_screen(lcd, 0, 150, lines));
-            TIME("display upright: 240x112 sent beside it", 10, dgx_vscreen_to_screen(lcd, 0, 30, lines));
+            TIME("display upright: 240x112 sent across the turn of the rows", 10, dgx_vscreen_to_screen(lcd, 0, 150, lines, 0));
+            TIME("display upright: 240x112 sent beside it", 10, dgx_vscreen_to_screen(lcd, 0, 30, lines, 0));
             dgx_screen_destroy(&lines);
         }
         TIME("display upright: fill of 240 x 14", 50, dgx_fill_rectangle(lcd, 0, 100, 240, 14, yellow));

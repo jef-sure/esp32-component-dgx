@@ -2,10 +2,20 @@ file(GLOB dgx_font_sources
 	"${COMPONENT_DIR}/src/fonts/*.c"
 )
 
+# The sources by topic: what every screen does (screen/), drawing on any screen (draw/), virtual screens and
+# what moves pictures between screens (vscreen/), text (text/), morphing (morph/); the buses (bus/), the
+# panels (drivers/) and the fonts (fonts/) are enabled one by one below.
+#
 # hw_font.c, bezier.c and hw_morph.c stand together: a text is written by the first calling the second for
 # every stroke, and the linker puts the code of an archive into flash in the order its files are needed. Code
 # that lies 16 KB apart shares the lines of the 2-way flash cache of the ESP32; side by side the two do not.
-set(srcs "src/drivers/dgx_lcd_init.c" "src/dgx_bus_optimized_funcs.c" "src/dgx_spi_area_protocol.c" "src/draw.c" "src/pixels.c" "src/font.c" "src/hw_font.c" "src/bezier.c" "src/hw_morph.c" "src/font_morph.c" "src/orientation.c" "src/bitmap.c" "src/gauge.c" "src/texture.c" "src/ellipse.c" "src/scroll.c" "src/lut.c" "src/indexed.c" "src/overlay.c")
+set(srcs
+	"src/drivers/dgx_lcd_init.c"
+	"src/screen/screen.c" "src/screen/screen_bus.c" "src/screen/pixels.c" "src/screen/bitmap.c"
+	"src/draw/draw.c" "src/draw/lines.c" "src/draw/circles.c" "src/draw/polygons.c"
+	"src/text/font.c" "src/text/hw_font.c" "src/draw/bezier.c" "src/text/hw_morph.c" "src/text/font_morph.c"
+	"src/draw/gauge.c" "src/draw/texture.c" "src/draw/ellipse.c" "src/draw/scroll.c"
+	"src/vscreen/lut.c" "src/vscreen/scale.c" "src/vscreen/overlay.c")
 
 list(APPEND srcs ${dgx_font_sources})
 
@@ -74,21 +84,21 @@ if(CONFIG_DGX_ENABLE_SH1106)
 endif()
 
 if(CONFIG_DGX_ENABLE_V_BW_SCREEN)
-	list(APPEND srcs "src/bw_screen.c")
+	list(APPEND srcs "src/vscreen/bw_screen.c")
 endif()
 
 if(CONFIG_DGX_ENABLE_VSCREEN)
-	list(APPEND srcs "src/drivers/vscreen.c" "src/image.c")
+	list(APPEND srcs "src/vscreen/vscreen.c" "src/vscreen/transfer.c" "src/vscreen/image.c")
 endif()
 
 if(CONFIG_DGX_ENABLE_VSCREEN_2H)
-	list(APPEND srcs "src/drivers/vscreen_2h.c")
+	list(APPEND srcs "src/vscreen/vscreen_2h.c")
 endif()
 
 if(CONFIG_DGX_ENABLE_MORPH)
-	list(APPEND srcs "src/matrix.c" "src/morph.c" "src/morph_sources.c")
+	list(APPEND srcs "src/morph/matrix.c" "src/morph/morph.c" "src/morph/morph_sources.c")
 	if(CONFIG_DGX_ENABLE_VSCREEN)
-		list(APPEND srcs "src/morph_render.c")
+		list(APPEND srcs "src/morph/morph_render.c")
 	endif()
 endif()
 

@@ -1722,27 +1722,33 @@ and blue as the panel takes them, at least the `rows_from` bytes of
 This is what makes a turned screen fast. Through a window, a screen rotated
 by 90 degrees writes each pixel a row of the panel away from the one before,
 1600 bytes on the 10" panel, and the cache brings in a line of 64 bytes for
-every 2 bytes written. The same path serves `DGX_LUT_SCALE(n)`: a 320x200
-game picture goes to a 1280x800 screen with every pixel a 4x4 square. The
-processor reads 64 000 indices, and three of every four rows of the panel
-are copies. With `DGX_LUT_SMOOTH` as well, every row of the panel is a line
-of the picture smoothed by Scale2x, a row of it or a column of it: Scale2x
-gives the same picture whichever way it is turned, so it is computed along
-the panel's rows directly. The lines of the picture at half the size that a
-line needs are kept, four of them, and the next row of the panel reuses
-them.
+every 2 bytes written. The same path serves `DGX_VSCREEN_SCALE(n)`: a
+320x200 game picture goes to a 1280x800 screen with every pixel a 4x4
+square. The processor reads 64 000 indices, and three of every four rows of
+the panel are copies. With `DGX_VSCREEN_SMOOTH` as well, every row of the
+panel is a line of the smoothed picture, a row of it or a column of it:
+Scale2x at 2 and 4, Scale3x at 3, and Scale2xSFX and Scale3xSFX with
+`DGX_VSCREEN_SMOOTH_SFX`. Each of them gives the same picture whichever way
+it is turned, so it is computed along the panel's rows directly. A picture
+turned on the screen by `DGX_VSCREEN_ORIENTED()` is one more turn on top of
+the turn of the screen: where a row of the panel runs in the picture is
+worked out from three pixels of the panel, and any two turns come to one.
+The lines of the smaller pictures that a line needs are kept, eight of
+them, and the next row of the panel reuses them; the rows of the panel made
+from the same line of the smaller picture, two or three, are made
+together.
 
 JC8012P4A1C (10"), JD9365, ESP32-P4 revision 3.2, PSRAM at 250 MHz, 256 KB
 cache, IDF 6.0.1 at `-O2`, two buffers, the screen turned to 1280x800
 landscape (axes swapped). A game frame of 320x200 indices goes to the whole
-screen at `DGX_LUT_SCALE(4)`, measured inside the Prince of Persia port.
+screen at `DGX_VSCREEN_SCALE(4)`, measured inside the Prince of Persia port.
 "The call" is `dgx_vscreen8_region_to_screen16()`, "the frame" is the whole
 picture of the game, before is 0.6.3 through the window.
 
 | | Frame before | Frame now | The call |
 | --- | --- | --- | --- |
 | Squares | 123–157 ms | 16.1–16.9 ms | 11.0–11.7 ms |
-| Smoothed, `DGX_LUT_SMOOTH` | about 145 ms | 31.9–32.6 ms | 26.8–27.4 ms |
+| Smoothed, `DGX_VSCREEN_SMOOTH` | about 145 ms | 31.9–32.6 ms | 26.8–27.4 ms |
 
 The DMA keeps up with the processor; what is left is making the rows.
 Timed inside the bus in 0.6.4, the processor took 8.1 ms of the call for
@@ -1753,6 +1759,23 @@ are a pair are made together, and two pixels go as one word. The smoothed
 frame before was the game's own Scale2x, 26 ms on this board, followed by
 the window.
 
+The ways of smoothing differ in what they cost. The same board and settings,
+and a JC1060P470 (7"), JD9165 1024x600, ESP32-P4 revision 1.3, PSRAM at
+200 MHz, IDF 6.0.1 at `-O2`, two buffers, the screen as the panel lies. A
+bench picture of shapes, thin lines and text, half, a third and a quarter of
+the screen, goes to the whole screen; the call is timed alone, the median of
+20 calls.
+
+| To the whole screen | 10" squares | 10" plain | 10" SFX | 7" squares | 7" plain | 7" SFX |
+| --- | --- | --- | --- | --- | --- | --- |
+| At 2, Scale2x | 19.0 ms | 31.3 ms | 33.6 ms | 11.8 ms | 19.7 ms | 21.4 ms |
+| At 3, Scale3x | 14.9 ms | 21.8 ms | 27.7 ms | 10.2 ms | 14.3 ms | 19.2 ms |
+| At 4, Scale2x twice | 9.9 ms | 24.9 ms | 28.1 ms | 6.8 ms | 16.8 ms | 19.2 ms |
+
+SFX looks at four more pixels around each one and costs 2 to 6 ms more a
+frame on the 10" than plain smoothing; Scale3x costs less than Scale2x twice,
+as it makes the larger picture in one pass.
+
 An overlay layer of the screen (`dgx_overlay.h`) is mixed into the same
 bands: after the processor has made a band, the part of it under the layer
 gets the layer's colours mixed in. The layer is read along its own rows
@@ -1762,7 +1785,7 @@ virtual screen under the layer cannot go by `write_rows`, which takes its
 rows as they lie, and goes through the window.
 
 The same board and settings as the table above, with a bench of its own
-instead of the game: a 320x200 picture at `DGX_LUT_SCALE(4)` to the whole
+instead of the game: a 320x200 picture at `DGX_VSCREEN_SCALE(4)` to the whole
 screen, the call timed alone (the swap of buffers waited out between
 calls), bands of 64 KB. "Buttons" is a cross and four circles at the
 bottom, as a game pad on a tablet, at alpha 160; "half" is the left half of
@@ -1835,8 +1858,8 @@ brightness, with the colours of the same example, it comes to no more than
 table. Only the colours between the first and the last differ, that is the
 pixels of a line's soft edge. A program that needs the colours of the table
 and nothing else says so at the put: the last argument of the call is flags,
-and `DGX_LUT_EXACT` sends the screen through the table in strips.
-`DGX_LUT_TRANSPARENT` means what `true` used to. Where there is nothing to
+and `DGX_VSCREEN_EXACT` sends the screen through the table in strips.
+`DGX_VSCREEN_TRANSPARENT` means what `true` used to. Where there is nothing to
 blend with, the flag changes nothing.
 
 JD9165 (7"), one buffer, 128 KB cache, IDF 5.5.4; blending with one buffer
@@ -2532,3 +2555,4 @@ built.
 | 0.6.4 | the bus function `write_indexed`: an 8-bit screen through a colour table goes to the panel in its own order by the 2D DMA, in every orientation, and with `DGX_LUT_SCALE(n)` every pixel a square of n by n, smoothed by Scale2x with `DGX_LUT_SMOOTH`; the strips through `write_rows` are gone |
 | 0.6.5 | the smoothed rows of `write_indexed` faster: a full smoothed frame of the game 27 ms instead of 34 |
 | 0.6.6 | an overlay layer of the screen mixed into the bands of `write_indexed`, with a map of tiles; a 16-bit transfer under it goes through the window; bands of 64 KB by default, `CONFIG_DGX_DSI_INDEXED_BAND_KB` |
+| 0.7.0 | `write_indexed` smooths by Scale3x at 3 and by Scale2xSFX and Scale3xSFX, and takes a picture turned on the screen; the flags are named `DGX_VSCREEN_*`; an 8-bit picture at 1:1 along the rows of the panel goes four pixels at a time, 15% faster on the 7"; a 16-bit picture mirrored or turned 20–30% faster |

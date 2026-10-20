@@ -17,7 +17,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "../dgx_indexed_priv.h"
+#include "../vscreen/dgx_scale_priv.h"
 
 #ifdef __cplusplus
 // @formatter:off
@@ -149,19 +149,20 @@ static inline void dgx_fb_area_point_to_panel(const dgx_fb_area_t *area, int x, 
  * panel, from its row `first` on, counted from its top there, into `to`:
  * one after another, as many pixels a row as the rectangle is wide on the
  * panel, in the byte order of the frame buffer. They are ready to be copied
- * into it as they are, whatever the orientation. Only for 2 bytes a pixel
- * and red and blue as the panel takes them.
+ * into it as they are, however the screen lies on the panel and however the
+ * picture is turned on the screen. Only for 2 bytes a pixel and red and
+ * blue as the panel takes them.
  *
  * @param picture What goes into the rectangle, see dgx_bus_indexed_t.
  * @param lines   For a smoothed picture, what dgx_fb_area_indexed_lines() has begun for the same rectangle; NULL will do for one that is not.
  */
 void dgx_fb_area_indexed_rows(const dgx_fb_area_t *area, uint8_t *to, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
-                              const dgx_bus_indexed_t *picture, uint16_t first, uint16_t rows, dgx_indexed_lines_t *lines);
+                              const dgx_bus_indexed_t *picture, uint16_t first, uint16_t rows, dgx_scale_lines_t *lines);
 
-/** @brief Bytes of scratch dgx_fb_area_indexed_lines() needs for a rectangle `columns` wide on the panel. */
-static inline size_t dgx_fb_area_indexed_scratch(uint32_t columns)
+/** @brief Bytes of scratch dgx_fb_area_indexed_lines() needs for a picture and a rectangle `columns` wide on the panel. */
+static inline size_t dgx_fb_area_indexed_scratch(const dgx_bus_indexed_t *picture, uint32_t columns)
 {
-    return dgx_indexed_lines_scratch(columns);
+    return dgx_scale_scratch(picture->scale, picture->smooth, columns, 1);
 }
 
 /**
@@ -169,9 +170,10 @@ static inline size_t dgx_fb_area_indexed_scratch(uint32_t columns)
  *
  * The rows made one call after another, in order, share what the lines of
  * the smaller pictures are made of; `scratch` holds
- * dgx_fb_area_indexed_scratch() bytes and lasts as long as they are made.
+ * dgx_fb_area_indexed_scratch() bytes, aligned for a word, and lasts as long
+ * as they are made.
  */
-void dgx_fb_area_indexed_lines(const dgx_fb_area_t *area, dgx_indexed_lines_t *lines, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
+void dgx_fb_area_indexed_lines(const dgx_fb_area_t *area, dgx_scale_lines_t *lines, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
                                const dgx_bus_indexed_t *picture, uint8_t *scratch);
 
 /**

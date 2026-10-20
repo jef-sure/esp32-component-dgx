@@ -54,7 +54,7 @@ the display in 13.5 ms. The table of the page is two colors and what lies
 between them, so the pixel accelerator of the chip mixes the color of the
 ink into the color of the paper, and the processor carries no pixel. A color
 between the two may differ from the table by a step of a channel; with
-`DGX_LUT_EXACT` in place of `false` in `show()` the page goes through the
+`DGX_VSCREEN_EXACT` in place of `false` in `show()` the page goes through the
 table, to the last bit, in 20.7 ms and at 25 frames a second.
 
 The settings of each board are in `sdkconfig.defaults.esp32` and

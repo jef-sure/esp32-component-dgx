@@ -142,11 +142,11 @@ int main(void)
         const int width = whole ? SW : rnd(-1, SW + 6), height = whole ? SH : rnd(-1, SH + 6);
         windows = single_pixels = sent_pixels = 0;
         if (whole) {
-            dgx_vscreen_to_screen_oriented(lcd, x, y, src, turn);
-            dgx_vscreen_to_screen_oriented(model, x, y, src, turn);
+            dgx_vscreen_to_screen(lcd, x, y, src, DGX_VSCREEN_ORIENTED(turn));
+            dgx_vscreen_to_screen(model, x, y, src, DGX_VSCREEN_ORIENTED(turn));
         } else {
-            dgx_vscreen_region_to_screen_oriented(lcd, x, y, src, left, top, width, height, turn);
-            dgx_vscreen_region_to_screen_oriented(model, x, y, src, left, top, width, height, turn);
+            dgx_vscreen_region_to_screen(lcd, x, y, src, left, top, width, height, DGX_VSCREEN_ORIENTED(turn));
+            dgx_vscreen_region_to_screen(model, x, y, src, left, top, width, height, DGX_VSCREEN_ORIENTED(turn));
         }
         int wrong = 0, drawn = 0;
         for (int py = 0; py < DH; ++py) {

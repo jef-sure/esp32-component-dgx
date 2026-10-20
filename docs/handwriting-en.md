@@ -447,8 +447,8 @@ screen of 320 x 240 goes in 32.1 ms instead of 40.1 ms (see CHANGES.md);
 the band was not timed again.
 
 The last argument of a transfer is flags. `false` and `true` mean what they
-did: nothing and `DGX_LUT_TRANSPARENT`, a pixel of byte 0 is not put. The
-second flag, `DGX_LUT_EXACT`, is for a display that can mix two colors
+did: nothing and `DGX_VSCREEN_TRANSPARENT`, a pixel of byte 0 is not put.
+The flag `DGX_VSCREEN_EXACT` is for a display that can mix two colors
 itself. The table of a soft pen goes from the color of the paper to the
 color of the ink, and such a display is given not the table but its first
 color and its last: the rest it mixes by the bytes of the page, and the
@@ -456,7 +456,7 @@ processor carries no pixel. For now that is a DSI display of an ESP32-P4
 with two frame buffers. The paper and all the ink come out as the table has
 them. A color between them may differ from the table by one step of a
 channel: 3.2% of the range of red or blue and 1.6% of green, in brightness
-2.3% of full at most and 0.5% on the average. `DGX_LUT_EXACT` in place of
+2.3% of full at most and 0.5% on the average. `DGX_VSCREEN_EXACT` in place of
 `false` asks for the colors of the table to the last bit, and the page goes
 through the table then. Where there is nothing to mix with, the flag changes
 nothing.
@@ -468,7 +468,7 @@ in a frame.
 | The last argument | The sending | Frames a second, the drawing counted |
 | --- | --- | --- |
 | `false` | 13.4 ms | 31.0 |
-| `DGX_LUT_EXACT` | 20.7 ms | 25.3 |
+| `DGX_VSCREEN_EXACT` | 20.7 ms | 25.3 |
 
 How it is built in the bus is told in
 [dsi-display-en.md](dsi-display-en.md#a-virtual-screen-put-to-the-display).

@@ -1,0 +1,8 @@
+# The demo is made for three boards: a CYD (sdkconfig.defaults.esp32), the
+# 7-inch JC1060P470 (sdkconfig.defaults.esp32p4) and the 10.1-inch
+# JC8012P4A1C (sdkconfig.defaults.esp32p4 and sdkconfig.defaults.jc8012p4a1c).
+CONFIG_DGX_ENABLE_VSCREEN=y
+
+# full speed: the times on the screen are what a program gets
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_FREERTOS_HZ=1000

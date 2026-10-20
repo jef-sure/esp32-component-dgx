@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "check.h"
-#include "scale2x_ref.h"
+#include "scale_ref.h"
 #include "dgx_draw.h"
 #include "dgx_hw_font.h"
 #include "dgx_screen_with_bus.h"
@@ -39,16 +39,17 @@ static int source_of(int d, int at, int n)
     return d < at ? -1 : (d - at) / n;
 }
 
-/* the source made 2 and 4 times as large by Scale2x, as the engine of games makes it; NULL when the round does not smooth */
-static uint8_t        larger2[4 * SW * SH], larger4[16 * SW * SH];
-static const uint8_t *smoothed;
+/* the source of the round made larger by the shaders of scale_ref.h when it smooths: REF_SMOOTH or REF_SFX, else REF_BLOCKS */
+static uint32_t      source_values[SW * SH];
+static ref_picture_t source_ref = {source_values, SW, SH};
+static int           smoothed;
 
 /* what a transfer of the whole source to (x, y), n times as large, has to leave in the pixel (dx, dy) of the destination */
 static uint16_t expected(dgx_screen_t *src, int x, int y, int n, int dx, int dy, bool transparent)
 {
     int sx = source_of(dx, x, n), sy = source_of(dy, y, n);
     if (sx < 0 || sy < 0 || sx >= SW || sy >= SH) return MARK;
-    uint8_t index = smoothed ? smoothed[(dy - y) * n * SW + dx - x] : (uint8_t)dgx_get_pixel(src, sx, sy);
+    uint8_t index = smoothed ? (uint8_t)ref_larger(&source_ref, n, smoothed, dx - x, dy - y) : (uint8_t)dgx_get_pixel(src, sx, sy);
     return transparent && !index ? MARK : lut[index];
 }
 
@@ -186,8 +187,7 @@ static void test_region(void)
     for (int y = 0; y < SH; ++y) {
         for (int x = 0; x < SW; ++x) dgx_set_pixel(few, x, y, (uint32_t)rnd(0, 2));
     }
-    ref_smooth(((dgx_vscreen_t *)few)->v_array, SW, SH, 2, larger2);
-    ref_smooth(((dgx_vscreen_t *)few)->v_array, SW, SH, 4, larger4);
+    for (int i = 0; i < SW * SH; ++i) source_values[i] = ((dgx_vscreen_t *)few)->v_array[i];
     int smoothed_rounds = 0;
 
     /* the display behind a bus, with a buffer small enough to be sent many times a transfer */
@@ -212,11 +212,12 @@ static void test_region(void)
         queueing = (round >> 3) & 1;
         /* the source as it is, and two, three and four times as large */
         const int      n = 1 + (round >> 4) % 4;
-        /* every other block of rounds smooths; at 1 and 3 that changes nothing */
-        const bool     smooth = (round >> 6) & 1;
-        const uint32_t flags = (transparent ? DGX_LUT_TRANSPARENT : 0) | (n > 1 || round % 3 ? DGX_LUT_SCALE(n) : 0) | (smooth ? DGX_LUT_SMOOTH : 0);
-        smoothed = smooth && n == 2 ? larger2 : smooth && n == 4 ? larger4 : NULL;
-        smoothed_rounds += smoothed != NULL;
+        /* every other block of rounds smooths, by Scale2x and Scale3x or by their SFX kin; at 1 that changes nothing */
+        const bool     smooth = (round >> 6) & 1, sfx = (round >> 7) & 1;
+        const uint32_t flags = (transparent ? DGX_LUT_TRANSPARENT : 0) | (n > 1 || round % 3 ? DGX_LUT_SCALE(n) : 0) |
+                               (smooth ? (sfx ? DGX_VSCREEN_SMOOTH_SFX : DGX_LUT_SMOOTH) : 0);
+        smoothed = smooth && n > 1 ? (sfx ? REF_SFX : REF_SMOOTH) : REF_BLOCKS;
+        smoothed_rounds += smoothed != REF_BLOCKS;
         src = smooth ? few : plain;
         int  x = rnd(-n * SW - 3, DW + 3), y = rnd(-n * SH - 3, DH + 3); /* where the whole source is shown */
         int  left = rnd(-6, SW + 5), top = rnd(-6, SH + 5), width = rnd(-2, SW + 8), height = rnd(-2, SH + 8);
@@ -270,7 +271,7 @@ static void test_region(void)
     }
     CHECK(in_one > 30 && rows_fit > 50 && rows_cut > 100);
     CHECK(queued_pieces > 1000 && smoothed_rounds > 2000);
-    smoothed = NULL;
+    smoothed = REF_BLOCKS;
     dgx_screen_destroy(&few);
     /* the bus has made colors, scaled and not, and has refused some */
     CHECK(indexed_taken > 1000 && indexed_scaled > 500 && indexed_calls > indexed_taken + 300);

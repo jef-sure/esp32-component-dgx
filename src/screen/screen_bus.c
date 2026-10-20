@@ -12,7 +12,7 @@
 /* the short transfers of an SPI bus are its own: without that bus there is nothing to link them with */
 #if CONFIG_DGX_ENABLE_SPI
 #include "bus/dgx_spi_esp32.h"
-#include "bus/dgx_spi_esp32_priv.h"
+#include "../bus/dgx_spi_esp32_priv.h"
 
 /*
  * One short command or parameter transfer. These are 1-4 bytes long: polling

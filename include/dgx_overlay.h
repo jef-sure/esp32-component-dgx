@@ -31,12 +31,13 @@ extern "C" {
  * mixing goes in 32 steps.
  *
  * What is mixed is what goes to the screen from virtual screens:
- * dgx_vscreen8_to_screen16() and dgx_vscreen8_region_to_screen16() with all
- * their flags, dgx_vscreen_to_screen() and dgx_vscreen_region_to_screen().
+ * dgx_vscreen8_to_screen16(), dgx_vscreen8_region_to_screen16(),
+ * dgx_vscreen_to_screen() and dgx_vscreen_region_to_screen(), with all their
+ * flags.
  * What is drawn straight on the screen, a line, a text, a filled rectangle,
  * is not: it goes under the layer as if there were none, and the layer
  * shows over it only where something from a virtual screen is put again.
- * A transfer with DGX_LUT_TRANSPARENT mixes the pixels it puts.
+ * A transfer with DGX_VSCREEN_TRANSPARENT mixes the pixels it puts.
  *
  * The screen cannot draw again by itself what lies under a part of the
  * layer that has changed: a display behind SPI keeps its pixels where they

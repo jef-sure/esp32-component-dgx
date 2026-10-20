@@ -276,8 +276,8 @@ int main(void)
                 /* a picture sent through a window, whole or a part of it, and one as wide as the screen */
                 const int sx = rnd(0, 40), sy = rnd(0, 30), w = rnd(1, picture->width - sx), h = rnd(1, picture->height - sy);
                 const long before = windows_sent;
-                dgx_vscreen_region_to_screen(scr, x, y, picture, sx, sy, w, h);
-                dgx_vscreen_region_to_screen(ref, x, y, picture, sx, sy, w, h);
+                dgx_vscreen_region_to_screen(scr, x, y, picture, sx, sy, w, h, 0);
+                dgx_vscreen_region_to_screen(ref, x, y, picture, sx, sy, w, h, 0);
                 if (windows_sent - before > 1) ++cut_windows;
             } else {
                 dgx_set_pixel(scr, x, y, color);

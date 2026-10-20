@@ -1,255 +1,81 @@
 /*
- * draw.c
+ * lines.c
  *
- *  Created on: Apr 2, 2023
+ *  Lines: the one every screen draws by its pixels and rectangles, a thick
+ *  one and a dotted one.
  *  Copyright (c) 2021-2026 Anton Petrusevich
  *      Author: Anton Petrusevich
  */
 
-#include "dgx_draw.h"
-#include "dgx_bits.h"
-#include "esp_log.h"
 #include <math.h>
 
-static const char TAG[] = "DGX DRAW";
+#include "dgx_bits.h"
+#include "dgx_draw.h"
+#include "dgx_draw_priv.h"
 
 /*
- * Draws a rectangle on the screen.
- *
- * @param scr The screen to draw on.
- * @param x The x coordinate of the top-left corner of the rectangle.
- * @param y The y coordinate of the top-left corner of the rectangle.
- * @param w The width of the rectangle.
- * @param h The height of the rectangle.
- * @param color The color of the rectangle.
-*/
-void dgx_fill_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t color) {
-    if (!scr->fill_rectangle) {
-        ESP_LOGE(TAG, "fill_rectangle is not implemented");
-        return;
-    }
-    scr->fill_rectangle(scr, x, y, w, h, color);
-}
-
-/*
- * Draws a circle on the screen.
- *
- * @param scr The screen to draw on.
- * @param x The x coordinate of the center of the circle.
- * @param y The y coordinate of the center of the circle.
- * @param r The radius of the circle
- * @param color The color of the circle.
+ * A line by Bresenham's algorithm. The pixels that lie in one row of a
+ * shallow line, or in one column of a steep one, go as one rectangle. The
+ * line is always walked from its upper end, so it has the same pixels
+ * whichever end it is given from.
  */
-void dgx_draw_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color) {
-    if (!scr->circle) {
-        ESP_LOGE(TAG, "circle is not implemented");
-        return;
-    }
-    scr->circle(scr, x, y, r, color);
-}
-
-/*
- * Draws a line on the screen.
- *
- * @param scr The screen to draw on.
- * @param x1 The x coordinate of the first point of the line.
- * @param y1 The y coordinate of the first point of the line.
- * @param x2 The x coordinate of the second point of the line.
- * @param y2 The y coordinate of the second point of the line.
- * @param color The color of the line.
- */
-void dgx_draw_line(dgx_screen_t *scr, int x1, int y1, int x2, int y2, uint32_t color) {
-    if (!scr->draw_line) {
-        ESP_LOGE(TAG, "draw_line is not implemented");
-        return;
-    }
-    scr->draw_line(scr, x1, y1, x2, y2, color);
-}
-
-/*
- * Draws a circle on the screen.
- *
- * @param scr The screen to draw on.
- * @param x The x coordinate of the center of the circle.
- * @param y The y coordinate of the center of the circle.
- * @param r The radius of the circle.
- * @param color The color of the circle.
-*/
-void dgx_solid_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color) {
-    if (!scr->solid_circle) {
-        ESP_LOGE(TAG, "solid_circle is not implemented");
-        return;
-    }
-    scr->solid_circle(scr, x, y, r, color);
-}
-
-/*
- * Set a pixel on the screen.
- *
- * @param scr The screen to draw on.
- * @param x The x coordinate of the pixel.
- * @param y The y coordinate of the pixel.
- * @param color The color of the pixel.
-*/
-void dgx_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color) {
-    if (!scr->set_pixel) {
-        ESP_LOGE(TAG, "set_pixel is not implemented");
-        return;
-    }
-    scr->set_pixel(scr, x, y, color);
-}
-
-/*
- * Get a pixel on the screen.
- *
- * @param scr The screen to draw on.
- * @param x The x coordinate of the pixel.
- * @param y The y coordinate of the pixel.
- * @return The color of the pixel.
- * @note If the screen does not have a get_pixel function, this function will
- * return 0.
-*/
-uint32_t dgx_get_pixel(dgx_screen_t *scr, int x, int y) {
-    if (!scr->get_pixel) {
-        ESP_LOGE(TAG, "get_pixel is not implemented");
-        return 0;
-    }
-    return scr->get_pixel(scr, x, y);
-}
-
-/* ------------------------------------------------------------------------- */
-/*  dgx_draw_triangle_solid                                                  */
-/* ------------------------------------------------------------------------- */
-#define DGX_SORT3PUD(x0, y0, x1, y1, x2, y2)  \
-    do {                                       \
-        if ((y0) > (y1)) {                     \
-            DGX_INT_SWAP(y0, y1);              \
-            DGX_INT_SWAP(x0, x1);              \
-        }                                      \
-        if ((y1) > (y2)) {                     \
-            DGX_INT_SWAP(y2, y1);              \
-            DGX_INT_SWAP(x2, x1);              \
-        }                                      \
-        if ((y0) > (y1)) {                     \
-            DGX_INT_SWAP(y0, y1);              \
-            DGX_INT_SWAP(x0, x1);              \
-        }                                      \
-    } while (0)
-
-void dgx_draw_triangle_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color)
+void dgx_draw_line_runs(dgx_screen_t *scr, int x1, int y1, int x2, int y2, uint32_t color)
 {
-    int a, b, y, last;
-    DGX_SORT3PUD(x0, y0, x1, y1, x2, y2);
+    int area_left   = DGX_MIN(x1, x2);
+    int area_right  = DGX_MAX(x1, x2);
+    int area_top    = DGX_MIN(y1, y2);
+    int area_bottom = DGX_MAX(y1, y2);
+    if (area_bottom < 0 || area_top >= scr->height || area_left >= scr->width || area_right < 0) return;
+    if (x1 == x2 && y1 == y2) {
+        scr->set_pixel(scr, x1, y1, color);
+        return;
+    }
+    if (x1 == x2 || y1 == y2) {
+        scr->fill_rectangle(scr, area_left, area_top, area_right - area_left + 1, area_bottom - area_top + 1, color);
+        return;
+    }
+    if (y1 > y2) {
+        DGX_INT_SWAP(x1, x2);
+        DGX_INT_SWAP(y1, y2);
+    }
+    int adx = DGX_ABS(x2 - x1);
+    int ady = y2 - y1;
+    int sx  = x1 < x2 ? 1 : -1;
+    int err = adx - ady;
     dgx_screen_progress_up(scr);
-    if (y0 == y2) {
-        a = b = x0;
-        if (x1 < a) a = x1;
-        else if (x1 > b) b = x1;
-        if (x2 < a) a = x2;
-        else if (x2 > b) b = x2;
-        scr->fill_rectangle(scr, a, y0, b - a + 1, 1, color);
-        dgx_screen_progress_down(scr);
-        return;
-    }
-    int dx01 = x1 - x0;
-    int dy01 = y1 - y0;
-    int dx02 = x2 - x0;
-    int dy02 = y2 - y0;
-    int dx12 = x2 - x1;
-    int dy12 = y2 - y1;
-    int32_t sa = 0;
-    int32_t sb = 0;
-    last = (y1 == y2) ? y1 : y1 - 1;
-    for (y = y0; y <= last; y++) {
-        a = x0 + sa / dy01;
-        b = x0 + sb / dy02;
-        sa += dx01;
-        sb += dx02;
-        if (a > b) DGX_INT_SWAP(a, b);
-        scr->fill_rectangle(scr, a, y, b - a + 1, 1, color);
-    }
-    sa = (int32_t)dx12 * (y - y1);
-    sb = (int32_t)dx02 * (y - y0);
-    for (; y <= y2; y++) {
-        a = x1 + sa / dy12;
-        b = x0 + sb / dy02;
-        sa += dx12;
-        sb += dx02;
-        if (a > b) DGX_INT_SWAP(a, b);
-        scr->fill_rectangle(scr, a, y, b - a + 1, 1, color);
-    }
-    dgx_screen_progress_down(scr);
-}
-
-/* ------------------------------------------------------------------------- */
-/*  dgx_draw_polygon4_solid                                                  */
-/* ------------------------------------------------------------------------- */
-static int dgx_polygon4_intersection_x(int x0, int y0, int x1, int y1, int y)
-{
-    return x0 + (int)(((int64_t)(y - y0) * (x1 - x0)) / (y1 - y0));
-}
-
-void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3,
-                             uint32_t color)
-{
-    int vx[4] = {x0, x1, x2, x3};
-    int vy[4] = {y0, y1, y2, y3};
-    int dirty_top = DGX_MIN(DGX_MIN(y0, y1), DGX_MIN(y2, y3));
-    int dirty_bottom = DGX_MAX(DGX_MAX(y0, y1), DGX_MAX(y2, y3));
-
-    dgx_screen_progress_up(scr);
-    for (int y = dirty_top; y <= dirty_bottom; ++y) {
-        int xs[4];
-        int count = 0;
-
-        for (int i = 0; i < 4; ++i) {
-            int next = (i + 1) & 3;
-            int ey0 = vy[i];
-            int ey1 = vy[next];
-
-            if (ey0 == ey1) {
-                continue;
+    if (adx == ady) {
+        /* the diagonal: a pixel a row, nothing to join */
+        for (; y1 <= y2; ++y1, x1 += sx) scr->set_pixel(scr, x1, y1, color);
+    } else if (adx > ady) {
+        /* shallow: every step goes along x, and a row ends where the line goes down */
+        int run = x1;
+        for (int steps = adx; steps; --steps) {
+            int e2 = 2 * err;
+            err -= ady;
+            if (e2 <= adx) {
+                dgx_draw_row_run(scr, run, x1, y1, color);
+                err += adx;
+                ++y1;
+                run = x1 + sx;
             }
-            if (y >= DGX_MIN(ey0, ey1) && y < DGX_MAX(ey0, ey1)) {
-                xs[count++] = dgx_polygon4_intersection_x(vx[i], ey0, vx[next], ey1, y);
-            }
+            x1 += sx;
         }
-
-        if (count == 0 && y == dirty_bottom) {
-            int bottom_left = 0;
-            int bottom_right = 0;
-            bool has_bottom_vertex = false;
-
-            for (int i = 0; i < 4; ++i) {
-                if (vy[i] != y) {
-                    continue;
-                }
-                if (!has_bottom_vertex) {
-                    bottom_left = vx[i];
-                    bottom_right = vx[i];
-                    has_bottom_vertex = true;
-                    continue;
-                }
-                if (vx[i] < bottom_left) bottom_left = vx[i];
-                if (vx[i] > bottom_right) bottom_right = vx[i];
+        dgx_draw_row_run(scr, run, x1, y1, color);
+    } else {
+        /* steep: every step goes down, and a column ends where the line goes to the side */
+        int run = y1;
+        for (int steps = ady; steps; --steps) {
+            int e2 = 2 * err;
+            err += adx;
+            if (e2 >= -ady) {
+                dgx_draw_column_run(scr, x1, run, y1, color);
+                err -= ady;
+                x1 += sx;
+                run = y1 + 1;
             }
-            if (has_bottom_vertex) {
-                scr->fill_rectangle(scr, bottom_left, y, bottom_right - bottom_left + 1, 1, color);
-            }
-            continue;
+            ++y1;
         }
-
-        for (int i = 0; i < count; ++i) {
-            for (int j = i + 1; j < count; ++j) {
-                if (xs[j] < xs[i]) {
-                    DGX_INT_SWAP(xs[i], xs[j]);
-                }
-            }
-        }
-
-        for (int i = 0; i + 1 < count; i += 2) {
-            scr->fill_rectangle(scr, xs[i], y, xs[i + 1] - xs[i] + 1, 1, color);
-        }
+        dgx_draw_column_run(scr, x1, run, y1, color);
     }
     dgx_screen_progress_down(scr);
 }

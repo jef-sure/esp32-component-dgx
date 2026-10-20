@@ -259,16 +259,16 @@ static void run(int bits, int rounds)
                 dgx_font_string_utf8_screen(scr, (int16_t)x, (int16_t)y, "P8 bus", color, DgxOutputNormal, 1 + (round & 1), TerminusTTFMedium12(), NULL, NULL);
                 break;
             case 6:
-                dgx_vscreen_to_screen(scr, x, y, picture);
+                dgx_vscreen_to_screen(scr, x, y, picture, 0);
                 break;
             case 7:
-                dgx_vscreen_region_to_screen(scr, x, y, picture, part_x, part_y, part_w, part_h);
+                dgx_vscreen_region_to_screen(scr, x, y, picture, part_x, part_y, part_w, part_h, 0);
                 break;
             case 8:
                 dgx_draw_texture_quad(scr, quad, picture, 0, 0, picture->width, picture->height);
                 break;
             default:
-                dgx_vscreen_to_screen_oriented(scr, x, y, picture, turn);
+                dgx_vscreen_to_screen(scr, x, y, picture, DGX_VSCREEN_ORIENTED(turn));
                 break;
             }
         }

@@ -175,7 +175,7 @@ static void demo_ramps(dgx_screen_t *screen)
                                          : demo_hue(x * 1535 / (w - 1));
             dgx_set_pixel(row, x, 0, color);
         }
-        for (int y = ramp * band; y < (ramp + 1) * band; ++y) dgx_vscreen_to_screen(screen, 0, y, row);
+        for (int y = ramp * band; y < (ramp + 1) * band; ++y) dgx_vscreen_to_screen(screen, 0, y, row, 0);
     }
     /* the rainbow going down to black */
     int top = 5 * band, rows = screen->height - top;
@@ -187,7 +187,7 @@ static void demo_ramps(dgx_screen_t *screen)
             int                  value[4]    = {light, up, 0, down};
             dgx_set_pixel(row, x, 0, demo_rgb((uint8_t)value[order[part][0]], (uint8_t)value[order[part][1]], (uint8_t)value[order[part][2]]));
         }
-        dgx_vscreen_to_screen(screen, 0, top + y, row);
+        dgx_vscreen_to_screen(screen, 0, top + y, row, 0);
     }
     dgx_screen_destroy(&row);
     demo_text(screen, 16, band - 20, EXAMPLE_LCD_COLOR_BITS == 24 ? "24 bits" : "16 bits", DGX_WHITE(demo_rgb));
@@ -306,7 +306,7 @@ static void demo_moving_bars(dgx_screen_t *screen, uint32_t run_ms)
         for (int x = offset - pitch; x < band->width; x += pitch) dgx_fill_rectangle(band, x, 0, width, height, DGX_BLACK(demo_rgb));
         offset = (offset + step) % pitch;
         for (int x = offset - pitch; x < band->width; x += pitch) dgx_fill_rectangle(band, x, 0, width, height, DGX_CYAN(demo_rgb));
-        dgx_vscreen_to_screen(screen, 0, top, band);
+        dgx_vscreen_to_screen(screen, 0, top, band, 0);
         ++frames;
         demo_pace(&pace, began);
     }
@@ -474,9 +474,9 @@ static uint32_t demo_time_piece(dgx_screen_t *screen)
     if (!piece) return 0;
     dgx_fill_rectangle(piece, 0, 0, piece->width, piece->height, demo_rgb(40, 40, 60));
     dgx_screen_progress_up(screen);
-    dgx_vscreen_to_screen(screen, 0, 0, piece); /* the first one may wait for the display */
+    dgx_vscreen_to_screen(screen, 0, 0, piece, 0); /* the first one may wait for the display */
     const int64_t from = esp_timer_get_time();
-    for (int i = 0; i < 50; ++i) dgx_vscreen_to_screen(screen, 0, 0, piece);
+    for (int i = 0; i < 50; ++i) dgx_vscreen_to_screen(screen, 0, 0, piece, 0);
     const uint32_t us = (uint32_t)((esp_timer_get_time() - from) / 50);
     dgx_screen_progress_down(screen);
     dgx_screen_destroy(&piece);

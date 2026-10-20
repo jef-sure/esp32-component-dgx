@@ -1,0 +1,22 @@
+menu "DGX pixel scale demo"
+
+choice EXAMPLE_BOARD
+    prompt "Board with an ESP32-P4"
+    depends on IDF_TARGET_ESP32P4
+    default EXAMPLE_BOARD_JC1060P470
+    help
+        The display, its lanes and its pins. The 10.1-inch board has a chip
+        of revision 3: build it with sdkconfig.defaults.jc8012p4a1c, see
+        the README. A build for an ESP32 is for a CYD.
+
+config EXAMPLE_BOARD_JC1060P470
+    bool "Guition JC1060P470: 7-inch 1024x600, JD9165"
+    select DGX_ENABLE_JD9165
+
+config EXAMPLE_BOARD_JC8012P4A1C
+    bool "Guition JC8012P4A1C: 10.1-inch 800x1280, JD9365, turned to 1280x800"
+    select DGX_ENABLE_JD9365
+
+endchoice
+
+endmenu

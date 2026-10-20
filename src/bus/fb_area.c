@@ -9,7 +9,7 @@
 #include <string.h>
 
 #include "dgx_fb_area_priv.h"
-#include "../dgx_overlay_priv.h"
+#include "../vscreen/dgx_overlay_priv.h"
 
 #define DGX_FB_AREA_CACHE_LINE 64u
 
@@ -286,29 +286,38 @@ void dgx_fb_area_fill(dgx_fb_area_t *area, uint16_t x, uint16_t y, uint16_t widt
     uint8_t stored[3];
     uint8_t bytes = area->pixel_bytes;
     dgx_fb_area_stored(area, color, stored);
-    const uint8_t *above = NULL; /* a row of the rectangle already filled that lies as one piece of memory */
+    /* the bytes in locals: every store into the frame buffer would have the compiler read `stored` again */
+    const uint8_t  s0 = stored[0], s1 = stored[1], s2 = stored[2];
+    const uint16_t pixel = (uint16_t)(s0 | s1 << 8);
+    const uint8_t *above = NULL; /* a row of the rectangle already filled that lies as one piece of memory, from its lowest address */
     for (uint32_t row = y; row < (uint32_t)y + height; ++row) {
         ptrdiff_t step;
         uint8_t  *to = dgx_fb_area_at(area, x, row, &step);
         dgx_fb_area_touch(area, to, step, width);
-        if (step == bytes && above) {
-            memcpy(to, above, (size_t)width * bytes);
+        /* a row of the frame buffer, mirrored or not, is one piece of memory; its lowest address */
+        const bool along = step == bytes || step == -(ptrdiff_t)bytes;
+        uint8_t   *first = step > 0 ? to : to - (size_t)(width - 1u) * bytes;
+        if (along && above) {
+            memcpy(first, above, (size_t)width * bytes);
             continue;
         }
-        uint8_t *lp = to;
-        if (bytes == 2) {
-            for (uint32_t i = 0; i < width; ++i, lp += step) {
-                lp[0] = stored[0];
-                lp[1] = stored[1];
-            }
+        if (along && bytes == 2) {
+            /* a halfword a pixel, two pixels a word from a boundary of a word on */
+            uint16_t *p = (uint16_t *)first;
+            uint32_t  n = width;
+            if (((uintptr_t)p & 2u) && n) *p++ = pixel, --n;
+            uint32_t      *w    = (uint32_t *)p;
+            const uint32_t both = pixel | (uint32_t)pixel << 16;
+            for (; n >= 2; n -= 2) *w++ = both;
+            if (n) *(uint16_t *)w = pixel;
+        } else if (bytes == 2) {
+            uint8_t *lp = to;
+            for (uint32_t i = 0; i < width; ++i, lp += step) lp[0] = s0, lp[1] = s1;
         } else {
-            for (uint32_t i = 0; i < width; ++i, lp += step) {
-                lp[0] = stored[0];
-                lp[1] = stored[1];
-                lp[2] = stored[2];
-            }
+            uint8_t *lp = to;
+            for (uint32_t i = 0; i < width; ++i, lp += step) lp[0] = s0, lp[1] = s1, lp[2] = s2;
         }
-        if (step == bytes) above = to;
+        if (along) above = first;
     }
 }
 
@@ -343,67 +352,92 @@ void dgx_fb_area_move(dgx_fb_area_t *area, uint16_t x, uint16_t y, uint16_t widt
     }
 }
 
-/* how a row of the panel runs along the picture made `scale` times as large; see dgx_fb_area_indexed_rows() */
+/*
+ * How a row of the panel runs along the picture made `scale` times as large,
+ * see dgx_fb_area_indexed_rows(). The picture is turned on the screen and
+ * the screen on the panel; whatever the two turns, a row of the panel is a
+ * row or a column of the larger picture, read forward or back, and the next
+ * row of the panel is the line next to it, one way or the other.
+ */
 typedef struct {
     uint16_t x0, y0, x1, y1; /* the rectangle on the panel */
-    int      dir;            /* the coordinate that runs along a row goes forward, or back */
-    uint32_t runs_at;        /* where it is in the first column of the rectangle */
-    uint32_t stays_off;      /* the other one, less the row of the panel it is on */
+    bool     along_y;        /* a row of the panel runs along a column of the larger picture */
+    int      dir;            /* along it forward, or back */
+    int32_t  runs_at;        /* where it is in the first column of the rectangle */
+    int      across;         /* the next row of the panel is the line after this one, or the one before it */
+    int32_t  line_at;        /* the line the first row of the rectangle on the panel is */
 } dgx_fb_area_runs_t;
+
+/* the point of the larger picture, as it lies before it is turned, the pixel (px, py) of the panel shows */
+static void dgx_fb_area_picture_point(const dgx_fb_area_t *area, uint16_t left, uint16_t top, const dgx_bus_indexed_t *picture, int32_t px,
+                                      int32_t py, int32_t *u, int32_t *v)
+{
+    /* the pixel of the screen, as dgx_fb_area_point_to_panel() tells the other way */
+    const int32_t ax = area->mirror_x ? area->fb_width - 1 - px : px, ay = area->mirror_y ? area->fb_height - 1 - py : py;
+    const int32_t sx = area->swap_xy ? ay : ax, sy = area->swap_xy ? ax : ay;
+    /* the point of the turned picture, and of the picture before the turn */
+    const int32_t tx = (int32_t)picture->x + sx - left, ty = (int32_t)picture->y + sy - top;
+    const int32_t wide = (int32_t)picture->width * picture->scale, high = (int32_t)picture->height * picture->scale;
+    const unsigned turn = picture->orientation;
+    if (!(turn & 4u)) {
+        *u = turn & 1u ? wide - 1 - tx : tx;
+        *v = turn & 2u ? high - 1 - ty : ty;
+    } else {
+        *u = turn & 1u ? wide - 1 - ty : ty;
+        *v = turn & 2u ? high - 1 - tx : tx;
+    }
+}
 
 static void dgx_fb_area_runs(const dgx_fb_area_t *area, uint16_t left, uint16_t top, uint16_t width, uint16_t height, const dgx_bus_indexed_t *picture,
                              dgx_fb_area_runs_t *runs)
 {
     dgx_fb_area_to_panel(area, left, left + width - 1, top, top + height - 1, &runs->x0, &runs->y0, &runs->x1, &runs->y1);
-    /*
-     * Along a row of the panel one coordinate of the screen stays and the
-     * other one runs, forward or back: x along a row of the screen, y along
-     * a column of it when the axes are swapped. The one that runs starts
-     * where the first column of the rectangle on the panel is. Both are
-     * counted in the picture made `scale` times as large.
-     */
-    const uint32_t runs_from = area->mirror_x ? area->fb_width - 1u - runs->x0 : runs->x0;
-    runs->dir                = area->mirror_x ? -1 : 1;
-    runs->runs_at            = runs_from - (area->swap_xy ? top : left) + (area->swap_xy ? picture->y : picture->x);
-    runs->stays_off          = (area->swap_xy ? picture->x : picture->y) - (uint32_t)(area->swap_xy ? left : top);
+    /* the first pixel of the rectangle on the panel, the one right of it and the one below it: one point of the picture changes by one each time */
+    int32_t u, v, u_right, v_right, u_below, v_below;
+    dgx_fb_area_picture_point(area, left, top, picture, runs->x0, runs->y0, &u, &v);
+    dgx_fb_area_picture_point(area, left, top, picture, runs->x0 + 1, runs->y0, &u_right, &v_right);
+    dgx_fb_area_picture_point(area, left, top, picture, runs->x0, runs->y0 + 1, &u_below, &v_below);
+    runs->along_y = v_right != v;
+    runs->dir     = runs->along_y ? (int)(v_right - v) : (int)(u_right - u);
+    runs->runs_at = runs->along_y ? v : u;
+    runs->across  = runs->along_y ? (int)(u_below - u) : (int)(v_below - v);
+    runs->line_at = runs->along_y ? u : v;
 }
 
-void dgx_fb_area_indexed_lines(const dgx_fb_area_t *area, dgx_indexed_lines_t *lines, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
+void dgx_fb_area_indexed_lines(const dgx_fb_area_t *area, dgx_scale_lines_t *lines, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
                                const dgx_bus_indexed_t *picture, uint8_t *scratch)
 {
     dgx_fb_area_runs_t runs;
     dgx_fb_area_runs(area, left, top, width, height, picture, &runs);
     const uint32_t columns = (uint32_t)runs.x1 - runs.x0 + 1u;
     /* the points of a line the row takes, from the first one */
-    const int32_t from = runs.dir > 0 ? (int32_t)runs.runs_at : (int32_t)runs.runs_at - (int32_t)columns + 1;
-    dgx_indexed_lines_begin(lines, picture, area->swap_xy, from, columns, scratch);
+    const int32_t from = runs.dir > 0 ? runs.runs_at : runs.runs_at - (int32_t)columns + 1;
+    dgx_scale_lines_begin(lines, picture, runs.along_y, from, columns, scratch);
 }
 
 /*
  * A smoothed picture: every row of the panel is a line of the larger
- * picture, a row of it or a column, made by dgx_indexed_colors() in the
+ * picture, a row of it or a column, made by dgx_scale_colors() in the
  * direction the panel runs. Rows of the panel next to each other that are
- * the two lines of one pair are made together.
+ * made from the same line of the smaller picture are made together.
  */
-static void dgx_fb_area_smooth_rows(const dgx_fb_area_t *area, uint16_t *row, uint32_t columns, const dgx_fb_area_runs_t *runs, uint32_t first_py,
-                                    uint32_t rows, dgx_indexed_lines_t *lines)
+static void dgx_fb_area_smooth_rows(uint16_t *row, uint32_t columns, const dgx_fb_area_runs_t *runs, uint32_t first, uint32_t rows,
+                                    dgx_scale_lines_t *lines)
 {
     /* a row made backwards starts at its end */
     const uint32_t start = runs->dir > 0 ? 0u : columns - 1u;
     for (uint32_t r = 0; r < rows;) {
-        const uint32_t py = first_py + r;
-        const int32_t  at = (int32_t)((area->mirror_y ? area->fb_height - 1u - py : py) + runs->stays_off);
-        /* the next row of the panel is the other line of the pair when the line after `at` that way is at ^ 1 */
-        const int32_t next = area->mirror_y ? at - 1 : at + 1;
-        const bool    both = r + 1 < rows && next == (at ^ 1);
-        dgx_indexed_colors(lines, at, row + start, both ? row + columns + start : NULL, runs->dir);
-        row += both ? 2u * columns : columns;
-        r += both ? 2u : 1u;
+        const int32_t at   = runs->line_at + (int32_t)(first + r) * runs->across;
+        uint32_t      some = dgx_scale_lines_left(lines, at, runs->across);
+        if (some > rows - r) some = rows - r;
+        dgx_scale_colors(lines, at, runs->across, some, row + start, (ptrdiff_t)columns, runs->dir);
+        row += (size_t)some * columns;
+        r += some;
     }
 }
 
 void dgx_fb_area_indexed_rows(const dgx_fb_area_t *area, uint8_t *to, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
-                              const dgx_bus_indexed_t *picture, uint16_t first, uint16_t rows, dgx_indexed_lines_t *lines)
+                              const dgx_bus_indexed_t *picture, uint16_t first, uint16_t rows, dgx_scale_lines_t *lines)
 {
     dgx_fb_area_runs_t runs;
     dgx_fb_area_runs(area, left, top, width, height, picture, &runs);
@@ -412,28 +446,41 @@ void dgx_fb_area_indexed_rows(const dgx_fb_area_t *area, uint8_t *to, uint16_t l
     const int      dir     = runs.dir;
     /* both the ESP32-P4 and the hosts the tests run on keep the low byte of a pixel first, as the frame buffer does */
     uint16_t *row = (uint16_t *)to;
-    if (picture->smooth && (scale == 2 || scale == 4)) {
-        dgx_fb_area_smooth_rows(area, row, columns, &runs, (uint32_t)runs.y0 + first, rows, lines);
+    if (picture->smooth && (scale == 2 || scale == 3 || scale == 4)) {
+        dgx_fb_area_smooth_rows(row, columns, &runs, first, rows, lines);
         return;
     }
     /* the first index of a row, how many pixels it has there, and the step to the next index */
-    const uint32_t  runs_index = runs.runs_at / scale;
-    const uint32_t  first_run  = dir > 0 ? scale - runs.runs_at % scale : runs.runs_at % scale + 1u;
+    const uint32_t  runs_index = (uint32_t)runs.runs_at / scale;
+    const uint32_t  first_run  = dir > 0 ? scale - (uint32_t)runs.runs_at % scale : (uint32_t)runs.runs_at % scale + 1u;
     const uint32_t  pitch      = picture->pitch;
-    const ptrdiff_t step       = area->swap_xy ? dir * (ptrdiff_t)pitch : dir;
+    const ptrdiff_t step       = runs.along_y ? dir * (ptrdiff_t)pitch : dir;
     const uint16_t *lut        = picture->lut;
-    uint32_t        stays_last = UINT32_MAX;
+    uint32_t        line_last  = UINT32_MAX;
     for (uint32_t r = 0; r < rows; ++r, row += columns) {
-        const uint32_t py          = (uint32_t)runs.y0 + first + r;
-        const uint32_t stays_index = ((area->mirror_y ? area->fb_height - 1u - py : py) + runs.stays_off) / scale;
-        if (stays_index == stays_last) {
-            /* the indices of the row above: the same row of the panel again */
+        const uint32_t line_index = (uint32_t)(runs.line_at + (int32_t)(first + r) * runs.across) / scale;
+        if (line_index == line_last) {
+            /* the indices of the row above: the same line of the picture again */
             memcpy(row, row - columns, columns * 2u);
             continue;
         }
-        stays_last           = stays_index;
-        const uint8_t *index = picture->pixels +
-                               (area->swap_xy ? stays_index + (size_t)runs_index * pitch : (size_t)stays_index * pitch + runs_index);
+        line_last            = line_index;
+        const uint8_t *index = picture->pixels + (runs.along_y ? line_index + (size_t)runs_index * pitch : (size_t)line_index * pitch + runs_index);
+        if (scale == 1 && step == 1) {
+            /*
+             * Every index a pixel, the indices side by side: four at a time, so
+             * that the loads of one pixel do not wait for those of another. Down
+             * a column of the picture, a line of the cache apart each, that only
+             * costs more.
+             */
+            uint32_t i = 0;
+            for (; i + 4u <= columns; i += 4u, index += 4) {
+                const uint16_t c0 = lut[index[0]], c1 = lut[index[1]], c2 = lut[index[2]], c3 = lut[index[3]];
+                row[i] = c0, row[i + 1] = c1, row[i + 2] = c2, row[i + 3] = c3;
+            }
+            for (; i < columns; ++i) row[i] = lut[*index++];
+            continue;
+        }
         if (scale == 1) {
             /* every index a pixel: nothing to repeat */
             for (uint32_t i = 0; i < columns; ++i, index += step) row[i] = lut[*index];

@@ -6,7 +6,7 @@
 #include "check.h"
 #include "dgx_draw.h"
 #include "dgx_overlay.h"
-#include "dgx_overlay_priv.h"
+#include "vscreen/dgx_overlay_priv.h"
 #include "dgx_screen_with_bus.h"
 #include "drivers/vscreen.h"
 
@@ -99,6 +99,13 @@ static void panel_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color)
     if (x >= 0 && y >= 0 && x < DW && y < DH) panel[x + y * DW] = (uint16_t)color;
 }
 
+/* a display read back, as a DSI one is: the transparent ways go pixel by pixel to it */
+static uint32_t panel_get_pixel(dgx_screen_t *scr, int x, int y)
+{
+    (void)scr;
+    return x >= 0 && y >= 0 && x < DW && y < DH ? panel[x + y * DW] : 0;
+}
+
 static void panel_update(dgx_screen_t *scr, int left, int right, int top, int bottom)
 {
     (void)scr, (void)left, (void)right, (void)top, (void)bottom;
@@ -122,7 +129,7 @@ static bool panel_write_indexed(struct _dgx_bus_protocols_t *bus, uint16_t left,
                                 const dgx_bus_indexed_t *picture)
 {
     (void)bus;
-    if (picture->smooth) return false; /* that one comes the other way */
+    if (picture->smooth || picture->orientation) return false; /* those come the other way */
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             const uint8_t index = picture->pixels[(picture->y + y) / picture->scale * picture->pitch + (picture->x + x) / picture->scale];
@@ -150,7 +157,7 @@ static void test_transfers(void)
         for (int x = 0; x < 13; ++x) dgx_set_pixel(src8, x, y, (uint32_t)rnd(0, 3));
     }
     for (int y = 0; y < 14; ++y) {
-        for (int x = 0; x < 19; ++x) dgx_set_pixel(src16, x, y, (uint32_t)rnd(0, 0xffff));
+        for (int x = 0; x < 19; ++x) dgx_set_pixel(src16, x, y, (uint32_t)rnd(0, 3) * 0x4321u); /* few colors, 0 among them, for smoothing and holes */
     }
     static uint8_t        bus_buffer[48];
     dgx_bus_protocols_t   bus  = {.buffer = bus_buffer, .buffer_len = sizeof(bus_buffer)};
@@ -174,24 +181,28 @@ static void test_transfers(void)
         const int     lx = rnd(-10, DW - 5), ly = rnd(-8, DH - 4);
         const uint8_t alpha = (uint8_t)(round % 5 == 0 ? 255 : round % 5 == 1 ? 0 : rnd(1, 254));
         const int     kind  = round % 4; /* 8 to 16 plain, scaled, smoothed, 16 to 16 */
-        const bool    by_bus = (round >> 2) & 1, transparent = kind < 3 && (round >> 3) % 3 == 0;
-        const int     n      = kind == 0 ? 1 : kind == 1 ? rnd(2, 3) : (round >> 5) & 1 ? 2 : 4;
-        const uint32_t flags = (transparent ? DGX_LUT_TRANSPARENT : 0) | DGX_LUT_SCALE(n) | (kind == 2 ? DGX_LUT_SMOOTH : 0);
+        const bool    by_bus = (round >> 2) & 1, transparent = (round >> 3) % 3 == 0;
+        const int     n      = kind == 0 ? 1 : kind == 1 ? rnd(2, 3) : kind == 2 ? rnd(2, 4) : rnd(1, 3);
+        /* every other round turned; the smoothing of 16 to 16 too, now and then */
+        const unsigned turn  = (round >> 6) & 1 ? (unsigned)rnd(1, 7) : 0;
+        const uint32_t smooth = kind == 2 || (kind == 3 && rnd(0, 1)) ? (rnd(0, 1) ? DGX_VSCREEN_SMOOTH_SFX : DGX_VSCREEN_SMOOTH) : 0;
+        const uint32_t flags = (transparent ? DGX_VSCREEN_TRANSPARENT : 0) | DGX_VSCREEN_SCALE(n) | smooth | DGX_VSCREEN_ORIENTED(turn);
         const int      x = rnd(-20, DW), y = rnd(-20, DH), left = rnd(-2, 12), top = rnd(-2, 10), w = rnd(0, 20), h = rnd(0, 16);
         dgx_screen_t  *dst = by_bus ? lcd : mixed;
-        /* every other bus has the faster ways */
+        /* every other bus has the faster ways; every other display is read back */
         const bool fast   = (round >> 4) & 1;
         bus.write_rows    = fast ? panel_write_rows : NULL;
         bus.write_indexed = fast ? panel_write_indexed : NULL;
+        lcd->get_pixel    = (round >> 5) & 1 ? panel_get_pixel : NULL;
         /* without the layer, then with it, from the same start */
         dgx_fill_rectangle(plain, 0, 0, DW, DH, MARK);
         if (kind < 3) dgx_vscreen8_region_to_screen16(plain, x + n * left, y + n * top, src8, left, top, w, h, lut, flags);
-        else dgx_vscreen_region_to_screen(plain, x + left, y + top, src16, left, top, w, h);
+        else dgx_vscreen_region_to_screen(plain, x + left, y + top, src16, left, top, w, h, flags);
         dgx_fill_rectangle(mixed, 0, 0, DW, DH, MARK);
         for (int i = 0; i < DW * DH; ++i) panel[i] = MARK;
         CHECK(dgx_overlay_set(dst, layer, lx, ly, layer_lut, alpha));
         if (kind < 3) dgx_vscreen8_region_to_screen16(dst, x + n * left, y + n * top, src8, left, top, w, h, lut, flags);
-        else dgx_vscreen_region_to_screen(dst, x + left, y + top, src16, left, top, w, h);
+        else dgx_vscreen_region_to_screen(dst, x + left, y + top, src16, left, top, w, h, flags);
         dgx_overlay_clear(dst);
         int ox, oy, ow, oh;
         dgx_overlay_take_dirty(dst, &ox, &oy, &ow, &oh);
@@ -213,7 +224,7 @@ static void test_transfers(void)
     }
     CHECK(mixed_pixels > 3000);
     /* the bus took rows where no layer was over them, and indices with the layer and without it */
-    CHECK(rows_taken > 20 && indexed_taken > 50 && indexed_mixed > 10 && indexed_taken > indexed_mixed + 10);
+    CHECK(rows_taken > 5 && indexed_taken > 40 && indexed_mixed > 10 && indexed_taken > indexed_mixed + 10);
     dgx_screen_destroy(&src8);
     dgx_screen_destroy(&src16);
     dgx_screen_destroy(&layer);
@@ -255,10 +266,10 @@ static void test_changes(void)
         CHECK(dgx_overlay_set(display, big, -50, -40, layer_lut, 255));
         dgx_set_pixel(big, 75, 55, 9); /* far from everything, in a tile that had nothing */
         /* by the window of the display, which looks at the layer's tiles; and pixel by pixel, which does not */
-        dgx_vscreen_region_to_screen(display, 0, 0, src, 0, 0, DW, DH);
+        dgx_vscreen_region_to_screen(display, 0, 0, src, 0, 0, DW, DH, 0);
         CHECK(dgx_get_pixel(display, 25, 15) == layer_lut[9] && dgx_get_pixel(display, 24, 15) == 0x1234);
         dgx_fill_rectangle(display, 0, 0, DW, DH, 0);
-        dgx_vscreen_to_screen(display, 0, 0, src);
+        dgx_vscreen_to_screen(display, 0, 0, src, 0);
         CHECK(dgx_get_pixel(display, 25, 15) == layer_lut[9] && dgx_get_pixel(display, 24, 15) == 0x1234);
         dgx_overlay_clear(display);
         dgx_overlay_take_dirty(display, &x, &y, &w, &h);
