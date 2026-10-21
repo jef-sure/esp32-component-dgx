@@ -765,8 +765,11 @@ Common parameters:
 - `rst` — reset GPIO, or `GPIO_NUM_NC` if the panel has no reset line.
 - `backlight` (ILI9341 only) — backlight GPIO, or `GPIO_NUM_NC` if it is not
   under software control.
-- `color_bits` — pixel depth; `16` (RGB565) is the usual choice. JD9165 and
-  JD9365 take `16` or `24`.
+- `color_bits` — pixel depth; `16` (RGB565) is the usual choice. The SPI and
+  P8 color panels also take `18`: see
+  [docs/18-bit-pixels-en.md](docs/18-bit-pixels-en.md)
+  ([Russian](docs/18-bit-pixels-ru.md)). JD9165 and JD9365 take `16` or
+  `24`.
 - `cbo` — channel order, `DgxScreenRGB` or `DgxScreenBGR`: the order colors
   come out in on the usual modules of the controller. The usual ILI9341
   modules show red as red with the BGR bit of the controller set, so there
