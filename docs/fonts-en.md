@@ -92,17 +92,20 @@ keys: DejaVu Sans Book 24 px (4 mm), 148 glyphs
 A need is one line, `dgx_font_need(<name> ...)`. The name is a C
 identifier: it names the function, `dgx_font_<name>()`. A name that
 collides with a function of DGX itself (`dgx_font_string_bounds` and the
-like) is rejected. The same name declared in two places, a component and
-the program, is one need if both resolve to the same font: their characters
-are merged. Two different fonts under one name stop the build, and the
-message names both places and both fonts.
+like) is rejected, and so are two names that differ only in case, since
+their macros would not. The same name declared in two places, a component
+and the program, with the same keywords is one need: the characters of both
+are put together before the face is picked. With different keywords the two
+must resolve to the same font; two different fonts under one name stop the
+build, and the message names both places and both fonts. A keyword given
+twice in one declaration is an error, not a silent second value.
 
 The keywords of a need:
 
 | Keyword | Meaning |
 | --- | --- |
 | `TEXTS <files...>` | Files whose characters the font must contain. Paths are relative to the CMakeLists that declares the need. How each kind of file is read is described below. |
-| `LETTERS "<characters>"` | Characters given directly, in addition to the texts or instead of them. |
+| `LETTERS "<characters>"` | Characters given directly, in addition to the texts or instead of them; any characters, brackets, semicolons and spaces included. |
 | `EXCEPT "<characters>"` | Characters of the texts the font does not need: the braces of placeholders like `{0}` in a game's strings, for example. |
 | `SIZE <n>pt`, `<n>mm`, `<n>px` | The size: in points of the frame, in millimeters, or in pixels (see below). A bare number means points. |
 | `MONO` | Only a monospaced face. |
@@ -210,7 +213,8 @@ The display and the scale are declared separately: `dgx_fonts_board(PIXELS
 game's choice on that board. Pixels per millimetre are computed from the
 width; if the height gives a noticeably different figure (more than 5%) the
 build stops, because the numbers cannot all be right. The result is
-rounded to whole pixels: 4 mm on a display with 5.9 px/mm is 24 px.
+rounded to whole pixels, halves up: 4 mm on a display with 5.9 px/mm is
+24 px.
 
 A need in millimeters without `PIXELS`/`MM` is a build error with a hint
 about what is missing. Declaring the display or the scale twice with the
@@ -238,7 +242,10 @@ placeholders like `{level}`. Request their characters with `LETTERS
 "0123456789:-"`, or through a character file that the program writes
 itself, as a game's packer does.
 
-Control characters (newline, tab) do not count as characters. A space goes
+A text file with a byte order mark is read without it. Control and format
+characters (newline, tab, a soft hyphen, a zero-width joiner) do not count
+as characters; everything else does, the icons of an icon font in the
+Private Use Area included. A space goes
 into a made font if the texts contain one, but is never required of an existing
 font: every DGX font handles spaces, and a handwritten font defines a space
 as a width, not a glyph.
@@ -285,8 +292,11 @@ allow *                   40..
   size.
 - The first `allow` line, in order, that has a face of the required size
   **with all the characters of the need** wins; among its faces a regular
-  style comes before bold and italic ones, then the order of the sources. A
-  face without the characters is skipped, like a denied one.
+  style comes first, then Medium, then bold, italic and the rest, and then
+  the order of the sources decides. A face without the characters is
+  skipped, like a denied one.
+- A relative path in a `source dir` or `source list` line is resolved from
+  the rules file, and a relative path in a source list from that list.
 - If nothing matches, the build stops and says which size and which
   characters it looked for.
 
@@ -384,6 +394,7 @@ ESP-IDF already provides Python. A project with needs also requires:
 
 | What | For | If missing |
 | --- | --- | --- |
+| CMake 3.19 or later | gathering the needs at the end of the configure step (`cmake_language(DEFER)`); the CMake of ESP-IDF's tools is newer | "the fonts made at build time need CMake 3.19 or later" at the first need; a project without needs is not affected |
 | a host C compiler and the FreeType development headers (`libfreetype-dev`, `pkg-config`) | building `font2c` from DGX's source; it is built into `build/dgx_fonts/` and rebuilt when its source changes | "the FreeType development files (libfreetype-dev) are not installed" |
 | fontconfig (`fc-list`, `fc-scan`) | finding faces: the installed ones, and those in directories named by the rules | "fontconfig is required to find fonts" |
 | the fonts the rules allow, or the one a need names | rendering the glyphs | "no face allowed by the rules at 48 px has all the characters", "no installed face has the PostScript name …" |

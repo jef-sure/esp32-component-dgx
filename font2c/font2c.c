@@ -1330,8 +1330,13 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
 /* the name a bitmap font is given when none is told: the family, the style and the size, letters and digits only */
 static void bitmap_generated_name(FT_Face face, int size, char out[256])
 {
-    snprintf(out, 256, "%s%s%d", face->family_name, face->style_name, size);
+    snprintf(out, 250, "%s%s%d", face->family_name, face->style_name, size);
     clearName(out);
+    /* a family like "3270" would begin a name of C with a digit */
+    if (!out[0] || isdigit((unsigned char)out[0])) {
+        memmove(out + 4, out, strlen(out) + 1);
+        memcpy(out, "font", 4);
+    }
 }
 
 /*
@@ -1458,10 +1463,15 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
         FT_Done_Glyph(glyph);
         ++j;
     }
-    if (j) {
-        if (!quiet) printf("Total width: %f, #glyphs: %d; avg = %f\n", xWidthAverage, j, xWidthAverage / j);
-        xWidthAverage /= j;
+    if (!j) {
+        /* a .c with no glyph would not compile; the old file, if any, stays */
+        fprintf(stderr, "%s at %d px: none of the characters asked for is in the font, nothing to write\n", fontFile, size);
+        free(glyphs);
+        FT_Done_Face(face);
+        return -1;
     }
+    if (!quiet) printf("Total width: %f, #glyphs: %d; avg = %f\n", xWidthAverage, j, xWidthAverage / j);
+    xWidthAverage /= j;
     fprintf(fontOut, "};\n\n"); // End bitmap array
     if (!quiet) fprintf(stderr, "Total encoded length: %d\n", bitmapOffset);
     fprintf(fontOut, "static const glyph_t %sglyphs[] = {\n  ", prefix);
@@ -1573,6 +1583,8 @@ static int bitmap_font(FT_Library library, const char *fontFile, int size)
 typedef struct {
     int          hw;
     char        *file;          /* the font file, the first that asked for this font */
+    char        *real;          /* the same resolved, to tell one file from another */
+    int          plain;         /* a line asked for it without -n: the function named after the output is one of its names */
     int          size;
     char         generated[256]; /* the family, the style and the size, or the name of a handwritten font */
     json_t      *json;          /* a handwritten font, loaded */
@@ -1646,24 +1658,26 @@ static int jo_line(const char *listPath, int lineNo, const char *listDir, char *
     const char *file     = 0;
     int         size = 0, hw = 0;
     double      pairLimit = -1;
-    int         firstRange = -1;
+    long        ranges[160];
+    int         nRanges = 0;
+    /* the options stand anywhere on the line, as on a command line; the font file, its size and the ranges in this order */
     for (int a = 0; a < argc; ++a) {
-        if (!file && !strcmp(argv[a], "-n")) {
+        if (!strcmp(argv[a], "-n")) {
             if (a + 1 >= argc || nNames >= 64) return fprintf(stderr, "%s: -n without a name\n", where), 1;
             if (!name_valid(argv[++a], where)) return 1;
             names[nNames++] = argv[a];
-        } else if (!file && !strcmp(argv[a], "-f")) {
+        } else if (!strcmp(argv[a], "-f")) {
             if (a + 1 >= argc || nLetters >= 64) return fprintf(stderr, "%s: -f without a file\n", where), 1;
             letters[nLetters++] = argv[++a];
-        } else if (!file && (!strcmp(argv[a], "-g") || !strcmp(argv[a], "-t"))) {
+        } else if (!strcmp(argv[a], "-g") || !strcmp(argv[a], "-t")) {
             char  *rest  = 0;
             double cells = a + 1 < argc ? strtod(argv[a + 1], &rest) : -1;
             if (!rest || rest == argv[a + 1] || *rest || !(cells >= 0 && cells <= 1000)) return fprintf(stderr, "%s: %s needs cells\n", where, argv[a]), 1;
             if (argv[a][1] == 'g') pairLimit = cells;
             ++a;
-        } else if (!file && (!strcmp(argv[a], "-x") || !strcmp(argv[a], "-i"))) {
+        } else if (!strcmp(argv[a], "-x") || !strcmp(argv[a], "-i")) {
             return fprintf(stderr, "%s: %s changes the file of a font, which a list does not do\n", where, argv[a]), 1;
-        } else if (!file && argv[a][0] == '-' && argv[a][1]) {
+        } else if (argv[a][0] == '-' && argv[a][1]) {
             return fprintf(stderr, "%s: unknown option %s\n", where, argv[a]), 1;
         } else if (!file) {
             file = argv[a];
@@ -1675,13 +1689,18 @@ static int jo_line(const char *listPath, int lineNo, const char *listDir, char *
                 if (!rest || *rest || size < 1 || size > 1000) return fprintf(stderr, "%s: %s needs a size in pixels after it\n", where, file), 1;
                 ++a;
             }
-            firstRange = a + 1;
+        } else {
+            char *rest = 0;
+            long  cp   = strtol(argv[a], &rest, 0);
+            if (rest == argv[a] || *rest || cp < 0) return fprintf(stderr, "%s: a range of code points is two numbers, not '%s'\n", where, argv[a]), 1;
+            ranges[nRanges++] = cp;
         }
     }
     if (!file) return fprintf(stderr, "%s: no font file\n", where), 1;
-    const int nRanges = argc - firstRange;
-    if (nRanges % 2) return fprintf(stderr, "%s: the ranges of code points come in pairs, first and last: %s has no pair\n", where, argv[argc - 1]), 1;
+    if (nRanges % 2) return fprintf(stderr, "%s: the ranges of code points come in pairs, first and last: %ld has no pair\n", where, ranges[nRanges - 1]), 1;
     char *path = jo_path(listDir, file);
+    char *real = realpath(path, 0);
+    if (!real) real = strdup(path);
     /* the font of the line: by the name it would be given */
     char    generated[256];
     json_t *json = 0, *jsonName = 0, *jsonCodePoints = 0;
@@ -1697,19 +1716,26 @@ static int jo_line(const char *listPath, int lineNo, const char *listDir, char *
     }
     jo_font_t *f = 0;
     for (int i = 0; i < joCount; ++i) {
-        if (joFonts[i].hw == hw && !strcmp(joFonts[i].generated, generated)) f = &joFonts[i];
+        if (joFonts[i].hw != hw || strcmp(joFonts[i].generated, generated)) continue;
+        /* the same name from another file is another font, which the arrays named by the font could not hold */
+        if (strcmp(joFonts[i].real, real)) {
+            return fprintf(stderr, "%s: %s and %s both make the font %s; one font comes from one file%s\n", where, joFonts[i].file, path, generated,
+                           hw ? " (give one of them another name in the editor)" : ""), 1;
+        }
+        f = &joFonts[i];
     }
     if (!f) {
         joFonts = realloc(joFonts, (joCount + 1) * sizeof(jo_font_t));
         f       = &joFonts[joCount++];
         memset(f, 0, sizeof(*f));
-        f->hw = hw, f->file = path, f->size = size, f->json = json, f->jsonName = jsonName, f->jsonCodePoints = jsonCodePoints;
+        f->hw = hw, f->file = path, f->real = real, f->size = size, f->json = json, f->jsonName = jsonName, f->jsonCodePoints = jsonCodePoints;
         f->pairLimit = -1;
         strcpy(f->generated, generated);
     }
     if (pairLimit >= 0) f->pairLimit = pairLimit;
     if (!nRanges && !nLetters) f->every = 1;
-    for (int r = firstRange; r + 1 < argc; r += 2) cpr_insert_range(&f->ranges, strtol(argv[r], 0, 0), strtol(argv[r + 1], 0, 0));
+    if (!nNames) f->plain = 1;
+    for (int r = 0; r + 1 < nRanges; r += 2) cpr_insert_range(&f->ranges, ranges[r], ranges[r + 1]);
     for (int i = 0; i < nLetters; ++i) jo_add_string(&f->letters, &f->nLetters, jo_path(listDir, letters[i]));
     for (int i = 0; i < nNames; ++i) {
         for (int k = 0; k < joCount; ++k) {
@@ -1766,6 +1792,12 @@ static int jo_write(const char *outName, FT_Library library)
     for (int i = 0; i < joCount; ++i) {
         jo_font_t *f = &joFonts[i];
         char       funcname[600], prefix[300];
+        /* a line without -n asked for the function named after the output, beside any -n names of the same font */
+        if (f->plain && f->nNames) {
+            char plain[600];
+            snprintf(plain, sizeof(plain), "%s_%s", base, f->generated);
+            if (!jo_has_name(f, plain)) jo_add_string(&f->names, &f->nNames, strdup(plain));
+        }
         if (f->nNames) snprintf(funcname, sizeof(funcname), "%s", f->names[0]);
         else snprintf(funcname, sizeof(funcname), "%s_%s", base, f->generated);
         snprintf(prefix, sizeof(prefix), "%s_", f->generated);

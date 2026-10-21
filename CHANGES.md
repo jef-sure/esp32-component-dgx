@@ -1,5 +1,69 @@
 # Changes
 
+## 0.7.3 - 2026-10-21
+
+Fixes from an audit of the fonts made at build time (0.7.2). Checked by the
+host tests of `test/fonts`, which now also run `project_include.cmake`
+through a plain CMake project, and by ESP-IDF builds of the test project and
+of `examples/fonts_demo`.
+
+- **CMake older than 3.19.** `project_include.cmake` deferred its final step
+  with `cmake_language(DEFER)`, which such a CMake does not have, so every
+  project that used DGX failed to configure under it, fonts or no fonts.
+  Now a project without needs is not affected at all, and the first need
+  stops the configure step with a message naming the version; the CMake of
+  ESP-IDF's tools is newer than 3.19 on every supported release.
+- **Medium before Regular.** When the rules picked a face, Medium counted
+  as a plain style, so Poppins, Inter, Roboto or Open Sans could come out
+  Medium depending on the order of the font files. A regular face now comes
+  first, then Medium, then the bold, italic and other styles.
+- **The same need declared twice.** Two declarations of one name with the
+  same keywords but different texts were resolved apart, and when the rules
+  picked different faces for their different characters the build stopped
+  with "declared twice with different fonts". They are now merged first, so
+  the face is picked once for the characters of both. Declarations with
+  different keywords are still resolved apart and must agree.
+- **A letters file of a list.** `dgx_font_list()` took as inputs only the
+  words of a list that ended in `.ttf`, `.otf`, `.ttc`, `.json` or `.txt`,
+  so a changed `-f` file of another name, `.letters` as in the
+  documentation, did not rebuild the fonts. Every word that names a file is
+  an input now.
+- **Relative paths in the rules.** `source dir` and `source list` lines
+  with a relative path were resolved from the current directory, which is
+  the build directory under ninja. They are resolved from the rules file
+  now, and a relative path inside a source list from that list.
+- **Characters with brackets or semicolons.** A `[`, `]` or `;` in
+  `LETTERS`, `EXCEPT` or a line of a needs file broke the list CMake keeps
+  the needs in; the semicolon used to be refused with a hint. Such
+  characters now reach the font like any other.
+- **Smaller mistakes of a CMakeLists are reported properly**: a `TEXTS`,
+  `FILE` or `SOURCE` file that does not exist, or a `DGX` font that DGX
+  does not have, stops the configure step with a message instead of a bare
+  ninja error at build time; a keyword given twice stops it instead of
+  keeping the last value; two needs whose names differ only in case stop
+  the build instead of defining the same macros twice.
+- **Sizes, spaces and byte order marks.** A size that comes to a half
+  pixel is rounded up, not to the even neighbour; a space among the
+  `letters` of a needs file is a character, not trimmed away; a text or
+  JSON file that starts with a byte order mark is read without it.
+- **font2c -jo.** An option after the font file and its size (`file 12 -f
+  letters.txt`) was taken for a range and gave a font of no glyphs; options
+  may stand anywhere on a line now. Two different files that make a font of
+  the same name, two handwritten fonts with the same `name` for example,
+  were silently merged into the first; they are refused. A line without
+  `-n` lost its function when a line with `-n` asked for the same font; it
+  keeps it. A family whose name begins with a digit ("3270") gets `font` in
+  front of its generated name, so that the arrays are valid C.
+- **The icons of an icon font.** Characters of the Private Use Area
+  (U+E000 to U+F8FF), where Weather Icons, Font Awesome and Material Icons
+  keep their glyphs, were dropped from `TEXTS` and `LETTERS` as unprintable,
+  so a need for such a font stopped with "no characters". Only control and
+  format characters are left out now. Found by the handwritten clock,
+  which asks for 27 weather icons.
+- **font2c with no glyphs.** A run whose ranges or letters hit none of the
+  font's characters wrote a `.c` that does not compile and returned 0. It
+  now stops with a message and leaves the old file, if any, in place.
+
 ## 0.7.2 - 2026-10-21
 
 Fonts made at build time, and fixes from a second review of 0.7.1. The

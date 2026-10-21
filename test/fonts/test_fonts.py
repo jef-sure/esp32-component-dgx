@@ -245,6 +245,217 @@ def test_json_of_a_bundled_font():
               "the glyph of 0 has its rows of pixels")
 
 
+def dejavu_file(name="DejaVuSans"):
+    return subprocess.run(["fc-list", f":postscriptname={name}", "--format", "%{file}\n"], capture_output=True, text=True).stdout.split("\n")[0]
+
+
+def glyphs_of(c_path, function):
+    code, text, err = tool("json", c_path, "--font", function)
+    return {chr(int(k)) for k in json.loads(text)["glyphs"]} if code == 0 else None
+
+
+def test_style_order():
+    """Among the faces of a family a regular one comes first, then Medium, then the rest, whatever the order of the
+    files: checked on faces made up here, since the DejaVu fonts have no Medium."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("dgx_fonts", TOOL)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    check(m.style_rank("Regular") < m.style_rank("Medium") < m.style_rank("Bold") and m.style_rank("Book") == m.style_rank("Regular"),
+          "Regular before Medium before Bold")
+    fonts = [m.Font("/x/Poppins-Medium.ttf", 0, "Poppins", "Medium", False, "Poppins-Medium", "61-7a", 0),
+             m.Font("/x/Poppins-Regular.ttf", 0, "Poppins", "Regular", False, "Poppins-Regular", "61-7a", 1),
+             m.Font("/x/Poppins-Bold.ttf", 0, "Poppins", "Bold", False, "Poppins-Bold", "61-7a", 2)]
+    _, rules = m.parse_rules("source system\nallow * 1..\n")
+    found = [f.style for _, f in m.candidates(fonts, rules, 12, letters="abc")]
+    check(found == ["Regular", "Medium", "Bold"], f"the order of the styles: {found}")
+
+
+def test_merged_declarations(work):
+    """A need declared in two places with the same keywords is one need, and its face is picked once for the characters
+    of both: here the first allowed face lacks a character of the second declaration, so the second face takes both."""
+    with open(os.path.join(work, "mono-first.rules"), "w", encoding="utf-8") as f:
+        f.write('source system\nallow "DejaVu Sans Mono" 1..\nallow "DejaVu Sans" 1..\n')
+    with open(os.path.join(work, "merged.needs"), "w", encoding="utf-8") as f:
+        f.write(f"component {DGX}\nrules mono-first.rules\nneed note /a/CMakeLists.txt\nsize 20px\nletters abc\n"
+                "need note /b/CMakeLists.txt\nsize 20px\nletters \u1e9e\n")
+    out = os.path.join(work, "out-merged")
+    code, told, err = tool("build", os.path.join(work, "merged.needs"), out)
+    check(code == 0 and "note: DejaVu Sans Book 20 px" in told, f"one face for the characters of both declarations: {err.strip()} {told.strip()}")
+    if code == 0:
+        glyphs = glyphs_of(os.path.join(out, "dgx_fonts.c"), "dgx_font_note")
+        check(glyphs is not None and {"a", "b", "c", "\u1e9e"} <= glyphs, "the characters of both declarations are in the font")
+
+
+def test_rules_paths(work):
+    """A relative path in the rules (source dir, source list) and in a source list is taken from the file that names it,
+    not from the current directory, which is the build directory under ninja."""
+    fonts = os.path.join(work, "rules", "fonts")
+    os.makedirs(fonts, exist_ok=True)
+    shutil.copy(dejavu_file(), os.path.join(fonts, "Sans.ttf"))
+    with open(os.path.join(work, "rules", "dir.rules"), "w", encoding="utf-8") as f:
+        f.write("source dir fonts\nallow * 1..\n")
+    with open(os.path.join(work, "rules", "list.rules"), "w", encoding="utf-8") as f:
+        f.write("source list fonts/files.txt\nallow * 1..\n")
+    with open(os.path.join(fonts, "files.txt"), "w", encoding="utf-8") as f:
+        f.write("Sans.ttf\n")
+    elsewhere = os.path.join(work, "elsewhere")
+    os.makedirs(elsewhere, exist_ok=True)
+    for rules in ("dir.rules", "list.rules"):
+        run = subprocess.run([sys.executable, "-I", TOOL, "pick", os.path.join(work, "rules", rules), "12"], capture_output=True, text=True, cwd=elsewhere)
+        check(run.returncode == 0 and os.path.join(fonts, "Sans.ttf") in run.stdout, f"{rules}: the font of a relative source is found: {run.stderr.strip()}")
+
+
+def test_half_pixels(work):
+    """A size that comes to a half pixel is rounded up: 1.25 mm at 10 px/mm is 13 px, not the even 12."""
+    with open(os.path.join(work, "half.needs"), "w", encoding="utf-8") as f:
+        f.write(f"component {DGX}\nboard pixels 300 300\nboard mm 30 30\nneed tt\nsize 1.25mm\npostscript DejaVuSans\nletters abc\n")
+    out = os.path.join(work, "out-half")
+    code, told, err = tool("build", os.path.join(work, "half.needs"), out)
+    check(code == 0 and "#define DGX_FONT_TT_PX 13" in open(os.path.join(out, "dgx_fonts.h"), encoding="utf-8").read(), f"12.5 px is 13: {err.strip()}")
+
+
+def test_characters_as_written(work):
+    """A space among the letters of a need is a character like any other, and a text with a byte order mark is read
+    without it."""
+    with open(os.path.join(work, "space.needs"), "w", encoding="utf-8") as f:
+        f.write(f"component {DGX}\nneed tt\nsize 12px\npostscript DejaVuSans\nletters  ab\n")
+    out = os.path.join(work, "out-space")
+    code, told, err = tool("build", os.path.join(work, "space.needs"), out)
+    glyphs = glyphs_of(os.path.join(out, "dgx_fonts.c"), "dgx_font_tt") if code == 0 else None
+    check(glyphs == {" ", "a", "b"}, f"a space among the letters is kept: {err.strip()} {glyphs}")
+    bom = os.path.join(work, "bom.json")
+    with open(bom, "w", encoding="utf-8-sig") as f:
+        f.write('{"label": "xy"}')
+    with open(os.path.join(work, "bom.needs"), "w", encoding="utf-8") as f:
+        f.write(f"component {DGX}\nneed tt\nsize 12px\npostscript DejaVuSans\ntext {bom}\n")
+    code, told, err = tool("build", os.path.join(work, "bom.needs"), out)
+    glyphs = glyphs_of(os.path.join(out, "dgx_fonts.c"), "dgx_font_tt") if code == 0 else None
+    check(glyphs == {"x", "y"}, f"a JSON with a byte order mark: {err.strip()} {glyphs}")
+    code, told, err = build(work, "need Title\nsize 12px\npostscript DejaVuSans\nletters ab\nneed title\nsize 12px\npostscript DejaVuSans\nletters ab\n",
+                            board=False, rules=False)
+    check(code == 1 and "differ only in case" in err, f"two needs that differ only in case are refused: {err.strip()}")
+    # the icons of an icon font are characters of the Private Use Area: they are letters like any other, and a soft
+    # hyphen or a zero-width joiner is not
+    icons = os.path.join(work, "icons.letters")
+    with open(icons, "w", encoding="utf-8") as f:
+        f.write("\uf010\uf002 a\u00ad\u200d")
+    code, out, err = tool("letters", icons)
+    check(code == 0 and set(out.strip("\n")) == {"\uf010", "\uf002", " ", "a"}, f"private-use characters are letters, format characters are not: {out!r} {err.strip()}")
+    code, told, err = build(work, f"need icons\nsize 24px\npostscript DejaVuSans\ntext {icons}\n", board=False, rules=False)
+    check(code == 1 and "lacks the characters" in err and "U+F010" in err, f"a private-use character reaches the check of the face: {err.strip()}")
+
+
+def test_font2c_lines(work):
+    """The lines of a list through font2c itself: options after the size, a range the font has none of, two files that
+    would make one font, a line without -n beside a line with -n for the same font."""
+    font2c = os.path.join(work, "out", "font2c")
+    sans = dejavu_file()
+    with open(os.path.join(work, "after.letters"), "w", encoding="utf-8") as f:
+        f.write("xyz")
+    with open(os.path.join(work, "after.list"), "w", encoding="utf-8") as f:
+        f.write(f"{sans} 12 -f after.letters\n")
+    run = subprocess.run([font2c, "-jo", os.path.join(work, "after.list"), "-o", os.path.join(work, "after")], capture_output=True, text=True)
+    glyphs = glyphs_of(os.path.join(work, "after.c"), "after_DejaVuSansBook12") if run.returncode == 0 else None
+    check(glyphs == {"x", "y", "z"}, f"-f after the size is the letters file, not a range: {run.stderr.strip()} {glyphs}")
+    alone = os.path.join(work, "alone-run")
+    os.makedirs(alone, exist_ok=True)
+    run = subprocess.run([font2c, sans, "12", "0x100000", "0x100010"], capture_output=True, text=True, cwd=alone)
+    check(run.returncode == 1 and "none of the characters" in run.stderr and not os.listdir(alone),
+          f"a range the font has none of: exit {run.returncode}, {run.stderr.strip()}, files {os.listdir(alone)}")
+    copy = os.path.join(work, "copy")
+    os.makedirs(copy, exist_ok=True)
+    shutil.copy(sans, os.path.join(copy, "DejaVuSans.ttf"))
+    with open(os.path.join(work, "twofiles.list"), "w", encoding="utf-8") as f:
+        f.write(f"{sans} 12 0x30 0x39\ncopy/DejaVuSans.ttf 12 0x41 0x5a\n")
+    run = subprocess.run([font2c, "-jo", os.path.join(work, "twofiles.list"), "-o", os.path.join(work, "twofiles")], capture_output=True, text=True)
+    check(run.returncode == 1 and "both make the font DejaVuSansBook12" in run.stderr, f"two files of one name are refused: {run.stderr.strip()}")
+    with open(os.path.join(work, "plain.list"), "w", encoding="utf-8") as f:
+        f.write(f"-n digits {sans} 24 0x30 0x39\n{sans} 24 0x41 0x5a\n")
+    run = subprocess.run([font2c, "-jo", os.path.join(work, "plain.list"), "-o", os.path.join(work, "plain")], capture_output=True, text=True)
+    h = open(os.path.join(work, "plain.h"), encoding="utf-8").read() if run.returncode == 0 else ""
+    c = open(os.path.join(work, "plain.c"), encoding="utf-8").read() if run.returncode == 0 else ""
+    check("dgx_font_t *digits(void);" in h and "dgx_font_t *plain_DejaVuSansBook24(void);" in h and "return digits();" in c,
+          f"a line without -n keeps its function beside the -n name: {run.stderr.strip()}")
+
+
+def test_cmake(work):
+    """project_include.cmake on the host, with the two ESP-IDF functions it uses as stubs: a configure and a build with
+    needs from a CMakeLists, a needs file and a list, and the mistakes a CMakeLists can make."""
+    cm = os.path.join(work, "cmake")
+    os.makedirs(cm, exist_ok=True)
+    sans = dejavu_file()
+    with open(os.path.join(cm, "stub.c"), "w") as f:
+        f.write("int dgx_stub;\n")
+    with open(os.path.join(cm, "t.txt"), "w", encoding="utf-8") as f:
+        f.write("tq")
+    with open(os.path.join(cm, "fonts.rules"), "w", encoding="utf-8") as f:
+        f.write('source system\nallow "DejaVu Sans" 1..\n')
+    with open(os.path.join(cm, "x.needs"), "w", encoding="utf-8-sig") as f:
+        f.write("need fromfile\nsize 12px\npostscript DejaVuSans\nletters [{]; \ntext t.txt\n")
+    with open(os.path.join(cm, "own.letters"), "w", encoding="utf-8") as f:
+        f.write("xyz")
+    with open(os.path.join(cm, "own.list"), "w", encoding="utf-8") as f:
+        f.write(f"-n widget {sans} 12 -f own.letters\n")
+    with open(os.path.join(cm, "CMakeLists.txt"), "w", encoding="utf-8") as f:
+        f.write(f"""cmake_minimum_required(VERSION 3.19)
+project(dgx_fonts_on_the_host C)
+set(COMPONENT_DIR "{DGX}")
+set(COMPONENT_NAME dgx)
+function(idf_build_get_property out name)
+    set(${{out}} "{sys.executable}" PARENT_SCOPE)
+endfunction()
+function(idf_component_get_property out component property)
+    set(${{out}} dgx PARENT_SCOPE)
+endfunction()
+add_library(dgx STATIC stub.c)
+target_include_directories(dgx PRIVATE "{DGX}/include" "{STUBS}")
+target_compile_options(dgx PRIVATE -include "{STUBS}/esp_log.h")
+include("{DGX}/project_include.cmake")
+dgx_fonts_board(PIXELS 320 240 MM 57.6 43.2)
+dgx_fonts_rules(fonts.rules)
+if(CASE STREQUAL "good")
+    dgx_font_need(brackets SIZE 12px LETTERS "[a;b]" TEXTS t.txt)
+    dgx_font_needs_file(x.needs)
+    dgx_font_list(own.list)
+elseif(CASE STREQUAL "missing")
+    dgx_font_need(b SIZE 12px POSTSCRIPT DejaVuSans TEXTS none.txt)
+elseif(CASE STREQUAL "twice")
+    dgx_font_need(b SIZE 12px SIZE 14px POSTSCRIPT DejaVuSans TEXTS t.txt)
+endif()
+""")
+
+    def configure(case):
+        build_dir = os.path.join(cm, f"build-{case}")
+        run = subprocess.run(["cmake", "-S", cm, "-B", build_dir, "-G", "Ninja", f"-DCASE={case}"], capture_output=True, text=True)
+        return build_dir, run
+
+    build_dir, run = configure("good")
+    check(run.returncode == 0, f"configure with needs: {run.stderr.strip()[-600:]}")
+    if run.returncode == 0:
+        needs = open(os.path.join(build_dir, "dgx_fonts", "needs.txt"), encoding="utf-8").read()
+        check("letters [a;b]\n" in needs, "brackets and a semicolon of LETTERS reach the needs file")
+        check("letters [{]; \n" in needs, "the letters of a needs file reach it as written, the space at the end too")
+        check(f"text {os.path.join(cm, 't.txt')}" in needs and "need fromfile" in needs, "a needs file with a byte order mark is read")
+        ninja = open(os.path.join(build_dir, "build.ninja"), encoding="utf-8").read()
+        check("own.letters" in ninja, "the file of -f in a list is an input of the rule")
+        run = subprocess.run(["cmake", "--build", build_dir], capture_output=True, text=True)
+        check(run.returncode == 0, f"build: {(run.stdout + run.stderr).strip()[-800:]}")
+        if run.returncode == 0:
+            h = open(os.path.join(build_dir, "dgx_fonts", "dgx_fonts.h"), encoding="utf-8").read()
+            check("dgx_font_t *dgx_font_brackets(void);" in h and "dgx_font_t *dgx_font_fromfile(void);" in h and "dgx_font_t *widget(void);" in h,
+                  "the three fonts of the three ways are in the header")
+            c = os.path.join(build_dir, "dgx_fonts", "dgx_fonts.c")
+            # the three are one face at 12 px, so one font with the characters of all three
+            check(set("[a;b]tq") <= (glyphs_of(c, "dgx_font_brackets") or set()), "the characters of LETTERS with brackets and a semicolon are in the font")
+            check(set("[{]; tqxyz") <= (glyphs_of(c, "dgx_font_fromfile") or set()), "the characters of the needs file, the space too, are in the font")
+            check("widget: from a list, 12 glyphs" in run.stdout, f"a list's font that shares a need's font is counted: {run.stdout.strip()[-200:]}")
+    for case, expected in (("missing", "none.txt does not exist"), ("twice", "SIZE given twice")):
+        build_dir, run = configure(case)
+        said = " ".join(run.stderr.split())  # CMake wraps its messages
+        check(run.returncode != 0 and expected in said, f"{case}: told '{expected}': {said[-300:]}")
+
+
 def main():
     if not have_dejavu():
         print("test_fonts.py: DejaVu Sans and DejaVu Sans Mono are not installed (fontconfig), nothing checked")
@@ -257,6 +468,13 @@ def main():
         test_twice(work)
         test_lists(work)
         test_json_of_a_bundled_font()
+        test_style_order()
+        test_merged_declarations(work)
+        test_rules_paths(work)
+        test_half_pixels(work)
+        test_characters_as_written(work)
+        test_font2c_lines(work)
+        test_cmake(work)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     if failures:

@@ -54,7 +54,8 @@ without a size:
 DejaVuSans.ttf 30 0x30 0x39
 ```
 
-`-jo` takes such a list, as often as needed, and `-o` names the output:
+The options of a line may stand anywhere on it, as on a command line. `-jo`
+takes such a list, as often as needed, and `-o` names the output:
 
 ```sh
 ./font2c -jo fonts.list -jo more.list -o my_fonts     # my_fonts.c and my_fonts.h

@@ -67,18 +67,21 @@ The rules, one per line (# starts a comment), the same as the rules of DGX-GE we
     allow * 40..
 
 The allow lines are in order of preference: the first one with a face of the size that has all the characters wins;
-among its faces a regular style comes before bold and italic ones, then the order of the sources. A face denied at
+among its faces a regular style comes first, then Medium, then bold, italic and the rest, then the order of the
+sources. A face denied at
 the size is never taken. A face is found by its PostScript name with fc-list and must match exactly: fc-match
 would silently return another face for a name it does not know.
 """
 import argparse
 import fnmatch
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
 import sys
+import unicodedata
 from collections import namedtuple
 
 Font = namedtuple("Font", "file index family style mono psname charset order")
@@ -90,7 +93,13 @@ class FontsError(Exception):
 
 
 FONT_FILES = (".ttf", ".otf", ".ttc")
-PLAIN = ("regular", "book", "medium", "normal", "roman", "plain")
+PLAIN = ("regular", "book", "normal", "roman", "plain", "")
+
+
+def style_rank(style):
+    """The order of the styles of one family: a regular face first, then Medium, then bold, italic and the rest."""
+    s = style.lower()
+    return 0 if s in PLAIN else 1 if s == "medium" else 2
 FC_FORMAT = "%{file}|%{index}|%{family[0]}|%{style[0]}|%{spacing}|%{postscriptname}|%{charset}\\n"
 
 
@@ -149,8 +158,9 @@ def size_allowed(sizes, size):
     return any(all(ops[op](size, n) for op, n in conds) for conds in sizes)
 
 
-def parse_rules(text, name="rules"):
-    """The sources [(kind, path or None)] and the rules [Rule] of a text of rules."""
+def parse_rules(text, name="rules", base=None):
+    """The sources [(kind, path or None)] and the rules [Rule] of a text of rules; a relative path of a source is
+    resolved from `base`, the directory of the rules file."""
     sources, rules = [], []
     for number, raw in enumerate(text.splitlines(), 1):
         line = raw.split("#", 1)[0].strip()
@@ -165,7 +175,8 @@ def parse_rules(text, name="rules"):
             if kind == "system" and not path:
                 sources.append(("system", None))
             elif kind in ("list", "dir") and path:
-                sources.append((kind, os.path.expanduser(path)))
+                path = os.path.expanduser(path)
+                sources.append((kind, os.path.normpath(os.path.join(base, path)) if base and not os.path.isabs(path) else path))
             else:
                 raise FontsError(f"{where}: source list <file>, source dir <dir> or source system")
         elif word in ("allow", "deny"):
@@ -219,7 +230,7 @@ def candidates(fonts, rules, size, mono=False, family=None, letters=""):
             continue
         found = [f for f in fonts if matches(rule.pattern, f) and not any(matches(d.pattern, f) for d in denied) and (f.mono or not mono)
                  and (not family or matches(family, f)) and f.file not in seen and not missing_letters(charset(f), letters)]
-        found.sort(key=lambda f: (0 if f.style.lower() in PLAIN else 1, f.order))
+        found.sort(key=lambda f: (style_rank(f.style), f.order))
         for f in found:
             seen.add(f.file)
             out.append((rule, f))
@@ -268,10 +279,12 @@ def gather(sources):
             got = scan(files, 0)
         else:
             try:
-                lines = open(path, encoding="utf-8").read().splitlines()
+                lines = open(path, encoding="utf-8-sig").read().splitlines()
             except OSError as e:
                 raise FontsError(f"source list {path}: {e.strerror}")
+            here = os.path.dirname(os.path.abspath(path))
             files = [os.path.expanduser(l.strip()) for l in lines if l.strip() and not l.strip().startswith("#")]
+            files = [f if os.path.isabs(f) else os.path.normpath(os.path.join(here, f)) for f in files]
             got = scan([f for f in files if os.path.exists(f)], 0)
         for f in got:
             if f.file not in seen:
@@ -348,13 +361,15 @@ def json_strings(value):
 
 
 def printable(chars):
-    return {c for c in chars if c.isprintable()}
+    """The characters a font can have: everything but control and format characters and the line and paragraph
+    separators. The icons of an icon font live in the Private Use Area, which Python's isprintable() would drop."""
+    return {c for c in chars if unicodedata.category(c) not in ("Cc", "Cf", "Cs", "Zl", "Zp")}
 
 
 def letters_of_file(path, where):
     """The letters a text gives: the strings of a .po or .pot, the strings of a JSON, any other file whole."""
     try:
-        text = open(path, encoding="utf-8").read()
+        text = open(path, encoding="utf-8-sig").read()
     except OSError as e:
         raise FontsError(f"{where}: {path}: {e.strerror}")
     except UnicodeDecodeError:
@@ -414,7 +429,7 @@ def accessor(c_text, where):
 def hw_code_points(path, where):
     """The code points of a handwritten font's JSON (the hw-fonts editor)."""
     try:
-        data = json.load(open(path, encoding="utf-8"))
+        data = json.load(open(path, encoding="utf-8-sig"))
     except (OSError, ValueError) as e:
         raise FontsError(f"{where}: {path}: {e}")
     points = data.get("codePoints") if isinstance(data, dict) else None
@@ -488,7 +503,10 @@ def parse_needs(text, name="needs", base=None):
             continue
         where = f"{name}:{number}"
         key, _, value = line.partition(" ")
-        value = value.strip()
+        if key in ("letters", "except"):
+            value = raw.rstrip("\r\n").lstrip()[len(key) + 1:]  # the characters as written, spaces among them
+        else:
+            value = value.strip()
         if key == "need":
             value, _, place = value.partition(" ")
             place = place.strip() or where
@@ -573,33 +591,67 @@ def size_in_px(text, board, where):
         px = value * pixels_per_mm(board, where)
     else:
         px = value
-    px = int(round(px))
+    px = int(math.floor(px + 0.5))  # halves go up: 12.5 px is 13, not the even 12 of round()
     if px < 1 or px > 1000:
         raise FontsError(f"{where}: {text} comes out as {px} px, which is out of range")
     how = f"{value:g} pt x {board.scale:g}" if unit == "pt" else f"{value:g} mm" if unit == "mm" else f"{px} px"
     return px, value if unit == "mm" else None, how
 
 
-def resolve(need, board, rules_path, dgx, fonts_cache):
-    """What a need comes to: a Made, a Hand or an AsIs."""
+class Declared:
+    """A need as declared: its keywords and the characters it asks for. Declarations of one name with the same keywords
+    are merged into one of these."""
+
+    def __init__(self, need, fields, letters):
+        self.need, self.fields, self.letters = need, fields, letters
+
+
+def need_fields(need):
+    """The keywords of a declaration other than its characters: {key: (value, where)}."""
     fields = {}
-    texts, letters, spared = [], set(), set()
+    for key, value, where in need.words:
+        if key in ("text", "letters", "except"):
+            continue
+        if key not in ("size", "mono", "family", "postscript", "dgx", "file", "source"):
+            raise FontsError(f"{where}: unknown keyword '{key}' for the need {need.name}")
+        if key in fields:
+            raise FontsError(f"{where}: {key} given twice for the need {need.name}")
+        fields[key] = (value, where)
+    return fields
+
+
+def need_letters(need):
+    """The characters a declaration asks for: those of its texts and its letters, less its except."""
+    letters, spared = set(), set()
     for key, value, where in need.words:
         if key == "text":
-            texts.append((value, where))
+            letters |= letters_of_file(value, where)
         elif key == "letters":
             letters |= printable(value)
         elif key == "except":
             spared |= set(value)
-        elif key in ("size", "mono", "family", "postscript", "dgx", "file", "source"):
-            if key in fields:
-                raise FontsError(f"{where}: {key} given twice for the need {need.name}")
-            fields[key] = (value, where)
+    return letters - spared
+
+
+def merge_needs(needs):
+    """Declarations of one name with the same keywords are one need with the characters of all of them, so that its face
+    is picked once, for every character; declarations with different keywords stay apart and must come to the same
+    font (join_needs)."""
+    merged, index = [], {}
+    for n in needs:
+        fields = need_fields(n)
+        key = (n.name, tuple(sorted((k, v) for k, (v, _) in fields.items())))
+        if key in index:
+            index[key].letters |= need_letters(n)
         else:
-            raise FontsError(f"{where}: unknown keyword '{key}' for the need {need.name}")
-    for path, where in texts:
-        letters |= letters_of_file(path, where)
-    letters -= spared
+            index[key] = Declared(n, fields, need_letters(n))
+            merged.append(index[key])
+    return merged
+
+
+def resolve(declared, board, rules_path, dgx, fonts_cache):
+    """What a declared need comes to: a Made, a Hand or an AsIs."""
+    need, fields, letters = declared.need, declared.fields, declared.letters
     ways = [k for k in ("dgx", "file", "source") if k in fields]
     if len(ways) > 1:
         raise FontsError(f"{need.where}: {need.name}: only one of dgx, file or source, not {' and '.join(ways)}")
@@ -651,10 +703,10 @@ def resolve(need, board, rules_path, dgx, fonts_cache):
                          f"add dgx_fonts_rules(<file>) to its CMakeLists, or name a PostScript face")
     if "rules" not in fonts_cache:
         try:
-            text = open(rules_path, encoding="utf-8").read()
+            text = open(rules_path, encoding="utf-8-sig").read()
         except OSError as e:
             raise FontsError(f"rules {rules_path}: {e.strerror}")
-        sources, rules = parse_rules(text, rules_path)
+        sources, rules = parse_rules(text, rules_path, os.path.dirname(os.path.abspath(rules_path)))
         if not sources:
             raise FontsError(f"{rules_path}: no source of fonts (source system, source dir or source list)")
         fonts_cache["rules"] = (gather(sources), rules)
@@ -753,7 +805,7 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
     """The fonts of a needs file into outdir; the board and the rules may come as arguments, for a host build, and win."""
     outdir = os.path.abspath(outdir)
     try:
-        text = open(needs_path, encoding="utf-8").read()
+        text = open(needs_path, encoding="utf-8-sig").read()
     except OSError as e:
         raise FontsError(f"{needs_path}: {e.strerror}")
     dgx, rules_path, board, needs, lists = parse_needs(text, needs_path, os.path.dirname(os.path.abspath(needs_path)))
@@ -769,8 +821,13 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
     for n in needs:
         if f"dgx_font_{n.name}" in taken:
             raise FontsError(f"{n.where}: dgx_font_{n.name} is already a function of DGX; choose another name for the need")
+    by_upper = {}
+    for n in needs:
+        other = by_upper.setdefault(n.name.upper(), n)
+        if other.name != n.name:
+            raise FontsError(f"{n.where}: the needs {other.name} ({other.where}) and {n.name} differ only in case; their macros would not")
     cache = {}
-    wants = join_needs([resolve(n, board, rules_path, dgx, cache) for n in needs])
+    wants = join_needs([resolve(d, board, rules_path, dgx, cache) for d in merge_needs(needs)])
     made = [w for w in wants if not isinstance(w, AsIs)]
     os.makedirs(outdir, exist_ok=True)
     work = os.path.join(outdir, "work")
@@ -818,6 +875,8 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
                 raise FontsError(f"{w.need.where}: font2c did not produce {name}")
             check_letters(points[name], w.letters, f"{w.need.where}: font2c of {w.face.file if isinstance(w, Made) else w.source}")
             counts.setdefault(name, len(points[name]))
+        for name, pts in points.items():  # a function of a list that shares a font is counted by that font
+            counts.setdefault(name, len(pts))
     functions = re.findall(r"^dgx_font_t \*(\w+)\(void\);$", h_text, re.M)
     own_names = {f"dgx_font_{w.need.name}" for w in made}
     told = []
@@ -981,7 +1040,7 @@ def main(argv=None):
             return 0
         if len(a.args) != 2 or not a.args[1].isdigit():
             raise FontsError(f"{a.what} RULES SIZE")
-        sources, rules = parse_rules(open(a.args[0], encoding="utf-8").read(), a.args[0])
+        sources, rules = parse_rules(open(a.args[0], encoding="utf-8-sig").read(), a.args[0], os.path.dirname(os.path.abspath(a.args[0])))
         if not sources:
             raise FontsError(f"{a.args[0]}: no source of fonts (source system, source dir or source list)")
         found = candidates(gather(sources), rules, int(a.args[1]), a.mono, a.family, a.letters or "")
