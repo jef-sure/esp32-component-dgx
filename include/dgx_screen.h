@@ -50,6 +50,15 @@ typedef enum
     DgxOutputTransverse
 } dgx_output_orientation_t;
 
+/*
+ * The way a screen lies on a panel, as its driver takes it: the axes
+ * swapped first, the columns of the panel then counted from the right and
+ * its rows from the bottom. It is the turn of a transfer that would put the
+ * screen onto the panel: with DgxOutputRotate90CW the left column of the
+ * screen is the top row of the panel. The three functions after it go back
+ * from a turn to the way; text turned by a dgx_output_orientation_t is drawn
+ * by them.
+ */
 static inline dgx_output_orientation_t dgx_output_orientation_make(dgx_orientation_t xdir, dgx_orientation_t ydir, bool swap_xy)
 {
     if (!swap_xy) {
@@ -59,9 +68,9 @@ static inline dgx_output_orientation_t dgx_output_orientation_make(dgx_orientati
         return ydir == DgxScreenTopBottom ? DgxOutputMirrorX : DgxOutputRotate180;
     }
     if (xdir == DgxScreenLeftRight) {
-        return ydir == DgxScreenTopBottom ? DgxOutputTranspose : DgxOutputRotate90CW;
+        return ydir == DgxScreenTopBottom ? DgxOutputTranspose : DgxOutputRotate90CCW;
     }
-    return ydir == DgxScreenTopBottom ? DgxOutputRotate90CCW : DgxOutputTransverse;
+    return ydir == DgxScreenTopBottom ? DgxOutputRotate90CW : DgxOutputTransverse;
 }
 
 static inline dgx_orientation_t dgx_output_orientation_xdir(dgx_output_orientation_t orientation)
@@ -70,7 +79,7 @@ static inline dgx_orientation_t dgx_output_orientation_xdir(dgx_output_orientati
     case DgxOutputNormal:
     case DgxOutputMirrorY:
     case DgxOutputTranspose:
-    case DgxOutputRotate90CW:
+    case DgxOutputRotate90CCW:
         return DgxScreenLeftRight;
     default:
         return DgxScreenRightLeft;
@@ -83,7 +92,7 @@ static inline dgx_orientation_t dgx_output_orientation_ydir(dgx_output_orientati
     case DgxOutputNormal:
     case DgxOutputMirrorX:
     case DgxOutputTranspose:
-    case DgxOutputRotate90CCW:
+    case DgxOutputRotate90CW:
         return DgxScreenTopBottom;
     default:
         return DgxScreenBottomTop;

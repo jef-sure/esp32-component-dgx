@@ -1,7 +1,10 @@
 # font2c
 
 `font2c` is an offline tool that converts fonts into C source/header pairs
-for DGX. It handles two kinds of fonts:
+for DGX. A program on ESP-IDF usually does not run it by hand: it declares
+the fonts it needs in its CMakeLists, and `dgx_fonts.py` in this directory
+runs `font2c` for all of them at build time; see
+[docs/fonts-en.md](../docs/fonts-en.md). `font2c` handles two kinds of fonts:
 
 - TTF/BDF-style fonts, rendered to bitmaps at a given pixel size;
 - handwritten fonts made of Bezier curves, saved as `.json` by the
@@ -23,11 +26,13 @@ Unicode ranges, a UTF-8 text file with the characters (`-f`), or both.
 ```sh
 ./font2c path/to/YourFont.ttf 16 0x20 0x7e 0x410 0x44f
 ./font2c -f charset.txt path/to/YourFont.ttf 16
-./font2c [-f charset_file] <font file> <size> [<first> <last>]*
+./font2c [-n name] [-f charset_file] <font file> <size> [<first> <last>]*
 ```
 
 It writes a `.c` and a matching `.h` named after the font family, style and
-size. To use the generated font:
+size, or after `-n name`: the font's function, its files and its static
+arrays (`name_bitmaps` and so on) then take that name, so that several fonts
+made this way can share one C file. To use the generated font:
 
 1. Move the `.c` file into `src/fonts/` and the `.h` file into
    `include/fonts/`.
@@ -35,6 +40,34 @@ size. To use the generated font:
    the build system has to notice the new file.
 3. Include the generated header and pass its accessor to the text API, like
    a bundled font.
+
+### Several fonts in one file
+
+A list file holds the arguments of one `font2c` run per line, with paths
+relative to the list and `#` for comments; a handwritten JSON goes in
+without a size:
+
+```
+# fonts.list
+-n widgets_title DejaVuSans.ttf 24 0x20 0x7e 0xc4 0xdc
+-n widgets_note -f note.letters DejaVuSans.ttf 18
+DejaVuSans.ttf 30 0x30 0x39
+```
+
+`-jo` takes such a list, as often as needed, and `-o` names the output:
+
+```sh
+./font2c -jo fonts.list -jo more.list -o my_fonts     # my_fonts.c and my_fonts.h
+```
+
+Every font of the lists goes into the one `.c`, and every function is
+declared in the one `.h`. Two lines that ask for the same face at the same
+size produce one font with the characters of both, and each `-n` name of
+theirs becomes a function of it; a line without `-n` gets a name from the
+family, style and size, prefixed with the output name
+(`my_fonts_DejaVuSansBook30`). The static arrays are named after the font,
+so nothing collides. `-x`, `-i`, `-n`, `-f`, `-g` and `-t` belong to the
+lines of a list, not to the command line of a `-jo` run.
 
 [FontCreator](https://github.com/Llerr/FontCreator) is an alternative with a
 GUI: it generates embedded C font data and lets you edit glyphs. Use its

@@ -4,6 +4,8 @@
 
 #include "bus/dgx_fb_area_priv.h"
 #include "check.h"
+#include "dgx_draw.h"
+#include "drivers/vscreen.h"
 #include "scale_ref.h"
 
 /*
@@ -384,6 +386,46 @@ static void test_bounds(void)
     CHECK(area.x == 4);
 }
 
+/*
+ * The turn dgx_output_orientation_make() gives for the way the screen lies
+ * on the panel is the turn of a transfer that puts the screen onto the
+ * panel, and the three functions that go back give the way again.
+ */
+static void test_orientation_make(void)
+{
+    for (int bits = 0; bits < 8; ++bits) {
+        const bool                     mirror_x = bits & 4, mirror_y = bits & 2, swap_xy = bits & 1;
+        const dgx_orientation_t        xdir = mirror_x ? DgxScreenRightLeft : DgxScreenLeftRight;
+        const dgx_orientation_t        ydir = mirror_y ? DgxScreenBottomTop : DgxScreenTopBottom;
+        const dgx_output_orientation_t o    = dgx_output_orientation_make(xdir, ydir, swap_xy);
+        CHECK(dgx_output_orientation_xdir(o) == xdir && dgx_output_orientation_ydir(o) == ydir && dgx_output_orientation_swap_xy(o) == swap_xy);
+        dgx_fb_area_t area;
+        dgx_fb_area_init(&area, fb, FW, FH, 2, false);
+        dgx_fb_area_orientation(&area, mirror_x, mirror_y, swap_xy);
+        /* the screen, every pixel told by its value, turned onto a picture of the panel */
+        const int     w = dgx_fb_area_width(&area), h = dgx_fb_area_height(&area);
+        dgx_screen_t *screen = dgx_vscreen_init(w, h, 16, DgxScreenRGB), *panel = dgx_vscreen_init(FW, FH, 16, DgxScreenRGB);
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x)
+                dgx_set_pixel(screen, x, y, (uint32_t)(y * w + x + 1));
+        }
+        dgx_vscreen_to_screen(panel, 0, 0, screen, DGX_VSCREEN_ORIENTED(o));
+        int wrong = 0;
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                const ptrdiff_t at = (model_pixel(&area, x, y) - model) / 2;
+                wrong += dgx_get_pixel(panel, (int)(at % FW), (int)(at / FW)) != (uint32_t)(y * w + x + 1);
+            }
+        }
+        if (wrong) {
+            fprintf(stderr, "mirror_x %d, mirror_y %d, swap_xy %d: turn %d puts %d pixels elsewhere\n", mirror_x, mirror_y, swap_xy, o, wrong);
+            ++check_failures;
+        }
+        dgx_screen_destroy(&panel);
+        dgx_screen_destroy(&screen);
+    }
+}
+
 int main(void)
 {
     for (int bits = 0; bits < 32; ++bits) {
@@ -396,5 +438,6 @@ int main(void)
     }
     test_long_rows();
     test_bounds();
+    test_orientation_make();
     CHECK_DONE();
 }

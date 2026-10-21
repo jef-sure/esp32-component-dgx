@@ -14,7 +14,8 @@ extern "C" {
  *
  * @param bus        Bus backend returned by dgx_spi_init() or dgx_p8_init().
  * @param rst        Reset GPIO (use GPIO_NUM_NC if the panel has no reset line).
- * @param color_bits Pixel depth in bits (typically 16 for RGB565).
+ * @param color_bits Pixel depth in bits: 16 for RGB565, or 18 for 262k colors, sent through a buffer of
+ *                   768 bytes the driver allocates.
  * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR).
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */

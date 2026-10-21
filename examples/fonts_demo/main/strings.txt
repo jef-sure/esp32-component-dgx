@@ -1,0 +1,6 @@
+DGX renders the fonts while the
+program is built: a face picked by
+rules, a size in millimeters, and
+only the characters these strings
+use. Буквы любого алфавита, если
+они есть в текстах.

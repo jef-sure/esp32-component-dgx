@@ -159,8 +159,11 @@ void loadCharsetFile(const char *path)
 static void show_usage(const char *programName)
 {
     fprintf(stderr,
-            "Usage: %s [-f charset_file] fontfile size [first last] .. [firstN lastN]\n"
-            "       %s [-f charset_file] [-g cells] [-t cells] [-x | -i] fontfile.json [first last] .. [firstN lastN]\n"
+            "Usage: %s [-n name] [-f charset_file] fontfile size [first last] .. [firstN lastN]\n"
+            "       %s [-n name] [-f charset_file] [-g cells] [-t cells] [-x | -i] fontfile.json [first last] .. [firstN lastN]\n"
+            "  -n name: the name of the font: its function, its files name.c and name.h, and its\n"
+            "           static arrays named name_bitmaps and so on, so that several fonts made\n"
+            "           this way go into one C file; without it the family, the style and the size\n"
             "  -f charset_file: UTF-8 text file with characters to include\n"
             "  fontfile.json: a handwritten font saved by the hw-fonts editor\n"
             "  -g cells: list every pair of its symbols that stand closer than this\n"
@@ -493,9 +496,52 @@ static int json_save(const char *path)
     return 0;
 }
 
+/*
+ * -n: the name of the font, the function of the font and the file by it, and its static arrays with it before
+ * their names: several fonts made so go into one C file without a clash. Without it the names are as they were.
+ */
+static const char *nameOverride = 0, *arrayPrefix = "";
+static char        arrayPrefixBuf[256];
+
+/* the words of C and of C++, whose compilers take the header too: a font named so makes code that does not build */
+static int is_keyword(const char *name)
+{
+    static const char *const words[] = {
+        "auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else", "enum", "extern", "float", "for",
+        "goto", "if", "inline", "int", "long", "register", "restrict", "return", "short", "signed", "sizeof", "static", "struct",
+        "switch", "typedef", "union", "unsigned", "void", "volatile", "while", "_Alignas", "_Alignof", "_Atomic", "_Bool",
+        "_Complex", "_Generic", "_Imaginary", "_Noreturn", "_Static_assert", "_Thread_local", "alignas", "alignof", "bool",
+        "constexpr", "false", "nullptr", "static_assert", "thread_local", "true", "typeof", "typeof_unqual", "asm", "catch",
+        "char8_t", "char16_t", "char32_t", "class", "concept", "consteval", "constinit", "const_cast", "co_await", "co_return",
+        "co_yield", "decltype", "delete", "dynamic_cast", "explicit", "export", "friend", "mutable", "namespace", "new", "noexcept",
+        "operator", "private", "protected", "public", "reinterpret_cast", "requires", "static_cast", "template", "this", "throw",
+        "try", "typeid", "typename", "using", "virtual", "wchar_t", 0};
+    for (int i = 0; words[i]; ++i) {
+        if (!strcmp(name, words[i])) return 1;
+    }
+    return 0;
+}
+
+static int name_option(const char *name)
+{
+    size_t len = strlen(name);
+    if (!len || len > 200 || isdigit((unsigned char)name[0])) return 0;
+    for (size_t i = 0; i < len; ++i) {
+        if (!isalnum((unsigned char)name[i]) && name[i] != '_') return 0;
+    }
+    if (is_keyword(name)) {
+        fprintf(stderr, "-n %s: a keyword of C or C++ cannot name a function\n", name);
+        return 0;
+    }
+    nameOverride = name;
+    snprintf(arrayPrefixBuf, sizeof(arrayPrefixBuf), "%s_", name);
+    arrayPrefix = arrayPrefixBuf;
+    return 1;
+}
+
 static const char *hwWhere = "the font"; /* for messages */
 
-static char hwUnfinished[300]; /* the file being written, till it is whole */
+static char hwUnfinished[320]; /* the file being written, till it is whole */
 
 static void hw_drop_unfinished(void)
 {
@@ -946,18 +992,54 @@ static void hw_pairs(const char *fontFile, const char *fontName, const hw_symbol
     free(close);
 }
 
-static int hw_font(const char *fontFile, char **ranges, int numRanges, const char *charsetFile)
+/* a name that may be a function of C: letters, digits and _, not a digit first, not a keyword; `what` names the place in a message */
+static int name_valid(const char *name, const char *what)
 {
-    for (int ri = 0; ri + 1 < numRanges; ri += 2) {
-        cpr_insert_range(&CPRanges, strtol(ranges[ri], 0, 0), strtol(ranges[ri + 1], 0, 0));
+    size_t len = strlen(name);
+    int    ok  = len > 0 && len <= 200 && !isdigit((unsigned char)name[0]);
+    for (size_t i = 0; ok && i < len; ++i) {
+        if (!isalnum((unsigned char)name[i]) && name[i] != '_') ok = 0;
     }
-    if (charsetFile) loadCharsetFile(charsetFile);
+    if (!ok) {
+        fprintf(stderr, "%s %s: a name is letters, digits and _, not a digit first\n", what, name);
+        return 0;
+    }
+    if (is_keyword(name)) {
+        fprintf(stderr, "%s %s: a keyword of C or C++ cannot name a function\n", what, name);
+        return 0;
+    }
+    return 1;
+}
 
-    json_t *font = json_load(fontFile);
-    json_t *format = json_get(font, "format");
-    json_t *version = json_get(font, "formatVersion");
-    json_t *name = json_get(font, "name");
-    json_t *codePoints = json_get(font, "codePoints");
+/* ------------------------------------------------------------------------------------------------------------- */
+/*  A handwritten font: its file loaded and checked, and written into a stream                                   */
+/* ------------------------------------------------------------------------------------------------------------- */
+
+/* the name a handwritten font is given: `given` as it is, or the font's own name made a name of C: "hw" before a
+ * digit; "_font" after a word the written file uses itself or a keyword */
+static void hw_function_name(const char *given, const char *jsonName, char out[256])
+{
+    snprintf(out, 254, "%s", given ? given : jsonName);
+    if (!given) clearName(out);
+    if (!out[0] || isdigit((unsigned char)out[0])) {
+        memmove(out + 2, out, strlen(out) + 1);
+        memcpy(out, "hw", 2);
+    }
+    static const char *const taken[] = {"hw", "elements", "symbols", "glyphs", "glyph_ranges", "rval", 0};
+    for (int i = 0; taken[i]; ++i) {
+        if (!strcmp(out, taken[i])) strcat(out, "_font");
+    }
+    if (is_keyword(out)) strcat(out, "_font");
+}
+
+/* the file of a handwritten font loaded and checked; its name and its code points given back */
+static int hw_load(const char *fontFile, json_t **font, json_t **name, json_t **codePoints)
+{
+    *font           = json_load(fontFile);
+    json_t *format  = json_get(*font, "format");
+    json_t *version = json_get(*font, "formatVersion");
+    *name           = json_get(*font, "name");
+    *codePoints     = json_get(*font, "codePoints");
     if (!format || format->type != 's' || !version || version->type != 'n') {
         fprintf(stderr,
                 "%s has no \"format\" and \"formatVersion\": it is not a font of the hw-fonts editor or an old one.\n"
@@ -973,10 +1055,38 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
         fprintf(stderr, "%s is of format version %g, this program knows version %d\n", fontFile, version->num, HW_FORMAT_VERSION);
         return 1;
     }
-    if (!name || name->type != 's' || !name->str[0] || !codePoints || codePoints->type != 'o') {
+    if (!*name || (*name)->type != 's' || !(*name)->str[0] || !*codePoints || (*codePoints)->type != 'o') {
         fprintf(stderr, "%s: no \"name\" or \"codePoints\"\n", fontFile);
         return 1;
     }
+    return 0;
+}
+
+static void cpr_free(cp_ranges_t **head)
+{
+    while (*head) {
+        cp_ranges_t *next = (*head)->next;
+        free(*head);
+        *head = next;
+    }
+}
+
+/* more functions that give the same font */
+static void write_aliases(FILE *out, const char *funcname, const char *const *aliases, int nAliases)
+{
+    for (int i = 0; i < nAliases; ++i) {
+        fprintf(out, "dgx_font_t *%s(void)\n{\n    return %s();\n}\n", aliases[i], funcname);
+    }
+}
+
+/*
+ * A handwritten font, loaded by hw_load(), written into `out` with the function `funcname` and its static
+ * arrays named with `prefix` before them, the symbols of it that CPRanges allow. Returns their number, or a
+ * negative number when nothing was written.
+ */
+static int hw_font_write(FILE *out, const char *fontFile, json_t *font, json_t *name, json_t *codePoints, const char *funcname, const char *prefix,
+                         const char *const *aliases, int nAliases, int includeLine, int pairsCheck, int quiet)
+{
     int symbolOffsetX = hw_number(font, "symbolOffsetX", 1, 0, 255);
     int symbolOffsetY = hw_number(font, "symbolOffsetY", 1, 0, 255);
     int symbolSizeX = hw_number(font, "symbolSizeX", 1, 1, 256);
@@ -986,6 +1096,7 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
     int symbolSpace = hw_number(font, "symbolSpace", 1, 0, 255);
     int spaceWidth = hw_number(font, "spaceWidth", 1, 0, 255);
 
+    cpr_free(&SortedCharMap);
     int          count = 0;
     hw_symbol_t *symbols = calloc(json_count(codePoints) + 1, sizeof(hw_symbol_t));
     for (json_t *s = codePoints->child; s; s = s->next) {
@@ -993,7 +1104,7 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
         unsigned long key = s->key && isdigit((unsigned char)s->key[0]) ? strtoul(s->key, &rest, 10) : 0;
         if (!rest || *rest || key > 0x10FFFF) {
             fprintf(stderr, "%s: \"%s\" in \"codePoints\" is not a code point\n", fontFile, s->key ? s->key : "");
-            return 1;
+            return -1;
         }
         uint32_t cp = (uint32_t)key;
         if (CPRanges && !isInRange(cp)) continue;
@@ -1003,27 +1114,14 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
     }
     if (!count) {
         fprintf(stderr, "No symbols of %s are in the given ranges\n", fontFile);
-        return 1;
+        return -1;
     }
     qsort(symbols, count, sizeof(hw_symbol_t), hw_symbol_cmp);
     for (int i = 1; i < count; ++i) {
         if (symbols[i].codePoint == symbols[i - 1].codePoint) {
             fprintf(stderr, "%s: code point %u is in \"codePoints\" twice\n", fontFile, symbols[i].codePoint);
-            return 1;
+            return -1;
         }
-    }
-
-    char funcname[256], fontname[260];
-    snprintf(funcname, sizeof(funcname) - 2, "%s", name->str);
-    clearName(funcname);
-    if (!funcname[0] || isdigit((unsigned char)funcname[0])) {
-        memmove(funcname + 2, funcname, strlen(funcname) + 1);
-        memcpy(funcname, "hw", 2);
-    }
-    /* the name must not be one of those the written file uses itself */
-    static const char *const taken[] = {"hw", "elements", "symbols", "glyphs", "glyph_ranges", "rval", 0};
-    for (int i = 0; taken[i]; ++i) {
-        if (!strcmp(funcname, taken[i])) strcat(funcname, "_font");
     }
     /* the name as a C string */
     char cname[256];
@@ -1037,22 +1135,24 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
     char comment[256];
     snprintf(comment, sizeof(comment), "%s", cname);
     for (char *c = comment; (c = strstr(c, "*/")) != 0;) c[1] = ' ';
-    /* before anything is written: the pairs that stand too close may be moved apart in the font */
-    hw_pairs(fontFile, funcname, symbols, count, symbolSpace);
-
-    /* written aside and put in place when all of it is there: a font that fails halfway leaves the old file */
-    snprintf(fontname, sizeof(fontname), "%s.c", funcname);
-    snprintf(hwUnfinished, sizeof(hwUnfinished), "%s.tmp", fontname);
-    atexit(hw_drop_unfinished);
-    FILE *out = fopen(hwUnfinished, "w");
-    if (!out) {
-        fprintf(stderr, "Error opening font file %s for writing: %s\n", hwUnfinished, strerror(errno));
-        hwUnfinished[0] = 0;
-        return 1;
+    /* the counts of the elements first: a font with too many of them is told so before the long look at its pairs */
+    for (int i = 0, total = 0; i < count; ++i) {
+        for (int k = 0; k < 4; ++k) {
+            json_t   *arr = json_get(symbols[i].symbol, hwParts[k]);
+            const int n   = arr && arr->type == 'a' ? json_count(arr) : 0;
+            total += n;
+            if (n > 255 || total > 65535) {
+                fprintf(stderr, "symbol %u (U+%04X): too many elements\n", symbols[i].codePoint, symbols[i].codePoint);
+                return -1;
+            }
+        }
     }
-    fprintf(out, "#include \"dgx_hw_font.h\"\n");
+    /* before anything is written: the pairs that stand too close may be moved apart in the font */
+    if (pairsCheck) hw_pairs(fontFile, funcname, symbols, count, symbolSpace);
+
+    if (includeLine) fprintf(out, "#include \"dgx_hw_font.h\"\n");
     fprintf(out, "/* %s: made by font2c from a file of format %s, version %d */\n", comment, HW_FORMAT_NAME, HW_FORMAT_VERSION);
-    fprintf(out, "static const dgx_hw_element_t elements[] = {\n");
+    fprintf(out, "static const dgx_hw_element_t %selements[] = {\n", prefix);
     int   total = 0;
     int (*parts)[4] = calloc(count, sizeof(*parts));
     int  *first = calloc(count, sizeof(int));
@@ -1067,7 +1167,7 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
             total += parts[i][k];
             if (parts[i][k] > 255 || total > 65535) {
                 fprintf(stderr, "%s: too many elements\n", hwWhere);
-                return 1;
+                return -1;
             }
         }
     }
@@ -1077,7 +1177,7 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
         int width, height, xAdvance, xOffset, yOffset;
     } hw_glyph_t;
     hw_glyph_t *gl = calloc(count, sizeof(hw_glyph_t));
-    fprintf(out, "static const dgx_hw_symbol_t symbols[] = {\n");
+    fprintf(out, "static const dgx_hw_symbol_t %ssymbols[] = {\n", prefix);
     for (int i = 0; i < count; ++i) {
         json_t *s = symbols[i].symbol;
         snprintf(where, sizeof(where), "symbol %u (U+%04X)", symbols[i].codePoint, symbols[i].codePoint);
@@ -1105,9 +1205,10 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
     int    yOffsetLowest = gl[0].yOffset, yBottomMax = gl[0].yOffset + gl[0].height, xWidest = gl[0].width;
     int    xOffsetLowest = gl[0].xOffset, xRightMax = gl[0].xOffset + gl[0].width;
     double xWidthAverage = 0;
-    fprintf(out, "static const glyph_t glyphs[] = {\n");
+    fprintf(out, "static const glyph_t %sglyphs[] = {\n", prefix);
     for (int i = 0; i < count; ++i) {
-        fprintf(out, "    {{.elements = elements + %4d, .hw = symbols + %3d}, %3d, %3d, %3d, %3d, %4d}, /* %04X */\n", first[i], i,
+        fprintf(out, "    {{.elements = %selements + %4d, .hw = %ssymbols + %3d}, %3d, %3d, %3d, %3d, %4d}, /* %04X */\n", prefix, first[i],
+                prefix, i,
                 gl[i].width, gl[i].height, gl[i].xAdvance, gl[i].xOffset, gl[i].yOffset, symbols[i].codePoint);
         if (yOffsetLowest > gl[i].yOffset) yOffsetLowest = gl[i].yOffset;
         if (yBottomMax < gl[i].yOffset + gl[i].height) yBottomMax = gl[i].yOffset + gl[i].height;
@@ -1118,16 +1219,16 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
     }
     fprintf(out, "};\n\n");
 
-    fprintf(out, "static const glyph_array_t glyph_ranges[] = {\n");
+    fprintf(out, "static const glyph_array_t %sglyph_ranges[] = {\n", prefix);
     int numberOfRanges = 0, sidx = 0;
     for (cp_ranges_t *r = SortedCharMap; r; r = r->next, ++numberOfRanges) {
-        fprintf(out, "    {0x%04x, %3d, glyphs + %3d},\n", r->first, r->number, sidx);
+        fprintf(out, "    {0x%04x, %3d, %sglyphs + %3d},\n", r->first, r->number, prefix, sidx);
         sidx += r->number;
     }
     fprintf(out, "    {0, 0, 0},\n};\n\n");
 
     fprintf(out,
-            "static const dgx_hw_font_t hw = {\n"
+            "static const dgx_hw_font_t %shw = {\n"
             "    .name = \"%s\",\n"
             "    .format_version = %d,\n"
             "    .base_line = %d,\n"
@@ -1139,12 +1240,12 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
             "    .symbol_size_x = %d,\n"
             "    .symbol_size_y = %d,\n"
             "};\n\n",
-            cname, HW_FORMAT_VERSION, baseLine, xHeight, symbolSpace, spaceWidth, symbolOffsetX, symbolOffsetY, symbolSizeX,
+            prefix, cname, HW_FORMAT_VERSION, baseLine, xHeight, symbolSpace, spaceWidth, symbolOffsetX, symbolOffsetY, symbolSizeX,
             symbolSizeY);
     fprintf(out,
             "dgx_font_t *%s()\n{\n"
             "    static dgx_font_t rval = {\n"
-            "        .glyph_ranges = glyph_ranges,\n"
+            "        .glyph_ranges = %sglyph_ranges,\n"
             "        .yAdvance = %d,\n"
             "        .yOffsetLowest = %d,\n"
             "        .xWidest = %d,\n"
@@ -1154,137 +1255,110 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
             "        .xOffsetLowest = %d,\n"
             "        .xRightMax = %d,\n"
             "        .number_of_ranges = %d,\n"
-            "        .hw = &hw,\n"
+            "        .hw = &%shw,\n"
             "    };\n"
             "    return &rval;\n}\n",
-            funcname, symbolSizeY, yOffsetLowest, xWidest, (int)(xWidthAverage / count + 0.5), yBottomMax, xOffsetLowest, xRightMax,
-            numberOfRanges);
-    if (fclose(out) || rename(hwUnfinished, fontname)) {
-        fprintf(stderr, "Error writing font file %s: %s\n", fontname, strerror(errno));
-        return 1;
+            funcname, prefix, symbolSizeY, yOffsetLowest, xWidest, (int)(xWidthAverage / count + 0.5), yBottomMax, xOffsetLowest, xRightMax,
+            numberOfRanges, prefix);
+    write_aliases(out, funcname, aliases, nAliases);
+    if (!quiet) {
+        printf("%s: %d symbols in %d ranges, %d elements, about %zu bytes on a 32-bit target\n", funcname, count, numberOfRanges, total,
+               total * (size_t)14 + count * (size_t)(30 + 20) + (numberOfRanges + 1) * (size_t)12);
     }
-    hwUnfinished[0] = 0;
+    free(symbols), free(parts), free(first), free(gl);
+    return count;
+}
 
+/* the header of a font written on its own: its one function */
+static int write_single_header(const char *funcname, int hw)
+{
+    char fontname[260];
     snprintf(fontname, sizeof(fontname), "%s.h", funcname);
-    out = fopen(fontname, "w");
+    FILE *out = fopen(fontname, "w");
     if (!out) {
         fprintf(stderr, "Error opening font header file %s for writing: %s\n", fontname, strerror(errno));
         return 1;
     }
     fprintf(out, "#pragma once\n");
-    fprintf(out, "#include \"dgx_hw_font.h\"\n");
+    fprintf(out, hw ? "#include \"dgx_hw_font.h\"\n" : "#include \"dgx_font.h\"\n");
     fprintf(out, "#ifdef __cplusplus\n// @formatter:off\nextern \"C\" {\n// @formatter:on\n#endif\n");
-    fprintf(out, "dgx_font_t *%s();\n", funcname);
+    fprintf(out, hw ? "dgx_font_t *%s();\n" : "dgx_font_t* %s();\n", funcname);
     fprintf(out, "#ifdef __cplusplus\n// @formatter:off\n}\n// @formatter:on\n#endif\n");
     fclose(out);
-
-    printf("%s: %d symbols in %d ranges, %d elements, about %zu bytes on a 32-bit target\n", funcname, count, numberOfRanges, total,
-           total * (size_t)14 + count * (size_t)(30 + 20) + (numberOfRanges + 1) * (size_t)12);
     return 0;
 }
 
-int main(int argc, char *argv[])
+/* a handwritten font on its own: fontfile.json [first last]... into <name>.c and <name>.h */
+static int hw_font(const char *fontFile, char **ranges, int numRanges, const char *charsetFile)
 {
-    int                i;
-    int                j;
-    int                err;
-    int                size;
+    if (numRanges % 2) {
+        fprintf(stderr, "the ranges of code points come in pairs, first and last: %s has no pair\n", ranges[numRanges - 1]);
+        return 1;
+    }
+    for (int ri = 0; ri + 1 < numRanges; ri += 2) {
+        cpr_insert_range(&CPRanges, strtol(ranges[ri], 0, 0), strtol(ranges[ri + 1], 0, 0));
+    }
+    if (charsetFile) loadCharsetFile(charsetFile);
+
+    json_t *font, *name, *codePoints;
+    if (hw_load(fontFile, &font, &name, &codePoints)) return 1;
+    char funcname[256], fontname[260];
+    hw_function_name(nameOverride, name->str, funcname);
+
+    /* written aside and put in place when all of it is there: a font that fails halfway leaves the old file */
+    snprintf(fontname, sizeof(fontname), "%s.c", funcname);
+    snprintf(hwUnfinished, sizeof(hwUnfinished), "%s.tmp", fontname);
+    FILE *out = fopen(hwUnfinished, "w");
+    if (!out) {
+        fprintf(stderr, "Error opening font file %s for writing: %s\n", hwUnfinished, strerror(errno));
+        hwUnfinished[0] = 0;
+        return 1;
+    }
+    if (hw_font_write(out, fontFile, font, name, codePoints, funcname, arrayPrefix, 0, 0, 1, 1, 0) < 0) return 1;
+    if (fclose(out) || rename(hwUnfinished, fontname)) {
+        fprintf(stderr, "Error writing font file %s: %s\n", fontname, strerror(errno));
+        return 1;
+    }
+    hwUnfinished[0] = 0;
+    return write_single_header(funcname, 1);
+}
+
+/* ------------------------------------------------------------------------------------------------------------- */
+/*  A bitmap font: a face of FreeType at a size, written into a stream                                            */
+/* ------------------------------------------------------------------------------------------------------------- */
+
+/* the name a bitmap font is given when none is told: the family, the style and the size, letters and digits only */
+static void bitmap_generated_name(FT_Face face, int size, char out[256])
+{
+    snprintf(out, 256, "%s%s%d", face->family_name, face->style_name, size);
+    clearName(out);
+}
+
+/*
+ * The glyphs of `fontFile` at `size` pixels that CPRanges allow (all of them when there are none), written into
+ * `out` with the function `funcname` and its static arrays named with `prefix` before them. Returns the number of
+ * glyphs, or a negative number when nothing was written.
+ */
+static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *fontFile, int size, const char *funcname, const char *prefix,
+                             const char *const *aliases, int nAliases, int includeLine, int quiet)
+{
+    int                i, j, err;
     int                bitmapOffset = 0;
-    FT_Library         library;
     FT_Face            face;
     FT_Glyph           glyph;
     FT_Bitmap         *bitmap;
     FT_BitmapGlyphRec *g;
     LoadedGlyph       *glyphs;
 
-    const char *charsetFile = 0;
-    int         opt;
-    while ((opt = getopt(argc, argv, "f:g:t:xi")) != -1) {
-        switch (opt) {
-        case 'f':
-            charsetFile = optarg;
-            break;
-        case 'g':
-        case 't': {
-            char  *rest = 0;
-            double cells = strtod(optarg, &rest);
-            if (rest == optarg || *rest || !(cells >= 0 && cells <= 1000)) {
-                show_usage(argv[0]);
-                return 1;
-            }
-            *(opt == 'g' ? &hwPairLimit : &hwPairApart) = cells;
-            break;
-        }
-        case 'x':
-            hwPairFix = 1;
-            break;
-        case 'i':
-            hwPairFix = 2;
-            break;
-        default:
-            show_usage(argv[0]);
-            return 1;
-        }
-    }
-
-    if (argc - optind >= 1) {
-        size_t len = strlen(argv[optind]);
-        if (len > 5 && !strcmp(argv[optind] + len - 5, ".json")) {
-            return hw_font(argv[optind], argv + optind + 1, argc - optind - 1, charsetFile);
-        }
-    }
-
-    if (argc - optind < 2) {
-        show_usage(argv[0]);
-        return 1;
-    }
-
-    const char *fontFile = argv[optind];
-    size                 = atoi(argv[optind + 1]);
-
-    for (int ri = optind + 2; ri + 1 < argc; ri += 2) {
-        int first = strtol(argv[ri], 0, 0);
-        int last  = strtol(argv[ri + 1], 0, 0);
-        cpr_insert_range(&CPRanges, first, last);
-    }
-
-    if (charsetFile) {
-        loadCharsetFile(charsetFile);
-    }
-
-    // Init FreeType lib, load font
-    if ((err = FT_Init_FreeType(&library))) {
-        fprintf(stderr, "FreeType init error: %d", err);
-        return err;
-    }
-
-    // Use TrueType engine version 35, without subpixel rendering.
-    // This improves clarity of fonts since this library does not
-    // support rendering multiple levels of gray in a glyph.
-    // See https://github.com/adafruit/Adafruit-GFX-Library/issues/103
-    //    FT_UInt interpreter_version = TT_INTERPRETER_VERSION_35;
-    //    FT_Property_Set(library, "truetype", "interpreter-version", &interpreter_version);
-
     if ((err = FT_New_Face(library, fontFile, 0, &face))) {
         fprintf(stderr, "Font load error: %d", err);
-        FT_Done_FreeType(library);
-        return err;
-    }
-    char fontname[256], funcname[256];
-    snprintf(funcname, 256, "%s%s%d", face->family_name, face->style_name, size);
-    clearName(funcname);
-    strcpy(fontname, funcname);
-    strncat(fontname, ".c", 255);
-    FILE *fontOut = fopen(fontname, "w");
-    if (!fontOut) {
-        fprintf(stderr, "Error opening font file %s for writing: ", strerror(errno));
         return -1;
     }
     glyphs = calloc(face->num_glyphs, sizeof(LoadedGlyph));
     err    = FT_Select_Charmap(face, FT_ENCODING_UNICODE);
     if (err) {
         fprintf(stderr, "FreeType FT_Select_Charmap error: %d", err);
-        return err;
+        return -1;
     }
     /*
      // << 6 because '26dot6' fixed-point format
@@ -1294,8 +1368,9 @@ int main(int argc, char *argv[])
 
     FT_UInt gindex;
 
-    fprintf(fontOut, "#include \"dgx_font.h\"\n");
-    fprintf(fontOut, "static const uint8_t bitmaps[] = {\n  ");
+    cpr_free(&SortedCharMap);
+    if (includeLine) fprintf(fontOut, "#include \"dgx_font.h\"\n");
+    fprintf(fontOut, "static const uint8_t %sbitmaps[] = {\n  ", prefix);
     int     fComma        = 0;
     int32_t yOffsetLowest = 0, yBottomMax = 0, xWidest = 0, xOffsetLowest = 0, xRightMax = 0;
     double  xWidthAverage = 0;
@@ -1384,12 +1459,12 @@ int main(int argc, char *argv[])
         ++j;
     }
     if (j) {
-        printf("Total width: %f, #glyphs: %d; avg = %f\n", xWidthAverage, j, xWidthAverage / j);
+        if (!quiet) printf("Total width: %f, #glyphs: %d; avg = %f\n", xWidthAverage, j, xWidthAverage / j);
         xWidthAverage /= j;
     }
     fprintf(fontOut, "};\n\n"); // End bitmap array
-    fprintf(stderr, "Total encoded length: %d\n", bitmapOffset);
-    fprintf(fontOut, "static const glyph_t glyphs[] = {\n  ");
+    if (!quiet) fprintf(stderr, "Total encoded length: %d\n", bitmapOffset);
+    fprintf(fontOut, "static const glyph_t %sglyphs[] = {\n  ", prefix);
     int gidx = 0;
     for (cp_ranges_t *r = SortedCharMap; r; r = r->next) {
         r->gOffset = gidx;
@@ -1397,7 +1472,8 @@ int main(int argc, char *argv[])
             if (gidx != 0) fprintf(fontOut, ", ");
             for (int gi = 0; gi < j; ++gi) {
                 if (glyphs[gi].codePoint == cp) {
-                    fprintf(fontOut, "  { {.bitmap = bitmaps + %5lu }, %3u, %3d, %3u, %4d, %4d } /* %04X */\n", glyphs[gi].ginfo.bitmapOffset,
+                    fprintf(fontOut, "  { {.bitmap = %sbitmaps + %5lu }, %3u, %3d, %3u, %4d, %4d } /* %04X */\n", prefix,
+                            glyphs[gi].ginfo.bitmapOffset,
                             glyphs[gi].ginfo.width, glyphs[gi].ginfo.height, glyphs[gi].ginfo.xAdvance, glyphs[gi].ginfo.xOffset,
                             glyphs[gi].ginfo.yOffset, cp);
                     gidx++;
@@ -1407,11 +1483,11 @@ int main(int argc, char *argv[])
         }
     }
     fprintf(fontOut, "};\n");
-    fprintf(fontOut, "static const glyph_array_t glyph_ranges[] = {\n  ");
+    fprintf(fontOut, "static const glyph_array_t %sglyph_ranges[] = {\n  ", prefix);
     int numberOfRanges = 0;
     for (cp_ranges_t *r = SortedCharMap; r; r = r->next, ++numberOfRanges) {
         if (r != SortedCharMap) fprintf(fontOut, ",");
-        fprintf(fontOut, " {0x%-4x, 0x%-4x, glyphs + %d }\n", r->first, r->number, r->gOffset);
+        fprintf(fontOut, " {0x%-4x, 0x%-4x, %sglyphs + %d }\n", r->first, r->number, prefix, r->gOffset);
     }
     fprintf(fontOut, ", {0x%-4x, 0x%-4x, %d }\n", 0, 0, 0);
     fprintf(fontOut, "};\n");
@@ -1420,7 +1496,7 @@ int main(int argc, char *argv[])
     fprintf(fontOut,
             "dgx_font_t* %s() {\n\t"
             "static dgx_font_t rval = { \n\t\t"
-            ".glyph_ranges = glyph_ranges,\n\t\t"
+            ".glyph_ranges = %sglyph_ranges,\n\t\t"
             ".yAdvance = %ld,\n\t\t"
             ".yOffsetLowest = %d,\n\t\t"
             ".xWidest = %d,\n\t\t"
@@ -1432,7 +1508,7 @@ int main(int argc, char *argv[])
             ".number_of_ranges = %d\n\t"
             "};\n\t"
             "return &rval;\n}\n",
-            funcname,                                                                                           //
+            funcname, prefix,                                                                                   //
             (face->size->metrics.height == 0 ? (long)glyphs[0].ginfo.height : face->size->metrics.height >> 6), //
             yOffsetLowest,                                                                                      //
             xWidest,                                                                                            //
@@ -1442,23 +1518,425 @@ int main(int argc, char *argv[])
             xRightMax,                                                                                          //
             numberOfRanges                                                                                      //
     );
-    fclose(fontOut);
+    write_aliases(fontOut, funcname, aliases, nAliases);
+    free(glyphs);
+    FT_Done_Face(face);
+    return j;
+}
+
+/* a bitmap font on its own: fontfile size [first last]... into <name>.c and <name>.h */
+static int bitmap_font(FT_Library library, const char *fontFile, int size)
+{
+    FT_Face face;
+    int     err;
+    char    fontname[256], funcname[256];
+    if (nameOverride) {
+        snprintf(funcname, 256, "%s", nameOverride);
+    } else {
+        if ((err = FT_New_Face(library, fontFile, 0, &face))) {
+            fprintf(stderr, "Font load error: %d", err);
+            return err;
+        }
+        bitmap_generated_name(face, size, funcname);
+        FT_Done_Face(face);
+    }
     strcpy(fontname, funcname);
-    strncat(fontname, ".h", 255);
-    FILE *fontHeaderOut = fopen(fontname, "w");
-    if (!fontHeaderOut) {
-        fprintf(stderr, "Error opening font header file %s for writing: ", strerror(errno));
+    strncat(fontname, ".c", 255);
+    /* written aside and put in place when all of it is there: a font that fails halfway leaves the old file */
+    snprintf(hwUnfinished, sizeof(hwUnfinished), "%s.tmp", fontname);
+    FILE *fontOut = fopen(hwUnfinished, "w");
+    if (!fontOut) {
+        fprintf(stderr, "Error opening font file %s for writing: %s\n", hwUnfinished, strerror(errno));
+        hwUnfinished[0] = 0;
         return -1;
     }
-    fprintf(fontHeaderOut, "#pragma once\n");
-    fprintf(fontHeaderOut, "#include \"dgx_font.h\"\n");
-    fprintf(fontHeaderOut, "#ifdef __cplusplus\n// @formatter:off\nextern \"C\" {\n// @formatter:on\n#endif\n");
-    fprintf(fontHeaderOut, "dgx_font_t* %s();\n", funcname);
-    fprintf(fontHeaderOut, "#ifdef __cplusplus\n// @formatter:off\n}\n// @formatter:on\n#endif\n");
+    if (bitmap_font_write(fontOut, library, fontFile, size, funcname, arrayPrefix, 0, 0, 1, 0) < 0) return 1;
+    if (ferror(fontOut) | fclose(fontOut) || rename(hwUnfinished, fontname)) {
+        fprintf(stderr, "Error writing font file %s: %s\n", fontname, strerror(errno));
+        return 1;
+    }
+    hwUnfinished[0] = 0;
+    return write_single_header(funcname, 0);
+}
 
-    fclose(fontHeaderOut);
+/* ------------------------------------------------------------------------------------------------------------- */
+/*  Lists of fonts, -jo: all of them into one C file                                                              */
+/* ------------------------------------------------------------------------------------------------------------- */
 
-    FT_Done_FreeType(library);
+/*
+ * A line of a list is what a run of this program takes for one font: [-n name] [-f letters.txt]... fontfile size
+ * [first last]..., or a handwritten fontfile.json without a size; # begins a comment. A font asked by several lines,
+ * of one face at one size or one handwritten file, is made once with every letter they ask, and every -n of them
+ * is a function of it; a line without -n gives the function <output>_<FamilyStyleSize>. The arrays of each font are
+ * named by the font, so the file holds them all without a clash. Paths are taken from the directory of the list.
+ */
+typedef struct {
+    int          hw;
+    char        *file;          /* the font file, the first that asked for this font */
+    int          size;
+    char         generated[256]; /* the family, the style and the size, or the name of a handwritten font */
+    json_t      *json;          /* a handwritten font, loaded */
+    json_t      *jsonName, *jsonCodePoints;
+    cp_ranges_t *ranges;
+    int          every;         /* a line asked for every glyph */
+    char       **letters;       /* files of letters */
+    int          nLetters;
+    char       **names;         /* -n names; the first is the function */
+    int          nNames;
+    double       pairLimit;     /* -g of a handwritten line; below 0 no check */
+} jo_font_t;
 
+static jo_font_t *joFonts;
+static int        joCount;
+
+/* the words of a line, "..." keeping its spaces; the line is cut into them in place */
+static int jo_split(char *line, char **argv, int most)
+{
+    int argc = 0;
+    for (char *p = line; *p;) {
+        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') ++p;
+        if (!*p || *p == '#') break;
+        if (argc >= most) return -1;
+        if (*p == '"') {
+            argv[argc++] = ++p;
+            while (*p && *p != '"') ++p;
+            if (!*p) return -2;
+            *p++ = 0;
+        } else {
+            argv[argc++] = p;
+            while (*p && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') ++p;
+            if (*p) *p++ = 0;
+        }
+    }
+    return argc;
+}
+
+/* a path of a line as it is, or from the directory of the list when relative */
+static char *jo_path(const char *listDir, const char *path)
+{
+    if (path[0] == '/' || !listDir[0]) return strdup(path);
+    char *out = malloc(strlen(listDir) + strlen(path) + 2);
+    sprintf(out, "%s/%s", listDir, path);
+    return out;
+}
+
+static void jo_add_string(char ***list, int *count, char *s)
+{
+    *list            = realloc(*list, (*count + 1) * sizeof(char *));
+    (*list)[(*count)++] = s;
+}
+
+static int jo_has_name(const jo_font_t *f, const char *name)
+{
+    for (int i = 0; i < f->nNames; ++i) {
+        if (!strcmp(f->names[i], name)) return 1;
+    }
     return 0;
+}
+
+/* one line of a list taken in: its font found among those asked before, or added */
+static int jo_line(const char *listPath, int lineNo, const char *listDir, char **argv, int argc, FT_Library library)
+{
+    char  where[600];
+    snprintf(where, sizeof(where), "%s:%d", listPath, lineNo);
+    char       *names[64];
+    int         nNames = 0;
+    char       *letters[64];
+    int         nLetters = 0;
+    const char *file     = 0;
+    int         size = 0, hw = 0;
+    double      pairLimit = -1;
+    int         firstRange = -1;
+    for (int a = 0; a < argc; ++a) {
+        if (!file && !strcmp(argv[a], "-n")) {
+            if (a + 1 >= argc || nNames >= 64) return fprintf(stderr, "%s: -n without a name\n", where), 1;
+            if (!name_valid(argv[++a], where)) return 1;
+            names[nNames++] = argv[a];
+        } else if (!file && !strcmp(argv[a], "-f")) {
+            if (a + 1 >= argc || nLetters >= 64) return fprintf(stderr, "%s: -f without a file\n", where), 1;
+            letters[nLetters++] = argv[++a];
+        } else if (!file && (!strcmp(argv[a], "-g") || !strcmp(argv[a], "-t"))) {
+            char  *rest  = 0;
+            double cells = a + 1 < argc ? strtod(argv[a + 1], &rest) : -1;
+            if (!rest || rest == argv[a + 1] || *rest || !(cells >= 0 && cells <= 1000)) return fprintf(stderr, "%s: %s needs cells\n", where, argv[a]), 1;
+            if (argv[a][1] == 'g') pairLimit = cells;
+            ++a;
+        } else if (!file && (!strcmp(argv[a], "-x") || !strcmp(argv[a], "-i"))) {
+            return fprintf(stderr, "%s: %s changes the file of a font, which a list does not do\n", where, argv[a]), 1;
+        } else if (!file && argv[a][0] == '-' && argv[a][1]) {
+            return fprintf(stderr, "%s: unknown option %s\n", where, argv[a]), 1;
+        } else if (!file) {
+            file = argv[a];
+            size_t len = strlen(file);
+            hw         = len > 5 && !strcmp(file + len - 5, ".json");
+            if (!hw) {
+                char *rest = 0;
+                size       = a + 1 < argc ? (int)strtol(argv[a + 1], &rest, 10) : 0;
+                if (!rest || *rest || size < 1 || size > 1000) return fprintf(stderr, "%s: %s needs a size in pixels after it\n", where, file), 1;
+                ++a;
+            }
+            firstRange = a + 1;
+        }
+    }
+    if (!file) return fprintf(stderr, "%s: no font file\n", where), 1;
+    const int nRanges = argc - firstRange;
+    if (nRanges % 2) return fprintf(stderr, "%s: the ranges of code points come in pairs, first and last: %s has no pair\n", where, argv[argc - 1]), 1;
+    char *path = jo_path(listDir, file);
+    /* the font of the line: by the name it would be given */
+    char    generated[256];
+    json_t *json = 0, *jsonName = 0, *jsonCodePoints = 0;
+    if (hw) {
+        if (hw_load(path, &json, &jsonName, &jsonCodePoints)) return 1;
+        hw_function_name(0, jsonName->str, generated);
+    } else {
+        FT_Face face;
+        int     err = FT_New_Face(library, path, 0, &face);
+        if (err) return fprintf(stderr, "%s: %s: font load error %d\n", where, path, err), 1;
+        bitmap_generated_name(face, size, generated);
+        FT_Done_Face(face);
+    }
+    jo_font_t *f = 0;
+    for (int i = 0; i < joCount; ++i) {
+        if (joFonts[i].hw == hw && !strcmp(joFonts[i].generated, generated)) f = &joFonts[i];
+    }
+    if (!f) {
+        joFonts = realloc(joFonts, (joCount + 1) * sizeof(jo_font_t));
+        f       = &joFonts[joCount++];
+        memset(f, 0, sizeof(*f));
+        f->hw = hw, f->file = path, f->size = size, f->json = json, f->jsonName = jsonName, f->jsonCodePoints = jsonCodePoints;
+        f->pairLimit = -1;
+        strcpy(f->generated, generated);
+    }
+    if (pairLimit >= 0) f->pairLimit = pairLimit;
+    if (!nRanges && !nLetters) f->every = 1;
+    for (int r = firstRange; r + 1 < argc; r += 2) cpr_insert_range(&f->ranges, strtol(argv[r], 0, 0), strtol(argv[r + 1], 0, 0));
+    for (int i = 0; i < nLetters; ++i) jo_add_string(&f->letters, &f->nLetters, jo_path(listDir, letters[i]));
+    for (int i = 0; i < nNames; ++i) {
+        for (int k = 0; k < joCount; ++k) {
+            if (&joFonts[k] != f && jo_has_name(&joFonts[k], names[i])) {
+                return fprintf(stderr, "%s: the name %s is given to two fonts, %s and %s\n", where, names[i], joFonts[k].generated, generated), 1;
+            }
+        }
+        if (!jo_has_name(f, names[i])) jo_add_string(&f->names, &f->nNames, strdup(names[i]));
+    }
+    return 0;
+}
+
+static int jo_read(const char *listPath, FT_Library library)
+{
+    FILE *in = fopen(listPath, "r");
+    if (!in) return fprintf(stderr, "%s: %s\n", listPath, strerror(errno)), 1;
+    char  dir[1024] = "";
+    const char *slash = strrchr(listPath, '/');
+    if (slash && slash - listPath < (long)sizeof(dir) - 1) snprintf(dir, sizeof(dir), "%.*s", (int)(slash - listPath), listPath);
+    char line[4096];
+    for (int lineNo = 1; fgets(line, sizeof(line), in); ++lineNo) {
+        char *argv[160];
+        int   argc = jo_split(line, argv, 160);
+        if (argc < 0) return fprintf(stderr, "%s:%d: %s\n", listPath, lineNo, argc == -2 ? "a quote is not closed" : "too many words"), 1;
+        if (!argc) continue;
+        if (jo_line(listPath, lineNo, dir, argv, argc, library)) return 1;
+    }
+    fclose(in);
+    return 0;
+}
+
+/* every font of the lists into <outName>.c, and their functions declared in <outName>.h */
+static int jo_write(const char *outName, FT_Library library)
+{
+    if (!joCount) return fprintf(stderr, "the lists name no font\n"), 1;
+    /* the functions of fonts without a name of their own begin with the name of the output, without its directory */
+    const char *slash = strrchr(outName, '/');
+    const char *base  = slash ? slash + 1 : outName;
+    int         hw    = 0;
+    for (int i = 0; i < joCount; ++i) hw |= joFonts[i].hw;
+    char cname[300], hname[300];
+    snprintf(cname, sizeof(cname), "%s.c", outName);
+    snprintf(hname, sizeof(hname), "%s.h", outName);
+    snprintf(hwUnfinished, sizeof(hwUnfinished), "%s.tmp", cname);
+    FILE *out = fopen(hwUnfinished, "w");
+    if (!out) {
+        fprintf(stderr, "Error opening font file %s for writing: %s\n", hwUnfinished, strerror(errno));
+        hwUnfinished[0] = 0;
+        return 1;
+    }
+    fprintf(out, "/* The fonts of the lists given to font2c -jo, every one once: made, not edited. */\n");
+    fprintf(out, "#include \"dgx_font.h\"\n");
+    if (hw) fprintf(out, "#include \"dgx_hw_font.h\"\n");
+    for (int i = 0; i < joCount; ++i) {
+        jo_font_t *f = &joFonts[i];
+        char       funcname[600], prefix[300];
+        if (f->nNames) snprintf(funcname, sizeof(funcname), "%s", f->names[0]);
+        else snprintf(funcname, sizeof(funcname), "%s_%s", base, f->generated);
+        snprintf(prefix, sizeof(prefix), "%s_", f->generated);
+        if (!f->nNames && !name_valid(funcname, "the output name")) return 1;
+        cpr_free(&CPRanges);
+        if (!f->every) {
+            CPRanges = f->ranges;
+            for (int k = 0; k < f->nLetters; ++k) loadCharsetFile(f->letters[k]);
+            f->ranges = CPRanges;
+        }
+        const char *const *aliases = (const char *const *)(f->nNames ? f->names + 1 : 0);
+        const int          nAliases = f->nNames ? f->nNames - 1 : 0;
+        if (f->hw) fprintf(out, "\n/* %s: %s */\n", funcname, f->file);
+        else fprintf(out, "\n/* %s: %s at %d px */\n", funcname, f->file, f->size);
+        int made;
+        if (f->hw) {
+            hwPairLimit = f->pairLimit;
+            made        = hw_font_write(out, f->file, f->json, f->jsonName, f->jsonCodePoints, funcname, prefix, aliases, nAliases, 0, f->pairLimit >= 0, 1);
+        } else {
+            made = bitmap_font_write(out, library, f->file, f->size, funcname, prefix, aliases, nAliases, 0, 1);
+        }
+        if (made < 0) return 1;
+        if (f->hw) printf("%s: %s, %d symbols\n", funcname, f->file, made);
+        else printf("%s: %s at %d px, %d glyphs\n", funcname, f->file, f->size, made);
+        for (int k = 0; k < nAliases; ++k) printf("%s: the same font\n", aliases[k]);
+        CPRanges = 0;
+    }
+    if (ferror(out) | fclose(out) || rename(hwUnfinished, cname)) {
+        fprintf(stderr, "Error writing font file %s: %s\n", cname, strerror(errno));
+        return 1;
+    }
+    hwUnfinished[0] = 0;
+    FILE *h = fopen(hname, "w");
+    if (!h) {
+        fprintf(stderr, "Error opening font header file %s for writing: %s\n", hname, strerror(errno));
+        return 1;
+    }
+    fprintf(h, "#pragma once\n/* The fonts of the lists given to font2c -jo: made, not edited. */\n#include \"dgx_font.h\"\n");
+    if (hw) fprintf(h, "#include \"dgx_hw_font.h\"\n");
+    fprintf(h, "#ifdef __cplusplus\n// @formatter:off\nextern \"C\" {\n// @formatter:on\n#endif\n");
+    for (int i = 0; i < joCount; ++i) {
+        jo_font_t *f = &joFonts[i];
+        if (f->nNames) {
+            for (int k = 0; k < f->nNames; ++k) fprintf(h, "dgx_font_t *%s(void);\n", f->names[k]);
+        } else {
+            fprintf(h, "dgx_font_t *%s_%s(void);\n", base, f->generated);
+        }
+    }
+    fprintf(h, "#ifdef __cplusplus\n// @formatter:off\n}\n// @formatter:on\n#endif\n");
+    fclose(h);
+    return 0;
+}
+
+int main(int argc, char *argv[])
+{
+    int         err;
+    const char *charsetFile = 0, *outName = 0;
+    char      **lists = 0;
+    int         nLists = 0, opt;
+    static const struct option longOptions[] = {{"jo", required_argument, 0, 'J'}, {0, 0, 0, 0}};
+    while ((opt = getopt_long_only(argc, argv, "f:g:t:xin:o:", longOptions, 0)) != -1) {
+        switch (opt) {
+        case 'f':
+            charsetFile = optarg;
+            break;
+        case 'n':
+            if (!name_option(optarg)) {
+                show_usage(argv[0]);
+                return 1;
+            }
+            break;
+        case 'g':
+        case 't': {
+            char  *rest = 0;
+            double cells = strtod(optarg, &rest);
+            if (rest == optarg || *rest || !(cells >= 0 && cells <= 1000)) {
+                show_usage(argv[0]);
+                return 1;
+            }
+            *(opt == 'g' ? &hwPairLimit : &hwPairApart) = cells;
+            break;
+        }
+        case 'x':
+            hwPairFix = 1;
+            break;
+        case 'i':
+            hwPairFix = 2;
+            break;
+        case 'J':
+            jo_add_string(&lists, &nLists, optarg);
+            break;
+        case 'o':
+            outName = optarg;
+            break;
+        default:
+            show_usage(argv[0]);
+            return 1;
+        }
+    }
+    atexit(hw_drop_unfinished);
+
+    if (nLists) {
+        /* the lists hold the options of each font; here only the output */
+        if (charsetFile || nameOverride || hwPairLimit >= 0 || hwPairApart >= 0 || hwPairFix || optind < argc) {
+            fprintf(stderr, "-jo takes the fonts and their options from the lists; with it only -o goes on the command line\n");
+            return 1;
+        }
+        if (!outName) outName = "fonts";
+        const char *base = strrchr(outName, '/');
+        if (!name_valid(base ? base + 1 : outName, "-o")) return 1;
+        FT_Library library;
+        if ((err = FT_Init_FreeType(&library))) {
+            fprintf(stderr, "FreeType init error: %d", err);
+            return err;
+        }
+        for (int i = 0; i < nLists; ++i) {
+            if (jo_read(lists[i], library)) return 1;
+        }
+        const int rc = jo_write(outName, library);
+        FT_Done_FreeType(library);
+        return rc;
+    }
+    if (outName) {
+        fprintf(stderr, "-o goes with -jo\n");
+        return 1;
+    }
+
+    if (argc - optind >= 1) {
+        size_t len = strlen(argv[optind]);
+        if (len > 5 && !strcmp(argv[optind] + len - 5, ".json")) {
+            return hw_font(argv[optind], argv + optind + 1, argc - optind - 1, charsetFile);
+        }
+    }
+
+    if (argc - optind < 2) {
+        show_usage(argv[0]);
+        return 1;
+    }
+
+    const char *fontFile = argv[optind];
+    const int   size     = atoi(argv[optind + 1]);
+
+    if ((argc - optind - 2) % 2) {
+        fprintf(stderr, "the ranges of code points come in pairs, first and last: %s has no pair\n", argv[argc - 1]);
+        return 1;
+    }
+    for (int ri = optind + 2; ri + 1 < argc; ri += 2) {
+        int first = strtol(argv[ri], 0, 0);
+        int last  = strtol(argv[ri + 1], 0, 0);
+        cpr_insert_range(&CPRanges, first, last);
+    }
+
+    if (charsetFile) {
+        loadCharsetFile(charsetFile);
+    }
+
+    // Init FreeType lib, load font
+    FT_Library library;
+    if ((err = FT_Init_FreeType(&library))) {
+        fprintf(stderr, "FreeType init error: %d", err);
+        return err;
+    }
+
+    // Use TrueType engine version 35, without subpixel rendering.
+    // This improves clarity of fonts since this library does not
+    // support rendering multiple levels of gray in a glyph.
+    // See https://github.com/adafruit/Adafruit-GFX-Library/issues/103
+    //    FT_UInt interpreter_version = TT_INTERPRETER_VERSION_35;
+    //    FT_Property_Set(library, "truetype", "interpreter-version", &interpreter_version);
+
+    const int rc = bitmap_font(library, fontFile, size);
+    FT_Done_FreeType(library);
+    return rc;
 }

@@ -1,5 +1,95 @@
 # Changes
 
+## 0.7.2 - 2026-10-21
+
+Fonts made at build time, and fixes from a second review of 0.7.1. The
+fonts were built on a CYD, an ESP32-P4 and host projects, not looked at on a
+panel; the SSD1351 at 18 bits and the disposal of a DSI bus have not been
+tried on hardware. Text drawn turned now turns the other way, as transfers
+with the same turn do.
+
+- **Fonts made at build time, from the needs of a program and its
+  components.** `dgx_font_need(<name> ...)`, a function of DGX's new
+  `project_include.cmake`, declares a font in any CMakeLists: its characters
+  (`TEXTS` files, `LETTERS`, `EXCEPT`), its size (`SIZE 12pt`, `4.5mm`,
+  `30px`) and its face (`MONO` or `FAMILY` picked by the rules of
+  `dgx_fonts_rules()`, `POSTSCRIPT` for an exact face, `SOURCE` for a font
+  file, `DGX` or `FILE` for an existing font). `dgx_fonts_board()` declares
+  the display and `dgx_fonts_scale()` the frame scale; `dgx_font_needs_file()`
+  reads the same keywords from a file that a host build can read too, and
+  `dgx_font_list()` passes a list of fonts through to `font2c -jo`. One
+  build rule, created at the end of the configure step, renders all of them
+  with `font2c/dgx_fonts.py`, one font per face and size with the characters
+  of every need that uses it, into `dgx_fonts.c` and `dgx_fonts.h` in the
+  build directory: `dgx_font_<name>()`, `DGX_FONT_<NAME>_MADE`, `_PX`,
+  `_MM`, `DGX_FONT_NEEDS(X)` and `DGX_FONTS_BOARD_*`. The tool is DGX-GE's
+  (`dgx_ge_fonts.py table`, `dgx_ge_font.py`) moved here and reworked: only
+  the characters each need asks for, exact faces by PostScript name through
+  `fc-list`, sizes in points, millimeters or pixels, and existing fonts
+  checked for the characters of their need. Nothing runs outside CMake; a
+  project without needs builds as before. `make -C test/fonts` checks it on
+  the host; `examples/fonts_demo` shows it on a CYD; docs/fonts-en.md
+  describes the mechanism and how to use it.
+- **`font2c -jo <list>` and `-o <name>`**: every font of the lists goes into
+  one `<name>.c` with a `<name>.h`. A line of a list holds the arguments of
+  one font2c run (`[-n name] [-f letters] file size [first last]...`, or a
+  handwritten JSON without a size; paths are relative to the list). A font
+  asked for by several lines, one face at one size, is rendered once with
+  every character they ask for, and each of their `-n` names becomes a
+  function of it; a line without `-n` gets `<name>_<FamilyStyleSize>`; the
+  arrays are named after the font, so the file holds them all without a
+  clash. `-jo` may be repeated. **`-n <name>`** names a font made on its
+  own: its function, its files and its static arrays. Without these options
+  the output is unchanged.
+- **font2c.**
+  - A font name that is a C or C++ keyword is refused by `-n`, and gets
+    `_font` appended when it comes from the file name of a handwritten font.
+  - An odd number of range arguments (a first without a last) is an error;
+    the last one used to be dropped.
+  - The element counts of a handwritten font are checked before its pairs
+    are worked out.
+  - The font is written to `<name>.tmp` and renamed when it is complete, so
+    a run that fails leaves the old file in place.
+- **Turned text.** Text drawn with `DgxOutputRotate90CW` turned
+  counter-clockwise, and with `DgxOutputRotate90CCW` clockwise: the opposite
+  of transfers, images and bitmaps with the same turns, and of the
+  documentation. The text code reads the turn through
+  `dgx_output_orientation_xdir()` and `dgx_output_orientation_ydir()`, which
+  had these two the wrong way round, as did `dgx_output_orientation_make()`:
+  for a driver's `dir_x`, `dir_y` and `swap_xy` with one mirror and swapped
+  axes it returned the opposite of the turn the panel shows. All three are
+  fixed. A program that draws turned text now sees it turned the other way;
+  one that picked the other name to make it read right has to swap the names
+  back, as `examples/screen_demo` did. Host tests compare turned text with
+  text turned by a transfer, and `dgx_output_orientation_make()` with the
+  frame buffer of a turned DSI screen.
+- **The SSD1351 at 18 bits.** In its 262k-color mode the SSD1351 takes each
+  channel in the low six bits of a byte (Table 8-8 of its datasheet), while
+  the panels of the display command set take it in the high six, where
+  `DGX_RGB_18()` puts it since 0.7.1. An 18-bit SSD1351 therefore showed
+  wrong colors. The driver now shifts each byte down on its way to the
+  panel, through a 768-byte buffer it allocates at 18 bits; the pixels
+  passed in are left as they are. 16-bit mode is unchanged. Not tried on a
+  panel: a host test checks the driver against a model of the controller at
+  both depths, with figures, text and virtual screens put on it.
+- **Disposing of a DSI bus right after a flip.** The pieces left to copy
+  after the flip were disarmed but not dropped, so the disposal waited
+  250-500 ms for pieces nothing would start and then logged a false warning
+  that a piece had not been copied. Pieces not yet started are now dropped,
+  and those the end of a frame has already started are waited for. Not tried
+  on hardware.
+- **`DGX_VSCREEN_SCALE(n)` evaluates `n` twice**, since 0.7.1 made it clamp
+  values above 255. The header now says so.
+- **Function alignment on the ESP32-P4.** 0.7.1 aligned the functions of the
+  library to 16 bytes with `-falign-functions=16` on every RISC-V chip, but
+  GCC ignores that option at `-Os`, and only the P4 was timed. The alignment
+  now applies to the ESP32-P4 alone, through `-fmin-function-alignment=16`
+  with GCC 14 and later (IDF 5.4 and later), which aligns every function at
+  every level of optimization; older compilers keep `-falign-functions=16`.
+  At `-O2` every function of the library compiles to the same instructions
+  as in 0.7.1.
+
+
 ## 0.7.1 - 2026-10-21
 
 Fixes from a review of 0.7.0. The changes to the SSD1351, ST7789, SSD1306,

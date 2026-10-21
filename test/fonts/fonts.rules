@@ -1,0 +1,4 @@
+# The rules of the test: the DejaVu faces, which every Linux has, the mono one first
+source system
+allow "DejaVu Sans Mono"  8..
+allow "DejaVu Sans"       8..

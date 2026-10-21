@@ -1,9 +1,11 @@
 /*
  * The SSD1351 driver against a model of the controller: a window of panel
  * columns and panel rows, 0x15 and 0x75, the memory written from its corner
- * a pixel of two bytes at a time, by rows or, with bit 0 of the remap 0xA0,
- * by columns. What the memory holds has to be the screen, turned or not: a
- * pixel (x, y) of a turned screen in panel row x and panel column y.
+ * a pixel at a time, by rows or, with bit 0 of the remap 0xA0, by columns. A
+ * pixel is two bytes, or at 262k colors (bits 7:6 of the remap 10b) three
+ * bytes with six bits low in each, D5..D0 (Table 8-8 of the datasheet). What
+ * the memory holds has to be the screen, turned or not: a pixel (x, y) of a
+ * turned screen in panel row x and panel column y.
  */
 #include <stdbool.h>
 #include <stdint.h>
@@ -24,15 +26,14 @@
 
 /* ---- the controller ---- */
 
-static uint16_t gddram[SIDE][SIDE]; /* [row][column] */
+static uint32_t gddram[SIDE][SIDE]; /* [row][column] */
 static int      col_start, col_end, row_start, row_end, col, row;
-static uint8_t  last_cmd, remap, args[4], arg_count, high;
-static bool     have_high;
+static uint8_t  last_cmd, remap, args[4], arg_count, part[3], parts;
 
 static void bus_write_command(struct _dgx_bus_protocols_t *bus, uint8_t cmd)
 {
     (void)bus;
-    last_cmd = cmd, arg_count = 0, have_high = false;
+    last_cmd = cmd, arg_count = 0, parts = 0;
     if (cmd == 0x5C) col = col_start, row = row_start;
 }
 
@@ -41,7 +42,7 @@ static void bus_write_commands(struct _dgx_bus_protocols_t *bus, const uint8_t *
     for (uint32_t i = 0; i < len / 8; ++i) bus_write_command(bus, data[i]);
 }
 
-static void pixel(uint16_t value)
+static void pixel(uint32_t value)
 {
     CHECK(col >= col_start && col <= col_end && row >= row_start && row <= row_end);
     if (col < SIDE && row < SIDE) gddram[row][col] = value;
@@ -64,12 +65,11 @@ static void bus_write_data(struct _dgx_bus_protocols_t *bus, const uint8_t *data
     for (uint32_t i = 0; i < len / 8; ++i) {
         const uint8_t b = data[i];
         if (last_cmd == 0x5C) {
-            if (!have_high) {
-                high = b, have_high = true;
-                continue;
-            }
-            have_high = false;
-            pixel((uint16_t)(high << 8 | b));
+            const bool deep = (remap >> 6) == 2;
+            part[parts++]   = b;
+            if (parts < (deep ? 3 : 2)) continue;
+            parts = 0;
+            pixel(deep ? (uint32_t)(part[0] & 0x3f) << 12 | (uint32_t)(part[1] & 0x3f) << 6 | (part[2] & 0x3f) : (uint32_t)part[0] << 8 | part[1]);
             continue;
         }
         if (arg_count < sizeof(args)) args[arg_count] = b;
@@ -98,12 +98,12 @@ static int rnd(int lo, int hi)
     return lo + (int)((seed >> 8) % (uint32_t)(hi - lo + 1));
 }
 
-/* the same figure on the display and on a virtual screen of the same size */
-static void figure(dgx_screen_t *a, dgx_screen_t *b)
+/* the same figure on the display and on a virtual screen of the same size; `sprite` is a picture of the same depth */
+static void figure(dgx_screen_t *a, dgx_screen_t *b, dgx_screen_t *sprite)
 {
     const int      x = rnd(-5, SIDE + 4), y = rnd(-5, SIDE + 4);
-    const uint32_t color = (uint32_t)rnd(1, 0xffff);
-    switch (rnd(0, 4)) {
+    const uint32_t color = (uint32_t)rnd(1, a->color_bits == 18 ? 0xffffff : 0xffff);
+    switch (rnd(0, 5)) {
     case 0: {
         const int w = rnd(1, 40), h = rnd(1, 30);
         dgx_fill_rectangle(a, x, y, w, h, color), dgx_fill_rectangle(b, x, y, w, h, color);
@@ -122,6 +122,11 @@ static void figure(dgx_screen_t *a, dgx_screen_t *b)
         dgx_solid_circle(a, x, y, r, color), dgx_solid_circle(b, x, y, r, color);
         break;
     }
+    case 4: {
+        const uint32_t flags = DGX_VSCREEN_ORIENTED(rnd(0, 7));
+        dgx_vscreen_to_screen(a, x - 10, y - 10, sprite, flags), dgx_vscreen_to_screen(b, x - 10, y - 10, sprite, flags);
+        break;
+    }
     default:
         dgx_font_string_utf8_screen(a, (int16_t)x, (int16_t)y, "SSD1351", color, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
         dgx_font_string_utf8_screen(b, (int16_t)x, (int16_t)y, "SSD1351", color, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
@@ -129,9 +134,17 @@ static void figure(dgx_screen_t *a, dgx_screen_t *b)
     }
 }
 
-static void run(bool swap_xy)
+/* what the memory of the controller holds for a pixel of a screen: at 18 bits the six high bits of each byte */
+static uint32_t held(uint32_t value, uint8_t bits)
 {
-    static uint8_t      buffer[512];
+    if (bits != 18) return value;
+    return (value >> 18 & 0x3f) << 12 | (value >> 10 & 0x3f) << 6 | (value >> 2 & 0x3f);
+}
+
+/* a bus buffer of `buffer_len` bytes: more than the 768 the driver sends at a time at 18 bits makes it send in pieces */
+static void run(uint8_t bits, bool swap_xy, size_t buffer_len)
+{
+    static uint8_t      buffer[2048];
     dgx_bus_protocols_t bus = {.bus_type         = DGX_BUS_SPI,
                                .write_command    = bus_write_command,
                                .write_commands   = bus_write_commands,
@@ -139,33 +152,42 @@ static void run(bool swap_xy)
                                .write_data_async = bus_write_data_async,
                                .sync_write       = bus_sync,
                                .buffer           = buffer,
-                               .buffer_len       = sizeof(buffer)};
+                               .buffer_len       = buffer_len};
     memset(gddram, 0, sizeof(gddram));
     remap = 0;
-    dgx_screen_t *scr = dgx_ssd1351_init(&bus, GPIO_NUM_NC, 16, DgxScreenRGB);
+    dgx_screen_t *scr = dgx_ssd1351_init(&bus, GPIO_NUM_NC, bits, DgxScreenRGB);
     dgx_ssd1351_orientation(scr, DgxScreenLeftRight, DgxScreenTopBottom, swap_xy);
-    CHECK(((remap & 1) != 0) == swap_xy);
-    dgx_screen_t *ref = dgx_vscreen_init(SIDE, SIDE, 16, DgxScreenRGB);
+    CHECK(((remap & 1) != 0) == swap_xy && (remap >> 6) == (bits == 18 ? 2 : 1));
+    dgx_screen_t *ref    = dgx_vscreen_init(SIDE, SIDE, bits, DgxScreenRGB);
+    dgx_screen_t *sprite = dgx_vscreen_init(23, 17, bits, DgxScreenRGB);
+    for (int y = 0; y < sprite->height; ++y) {
+        for (int x = 0; x < sprite->width; ++x)
+            dgx_set_pixel(sprite, x, y, (uint32_t)rnd(0, bits == 18 ? 0xffffff : 0xffff));
+    }
     dgx_fill_rectangle(scr, 0, 0, SIDE, SIDE, 0), dgx_fill_rectangle(ref, 0, 0, SIDE, SIDE, 0);
     for (int round = 0; round < 300; ++round) {
-        figure(scr, ref);
+        figure(scr, ref, sprite);
         int wrong = 0;
         for (int y = 0; y < SIDE; ++y) {
-            for (int x = 0; x < SIDE; ++x) wrong += (swap_xy ? gddram[x][y] : gddram[y][x]) != dgx_get_pixel(ref, x, y);
+            for (int x = 0; x < SIDE; ++x)
+                wrong += (swap_xy ? gddram[x][y] : gddram[y][x]) != held(dgx_get_pixel(ref, x, y), bits);
         }
         if (wrong) {
-            fprintf(stderr, "swap %d round %d: %d pixels wrong\n", swap_xy, round, wrong);
+            fprintf(stderr, "%d bits, swap %d, round %d: %d pixels wrong\n", bits, swap_xy, round, wrong);
             ++check_failures;
             break;
         }
     }
+    dgx_screen_destroy(&sprite);
     dgx_screen_destroy(&ref);
     dgx_screen_destroy(&scr);
 }
 
 int main(void)
 {
-    run(false);
-    run(true);
+    run(16, false, 512);
+    run(16, true, 2048);
+    run(18, false, 512);
+    run(18, true, 2048);
     CHECK_DONE();
 }

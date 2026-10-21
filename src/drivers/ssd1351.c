@@ -46,9 +46,48 @@
 typedef struct _dgx_ssd1351_t {
     dgx_screen_with_bus_t base;
     gpio_num_t rst;
+    /* at 18 bits: the bytes of the pixels on their way, and how a screen with a bus sends them and is destroyed */
+    uint8_t                    *wire;
+    dgx_scr_write_area_func     send;
+    dgx_scr_screen_destroy_func destroy;
 } dgx_ssd1351_t;
 
 static const char TAG[] = "DGX SSD 1351";
+
+/*
+ * At 18 bits the SSD1351 takes each channel in the low six bits of its byte
+ * (Table 8-8 of its datasheet), where the panels of the display command set
+ * take it in the high six, as DGX keeps it. The bytes go shifted down
+ * through a buffer of the driver, and the pixels passed in are left as they
+ * are.
+ */
+#define DGX_SSD1351_WIRE_BYTES 768u /* 256 pixels */
+
+static void dgx_ssd1351_write_area_18(dgx_screen_t *_scr, uint8_t *data, uint32_t lenbits)
+{
+    dgx_ssd1351_t *scr   = (dgx_ssd1351_t *)_scr;
+    uint32_t       bytes = lenbits / 8u;
+    while (bytes) {
+        const uint32_t n = bytes < DGX_SSD1351_WIRE_BYTES ? bytes : DGX_SSD1351_WIRE_BYTES;
+        /* what was sent from the buffer before has gone */
+        _scr->wait_buffer(_scr);
+        for (uint32_t i = 0; i < n; ++i)
+            scr->wire[i] = data[i] >> 2;
+        scr->send(_scr, scr->wire, n * 8u);
+        data += n;
+        bytes -= n;
+    }
+}
+
+static void dgx_ssd1351_destroy(dgx_screen_t **pscr)
+{
+    dgx_ssd1351_t *scr = (dgx_ssd1351_t *)*pscr;
+    if (!scr) return;
+    /* the last bytes may still be on their way */
+    (*pscr)->wait_buffer(*pscr);
+    free(scr->wire);
+    scr->destroy(pscr);
+}
 
 static uint8_t *dgx_ssd1351_adj_madctl(dgx_screen_with_bus_t *scr, const struct _dgx_lcd_init_cmd_t *init_cmd) {
     static uint8_t adj_data[1];
@@ -117,6 +156,15 @@ dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t
         ESP_LOGE(TAG, "Screen structure memory allocation failed");
         return NULL;
     }
+    if (color_bits == 18) {
+        scr->wire = bus->memory_allocator ? bus->memory_allocator(DGX_SSD1351_WIRE_BYTES)
+                                          : (uint8_t *)heap_caps_malloc(DGX_SSD1351_WIRE_BYTES, MALLOC_CAP_DMA);
+        if (!scr->wire) {
+            ESP_LOGE(TAG, "no memory for the bytes of 18-bit pixels");
+            free(scr);
+            return NULL;
+        }
+    }
     scr->rst = rst;
     scr->base.bus = bus;
     scr->base.scr.cg_row_shift = 0;
@@ -144,6 +192,12 @@ dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t
     dgx_lcd_init(&scr->base, st_init_cmds);
     dgx_scr_init_slow_bus_optimized_funcs((dgx_screen_t *)scr);
     scr->base.scr.set_area = dgx_ssd1351_set_area;
+    if (scr->wire) {
+        scr->send                = scr->base.scr.write_area;
+        scr->destroy             = scr->base.scr.destroy;
+        scr->base.scr.write_area = dgx_ssd1351_write_area_18;
+        scr->base.scr.destroy    = dgx_ssd1351_destroy;
+    }
     return (dgx_screen_t *)scr;
 }
 

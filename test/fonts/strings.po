@@ -1,0 +1,21 @@
+# The strings of a game, as gettext keeps them: a few with placeholders, one over two lines.
+msgid ""
+msgstr ""
+"Project-Id-Version: test\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: ru\n"
+
+msgid "Level {0}"
+msgstr "Уровень {0}"
+
+msgid "Press any key"
+msgstr "Нажмите любую клавишу"
+
+msgid "The prince, the princess and the vizier"
+msgstr ""
+"Принц, принцесса и визирь: "
+"щедрый, жёсткий, съёжившийся"
+
+msgctxt "menu"
+msgid "Quit"
+msgstr "Выход"

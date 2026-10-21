@@ -1666,11 +1666,12 @@ static void dgx_dsi_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)_bus;
 #if DGX_DSI_DMA2D
-    /* the pieces left to copy after a flip go into the frame buffers: finished while the panel still has them */
-    if (bus->late) {
-        atomic_store(&bus->late->armed, 0u);
-        dgx_dsi_late_idle(bus);
-    }
+    /*
+     * No piece left for after a flip may be copied once the panel has freed
+     * the frame buffers: as for a batch drawn over them, pieces not started
+     * are dropped and those the end of a frame has started are waited for.
+     */
+    if (bus->late) dgx_dsi_late_back(bus);
 #endif
     if (bus->panel) esp_lcd_panel_del(bus->panel);
     if (bus->refreshed) vSemaphoreDelete(bus->refreshed);

@@ -96,6 +96,8 @@ dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src);
  * destination, @p n from 1 to 255; 0 and 1 are the same as no scale, and
  * more than 255 is 255. A 320x200 picture of a game is shown on a 1280x800
  * display with DGX_VSCREEN_SCALE(4). The pixels are repeated, not mixed.
+ * The macro evaluates @p n twice: pass a value, not an expression with side
+ * effects such as `s++`.
  */
 #define DGX_VSCREEN_SCALE(n) ((uint32_t)(n) > 255u ? 0xff00u : ((uint32_t)(n) & 0xffu) << 8)
 /**

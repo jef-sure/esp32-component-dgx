@@ -27,6 +27,7 @@ whose text is written stroke by stroke by a pen or turns into another text.
   - [Animation without flicker](#animation-without-flicker)
   - [A monochrome OLED](#a-monochrome-oled)
   - [Text in your own font](#text-in-your-own-font)
+  - [Fonts made at build time](#fonts-made-at-build-time)
   - [A gauge](#a-gauge)
   - [A pie chart, arcs, a Wi-Fi icon](#a-pie-chart-arcs-a-wi-fi-icon)
   - [Scrolling text](#scrolling-text)
@@ -221,6 +222,36 @@ dgx_font_string_utf8_screen(scr, 10, 30, "Привет", color, DgxOutputNormal,
 ```
 
 Details: [font2c/README.md](font2c/README.md).
+
+### Fonts made at build time
+
+A program, and the components it uses, declare the fonts they need in
+their CMakeLists files: the characters, the size and the face of each one.
+DGX renders all of them while the program is built, one font per face and
+size, and gives every need a function. Nothing is run by hand.
+
+```cmake
+# main/CMakeLists.txt, after idf_component_register()
+dgx_fonts_board(PIXELS 320 240 MM 57.6 43.2)             # the display, for sizes in millimeters
+dgx_fonts_rules(../fonts.rules)                          # which faces may be used at which sizes
+dgx_font_need(body SIZE 3mm MONO TEXTS strings.txt)      # a monospaced face picked by the rules, with the characters of the strings
+dgx_font_need(title SIZE 5mm POSTSCRIPT DejaVuSans-Bold TEXTS strings.txt)  # an exact face, 5 mm high
+dgx_font_need(clock DGX VerdanaRegular32 LETTERS "0123456789:")             # one of DGX's fonts, used as is; its characters are checked
+```
+
+```c
+#include "dgx_fonts.h"
+
+dgx_font_string_utf8_screen(scr, 10, 40, "Привет", ink, DgxOutputNormal, 1, dgx_font_body(), NULL, NULL);
+```
+
+A font is rendered by `font2c` from a TTF or OTF on the build machine, with
+the characters of the need's texts and no others; an existing font must
+already have them, or the build stops. The build machine needs a C compiler
+with FreeType, and fontconfig; a project without needs requires nothing
+extra. Needs, sizes, characters, the rules, needs from a component and what
+the build produces: [docs/fonts-en.md](docs/fonts-en.md)
+([Russian](docs/fonts-ru.md)). The example: [fonts_demo](examples/fonts_demo).
 
 ### A gauge
 
@@ -688,6 +719,7 @@ idf.py flash monitor
 | Example | Board | What it shows |
 | --- | --- | --- |
 | [screen_demo](examples/screen_demo) | ESP32 with an ILI9341 | a graphics test: fills, text, lines, rectangles, circles, triangles |
+| [fonts_demo](examples/fonts_demo) | CYD | fonts made at build time: a title in millimeters, a paragraph in a face picked by rules, a clock in a bundled font |
 | [dsi_demo](examples/dsi_demo) | JC1060P470 or JC8012P4A1C (ESP32-P4, 7-inch or 10.1-inch MIPI-DSI) | the same kind of test for a DSI display, update modes, an even frame rate, the board measured and the numbers kept |
 | [figures_scroll_demo](examples/figures_scroll_demo) | CYD or JC1060P470 | a pie chart, arcs, a Wi-Fi icon, a scrolling terminal and chart; prints timings |
 | [texture_demo](examples/texture_demo) | CYD | a textured card scaled, rotated and wobbled |
@@ -830,6 +862,10 @@ of the u8g2 driver written for the controller after its datasheet.
 - `font2c`, an offline tool that turns TTF/BDF-style fonts and handwritten
   fonts of the hw-fonts editor into C source/header pairs, and a set of
   pre-converted fonts in `src/fonts/`.
+- Fonts made at build time from needs declared in CMake by a program and
+  its components: a face picked by rules or named exactly, a size in
+  points, millimeters or pixels, only the characters the texts use, one
+  font per face and size.
 
 ## How it fits together
 
@@ -1005,6 +1041,7 @@ Declared in [include/dgx_font.h](include/dgx_font.h):
 | `decodeUTF8next(chr, idx)` | Decode the next UTF-8 code point. |
 | `dgx_font_make_morph_struct(...)` / `dgx_font_make_morph_struct_destroy(...)` | Build/free a glyph-to-glyph morph descriptor for animation. |
 | `dgx_bw_bitmap_foreach_set(bmap, func, user_data)` | From [include/dgx_bitmap.h](include/dgx_bitmap.h): iterate set pixels of a 1-bpp bitmap; zero bytes skip 8 pixels at once (LINES format). |
+| `dgx_font_<need>()` | A font made at build time for a need declared in CMake, from the generated `dgx_fonts.h`, together with `DGX_FONT_<NEED>_MADE`, `_PX`, `_MM`, `DGX_FONT_NEEDS(X)` and `DGX_FONTS_BOARD_*`; see [Fonts made at build time](#fonts-made-at-build-time). |
 
 `orientation` is a `dgx_output_orientation_t`: `DgxOutputNormal`,
 `DgxOutputMirrorX`, `DgxOutputMirrorY`, `DgxOutputRotate180`,
@@ -1500,6 +1537,13 @@ the SSD1309, SH1106 and SSD1351 drivers against models of their controllers:
 make -C test/host
 ```
 
+The fonts made at build time have a test of their own, `make -C test/fonts`:
+it runs the tool on the needs in that directory, checks the characters and
+the pairs of face and size, compiles the generated C, and checks that a
+program's mistakes are reported properly. It needs what such a program
+needs, FreeType, fontconfig and the DejaVu fonts, and says so when they are
+missing.
+
 What a host cannot tell, the look of a figure on a panel, the scroll of the
 panel itself and the times on the chip, is seen on a board:
 [examples/figures_scroll_demo](examples/figures_scroll_demo), for a CYD or
@@ -1526,10 +1570,12 @@ src/                     implementations, by topic
   bus/                   ESP32 bus backends and the frame buffer of a DSI display
   drivers/               panel drivers
   fonts/                 generated font sources (glob-built)
-font2c/                  offline TTF/BDF -> C font generator
+font2c/                  offline TTF/BDF -> C font generator, and dgx_fonts.py, which makes a program's fonts from its needs
+project_include.cmake    dgx_font_need() and the other font functions for a program's CMakeLists
 examples/                one project per example, see "Examples"
 test/host/               host tests with ESP-IDF stubs
-docs/                    morphing articles and handwritten text guides (English and Russian),
+test/fonts/              the test of the fonts made at build time
+docs/                    morphing articles, handwritten text guides, fonts made at build time (English and Russian),
                          the converter and the tables of handwritten fonts (Russian),
                          a guide to a display on the DSI bus and notes on how its bus is made
                          (English and Russian)

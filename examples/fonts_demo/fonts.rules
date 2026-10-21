@@ -1,0 +1,5 @@
+# fonts.rules: the faces this demo may use, in order of preference, from the fonts installed on the build machine
+source system
+allow "DejaVu Sans Mono"  12..
+allow "DejaVu Sans"       12..
+allow *                   12..

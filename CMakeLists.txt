@@ -159,8 +159,13 @@ if(CONFIG_DGX_ENABLE_DSI)
 endif()
 # On the ESP32-P4 the time of a hot loop depends on where it lies within 16 bytes: the same loop two bytes further
 # on, moved there by a change elsewhere, took 14% longer. Every function starts on 16 bytes, so its loops keep their
-# place whatever the code before it.
-if(CONFIG_IDF_TARGET_ARCH_RISCV)
-	target_compile_options(${COMPONENT_LIB} PRIVATE -falign-functions=16)
+# place whatever the code before it. -falign-functions does nothing at -Os; -fmin-function-alignment, from GCC 14
+# (IDF 5.4), aligns at every level of optimization. Other RISC-V chips were not timed.
+if(CONFIG_IDF_TARGET_ESP32P4)
+	if(CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 14)
+		target_compile_options(${COMPONENT_LIB} PRIVATE -fmin-function-alignment=16)
+	else()
+		target_compile_options(${COMPONENT_LIB} PRIVATE -falign-functions=16)
+	endif()
 endif()
 #target_compile_options(${COMPONENT_LIB} PRIVATE -Ofast)
