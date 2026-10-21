@@ -323,6 +323,9 @@ dgx_screen_t *dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
         dgx_delay(100);
         dgx_gpio_set_level(rst, 1);
         dgx_delay(100);
+    } else {
+        /* no reset: the controller takes no command for 40 ms after its power comes up, and the program may start sooner */
+        dgx_delay(50);
     }
 
     // Send initialization commands

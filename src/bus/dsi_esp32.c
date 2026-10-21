@@ -1665,15 +1665,18 @@ static uint8_t *dgx_dsi_memory_allocator(uint32_t len)
 static void dgx_dsi_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)_bus;
+#if DGX_DSI_DMA2D
+    /* the pieces left to copy after a flip go into the frame buffers: finished while the panel still has them */
+    if (bus->late) {
+        atomic_store(&bus->late->armed, 0u);
+        dgx_dsi_late_idle(bus);
+    }
+#endif
     if (bus->panel) esp_lcd_panel_del(bus->panel);
     if (bus->refreshed) vSemaphoreDelete(bus->refreshed);
     if (bus->tiles.owed) dgx_fb_tiles_free(&bus->tiles);
 #if DGX_DSI_DMA2D
-    if (bus->late) {
-        atomic_store(&bus->late->armed, 0u);
-        dgx_dsi_late_idle(bus);
-        dgx_dsi_late_free(bus);
-    }
+    if (bus->late) dgx_dsi_late_free(bus);
     dgx_dsi_dma_free(bus);
 #endif
 #if DGX_DSI_PPA_FILL

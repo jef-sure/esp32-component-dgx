@@ -229,8 +229,35 @@ static void test_packed_depths(void)
     dgx_screen_destroy(&tex12);
 }
 
+/*
+ * Quads far off and edges that run aside by thousands of pixels in a row, and
+ * texture regions too large to add up: no int overflows under UBSan, and what
+ * is drawn stays on the screen.
+ */
+static void test_far(void)
+{
+    dgx_screen_t *tex = make_texture(16), *scr = dgx_vscreen_init(40, 30, 16, DgxScreenRGB);
+    static const int16_t xs[] = {INT16_MIN, -20000, -1000, 0, 39, 1000, 20000, INT16_MAX};
+    const int            n    = (int)(sizeof(xs) / sizeof(xs[0]));
+    for (int a = 0; a < n; ++a) {
+        for (int b = 0; b < n; ++b) {
+            /* the top edge from xs[a] to xs[b], one row down to a bottom edge as wide */
+            const dgx_point_2d_t quad[4] = {{xs[a], 5}, {xs[b], 6}, {xs[b], 7}, {xs[a], 8}};
+            dgx_draw_texture_quad(scr, quad, tex, 0, 0, TEX_W, TEX_H);
+            const dgx_point_2d_t tall[4] = {{xs[a], -30000}, {xs[b], -29999}, {xs[b], 30000}, {xs[a], 29999}};
+            dgx_draw_texture_quad(scr, tall, tex, 0, 0, TEX_W, TEX_H);
+        }
+    }
+    const dgx_point_2d_t quad[4] = {{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+    dgx_draw_texture_quad(scr, quad, tex, 1, 1, INT32_MAX, INT32_MAX);
+    dgx_draw_texture_quad(scr, quad, tex, INT32_MAX, INT32_MAX, 2, 2);
+    CHECK(count_set(scr) > 0);
+    dgx_screen_destroy(&tex), dgx_screen_destroy(&scr);
+}
+
 int main(void)
 {
+    test_far();
     test_copy_and_scale(8);
     test_copy_and_scale(16);
     test_copy_and_scale(18); /* three bytes a pixel, as 24 */

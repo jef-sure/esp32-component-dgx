@@ -17,7 +17,7 @@ LIB_SRCS := $(addprefix $(ROOT)/src/, screen/screen.c screen/screen_bus.c screen
               bus/fb_area.c bus/fb_tiles.c bus/fb_flip.c) \
             $(wildcard $(ROOT)/src/fonts/*.c)
 
-TESTS := test_fb_area test_fb_tiles test_fb_flip test_pixels test_fill test_circle test_ellipse test_scroll test_panel_scroll test_matrix test_morph test_render test_fonts test_screen test_region test_bw test_texture test_bezier test_hw_font test_hw_line test_hw_write test_hw_morph test_soft_pen test_gauge test_oriented test_p8 test_p8_lcdcam test_st7920 test_ssd1309 test_sh1106 test_image test_lut test_overlay test_scale test_transfer
+TESTS := test_fb_area test_fb_tiles test_fb_flip test_pixels test_fill test_circle test_ellipse test_scroll test_panel_scroll test_matrix test_morph test_render test_fonts test_screen test_region test_bw test_texture test_bezier test_hw_font test_hw_line test_hw_write test_hw_morph test_soft_pen test_gauge test_oriented test_p8 test_p8_lcdcam test_st7920 test_ssd1309 test_sh1106 test_image test_lut test_overlay test_scale test_transfer test_polygon test_ssd1351
 BUILD := build
 
 all: $(addprefix run-, $(TESTS))
@@ -25,7 +25,10 @@ all: $(addprefix run-, $(TESTS))
 run-%: $(BUILD)/%
 	./$<
 
-$(BUILD)/%: %.c $(LIB_SRCS) check.h | $(BUILD)
+# the headers, and the drivers and buses some tests include as they are: a change of any of them builds the tests again
+DEPS := $(wildcard $(ROOT)/include/*.h $(ROOT)/include/*/*.h $(ROOT)/src/*/*.h $(ROOT)/src/drivers/*.c $(ROOT)/src/bus/*.c) $(wildcard *.h stubs/*.h stubs/*/*.h)
+
+$(BUILD)/%: %.c $(LIB_SRCS) $(DEPS) check.h | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $< $(LIB_SRCS) $(LDLIBS) -o $@
 
 $(BUILD):

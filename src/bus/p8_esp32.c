@@ -14,7 +14,11 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lcd_panel_io.h"
+/* from IDF 5.3 the i80 bus has a header of its own and a DMA burst size; IDF 5.2 has neither */
+#if __has_include("esp_lcd_io_i80.h")
 #include "esp_lcd_io_i80.h"
+#define DGX_P8_DMA_BURST 1
+#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "soc/soc_caps.h"
@@ -140,9 +144,10 @@ static void dgx_p8_sync_write_func(struct _dgx_bus_protocols_t *_bus) {
     dgx_p8_wait_pending(bus);
 }
 
+/* the display is not read through this bus: nothing is read, and the buffer is left as it was */
 static uint32_t dgx_p8_read_data(struct _dgx_bus_protocols_t *_bus, uint8_t *data, uint32_t len) {
-    memset(data, 0, (len + 7u) / 8u);
-    return len;
+    (void)_bus, (void)data, (void)len;
+    return 0;
 }
 
 static void dgx_p8_dispose_bus_func(struct _dgx_bus_protocols_t *_bus) {
@@ -177,7 +182,12 @@ dgx_bus_protocols_t *dgx_p8_init(gpio_num_t lcd_d0, gpio_num_t lcd_d1, gpio_num_
         .data_gpio_nums = { lcd_d0, lcd_d1, lcd_d2, lcd_d3, lcd_d4, lcd_d5, lcd_d6, lcd_d7 },
         .bus_width = 8,
         .max_transfer_bytes = 4096,
+#if DGX_P8_DMA_BURST
         .dma_burst_size = 64,
+#else
+        .psram_trans_align = 64,
+        .sram_trans_align = 4,
+#endif
     };
     esp_err_t ret = esp_lcd_new_i80_bus(&bus_config, &bus->i80_bus);
     if (ret != ESP_OK) {

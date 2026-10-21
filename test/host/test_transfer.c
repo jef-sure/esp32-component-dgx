@@ -17,6 +17,7 @@
 #include "check.h"
 #include "dgx_bw_screen.h"
 #include "dgx_draw.h"
+#include "dgx_overlay.h"
 #include "dgx_screen_with_bus.h"
 #include "drivers/vscreen.h"
 #include "scale_ref.h"
@@ -452,10 +453,122 @@ static void test_far(void)
             }
         }
     }
+    /* around the bound of the place worked out in an int: below it nothing overflows, above it the place is worked out in 64 bits */
+    static const int edge[] = {(1 << 21) - 1, 1 << 21, (1 << 21) + 1, (3 << 21) - 1, 3 << 21};
+    for (unsigned turn = 0; turn < 8; ++turn) {
+        for (int a = 0; a < (int)(sizeof(edge) / sizeof(edge[0])); ++a) {
+            const uint32_t flags = DGX_VSCREEN_SCALE(255) | DGX_VSCREEN_ORIENTED(turn);
+            dgx_vscreen_region_to_screen(dst, 0, 0, src, edge[a], edge[a], edge[a], edge[a], flags);
+            dgx_vscreen_region_to_screen(dst, 0, 0, src, -edge[a], -edge[a], edge[a], edge[a], flags);
+            dgx_vscreen_region_to_screen(dst, -edge[a], -edge[a], src, 0, 0, edge[a], edge[a], flags);
+        }
+    }
     int drawn = 0;
     for (int i = 0; i < DW * DH; ++i) drawn += dgx_get_pixel(dst, i % DW, i / DW) != 0;
     CHECK(drawn == 0);
+    /* a region from far off that reaches into the source: what of it the source has goes where the whole region puts it */
+    dgx_vscreen_region_to_screen(dst, -(1 << 30), 0, src, -(1 << 30), 0, (1 << 30) + 5, SH, 0);
+    for (int i = 0; i < DW * DH; ++i) CHECK((dgx_get_pixel(dst, i % DW, i / DW) != 0) == (i % DW < 5 && i / DW < SH));
     dgx_screen_destroy(&src), dgx_screen_destroy(&dst);
+}
+
+/*
+ * A display whose bus has no buffer: the pixels go to it one by one, through
+ * a table or as they are, and none is written through the buffer it lacks.
+ * The scale macro keeps 255 for anything larger.
+ */
+static void test_no_buffer(void)
+{
+    static uint16_t lut[256];
+    for (int i = 0; i < 256; ++i) lut[i] = (uint16_t)(i * 40503u);
+    pixel_bytes = 2;
+    for (int round = 0; round < 200; ++round) {
+        dgx_screen_t *src8 = dgx_vscreen_init(SW, SH, 8, DgxScreenRGB), *src16 = dgx_vscreen_init(SW, SH, 16, DgxScreenRGB);
+        dgx_screen_t *lcd  = panel_screen(16, 0, false, false);
+        bus.buffer         = NULL;
+        const bool table = rnd(0, 1);
+        for (int i = 0; i < SW * SH; ++i) {
+            source_values[i] = (uint32_t)rnd(0, table ? 255 : 0xffff);
+            dgx_set_pixel(table ? src8 : src16, i % SW, i / SW, source_values[i]);
+        }
+        for (int i = 0; i < DW * DH; ++i) model[i] = panel[i] = MARK;
+        const int      n = rnd(1, 3), x = rnd(-n * SW, DW), y = rnd(-n * SH, DH);
+        const uint32_t flags = DGX_VSCREEN_SCALE(n);
+        single_pixels        = 0;
+        if (table) dgx_vscreen8_to_screen16(lcd, x, y, src8, lut, flags);
+        else dgx_vscreen_to_screen(lcd, x, y, src16, flags);
+        model_transfer(source_values, x, y, 0, 0, SW, SH, n, REF_BLOCKS, 0, false, table ? lut : NULL);
+        int wrong = 0, drawn = 0;
+        for (int i = 0; i < DW * DH; ++i) wrong += panel[i] != model[i], drawn += model[i] != MARK;
+        CHECK(wrong == 0 && single_pixels == drawn);
+        dgx_screen_destroy(&src8), dgx_screen_destroy(&src16);
+    }
+    CHECK(DGX_VSCREEN_SCALE(4) == 0x400u && DGX_VSCREEN_SCALE(255) == 0xff00u && DGX_VSCREEN_SCALE(256) == 0xff00u && DGX_VSCREEN_SCALE(300) == 0xff00u);
+}
+
+/* a screen of every depth, or of pages of eight rows, with values of 0 among the others */
+static dgx_screen_t *onto_screen(int kind, int width, int height, const dgx_screen_t *like)
+{
+    static const uint8_t bits[] = {1, 4, 8, 12, 16, 24};
+    dgx_screen_t        *scr    = kind < 6 ? dgx_vscreen_init(width, height, bits[kind], DgxScreenRGB) : dgx_bw_init(width, height);
+    for (int i = 0; i < width * height; ++i) {
+        const int x = i % width, y = i / width;
+        if (like) dgx_set_pixel(scr, x, y, dgx_get_pixel((dgx_screen_t *)like, x, y));
+        else dgx_set_pixel(scr, x, y, rnd(0, 2) ? (uint32_t)rnd(1, 0x7fffffff) & (kind < 6 ? (1u << bits[kind]) - 1u : 1u) : 0u);
+    }
+    return scr;
+}
+
+/*
+ * A screen put onto itself, the place a few pixels off the region so that
+ * it covers what is read: the pixels of a transfer from a copy of the screen
+ * as it was, at every depth, with holes, under a layer, made larger and
+ * turned.
+ */
+static void test_onto_itself(void)
+{
+    static uint16_t layer_lut[256];
+    for (int i = 0; i < 256; ++i) layer_lut[i] = (uint16_t)rnd(0, 0xffff);
+    int plain = 0, moved = 0, layered = 0, larger = 0;
+    for (int round = 0; round < 6000; ++round) {
+        /* rows longer than the pieces a row moving along itself goes by, too */
+        const int      kind = rnd(0, 6), width = rnd(0, 3) ? DW : 150, height = kind == 6 ? 32 : DH;
+        dgx_screen_t  *self = onto_screen(kind, width, height, NULL), *dst = onto_screen(kind, width, height, self);
+        dgx_screen_t  *copy = onto_screen(kind, width, height, self);
+        dgx_screen_t  *layer = NULL, *layer_too = NULL;
+        const bool     transparent = rnd(0, 1), upright = rnd(0, 3);
+        const int      n = upright ? 1 : rnd(1, 3), smooth = n > 1 ? rnd(0, 2) : 0, reach = upright ? 4 : 10;
+        const unsigned turn = upright ? 0u : (unsigned)rnd(0, 7);
+        const int      rx = rnd(-2, width - 1), ry = rnd(-2, height - 1), rw = rnd(1, width), rh = rnd(1, height);
+        const int      x = rx + rnd(-reach, reach), y = ry + rnd(-reach, reach);
+        if (kind == 4 && rnd(0, 2) == 0) {
+            /* the same layer over both screens, each a layer of its own */
+            layer = dgx_vscreen_init(20, 15, 8, DgxScreenRGB);
+            for (int i = 0; i < 20 * 15; ++i) dgx_set_pixel(layer, i % 20, i / 20, rnd(0, 1) ? (uint32_t)rnd(1, 255) : 0u);
+            layer_too        = dgx_vscreen_clone(layer);
+            const int lx = rnd(-5, width - 10), ly = rnd(-5, height - 8), alpha = rnd(0, 255);
+            CHECK(dgx_overlay_set(self, layer, lx, ly, layer_lut, (uint8_t)alpha) && dgx_overlay_set(dst, layer_too, lx, ly, layer_lut, (uint8_t)alpha));
+            ++layered;
+        }
+        const uint32_t flags = (transparent ? DGX_VSCREEN_TRANSPARENT : 0) | DGX_VSCREEN_SCALE(n) | smooth_flag[smooth] | DGX_VSCREEN_ORIENTED(turn);
+        dgx_vscreen_region_to_screen(self, x, y, self, rx, ry, rw, rh, flags);
+        dgx_vscreen_region_to_screen(dst, x, y, copy, rx, ry, rw, rh, flags);
+        int wrong = 0, changed = 0;
+        for (int i = 0; i < width * height; ++i) {
+            const uint32_t got = dgx_get_pixel(self, i % width, i / width);
+            wrong += got != dgx_get_pixel(dst, i % width, i / width);
+            changed += got != dgx_get_pixel(copy, i % width, i / width);
+        }
+        if (wrong) {
+            fprintf(stderr, "onto itself: kind %d width %d transparent %d layer %d n %d smooth %d turn %u region %d,%d %dx%d to %d,%d: %d wrong\n", kind, width,
+                    transparent, layer != NULL, n, smooth, turn, rx, ry, rw, rh, x, y, wrong);
+            ++check_failures;
+        }
+        if (changed) ++*(n > 1 || turn ? &larger : x != rx || y != ry ? &moved : &plain);
+        dgx_screen_destroy(&self), dgx_screen_destroy(&dst), dgx_screen_destroy(&copy);
+        dgx_screen_destroy(&layer), dgx_screen_destroy(&layer_too);
+    }
+    CHECK(moved > 3000 && larger > 600 && layered > 200);
 }
 
 int main(void)
@@ -465,5 +578,7 @@ int main(void)
     test_pages();
     test_old_calls();
     test_far();
+    test_no_buffer();
+    test_onto_itself();
     CHECK_DONE();
 }

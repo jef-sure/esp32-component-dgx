@@ -168,8 +168,71 @@ static void check_steps(const dgx_point_2d_t *p, int count, int pieces, int widt
     dgx_screen_destroy(&before);
 }
 
+/* a soft pen as wide as a large screen: the squares of the ways to the corners of its box do not overflow under UBSan */
+static void test_wide_pen(void)
+{
+    dgx_screen_t *big = dgx_vscreen_init(1200, 1200, 8, DgxScreenRGB);
+    for (int width = 1000; width <= 1300; width += 100) {
+        const dgx_point_2d_t dot[3] = {{600, 600}, {600, 600}, {601, 600}};
+        dgx_fill_rectangle(big, 0, 0, 1200, 1200, 0);
+        dgx_draw_bezier3(big, dot, 0, DGX_PEN_SOFT | width, 255);
+        /* the middle is inked, the corners of the screen lie outside the disc */
+        CHECK(dgx_get_pixel(big, 600, 600) == 255 && dgx_get_pixel(big, 0, 0) == 0 && dgx_get_pixel(big, 1199, 1199) == 0);
+    }
+    dgx_screen_destroy(&big);
+}
+
+/*
+ * A curve whose control point stands on an end, so that it leaves the end
+ * standing still: the pen is all ink at the end, as deep as a pixel inside
+ * its edge. The joint after the still start once drew no disc and left a
+ * pixel of the pen out.
+ */
+static void test_still_ends(void)
+{
+    dgx_screen_t              *s     = dgx_vscreen_init(60, 50, 8, DgxScreenRGB);
+    static const dgx_point_2d_t found[3] = {{36, 32}, {36, 32}, {30, 34}};
+    dgx_draw_bezier3(s, found, 0, DGX_PEN_SOFT | 7, 255);
+    CHECK(dgx_get_pixel(s, 34, 31) == 255);
+    dgx_screen_destroy(&s);
+    uint32_t seed = 7;
+#define RND(from, to) (seed = seed * 1664525u + 1013904223u, (from) + (int)((seed >> 8) % (uint32_t)((to) - (from) + 1)))
+    s = soft_screen();
+    for (int round = 0; round < 4000; ++round) {
+        const int      width = RND(2, 12), last = RND(2, 3);
+        dgx_point_2d_t p[4];
+        p[0].x = (int16_t)RND(30, 110), p[0].y = (int16_t)RND(30, 110);
+        p[1] = p[0];
+        for (int i = 2; i <= last; ++i) p[i].x = (int16_t)(p[0].x + RND(-25, 25)), p[i].y = (int16_t)(p[0].y + RND(-25, 25));
+        if (RND(0, 1)) {
+            /* the still end last */
+            const dgx_point_2d_t still = p[0];
+            p[0] = p[last], p[last] = p[last - 1] = still;
+        }
+        dgx_fill_rectangle(s, 0, 0, W, H, 0);
+        if (last == 3) dgx_draw_bezier4(s, p, 0, DGX_PEN_SOFT | width, 255);
+        else dgx_draw_bezier3(s, p, 0, DGX_PEN_SOFT | width, 255);
+        const float half = width & 1 ? 0 : 0.5f, r = width * 0.5f;
+        int         holes = 0;
+        for (int e = 0; e <= last; e += last) {
+            const float cx = p[e].x + half, cy = p[e].y + half;
+            for (int y = (int)(cy - r) - 1; y <= (int)(cy + r) + 1; ++y)
+                for (int x = (int)(cx - r) - 1; x <= (int)(cx + r) + 1; ++x) holes += hypotf(x - cx, y - cy) < r - 1 && dgx_get_pixel(s, x, y) < 250;
+        }
+        if (holes) {
+            fprintf(stderr, "still end: %d points, width %d, (%d,%d) (%d,%d) (%d,%d): %d pixels short of ink\n", last + 1, width, p[0].x, p[0].y,
+                    p[1].x, p[1].y, p[last].x, p[last].y, holes);
+            ++check_failures;
+        }
+    }
+#undef RND
+    dgx_screen_destroy(&s);
+}
+
 int main(void)
 {
+    test_wide_pen();
+    test_still_ends();
     static const dgx_point_2d_t cubics[][4] = {
         {{42, 64}, {21, 122}, {83, 75}, {40, 79}},    /* a tight turn */
         {{20, 100}, {130, 20}, {10, 20}, {120, 100}}, /* a loop */

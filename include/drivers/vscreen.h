@@ -55,7 +55,13 @@ dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src);
  * DGX_VSCREEN_EXACT, which is for a table of colors.
  */
 
-/** A pixel of value 0, an index 0 through a table, is not put: what the destination has there stays. `true` is this flag. */
+/**
+ * A pixel of value 0, an index 0 through a table, is not put: what the
+ * destination has there stays. `true` is this flag. Smoothed, it is the
+ * pixels of the larger picture that are left out where they are 0: 0 is
+ * smoothed as any other value, so the outline of a sprite against its
+ * holes is smoothed too, and a corner next to a hole may become one.
+ */
 #define DGX_VSCREEN_TRANSPARENT 1u
 /**
  * Through a table: the colors of the table and no others. Without it a
@@ -77,7 +83,8 @@ dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src);
  */
 #define DGX_VSCREEN_SMOOTH 4u
 /**
- * The same by Scale2xSFX and Scale3xSFX (Sp00kyFox, 2015): a corner is not
+ * The same by Scale2xSFX and Scale3xSFX (Sp00kyFox, 2015), DGX_VSCREEN_SMOOTH
+ * and a bit of its own: a corner is not
  * filled where its diagonal through the pixel goes on as a thin line of
  * one pixel, which plain Scale2x thickens with lumps, and Scale3xSFX fills
  * the corners of edges at 45 degrees more evenly. It looks two pixels
@@ -86,11 +93,11 @@ dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src);
 #define DGX_VSCREEN_SMOOTH_SFX 0x0cu
 /**
  * Every pixel of the source as a square of @p n by @p n pixels of the
- * destination, @p n from 1 to 255; 0 and 1 are the same as no scale. A
- * 320x200 picture of a game is shown on a 1280x800 display with
- * DGX_VSCREEN_SCALE(4). The pixels are repeated, not mixed.
+ * destination, @p n from 1 to 255; 0 and 1 are the same as no scale, and
+ * more than 255 is 255. A 320x200 picture of a game is shown on a 1280x800
+ * display with DGX_VSCREEN_SCALE(4). The pixels are repeated, not mixed.
  */
-#define DGX_VSCREEN_SCALE(n) (((uint32_t)(n) & 0xffu) << 8)
+#define DGX_VSCREEN_SCALE(n) ((uint32_t)(n) > 255u ? 0xff00u : ((uint32_t)(n) & 0xffu) << 8)
 /**
  * The picture turned or mirrored on the destination, @p o a
  * dgx_output_orientation_t: with DgxOutputRotate90CW the left column of the
@@ -213,13 +220,24 @@ bool dgx_vscreen_copy(dgx_screen_t *_scr_dst, dgx_screen_t *_scr_src);
  * The calls of release 0.6 and before, kept for the programs written for
  * them: dgx_vscreen_to_screen() and dgx_vscreen_region_to_screen() without
  * flags get 0, and dgx_vscreen_to_vscreen() is dgx_vscreen_to_screen() with
- * DGX_VSCREEN_TRANSPARENT or without it.
+ * DGX_VSCREEN_TRANSPARENT or without it. The call is chosen by the number of
+ * its arguments; any other number does not build.
  */
-#define DGX_VSCREEN_TO_SCREEN_(dst, x, y, src, flags, ...) dgx_vscreen_to_screen(dst, x, y, src, flags)
-#define dgx_vscreen_to_screen(...)                         DGX_VSCREEN_TO_SCREEN_(__VA_ARGS__, 0u, ~)
-#define DGX_VSCREEN_REGION_TO_SCREEN_(dst, x, y, src, x_src, y_src, width, height, flags, ...) \
-    dgx_vscreen_region_to_screen(dst, x, y, src, x_src, y_src, width, height, flags)
-#define dgx_vscreen_region_to_screen(...) DGX_VSCREEN_REGION_TO_SCREEN_(__VA_ARGS__, 0u, ~)
+#define DGX_VSCREEN_PICK5_(_1, _2, _3, _4, _5, _6, _7, _8, _9, name, ...) name
+#define DGX_VSCREEN_TO_SCREEN_4_(dst, x, y, src)                          dgx_vscreen_to_screen(dst, x, y, src, 0u)
+#define dgx_vscreen_to_screen(...)                                                                                                           \
+    DGX_VSCREEN_PICK5_(__VA_ARGS__, dgx_vscreen_to_screen_takes_4_or_5_arguments, dgx_vscreen_to_screen_takes_4_or_5_arguments,              \
+                       dgx_vscreen_to_screen_takes_4_or_5_arguments, dgx_vscreen_to_screen_takes_4_or_5_arguments, dgx_vscreen_to_screen,    \
+                       DGX_VSCREEN_TO_SCREEN_4_, dgx_vscreen_to_screen_takes_4_or_5_arguments, dgx_vscreen_to_screen_takes_4_or_5_arguments, \
+                       dgx_vscreen_to_screen_takes_4_or_5_arguments, dgx_vscreen_to_screen_takes_4_or_5_arguments)(__VA_ARGS__)
+#define DGX_VSCREEN_PICK9_(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, name, ...) name
+#define DGX_VSCREEN_REGION_TO_SCREEN_8_(dst, x, y, src, x_src, y_src, width, height) \
+    dgx_vscreen_region_to_screen(dst, x, y, src, x_src, y_src, width, height, 0u)
+#define DGX_VSCREEN_WRONG9_ dgx_vscreen_region_to_screen_takes_8_or_9_arguments
+#define dgx_vscreen_region_to_screen(...)                                                                                                            \
+    DGX_VSCREEN_PICK9_(__VA_ARGS__, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_,                              \
+                       dgx_vscreen_region_to_screen, DGX_VSCREEN_REGION_TO_SCREEN_8_, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_, \
+                       DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_)(__VA_ARGS__)
 #define dgx_vscreen_to_vscreen(dst, x, y, src, has_transparency) \
     dgx_vscreen_to_screen(dst, x, y, src, (has_transparency) ? DGX_VSCREEN_TRANSPARENT : 0u)
 

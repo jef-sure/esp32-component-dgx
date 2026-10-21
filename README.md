@@ -1494,7 +1494,7 @@ stubs and run under ASan/UBSan. A few pieces that do depend on the platform
 are tested there too, each against a model of what is on its wires: the
 8-bit parallel bus with both drivers of IDF under it, the ST7920 driver in
 all its orientations, the ILI9341 driver with the scroll of its panel, and
-the SSD1309 and SH1106 drivers against models of their controllers:
+the SSD1309, SH1106 and SSD1351 drivers against models of their controllers:
 
 ```sh
 make -C test/host

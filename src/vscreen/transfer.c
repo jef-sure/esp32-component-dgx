@@ -42,7 +42,8 @@ static dgx_transfer_asked_t dgx_transfer_asked(uint32_t flags)
     asked.transparent = (flags & DGX_VSCREEN_TRANSPARENT) != 0;
     asked.exact       = (flags & DGX_VSCREEN_EXACT) != 0;
     asked.scale       = (flags >> 8) & 0xffu ? (uint8_t)((flags >> 8) & 0xffu) : 1u;
-    asked.smooth      = asked.scale < 2 || asked.scale > 4 ? 0 : flags & 8u ? DGX_BUS_SMOOTH_SFX : flags & DGX_VSCREEN_SMOOTH ? DGX_BUS_SMOOTH : 0;
+    /* SFX is a way of smoothing: its bit means nothing without DGX_VSCREEN_SMOOTH, which DGX_VSCREEN_SMOOTH_SFX holds */
+    asked.smooth      = asked.scale < 2 || asked.scale > 4 || !(flags & DGX_VSCREEN_SMOOTH) ? 0 : flags & 8u ? DGX_BUS_SMOOTH_SFX : DGX_BUS_SMOOTH;
     asked.turn        = (uint8_t)((flags >> 16) & 7u);
     return asked;
 }
@@ -61,34 +62,19 @@ typedef struct {
     uint8_t scale, turn;
 } dgx_transfer_place_t;
 
-/*
- * A coordinate kept within 2^21 either way: the end of a region, its start
- * and its width added, times a scale of up to 255, and what the place adds
- * to it stay within an int. Farther off is off any screen.
- */
-static inline int dgx_transfer_near(int v)
+/* the same as dgx_transfer_place_far() below, in an int for coordinates near enough: a small sprite put many times costs less so */
+static inline bool dgx_transfer_place_near(const dgx_screen_t *dst, const dgx_screen_t *src, int x, int y, int x_src, int y_src, int width,
+                                           int height, const dgx_transfer_asked_t *asked, dgx_transfer_place_t *place)
 {
-    return v < -(1 << 21) ? -(1 << 21) : v > (1 << 21) ? (1 << 21) : v;
-}
-
-static bool dgx_transfer_place(const dgx_screen_t *dst, const dgx_screen_t *src, int x, int y, int x_src, int y_src, int width, int height,
-                               const dgx_transfer_asked_t *asked, dgx_transfer_place_t *place)
-{
-    if (width <= 0 || height <= 0) return false;
-    x_src = dgx_transfer_near(x_src), y_src = dgx_transfer_near(y_src), width = dgx_transfer_near(width), height = dgx_transfer_near(height);
     const int  n = asked->scale, wide = src->width * n, high = src->height * n;
     const bool swapped = asked->turn & 4u;
-    /* the region in the larger picture, along its columns and along its rows, counted the way the turn takes them */
-    const int c0 = x_src * n, c1 = (x_src + width) * n, r0 = y_src * n, r1 = (y_src + height) * n;
-    const int cl = asked->turn & 1u ? wide - c1 : c0, ch = asked->turn & 1u ? wide - c0 : c1;
-    const int rl = asked->turn & 2u ? high - r1 : r0, rh = asked->turn & 2u ? high - r0 : r1;
-    /* the rectangle in the turned picture, and as much of it as that has */
-    const int ul = swapped ? rl : cl, uh = swapped ? rh : ch, vl = swapped ? cl : rl, vh = swapped ? ch : rh;
-    const int tw = swapped ? high : wide, th = swapped ? wide : high;
-    x = dgx_transfer_near(x), y = dgx_transfer_near(y);
-    int left = x + ((ul > 0 ? ul : 0) - ul), right = x + ((uh < tw ? uh : tw) - ul);
-    int top = y + ((vl > 0 ? vl : 0) - vl), bottom = y + ((vh < th ? vh : th) - vl);
-    /* and of the destination */
+    const int  c0 = x_src * n, c1 = (x_src + width) * n, r0 = y_src * n, r1 = (y_src + height) * n;
+    const int  cl = asked->turn & 1u ? wide - c1 : c0, ch = asked->turn & 1u ? wide - c0 : c1;
+    const int  rl = asked->turn & 2u ? high - r1 : r0, rh = asked->turn & 2u ? high - r0 : r1;
+    const int  ul = swapped ? rl : cl, uh = swapped ? rh : ch, vl = swapped ? cl : rl, vh = swapped ? ch : rh;
+    const int  tw = swapped ? high : wide, th = swapped ? wide : high;
+    int        left = x + ((ul > 0 ? ul : 0) - ul), right = x + ((uh < tw ? uh : tw) - ul);
+    int        top = y + ((vl > 0 ? vl : 0) - vl), bottom = y + ((vh < th ? vh : th) - vl);
     if (left < 0) left = 0;
     if (top < 0) top = 0;
     if (right > dst->width) right = dst->width;
@@ -99,6 +85,59 @@ static bool dgx_transfer_place(const dgx_screen_t *dst, const dgx_screen_t *src,
     place->wide = wide, place->high = high;
     place->scale = asked->scale, place->turn = asked->turn;
     return true;
+}
+
+/*
+ * Counted in 64 bits: a region or a place however far off is cut where it is,
+ * and nothing overflows on the way. Out of line, as only a far one comes
+ * here: inlined, it made the usual place of a small sprite slower on the
+ * ESP32.
+ */
+static __attribute__((noinline)) bool dgx_transfer_place_far(const dgx_screen_t *dst, const dgx_screen_t *src, int x, int y, int x_src, int y_src,
+                                                             int width, int height, const dgx_transfer_asked_t *asked, dgx_transfer_place_t *place)
+{
+    const int64_t n = asked->scale, wide = (int64_t)src->width * n, high = (int64_t)src->height * n;
+    const bool    swapped = asked->turn & 4u;
+    /* the region in the larger picture, along its columns and along its rows, counted the way the turn takes them */
+    const int64_t c0 = (int64_t)x_src * n, c1 = ((int64_t)x_src + width) * n, r0 = (int64_t)y_src * n, r1 = ((int64_t)y_src + height) * n;
+    const int64_t cl = asked->turn & 1u ? wide - c1 : c0, ch = asked->turn & 1u ? wide - c0 : c1;
+    const int64_t rl = asked->turn & 2u ? high - r1 : r0, rh = asked->turn & 2u ? high - r0 : r1;
+    /* the rectangle in the turned picture, and as much of it as that has */
+    const int64_t ul = swapped ? rl : cl, uh = swapped ? rh : ch, vl = swapped ? cl : rl, vh = swapped ? ch : rh;
+    const int64_t tw = swapped ? high : wide, th = swapped ? wide : high;
+    int64_t       left = x + ((ul > 0 ? ul : 0) - ul), right = x + ((uh < tw ? uh : tw) - ul);
+    int64_t       top = y + ((vl > 0 ? vl : 0) - vl), bottom = y + ((vh < th ? vh : th) - vl);
+    /* and of the destination */
+    if (left < 0) left = 0;
+    if (top < 0) top = 0;
+    if (right > dst->width) right = dst->width;
+    if (bottom > dst->height) bottom = dst->height;
+    if (right <= left || bottom <= top) return false;
+    place->x = (int)left, place->y = (int)top, place->w = (int)(right - left), place->h = (int)(bottom - top);
+    place->u = (int32_t)(ul + (left - x)), place->v = (int32_t)(vl + (top - y));
+    place->wide = (int32_t)wide, place->high = (int32_t)high;
+    place->scale = asked->scale, place->turn = asked->turn;
+    return true;
+}
+
+/* in the call itself, the far place out of line: a small sprite put many times does not pay for a call */
+static inline __attribute__((always_inline)) bool dgx_transfer_place(const dgx_screen_t *dst, const dgx_screen_t *src, int x, int y, int x_src,
+                                                                     int y_src, int width, int height, const dgx_transfer_asked_t *asked,
+                                                                     dgx_transfer_place_t *place)
+{
+    if (width <= 0 || height <= 0) return false;
+    /*
+     * Coordinates within 2^21 either way: the end of a region, its start and
+     * its width added, times a scale of up to 255, and what the place adds to
+     * it stay within an int. Moved up by 2^21, each such one is below 2^22,
+     * and so is what they make together bit by bit: one test, which the
+     * usual place passes.
+     */
+    const uint32_t near = 1u << 21;
+    const uint32_t all  = ((uint32_t)x + near) | ((uint32_t)y + near) | ((uint32_t)x_src + near) | ((uint32_t)y_src + near) |
+                         ((uint32_t)width + near) | ((uint32_t)height + near);
+    if (__builtin_expect(all < 2u * near, 1)) return dgx_transfer_place_near(dst, src, x, y, x_src, y_src, width, height, asked, place);
+    return dgx_transfer_place_far(dst, src, x, y, x_src, y_src, width, height, asked, place);
 }
 
 static inline bool dgx_transfer_virtual(const dgx_screen_t *scr)
@@ -273,6 +312,47 @@ static void dgx_transfer_copy_holes(uint8_t *restrict to, const uint8_t *restric
 }
 
 /*
+ * n pixels of a row put, the pixels from x on of the row y of the
+ * destination: those of value 0 left out when transparent, the overlay
+ * layer of a 16-bit screen mixed in when there is one.
+ */
+static void dgx_transfer_row(uint8_t *restrict to, const uint8_t *restrict from, int n, uint8_t bytes, bool transparent,
+                             const dgx_bus_overlay_t *over, int x, int y)
+{
+    if (!over) {
+        if (transparent) dgx_transfer_copy_holes(to, from, n, bytes);
+        else memcpy(to, from, (size_t)n * bytes);
+        return;
+    }
+    for (int c = 0; c < n; ++c, from += 2, to += 2) {
+        const uint16_t color = (uint16_t)(from[0] << 8 | from[1]);
+        if (transparent && !color) continue;
+        const uint16_t mixed = dgx_overlay_pixel(over, x + c, y, color);
+        to[0] = (uint8_t)(mixed >> 8), to[1] = (uint8_t)mixed;
+    }
+}
+
+/*
+ * The same along one row of a screen put onto itself, where its pixels
+ * would be read after they are put: they go through a copy a piece at a
+ * time, from the end of the row they move towards.
+ */
+static void dgx_transfer_row_onto_itself(uint8_t *to, const uint8_t *from, int n, uint8_t bytes, bool transparent, const dgx_bus_overlay_t *over,
+                                         int x, int y)
+{
+    uint8_t    copy[256];
+    const int  piece = (int)sizeof(copy) / 4; /* pixels of up to four bytes */
+    const bool back  = to > from;
+    for (int done = 0; done < n;) {
+        const int k  = n - done < piece ? n - done : piece;
+        const int at = back ? n - done - k : done;
+        memcpy(copy, from + (size_t)at * bytes, (size_t)k * bytes);
+        dgx_transfer_row(to + (size_t)at * bytes, copy, k, bytes, transparent, over, x + at, y);
+        done += k;
+    }
+}
+
+/*
  * The source as it is, its pixel (u, v) at the corner of the rectangle. A
  * display whose bus takes rows of memory gets them so; one behind a window
  * gets them through the halves; a virtual screen of whole bytes a pixel is
@@ -304,27 +384,25 @@ static bool dgx_transfer_as_it_is(dgx_screen_t *dst, const dgx_transfer_place_t 
     }
     if (rows && dgx_vscreen_is_linear(dst)) {
         dgx_vscreen_t *scr_dst = (dgx_vscreen_t *)dst;
-        const size_t   from_pitch = (size_t)src->width * bytes, to_pitch = (size_t)dst->width * bytes;
-        const uint8_t *from_row   = DGX_VSCR_PTR(scr_src, DGX_VSCR_OFFSET(scr_src, sx, sy));
-        uint8_t       *to_row     = DGX_VSCR_PTR(scr_dst, DGX_VSCR_OFFSET(scr_dst, p->x, p->y));
-        for (int r = 0; r < p->h; ++r, from_row += from_pitch, to_row += to_pitch) {
-            const uint8_t *from = from_row;
-            uint8_t       *to   = to_row;
-            if (over) {
-                /* a 16-bit screen under a layer */
-                for (int c = 0; c < p->w; ++c, from += 2, to += 2) {
-                    const uint16_t color = (uint16_t)(from[0] << 8 | from[1]);
-                    if (transparent && !color) continue;
-                    const uint16_t mixed = dgx_overlay_pixel(over, p->x + c, p->y + r, color);
-                    to[0] = (uint8_t)(mixed >> 8), to[1] = (uint8_t)mixed;
-                }
-            } else if (transparent) {
-                dgx_transfer_copy_holes(to, from, p->w, bytes);
-            } else if (dst == src) {
-                memmove(to, from, (size_t)p->w * bytes);
-            } else {
+        /*
+         * A screen put onto itself further down goes from its last row up, so
+         * that no row is read after it is put; put onto the same rows, every
+         * row moves along itself.
+         */
+        const bool      up = dst == src && p->y > sy, along = dst == src && p->y == sy;
+        const int       first = up ? p->h - 1 : 0, dy = up ? -1 : 1;
+        const ptrdiff_t from_step = dy * (ptrdiff_t)src->width * bytes, to_step = dy * (ptrdiff_t)dst->width * bytes;
+        const uint8_t  *from_row = DGX_VSCR_PTR(scr_src, DGX_VSCR_OFFSET(scr_src, sx, sy + first));
+        uint8_t        *to_row   = DGX_VSCR_PTR(scr_dst, DGX_VSCR_OFFSET(scr_dst, p->x, p->y + first));
+        for (int k = 0, y = p->y + first; k < p->h; ++k, y += dy, from_row += from_step, to_row += to_step) {
+            if (!transparent && !over) {
                 /* memmove() of the ESP32 goes a byte at a time, memcpy() by words */
-                memcpy(to, from, (size_t)p->w * bytes);
+                if (along) memmove(to_row, from_row, (size_t)p->w * bytes);
+                else memcpy(to_row, from_row, (size_t)p->w * bytes);
+            } else if (along) {
+                dgx_transfer_row_onto_itself(to_row, from_row, p->w, bytes, transparent, over, p->x, y);
+            } else {
+                dgx_transfer_row(to_row, from_row, p->w, bytes, transparent, over, p->x, y);
             }
         }
         return true;
@@ -336,6 +414,26 @@ static bool dgx_transfer_as_it_is(dgx_screen_t *dst, const dgx_transfer_place_t 
      */
     const int     x = p->x, y = p->y, w = p->w, h = p->h;
     const uint8_t bits = src->color_bits;
+    if (dst == src) {
+        /*
+         * A screen put onto itself, read through its calls as it is not rows
+         * of whole bytes: from the side the rectangle moves to, its rows from
+         * the bottom when it moves down and a row from the right when it moves
+         * right, so that no pixel is read after it is put.
+         */
+        const bool up = y > sy, back = y == sy && x > sx;
+        for (int k = 0; k < h; ++k) {
+            const int r = up ? h - 1 - k : k;
+            for (int j = 0; j < w; ++j) {
+                const int c     = back ? w - 1 - j : j;
+                uint32_t  color = src->get_pixel(src, sx + c, sy + r);
+                if (transparent && !color) continue;
+                if (over) color = dgx_overlay_pixel(over, x + c, y + r, (uint16_t)color);
+                dst->set_pixel(dst, x + c, y + r, color);
+            }
+        }
+        return true;
+    }
     for (int r = 0; r < h; ++r) {
         uint8_t *from = rows ? DGX_VSCR_PTR(scr_src, DGX_VSCR_OFFSET(scr_src, sx, sy + r)) : NULL;
         for (int c = 0; c < w; ++c) {
@@ -768,6 +866,46 @@ static void dgx_transfer_rows(dgx_screen_t *dst, const dgx_transfer_place_t *p, 
 /*  The calls                                                                */
 /* ------------------------------------------------------------------------- */
 
+/*
+ * A screen put onto itself made larger or turned would read rows it has
+ * already put. The part of it the place shows, with the pixels around it
+ * that smoothing looks at, is put aside into a screen of its own first, and
+ * the transfer is made from there. Returns false when the place does not
+ * cover any of that, and nothing needs to be put aside.
+ */
+static bool dgx_transfer_aside(dgx_screen_t *scr, int x_dst, int y_dst, int x_src, int y_src, int width, int height, uint32_t flags,
+                               const dgx_transfer_asked_t *asked, const dgx_transfer_place_t *p)
+{
+    /* the place along the columns and the rows of the larger picture, flipped back as the turn flipped them */
+    const bool swapped = p->turn & 4u;
+    int32_t    cl = swapped ? p->v : p->u, ch = cl + (swapped ? p->h : p->w);
+    int32_t    rl = swapped ? p->u : p->v, rh = rl + (swapped ? p->w : p->h);
+    if (p->turn & 1u) {
+        const int32_t f = cl;
+        cl = p->wide - ch, ch = p->wide - f;
+    }
+    if (p->turn & 2u) {
+        const int32_t f = rl;
+        rl = p->high - rh, rh = p->high - f;
+    }
+    /* in pixels of the source, inside it */
+    const int32_t n = p->scale, reach = asked->smooth ? 2 : 0;
+    const int     x0 = cl / n - reach > 0 ? (int)(cl / n - reach) : 0, y0 = rl / n - reach > 0 ? (int)(rl / n - reach) : 0;
+    const int     x1 = (ch + n - 1) / n + reach < scr->width ? (int)((ch + n - 1) / n + reach) : scr->width;
+    const int     y1 = (rh + n - 1) / n + reach < scr->height ? (int)((rh + n - 1) / n + reach) : scr->height;
+    if (x1 <= p->x || p->x + p->w <= x0 || y1 <= p->y || p->y + p->h <= y0) return false;
+    dgx_screen_t *aside = dgx_vscreen_init(x1 - x0, y1 - y0, scr->color_bits, scr->rgb_order);
+    if (!aside) {
+        ESP_LOGE(TAG, "no memory to put aside %dx%d pixels of a screen put onto itself", x1 - x0, y1 - y0);
+        return true;
+    }
+    dgx_vscreen_region_to_screen(aside, 0, 0, scr, x0, y0, x1 - x0, y1 - y0, 0u);
+    /* the region where it now lies: every pixel of it lands where it would have, and what is not aside the place did not show */
+    dgx_vscreen_region_to_screen(scr, x_dst, y_dst, aside, x_src - x0, y_src - y0, width, height, flags);
+    dgx_screen_destroy(&aside);
+    return true;
+}
+
 void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width, int height,
                                   uint32_t flags)
 {
@@ -782,6 +920,8 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
     const dgx_transfer_asked_t asked = dgx_transfer_asked(flags);
     dgx_transfer_place_t       p;
     if (!dgx_transfer_place(_scr_dst, _scr_src, x_dst, y_dst, x_src, y_src, width, height, &asked, &p)) return;
+    if (_scr_dst == _scr_src && (p.scale > 1 || p.turn) && dgx_transfer_aside(_scr_dst, x_dst, y_dst, x_src, y_src, width, height, flags, &asked, &p))
+        return;
     /* the overlay layer of a 16-bit screen over the rectangle is mixed in on the way */
     const dgx_bus_overlay_t *over = _scr_dst->color_bits == 16 ? dgx_overlay_over(_scr_dst, p.x, p.y, p.x + p.w - 1, p.y + p.h - 1) : NULL;
     dgx_screen_progress_up(_scr_dst);
@@ -832,8 +972,8 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
     const dgx_bus_indexed_t picture = {
         .pixels      = scr_src->v_array,
         .pitch       = (uint32_t)_scr_src->width,
-        .width       = (uint16_t)_scr_src->width,
-        .height      = (uint16_t)_scr_src->height,
+        .width       = (uint32_t)_scr_src->width,
+        .height      = (uint32_t)_scr_src->height,
         .x           = (uint32_t)p.u,
         .y           = (uint32_t)p.v,
         .scale       = p.scale,
@@ -855,7 +995,8 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
         }
         /* the bus makes the colors itself and puts them its own faster way */
         if (!done && bus->write_indexed) done = bus->write_indexed(bus, (uint16_t)p.x, (uint16_t)p.y, (uint16_t)p.w, (uint16_t)p.h, &picture);
-        if (!done && upright_squares) {
+        /* through the halves of the buffer of the bus; a bus without one is given the pixels one at a time below */
+        if (!done && upright_squares && dgx_transfer_bus_takes(_scr_dst, 2)) {
             dgx_transfer8_upright_to_bus(_scr_dst, &p, &picture);
             done = true;
         }

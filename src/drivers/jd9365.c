@@ -63,9 +63,17 @@ static uint8_t *dgx_jd9365_adj_colmod(dgx_screen_with_bus_t *scr, const struct _
     return adj_data;
 }
 
+/*
+ * Bits 1..0 of the register hold the number of lanes minus one: 0x01 for two
+ * lanes, 0x03 for four. The Linux driver panel-jadard-jd9365da-h3 writes it
+ * so, and so did the init table of the board's own driver before it was
+ * edited for two lanes ("03->01"). That driver defines three and four lanes
+ * as 0x10 and 0x11, binary numbers written as hex. Only two lanes have been
+ * tried on a panel.
+ */
 static uint8_t *dgx_jd9365_adj_lanes(dgx_screen_with_bus_t *scr, const struct _dgx_lcd_init_cmd_t *init_cmd)
 {
-    static const uint8_t lanes[] = {0x00, 0x01, 0x10, 0x11};
+    static const uint8_t lanes[] = {0x00, 0x01, 0x02, 0x03};
     static uint8_t       adj_data[1];
     uint8_t              n = dgx_dsi_data_lanes(scr->bus);
     adj_data[0]            = n >= 1 && n <= 4 ? lanes[n - 1] : 0x01;
@@ -89,7 +97,7 @@ static const dgx_lcd_init_cmd_t jd9365_init_cmds[] = {
     {0xE1, 0, 1, 0, {0x93}}, //
     {0xE2, 0, 1, 0, {0x65}}, //
     {0xE3, 0, 1, 0, {0xF8}}, //
-    {JD9365_DSI_INT0, dgx_jd9365_adj_lanes, 1, 0, {0x01}}, // 00 - one lane, 01 - two, 10 - three, 11 - four
+    {JD9365_DSI_INT0, dgx_jd9365_adj_lanes, 1, 0, {0x01}}, // the number of lanes less one: 0x01 two lanes, 0x03 four
 
     // Page 1
     {JD9365_PAGE, 0, 1, 0, {0x01}}, //

@@ -3,7 +3,9 @@
 #include <string.h>
 
 #include "dgx_arch.h"
+#include "dgx_bits.h"
 #include "dgx_screen_functions.h"
+#include "dgx_spi_area_protocol.h"
 #include "drivers/dgx_lcd_init.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
@@ -86,6 +88,27 @@ static const dgx_lcd_init_cmd_t st_init_cmds[] = {
 
 // END OF COMMAND LIST
 
+/*
+ * swap_xy turns on the vertical increment of the address, by which the
+ * SSD1351 fills a column of the panel before the next one. Its window stays
+ * of panel columns and panel rows, unlike that of a controller of the display
+ * command set, which swaps it with the axes: a window of a turned screen goes
+ * with its columns and its rows swapped.
+ */
+static void dgx_ssd1351_set_area(dgx_screen_t *_scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
+{
+    dgx_screen_with_bus_t *scr = (dgx_screen_with_bus_t *)_scr;
+    if (left > right) DGX_INT_SWAP(left, right);
+    if (top > bottom) DGX_INT_SWAP(top, bottom);
+    /* a window off the screen is no window: what is sent into it must not land in the one before */
+    scr->area_void = left >= _scr->width || top >= _scr->height;
+    if (scr->area_void) return;
+    if (right > _scr->width - 1) right = _scr->width - 1;
+    if (bottom > _scr->height - 1) bottom = _scr->height - 1;
+    if (_scr->swap_xy) dgx_screen_with_bus_set_area_window(scr, top, bottom, left, right);
+    else dgx_screen_with_bus_set_area_window(scr, left, right, top, bottom);
+}
+
 // Initialize the display
 dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo) {
     // Attach the LCD to the SPI bus
@@ -120,6 +143,7 @@ dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t
     // Send all the commands
     dgx_lcd_init(&scr->base, st_init_cmds);
     dgx_scr_init_slow_bus_optimized_funcs((dgx_screen_t *)scr);
+    scr->base.scr.set_area = dgx_ssd1351_set_area;
     return (dgx_screen_t *)scr;
 }
 

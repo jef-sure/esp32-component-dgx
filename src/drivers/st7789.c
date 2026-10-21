@@ -175,10 +175,17 @@ void dgx_st7789_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_ori
     _scr->dir_y = dir_y;
     _scr->swap_xy = swap_xy;
     _scr->cg_row_shift = 0;
+    _scr->cg_col_shift = 0;
     if (dir_x == DgxScreenRightLeft) data[0] |= ST77XX_MADCTL_MX;
     if (dir_y == DgxScreenBottomTop) {
         data[0] |= ST77XX_MADCTL_MY;
-        _scr->cg_row_shift = 80;
+        /*
+         * The 240 rows of the glass are the last 240 of the 320 of the memory
+         * when the rows go up: the address that runs along them starts at 80,
+         * and with the axes swapped that is the column address.
+         */
+        if (swap_xy) _scr->cg_col_shift = 80;
+        else _scr->cg_row_shift = 80;
     }
     if (swap_xy) data[0] |= ST77XX_MADCTL_MV;
     if (scr->base.scr.rgb_order == DgxScreenBGR) data[0] |= ST77XX_MADCTL_BGR;

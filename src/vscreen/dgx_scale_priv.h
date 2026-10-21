@@ -53,7 +53,7 @@ typedef struct {
 typedef struct {
     const dgx_bus_indexed_t *picture; /* lines of indices: the picture */
     dgx_scale_source_t       source;  /* lines of values: the source */
-    uint16_t                 width, height;
+    uint32_t                 width, height;
     uint8_t                  scale;
     uint8_t                  smooth; /* 0 for squares, DGX_BUS_SMOOTH or DGX_BUS_SMOOTH_SFX; 0 at any scale but 2, 3 and 4 */
     uint8_t                  block;  /* the last pass makes so many lines from one line of the smaller picture: 2 or 3; `scale` for squares */

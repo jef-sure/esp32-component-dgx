@@ -286,6 +286,11 @@ void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
  * @brief Draws a thick line on the screen as a parallelogram of the given width,
  * with rounded/triangular caps at the endpoints.
  *
+ * An even width has no middle pixel: the spare one goes to the right of the
+ * way from (x1, y1) to (x2, y2), so the same line drawn the other way lies a
+ * pixel aside. Draw the lines of one figure in one direction. An odd width
+ * gives the same pixels either way.
+ *
  * @param scr The screen to draw on.
  * @param x1,y1 Line start.
  * @param x2,y2 Line end.

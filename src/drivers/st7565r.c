@@ -135,12 +135,12 @@ dgx_screen_t *dgx_st7565r_init(dgx_bus_protocols_t *bus, gpio_num_t rst)
 
     if (rst != GPIO_NUM_NC) {
         // Reset the display
-        gpio_set_direction(rst, GPIO_MODE_OUTPUT);
-        gpio_set_level(rst, 1);
+        dgx_gpio_set_direction(rst, GPIO_MODE_OUTPUT);
+        dgx_gpio_set_level(rst, 1);
         dgx_delay(10);
-        gpio_set_level(rst, 0);
+        dgx_gpio_set_level(rst, 0);
         dgx_delay(50);
-        gpio_set_level(rst, 1);
+        dgx_gpio_set_level(rst, 1);
         dgx_delay(200);
     }
     // Send all the commands

@@ -475,7 +475,7 @@ size_t dgx_scale_scratch(uint8_t scale, uint8_t smooth, uint32_t count, size_t b
     return l.spare + l.made + l.kept0 + l.kept1;
 }
 
-static void dgx_scale_begin(dgx_scale_lines_t *lines, size_t bytes, uint16_t width, uint16_t height, uint8_t scale, uint8_t smooth, bool along_y,
+static void dgx_scale_begin(dgx_scale_lines_t *lines, size_t bytes, uint32_t width, uint32_t height, uint8_t scale, uint8_t smooth, bool along_y,
                             int32_t from, uint32_t count, uint8_t *scratch)
 {
     dgx_scale_layout_t l;
@@ -522,7 +522,7 @@ void dgx_scale_values_begin(dgx_scale_lines_t *lines, const dgx_scale_source_t *
 {
     lines->picture = NULL;
     lines->source  = *source;
-    dgx_scale_begin(lines, 4, (uint16_t)source->screen->width, (uint16_t)source->screen->height, scale, smooth, along_y, from, count, scratch);
+    dgx_scale_begin(lines, 4, (uint32_t)source->screen->width, (uint32_t)source->screen->height, scale, smooth, along_y, from, count, scratch);
 }
 
 /* the values of the line c of a source, its points base .. base + len - 1 cut by `run`, the length of a line */

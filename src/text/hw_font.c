@@ -87,9 +87,11 @@ dgx_hw_pace_t dgx_hw_pace(dgx_font_t *font, float k)
     if (!font || font->f_type != DGX_FONT_HW || !font->hw) return pace;
     const glyph_t *hyphen = dgx_font_find_glyph('-', font, &advance);
     if (hyphen) {
+        /* the efforts of its strokes as they are: with the least being summed up each would be taken as at least the strokes before it */
+        const dgx_hw_pace_t as_is = {.piece = k, .least = 0};
         for (int i = 0; i < hyphen->hw->main_segments + hyphen->hw->post_segments; ++i) {
             int at = i < hyphen->hw->main_segments ? hyphen->hw->begin_connection : hyphen->hw->begin_connection + hyphen->hw->end_connection;
-            pace.least += dgx_hw_element_effort(&hyphen->elements[at + i], &pace);
+            pace.least += dgx_hw_element_effort(&hyphen->elements[at + i], &as_is);
         }
     }
     if (!(pace.least > 0)) pace.least = font->hw->x_height * 2 / 3.0f;

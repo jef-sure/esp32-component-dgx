@@ -84,6 +84,29 @@ static int dgx_polygon4_intersection_x(int x0, int y0, int x1, int y1, int y)
     return x0 + (int)(((int64_t)(y - y0) * (x1 - x0)) / (y1 - y0));
 }
 
+/* which way the outline turns at vertex i: the sign of the cross product of the edge into it and the edge out of it */
+static int dgx_polygon4_turn(const int vx[4], const int vy[4], int i)
+{
+    const int     p = (i + 3) & 3, n = (i + 1) & 3;
+    const int64_t c = (int64_t)(vx[i] - vx[p]) * (vy[n] - vy[i]) - (int64_t)(vy[i] - vy[p]) * (vx[n] - vx[i]);
+    return c > 0 ? 1 : c < 0 ? -1 : 0;
+}
+
+/* the vertex a concave quadrilateral turns the other way at, or -1 when the quadrilateral has none */
+static int dgx_polygon4_reflex(const int vx[4], const int vy[4])
+{
+    int turns[4], positive = 0, negative = 0;
+    for (int i = 0; i < 4; ++i) {
+        turns[i] = dgx_polygon4_turn(vx, vy, i);
+        positive += turns[i] > 0, negative += turns[i] < 0;
+    }
+    const int odd = positive >= 2 && negative == 1 ? -1 : negative >= 2 && positive == 1 ? 1 : 0;
+    for (int i = 0; odd && i < 4; ++i) {
+        if (turns[i] == odd) return i;
+    }
+    return -1;
+}
+
 void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3,
                              uint32_t color)
 {
@@ -91,6 +114,22 @@ void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
     int vy[4] = {y0, y1, y2, y3};
     int dirty_top = DGX_MIN(DGX_MIN(y0, y1), DGX_MIN(y2, y3));
     int dirty_bottom = DGX_MAX(DGX_MAX(y0, y1), DGX_MAX(y2, y3));
+
+    /*
+     * A concave quadrilateral is two triangles on either side of the diagonal
+     * from the vertex it turns the other way at: that diagonal lies inside it.
+     * The rows below take an outline with one bottom only, which a concave
+     * one need not have: two tips side by side would be joined across the gap.
+     */
+    const int reflex = dgx_polygon4_reflex(vx, vy);
+    if (reflex >= 0) {
+        const int a = (reflex + 1) & 3, b = (reflex + 2) & 3, c = (reflex + 3) & 3;
+        dgx_screen_progress_up(scr);
+        dgx_draw_triangle_solid(scr, vx[reflex], vy[reflex], vx[a], vy[a], vx[b], vy[b], color);
+        dgx_draw_triangle_solid(scr, vx[reflex], vy[reflex], vx[b], vy[b], vx[c], vy[c], color);
+        dgx_screen_progress_down(scr);
+        return;
+    }
 
     dgx_screen_progress_up(scr);
     for (int y = dirty_top; y <= dirty_bottom; ++y) {

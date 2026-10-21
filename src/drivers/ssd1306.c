@@ -106,7 +106,13 @@ void dgx_ssd1306_update_screen(dgx_screen_t *scr_, int left, int right, int top,
     if (bottom >= scr_->height) bottom = scr_->height - 1;
     uint8_t page_s    = (uint16_t)top >> 3;
     uint8_t page_e    = (uint16_t)bottom >> 3;
-    uint8_t seg_shift = (128 - scr_->width) >> 1;
+    /*
+     * The first of the 128 segments the glass is wired to, with the segments
+     * remapped as the init commands have them: a 64x48 and a 72x40 sit in the
+     * middle, a 96x16 starts at the first one, as Adafruit_SSD1306 and u8g2
+     * address them.
+     */
+    uint8_t seg_shift = scr_->width == 96 ? 0 : (uint8_t)((128 - scr_->width) >> 1);
     uint8_t clo       = left + seg_shift;
     uint8_t chi       = right + seg_shift;
     uint8_t crset[6]  = {

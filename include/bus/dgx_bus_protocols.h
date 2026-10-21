@@ -129,8 +129,8 @@ static inline uint16_t dgx_bus_overlay_mix(uint16_t color, uint32_t pre, uint32_
 typedef struct {
     const uint8_t  *pixels;      /*!< the whole picture, row after row */
     uint32_t        pitch;       /*!< bytes from a row to the next one */
-    uint16_t        width;       /*!< of the whole picture */
-    uint16_t        height;
+    uint32_t        width;       /*!< of the whole picture */
+    uint32_t        height;
     uint32_t        x;           /*!< where the pixel (left, top) of the rectangle lies in the picture made `scale` times as large and turned */
     uint32_t        y;
     uint8_t         scale;       /*!< 1 to 255 */

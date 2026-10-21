@@ -170,7 +170,8 @@ static inline uint8_t bit_reverse(uint8_t b)
 
 #define DGX_RGB_12(r, g, b) ((((r) & 0xf0u) << 8) | (((g) & 0xf0u) << 4) | ((b) & 0xf0u))
 #define DGX_RGB_16(r, g, b) ((((r) & 0xf8u) << 8) | (((g) & 0xfcu) << 3) | (((b) & 0xf8u) >> 3))
-#define DGX_RGB_18(r, g, b) ((((r) & 0xfcu) << 16) | (((g) & 0xfcu) << 10) | (((b) & 0xfcu) << 4))
+/* 18 bits go as three bytes, each channel in the high six bits of its own byte, as the panels take them */
+#define DGX_RGB_18(r, g, b) ((((r) & 0xfcu) << 16) | (((g) & 0xfcu) << 8) | ((b) & 0xfcu))
 #define DGX_RGB_24(r, g, b) (((r) << 16) | ((g) << 8) | (b))
 
 #define DGX_R_FROM_12(value) ((uint8_t)(((value) >> 8) & 0xf0u))

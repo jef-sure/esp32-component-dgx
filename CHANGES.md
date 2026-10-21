@@ -1,5 +1,126 @@
 # Changes
 
+## 0.7.1 - 2026-10-21
+
+Fixes from a review of 0.7.0. The changes to the SSD1351, ST7789, SSD1306,
+ST7565R, ST7920 and JD9365 drivers, to the I2C and P8 buses and to the
+disposal of a DSI bus have not been tried on hardware; the transfers, the
+pen and the smoothing were timed on a CYD and both P4 boards against 0.7.0.
+
+- **A virtual screen copied onto itself.** When `dgx_vscreen_region_to_screen()`
+  had one screen as both source and destination and the two rectangles
+  overlapped, the picture got smeared:
+  - a copy moved down read rows it had already overwritten;
+  - a transparent copy, or one under an overlay layer, smeared along the row
+    when moved right;
+  - a scaled or rotated copy read pixels it had just drawn.
+
+  A plain copy now runs from the side it moves towards, and a row that moves
+  along itself goes through a small buffer on the stack. A scaled or rotated
+  copy first copies the part of the screen it reads, with the two pixels
+  around it that smoothing looks at, into a temporary screen. A host test
+  compares such copies with copies from a duplicate of the screen, at every
+  depth, with holes, under an overlay layer, scaled and rotated.
+- **A missing pixel at a still end of a soft curve.** When a control point
+  lies on the first or last point of a curve, the curve starts or ends at
+  zero speed, and its pieces there are very short. At a nearly straight
+  joint the soft pen draws no disc and lets the two pieces meet; next to such
+  an end they could miss each other by a hair and leave a pixel inside the
+  stroke empty. The pieces now always overlap at such a joint. The host test
+  checks the case from the review and 4000 random curves with a still end.
+- **A soft pen over 1000 pixels wide** overflowed `int` in the squared
+  distance towards the corners of its bounding box. The sum is now unsigned.
+- **Concave quadrilaterals.** `dgx_draw_polygon4_solid()` filled a concave
+  quadrilateral as if it were convex, filling the gap between two tips that
+  stand side by side. It is now split into two triangles along the diagonal
+  from its reflex vertex. Convex ones are drawn as before. A host test checks
+  a chevron and random quadrilaterals against a point-in-polygon model.
+- **Textures with large coordinates.** `dgx_draw_texture_quad()` overflowed
+  `int` when checking a texture region with a huge width or height. It also
+  stepped every edge once more past the last row and at each vertex, and for
+  an edge that moves thousands of pixels sideways per row that extra step
+  left the 16.16 fixed-point range. A host test draws such quads under UBSan.
+- **A transfer whose region starts far outside the source.** 0.7.0 clamped
+  each coordinate to ±2^21 before placing a transfer, so a region that started
+  further out but reached into the source, or a place far off the screen
+  that reached onto it, was drawn in the wrong place or not at all. Such a
+  place is now worked out in 64 bits, without clamping. Coordinates within
+  ±2^21, the usual ones, are still worked out in an `int`, so a small sprite
+  put many times costs no more than before.
+- **An 8-bit transfer to a display whose bus has no buffer.**
+  `dgx_vscreen8_region_to_screen16()` filled the buffer of the bus without
+  checking that there was one. Such a display now gets the pixels one by
+  one.
+- **Flags.** `DGX_VSCREEN_SCALE(n)` above 255 now means 255; it used to keep
+  the low byte only, so 256 meant no scaling. The bit that
+  `DGX_VSCREEN_SMOOTH_SFX` adds to `DGX_VSCREEN_SMOOTH` no longer smooths on
+  its own. The header now says what `DGX_VSCREEN_TRANSPARENT` does with
+  smoothing: 0 is smoothed like any other value, so the outline against the
+  holes is smoothed too, and a corner next to a hole may become one.
+- **The 0.6 calls with a wrong number of arguments.** The macros that let
+  the 0.6 calls without flags still build, `dgx_vscreen_to_screen()` with
+  four arguments and `dgx_vscreen_region_to_screen()` with eight, silently
+  dropped extra arguments. Any number of arguments other than 4 or 5 (8 or
+  9 for the region) now fails to compile, and the error names the right
+  count.
+- **18-bit colors.** `DGX_RGB_18()` and `dgx_rgb_to_18()` put green and blue
+  in the wrong bits. An 18-bit pixel goes to the panel as three bytes, each
+  channel in the top six bits of its own byte, and screens store it so; the
+  macro packed the 18 bits next to each other instead, so every color with
+  green or blue in it came out wrong. The glow of morphs on 18-bit screens
+  used it too. A host test checks the bytes sent to the panel.
+- **I2C transfers no longer wait forever.** Every transfer passed no timeout
+  to the driver, so a missing display or a stuck bus hung the program. A
+  transfer now gives up and logs an error after four times the time its
+  bytes take at the bus clock, plus 20 ms. The unused `DGX_I2C_TIMEOUT` is
+  gone.
+- **P8 and I2C buses read nothing.** Their `read_data` cannot read the
+  display, but it returned the length asked for and zeroed part of the
+  buffer. It now returns 0 and leaves the buffer alone.
+- **The P8 bus and IDF 5.2.** It set `dma_burst_size`, which IDF 5.2 does
+  not have, although the component declares IDF 5.2 and later. With IDF 5.2
+  it now sets the same 64-byte DMA alignment through the fields that version
+  has, going by the headers of 5.2 and 5.3; a build with 5.2 itself has not
+  been tried.
+- **Disposing of a DSI bus** deleted the panel, and with it the frame
+  buffers, before stopping the copies that the 2D DMA makes into them after a
+  flip. Those copies are now stopped and waited for first.
+- **SSD1351 with the axes swapped.** The controller then fills the panel
+  column by column, but its address window still counts panel columns and
+  rows, while the driver set it as for a controller that swaps the window
+  with the axes. A rotated screen drew into the wrong window. The driver now
+  swaps the window itself; a host test checks it against a model of the
+  controller.
+- **ST7789 rotated with the rows going up.** The 80-line offset of a
+  240x240 panel went to the rows even with the axes swapped, where it
+  belongs to the columns, and the column offset of the previous orientation
+  was not cleared.
+- **SSD1306 96x16.** Its columns started at 16 instead of 0, where
+  Adafruit_SSD1306 and u8g2 address it.
+- **ST7565R reset.** The reset pin is set up the way the other drivers do
+  it, with its pad selected as a GPIO first.
+- **ST7920 without a reset pin** waits 50 ms before its first command: the
+  controller ignores commands for 40 ms after power-up, and the program may
+  start sooner.
+- **JD9365 with three or four lanes.** The lane count register got 0x10 and
+  0x11 for three and four lanes: binary numbers written as hex, copied from
+  the board's own driver. It holds the number of lanes minus one, so 0x02
+  and 0x03 are now written, as the Linux driver of the panel does. Two
+  lanes, as on the JC8012P4A1C, are unchanged.
+- **Handwriting pace.** `dgx_hw_pace()` takes the least effort of a stroke
+  from the font's hyphen. For a hyphen of several strokes it counted every
+  stroke after the first as at least the sum of those before it. A
+  one-stroke hyphen, as in font0ss, gives the same pace as before.
+- **Steadier speed on the ESP32-P4.** The functions of the library now start
+  on 16-byte boundaries on RISC-V chips. There, the time of a hot loop
+  depends on where it lies within 16 bytes: a change elsewhere in the
+  library moved the loop that enlarges an 8-bit picture by squares two bytes
+  further, and it took 14% longer on both P4 boards. Aligned, a function
+  keeps its loops in place whatever the code before it. It costs about 3 KB
+  of flash.
+- **Even-width thick lines** are now documented: `dgx_draw_line_thick()`
+  puts the spare pixel to the right of the direction of the line, so the
+  same line drawn the other way lies a pixel aside.
 ## 0.7.0 - 2026-10-21
 
 This release changes the transfer API. The calls of 0.6 without flags

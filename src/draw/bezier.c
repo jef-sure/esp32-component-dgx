@@ -492,9 +492,11 @@ static void dgx_stroke_disc(dgx_stroke_t *s, float cx, float cy, int d, const fl
         int off = off0, on_first = first_row, on_second = second_row;
         for (uint8_t *p = line + left, *stop = line + right; p <= stop; ++p, off += one, on_first += first_x, on_second += second_x) {
             if (on_first > 0 || on_second > 0) continue;
-            const int d2 = off * off + dy2;
+            /* towards the corners of the box the sum of the squares may not fit an int; past the edge it is not needed */
+            const uint32_t far = (uint32_t)(off * off) + (uint32_t)dy2;
+            if (far >= (uint32_t)out2) continue;
+            const int d2  = (int)far;
             int       ink = ink_all;
-            if (d2 >= out2) continue;
             if (d2 > in2) {
                 if (wide) {
                     const float more = (float)(d2 - mid2);
@@ -819,6 +821,8 @@ static void dgx_bezier_soft_to(dgx_bezier_t *b, bool whole, float target)
                         /* 1 / (1 + turn) = 1 / (2 - less), by the first terms of its series: the turn is little */
                         const float less = 1 - turn;
                         b->fore = edge * (side < 0 ? -side : side) * (0.5f + less * (0.25f + less * (0.125f + less * 0.0625f)));
+                        /* nearly straight, no disc is drawn: the bars still go over the seam, or a pixel on it is left out */
+                        if (b->fore < DGX_STROKE_SEAM) b->fore = DGX_STROKE_SEAM;
                     }
                 }
             }

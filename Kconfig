@@ -149,8 +149,8 @@ config DGX_HW_FONT_IN_IRAM
         put the font, and that changes from build to build. Code in IRAM
         is not read through the cache.
 
-        This takes 4.1 KB of IRAM for src/hw_font.c and the two functions
-        of src/font.c that find a glyph. Going through the strokes of a
+        This takes 4.1 KB of IRAM for src/text/hw_font.c and the two functions
+        of src/text/font.c that find a glyph. Going through the strokes of a
         text does not depend on the place of the font then, the drawing
         still does by half as much; see DGX_BEZIER_IN_IRAM.
 
@@ -164,7 +164,7 @@ config DGX_BEZIER_IN_IRAM
     depends on IDF_TARGET_ESP32
     default n
     help
-        The same for src/bezier.c, the hard pen and the soft one: 9.3 KB
+        The same for src/draw/bezier.c, the hard pen and the soft one: 9.3 KB
         of IRAM. The time of drawing a handwritten text does not depend on
         the place of the font then, within 2%. With DGX_HW_FONT_IN_IRAM
         too, 13.3 KB in all, neither the drawing nor the going through

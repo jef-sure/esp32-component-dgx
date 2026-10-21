@@ -133,6 +133,19 @@ int main(void)
         CHECK(fabsf(pace.least - (g->elements[0].length * 0.01f + 5 * g->elements[0].pieces)) < 0.001f);
     }
     CHECK(dgx_hw_pace(&tiny, 0).least == 58 * 2 / 3.0f);
+    {
+        /* a hyphen of two strokes, the longer first: the least effort is the sum of theirs, not more */
+        static const dgx_hw_element_t dash_elements[] = {
+            {DGX_HW_LINE, 1, 3000, 30, {{10, 150}, {40, 150}}},
+            {DGX_HW_LINE, 1, 1000, 10, {{45, 150}, {55, 150}}},
+        };
+        static const dgx_hw_symbol_t dash_symbol    = {0, 2, 0, 0, 45, -10, -9, 10, 55, 10, 55, 45, DGX_HW_NONE, DGX_HW_NONE, 50, 0, 5};
+        static const glyph_t         dash_glyph     = {{.elements = dash_elements, .hw = &dash_symbol}, 1, 45, 50, 0, -10};
+        static const glyph_array_t   dash_ranges[]  = {{'-', 1, &dash_glyph}, {0, 0, 0}};
+        static dgx_font_t            dash = {.glyph_ranges = dash_ranges, .yAdvance = 202, .f_type = DGX_FONT_HW, .number_of_ranges = 1, .hw = &tiny_hw};
+        CHECK(fabsf(dgx_hw_pace(&dash, 0).least - 40) < 0.001f);
+        CHECK(fabsf(dgx_hw_pace(&dash, 2).least - 44) < 0.001f);
+    }
     const char *text = "Ёжик, 15";
     n = strokes_of(font, text, true, s, 64);
     float sum = 0;

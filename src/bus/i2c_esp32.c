@@ -14,9 +14,18 @@
 
 #include "bus/dgx_i2c_esp32.h"
 
-#define DGX_I2C_TIMEOUT 10
-
 static const char TAG[] = "DGX I2C BUS";
+
+/*
+ * How long a transfer of so many bytes may take before the bus is taken to be
+ * stuck or the device missing: four times what the bytes take at the clock of
+ * the bus, and 20 ms more. Without a limit such a transfer waits forever.
+ */
+static int dgx_i2c_timeout_ms(const dgx_i2c_bus_t *bus, uint32_t bytes)
+{
+    const uint32_t hz = bus->clock_speed_hz > 0 ? (uint32_t)bus->clock_speed_hz : 100000u;
+    return (int)(20u + 4u * (bytes * 9000u / hz));
+}
 
 #define RCCHECK(exp, err)       \
     do {                        \
@@ -33,7 +42,7 @@ static void dgx_i2c_send_command(struct _dgx_bus_protocols_t *_bus, uint8_t cmd)
     uint8_t buffer[2];
     buffer[0] = bus->cmd_single;
     buffer[1] = cmd;
-    RCCHECK(i2c_master_transmit(bus->dev_handle, buffer, 2, -1), "dgx_i2c_send_command failed");
+    RCCHECK(i2c_master_transmit(bus->dev_handle, buffer, 2, dgx_i2c_timeout_ms(bus, 2)), "dgx_i2c_send_command failed");
 }
 
 static void dgx_i2c_send_commands(struct _dgx_bus_protocols_t *_bus, const uint8_t *cmds, uint32_t len)
@@ -52,7 +61,7 @@ static void dgx_i2c_send_commands(struct _dgx_bus_protocols_t *_bus, const uint8
     }
     _bus->buffer[0] = bus->cmd_stream;
     memcpy(&_bus->buffer[1], cmds, len);
-    RCCHECK(i2c_master_transmit(bus->dev_handle, _bus->buffer, len + 1, -1), "dgx_i2c_send_commands failed");
+    RCCHECK(i2c_master_transmit(bus->dev_handle, _bus->buffer, len + 1, dgx_i2c_timeout_ms(bus, len + 1)), "dgx_i2c_send_commands failed");
 }
 
 static void dgx_i2c_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
@@ -71,7 +80,7 @@ static void dgx_i2c_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *
     }
     _bus->buffer[0] = bus->data_stream;
     memcpy(&_bus->buffer[1], data, len);
-    RCCHECK(i2c_master_transmit(bus->dev_handle, _bus->buffer, len + 1, -1), "dgx_i2c_send_data failed");
+    RCCHECK(i2c_master_transmit(bus->dev_handle, _bus->buffer, len + 1, dgx_i2c_timeout_ms(bus, len + 1)), "dgx_i2c_send_data failed");
 }
 
 static void dgx_i2c_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
@@ -79,10 +88,11 @@ static void dgx_i2c_send_data_async(struct _dgx_bus_protocols_t *_bus, const uin
     dgx_i2c_send_data(_bus, data, len);
 }
 
+/* the display is not read through this bus: nothing is read, and the buffer is left as it was */
 static uint32_t dgx_i2c_read_data(struct _dgx_bus_protocols_t *_bus, uint8_t *data, uint32_t len)
 {
-    memset(data, 0, len / 8);
-    return len;
+    (void)_bus, (void)data, (void)len;
+    return 0;
 }
 
 static void dgx_i2c_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)

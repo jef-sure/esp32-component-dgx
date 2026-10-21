@@ -44,6 +44,16 @@ int main(void)
             }
         }
     }
+    /*
+     * An 18-bit pixel goes as three bytes, each channel in the high six bits
+     * of its own byte, as the panels take it over SPI and the parallel bus.
+     */
+    static const uint8_t rgb[][3] = {{255, 0, 0}, {0, 255, 0}, {0, 0, 255}, {255, 255, 255}, {0, 0, 0}, {0x12, 0x9f, 0x6b}, {3, 2, 1}};
+    for (size_t c = 0; c < sizeof(rgb) / sizeof(rgb[0]); ++c) {
+        uint8_t wire[3] = {0x55, 0x55, 0x55};
+        dgx_fill_buf_value(18, wire, 0, dgx_rgb_to_18(rgb[c][0], rgb[c][1], rgb[c][2]));
+        for (int k = 0; k < 3; ++k) CHECK(wire[k] == (rgb[c][k] & 0xfcu));
+    }
     /* a depth there is no layout for: nothing is written, nothing breaks */
     memset(at_once, 0x77, ROOM);
     dgx_fill_pixels(7, at_once + 8, 0, 100, 0x123456);

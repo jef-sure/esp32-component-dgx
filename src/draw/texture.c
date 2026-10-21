@@ -175,8 +175,13 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
         return;
     }
     if (dgx_color_points_to_bytes(scr->color_bits, 1) == 0) return; /* unsupported depth */
-    if (tx < 0 || ty < 0 || tx + tw > texture->width || ty + th > texture->height) {
+    if (tx < 0 || ty < 0 || tw > texture->width - tx || th > texture->height - ty) {
         ESP_LOGE(TAG, "texture region %d,%d %dx%d is outside the %dx%d texture", tx, ty, tw, th, texture->width, texture->height);
+        return;
+    }
+    /* 16.16 fixed point: a texture coordinate of 32768 and more does not fit */
+    if (tx + tw > INT16_MAX || ty + th > INT16_MAX) {
+        ESP_LOGE(TAG, "texture region is too large for 16.16 fixed point");
         return;
     }
 
@@ -198,9 +203,9 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
         if (quad[i].x > x_max) x_max = quad[i].x;
     }
     if (y_end < 0 || y_start >= scr->height || x_max < 0 || x_min >= scr->width) return;
-    /* 16.16 fixed point: a slope or a texture coordinate of 32768 and more does not fit */
-    if (x_max - x_min > INT16_MAX || tx + tw > INT16_MAX || ty + th > INT16_MAX) {
-        ESP_LOGE(TAG, "quad or texture region is too large for 16.16 fixed point");
+    /* nor a slope of 32768 pixels and more a row */
+    if (x_max - x_min > INT16_MAX) {
+        ESP_LOGE(TAG, "quad is too large for 16.16 fixed point");
         return;
     }
 
@@ -265,25 +270,29 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
         dgx_texture_edge_init(&e_next, &vertices[from_next], &vertices[v_next], y_start, y_start, y_end);
         for (int y = y_start; y <= y_end; ++y) {
             dgx_texture_span(&ctx, y, &e_prev, &e_next);
-            dgx_texture_edge_step(&e_prev);
-            dgx_texture_edge_step(&e_next);
+            /* no step past the last row or past a vertex: an edge that runs far aside in a row would leave the 16.16 range */
+            if (y == y_end) break;
             /*
              * Past a vertex the next edge of the chain takes over from the following scanline. Vertices on the
              * same scanline (a doubled one: a triangle passed as a quad) are skipped, an edge between them has no rows.
              */
-            if (y == vertices[v_prev].p.y && y < y_end) {
+            if (y == vertices[v_prev].p.y) {
                 do {
                     from_prev = v_prev;
                     v_prev    = DGX_QUAD_PREV(v_prev);
                 } while (y == vertices[v_prev].p.y);
                 dgx_texture_edge_init(&e_prev, &vertices[from_prev], &vertices[v_prev], y + 1, y_start, y_end);
+            } else {
+                dgx_texture_edge_step(&e_prev);
             }
-            if (y == vertices[v_next].p.y && y < y_end) {
+            if (y == vertices[v_next].p.y) {
                 do {
                     from_next = v_next;
                     v_next    = DGX_QUAD_NEXT(v_next);
                 } while (y == vertices[v_next].p.y);
                 dgx_texture_edge_init(&e_next, &vertices[from_next], &vertices[v_next], y + 1, y_start, y_end);
+            } else {
+                dgx_texture_edge_step(&e_next);
             }
         }
     }
