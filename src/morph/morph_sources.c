@@ -153,6 +153,35 @@ void dgx_morph_text_destroy(dgx_morph_text_t **text)
     *text = NULL;
 }
 
+/* a coordinate a part t of the way from a to b, to the nearest pixel */
+static int dgx_morph_symbol_step(int a, int b, float t)
+{
+    float d = (float)(b - a) * t;
+    return a + (int)(d < 0.0f ? d - 0.5f : d + 0.5f);
+}
+
+void dgx_morph_symbol_draw(const dgx_font_symbol_morph_t *morph, float t, dgx_morph_dot_func_t dot, void *user_data)
+{
+    if (!morph || !dot || morph->number_of_dots <= 0) return;
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    /* a glyph out of nothing comes out of its middle and lights up; one into nothing goes there and fades */
+    float   lit = morph->is_to_empty ? 1.0f - t : morph->is_from_empty ? t : 1.0f;
+    uint8_t intensity = (uint8_t)(255.0f * lit + 0.5f);
+    if (!intensity) return;
+    int            half = morph->scale / 2;
+    dgx_point_2d_t last = { 0 };
+    for (int i = 0; i < morph->number_of_dots; ++i) {
+        int x = dgx_morph_symbol_step(morph->m_start[i].x, morph->m_end[i].x, t) + half;
+        int y = dgx_morph_symbol_step(morph->m_start[i].y, morph->m_end[i].y, t) + half;
+        if (x < INT16_MIN || x > INT16_MAX || y < INT16_MIN || y > INT16_MAX) continue;
+        dgx_point_2d_t p = { .x = (int16_t)x, .y = (int16_t)y };
+        if (i && p.x == last.x && p.y == last.y) continue;
+        last = p;
+        dot(user_data, &p, intensity);
+    }
+}
+
 int64_t dgx_morph_text_duration_us(const dgx_morph_text_t *text, int64_t duration_us, int64_t stagger_us)
 {
     if (!text || !text->changed) return 0;

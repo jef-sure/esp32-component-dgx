@@ -569,6 +569,22 @@ dgx_matrix_destroy(&from);
 dgx_matrix_destroy(&to);
 ```
 
+In a dot font whose dots are listed in an order meant for morphing, such as
+`CasusDotView`, a glyph can also morph dot by dot: dot i of one glyph flies
+to dot i of the other, and the dots one glyph has more than the other go into
+its last dot or come out of it. Such a plan is made in pixels and drawn by the
+same renderers:
+
+```c
+// both glyphs at (x, y) of the glow's frame, a dot of cell x cell pixels
+dgx_font_symbol_morph_t *digit = dgx_font_make_morph_struct(CasusDotView(), '0', '2', x, y, x, y, cell);
+
+dgx_morph_symbol_draw(digit, dgx_morph_ease(DGX_MORPH_SMOOTHSTEP, t), dgx_morph_glow_dot, glow);
+dgx_morph_glow_present(glow, t, scr, left, top);
+
+dgx_font_make_morph_struct_destroy(&digit);
+```
+
 Examples: [examples/glyph_morph_demo](examples/glyph_morph_demo) (one large
 symbol, sized to the screen), [examples/morph_demo](examples/morph_demo)
 (words, letter by letter),
@@ -1132,7 +1148,7 @@ Declared in [include/dgx_font.h](include/dgx_font.h):
 | `dgx_font_string_bounds(str, font, ycorner, height)` | Measure a string; returns width, fills top offset and height. |
 | `dgx_font_find_glyph(codePoint, font, xAdvance)` | Look up a single glyph. |
 | `decodeUTF8next(chr, idx)` | Decode the next UTF-8 code point. |
-| `dgx_font_make_morph_struct(...)` / `dgx_font_make_morph_struct_destroy(...)` | Build/free a glyph-to-glyph morph descriptor for animation. |
+| `dgx_font_make_morph_struct(...)` / `dgx_font_make_morph_struct_destroy(...)` | Build/free a glyph-to-glyph morph descriptor for animation, dot i to dot i; drawn by `dgx_morph_symbol_draw()`. |
 | `dgx_bw_bitmap_foreach_set(bmap, func, user_data)` | From [include/dgx_bitmap.h](include/dgx_bitmap.h): iterate set pixels of a 1-bpp bitmap; zero bytes skip 8 pixels at once (LINES format). |
 | `dgx_font_<need>()` | A font made at build time for a need declared in CMake, from the generated `dgx_fonts.h`, together with `DGX_FONT_<NEED>_MADE`, `_PX`, `_MM`, `DGX_FONT_NEEDS(X)` and `DGX_FONTS_BOARD_*`; see [Fonts made at build time](#fonts-made-at-build-time). |
 
@@ -1226,7 +1242,8 @@ another; declared in [include/dgx_matrix_morph.h](include/dgx_matrix_morph.h),
 | Morph | `dgx_morph_create(from, to, sources, user_data)` | Plans flights in cell coordinates. `sources` decides where each new cell flies in from: `dgx_morph_sources_life` (all live neighbors) `dgx_morph_sources_cells` (the nearest free cell, searched vector by vector over the whole grid, so a line that moved flies as a whole), `dgx_morph_sources_cells_within` (the same no further than a radius, an `int` that `user_data` points to), or your own callback, which is many times slower when it defers pass after pass. Sides above 32767 cells are rejected. `dgx_morph_create_with(..., &options)` takes a `dgx_morph_options_t`: with `DGX_MORPH_ORPHANS_MERGE` an old cell nobody took flies into the nearest cell of `to`, along its figure first, and goes out there instead of fading in place; `merge_radius` bounds the way, 0 is no limit. |
 | Text | `dgx_morph_text_create(font, from, to, length, sources, user_data)`, `dgx_morph_text_duration_us()` | One morph per letter between two UTF-8 strings; the shorter one is padded with spaces. `changed` tells how many letters actually move. |
 | Frame | `dgx_morph_draw(morph, t, x, y, cell, trail, dot, user_data)`, `dgx_morph_progress()` | Stateless: emits the dots of progress `t` in pixels through a `dgx_morph_dot_func_t`. |
-| Renderers | `dgx_morph_glow_*` / `dgx_morph_sprite_*` | Additive glow with phosphor persistence, two bytes a pixel at any color depth, or an intensity-scaled dot sprite. Both map brightness to colors through a replaceable 256-entry LUT in the screen format (16, 18 or 24 bits). |
+| Dot by dot | `dgx_morph_symbol_draw(morph, t, dot, user_data)` | Emits the dots of a `dgx_font_make_morph_struct()` plan, where dot i of one glyph flies to dot i of the other, through the same `dgx_morph_dot_func_t`. A glyph out of nothing lights up, one into nothing goes out; dots that meet in one pixel are emitted once, so the glow does not make them fat. |
+| Renderers | `dgx_morph_glow_*` / `dgx_morph_sprite_*` | Additive glow with phosphor persistence, two bytes a pixel at any color depth, or an intensity-scaled dot sprite put over what is there. Both map brightness to colors through a replaceable 256-entry LUT in the screen format (16, 18 or 24 bits); the sprite also draws into an 8-bit screen, where it puts the brightness itself, or the value of its LUT for it. |
 | Filter | `dgx_morph_glow_set_filter(glow, filter, user_data)`, `dgx_morph_glow_blur` | One more pass over a copy of every finished glow frame right before it is shown; it does not get into the phosphor. The ready blur smooths the steps of glyphs turned into dots; in one pass it works row by row and needs no copy. |
 
 [Morph one glyph into another](#morph-one-glyph-into-another) is a short
@@ -1388,8 +1405,8 @@ dgx_screen_t *scr = dgx_ssd1306_init(bus, SSD1306_128X64, 0, GPIO_NUM_NC);
 Both I2C constructors probe the address first and fail when no device
 answers. The ESP-IDF drivers take turns between the devices of a bus; a long
 picture on SPI holds the bus for one piece of up to 4000 bytes at a time.
-The bus tables of DGX are not locked: create and dispose of backends from one
-task.
+The bus tables of DGX and the init tables of the panel drivers are not
+locked: create and dispose of backends and screens from one task.
 
 The 8-bit parallel bus stands on the I80 driver of the `esp_lcd` component,
 and that driver is two different ones. On an ESP32-S3 and an ESP32-P4 it can

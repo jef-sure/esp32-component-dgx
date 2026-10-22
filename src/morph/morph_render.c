@@ -458,7 +458,7 @@ void dgx_morph_sprite_set_lut(dgx_morph_sprite_t *sprite, const uint32_t *lut)
 void dgx_morph_sprite_set_target(dgx_morph_sprite_t *sprite, dgx_screen_t *vscreen)
 {
     if (!sprite) return;
-    bool ok = vscreen && dgx_morph_color_bits_ok(vscreen->color_bits) && dgx_vscreen_is_linear(vscreen);
+    bool ok = vscreen && (vscreen->color_bits == 8 || dgx_morph_color_bits_ok(vscreen->color_bits)) && dgx_vscreen_is_linear(vscreen);
     sprite->target = ok ? vscreen : NULL;
 }
 
@@ -474,7 +474,7 @@ void dgx_morph_sprite_dot(void *sprite, const dgx_point_2d_t *point, uint8_t int
     const uint8_t *src = ((dgx_vscreen_t *)s->vpoint)->v_array;
     uint8_t *dst = ((dgx_vscreen_t *)s->target)->v_array;
     uint8_t bits = s->target->color_bits;
-    size_t bpp = bits == 16 ? 2 : 3;
+    size_t bpp = bits == 8 ? 1 : bits == 16 ? 2 : 3;
     for (int sy = 0; sy < d; ++sy) {
         int ty = y0 + sy;
         if (ty < 0 || ty >= dh) continue;
@@ -483,8 +483,14 @@ void dgx_morph_sprite_dot(void *sprite, const dgx_point_2d_t *point, uint8_t int
             if (tx < 0 || tx >= dw) continue;
             uint32_t idx = dgx_morph_div255((uint32_t)src[sy * d + sx] * intensity);
             if (idx == 0) continue;
+            uint8_t *at = dst + bpp * ((size_t)ty * dw + tx);
+            /* an 8-bit screen keeps the brightness itself, to be turned into colors on the way out */
+            if (bits == 8) {
+                *at = (uint8_t)(s->has_lut ? s->lut[idx] : idx);
+                continue;
+            }
             uint32_t color = s->has_lut ? s->lut[idx] : dgx_morph_gray(bits, (uint8_t)idx);
-            dgx_morph_put_color(bits, dst + bpp * ((size_t)ty * dw + tx), color);
+            dgx_morph_put_color(bits, at, color);
         }
     }
     dgx_screen_touch(s->target, x0, x0 + d - 1, y0, y0 + d - 1);

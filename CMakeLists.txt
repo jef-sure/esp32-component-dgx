@@ -1,6 +1,12 @@
-file(GLOB dgx_font_sources
-	"${COMPONENT_DIR}/src/fonts/*.c"
-)
+# CONFIGURE_DEPENDS: a font added to src/fonts is built without a configure step of its own. ESP-IDF first reads
+# this file in script mode to learn the requirements, where the option is an error and the sources are not needed.
+if(CMAKE_BUILD_EARLY_EXPANSION)
+	set(dgx_font_sources "")
+else()
+	file(GLOB dgx_font_sources CONFIGURE_DEPENDS
+		"${COMPONENT_DIR}/src/fonts/*.c"
+	)
+endif()
 
 # The sources by topic: what every screen does (screen/), drawing on any screen (draw/), virtual screens and
 # what moves pictures between screens (vscreen/), text (text/), morphing (morph/); the buses (bus/), the

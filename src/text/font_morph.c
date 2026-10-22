@@ -76,6 +76,7 @@ dgx_font_symbol_morph_t *dgx_font_make_morph_struct( //
     }
     ret->fromCP        = fromCP;
     ret->toCP          = toCP;
+    ret->scale         = scale;
     ret->is_from_empty = true;
     ret->is_to_empty   = true;
     int16_t               xAdvance;

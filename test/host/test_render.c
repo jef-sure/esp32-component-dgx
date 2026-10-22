@@ -4,6 +4,7 @@
 #include "check.h"
 #include "dgx_bits.h"
 #include "dgx_draw.h"
+#include "dgx_font.h"
 #include "dgx_morph_render.h"
 #include "dgx_screen_with_bus.h"
 #include "drivers/vscreen.h"
@@ -159,6 +160,34 @@ static void test_sprite(void)
     dgx_screen_destroy(&target);
 }
 
+/* into an 8-bit screen the sprite puts its brightness itself, over what is there, not added */
+static void test_sprite_8bit(void)
+{
+    dgx_screen_t       *target = dgx_vscreen_init(9, 9, 8, DgxScreenRGB);
+    dgx_screen_t       *point = dgx_vscreen_init(3, 3, 8, DgxScreenRGB);
+    dgx_morph_sprite_t *sprite = dgx_morph_sprite_create(3);
+    CHECK(sprite && target && point);
+    dgx_font_make_point8(point);
+    dgx_morph_sprite_set_target(sprite, target);
+    dgx_morph_sprite_dot(sprite, &(dgx_point_2d_t){ .x = 4, .y = 4 }, 255);
+    dgx_morph_sprite_dot(sprite, &(dgx_point_2d_t){ .x = 4, .y = 4 }, 255);
+    bool same = true;
+    for (int y = 0; y < 3; ++y)
+        for (int x = 0; x < 3; ++x) same = same && dgx_get_pixel(target, 3 + x, 3 + y) == dgx_get_pixel(point, x, y);
+    CHECK(same && dgx_get_pixel(target, 4, 4) != 0);
+    CHECK(dgx_get_pixel(target, 0, 0) == 0 && dgx_get_pixel(target, 8, 8) == 0);
+
+    /* through a table: the value it has for the brightness */
+    uint32_t lut[256];
+    for (int i = 0; i < 256; ++i) lut[i] = (uint32_t)(255 - i);
+    dgx_morph_sprite_set_lut(sprite, lut);
+    dgx_morph_sprite_dot(sprite, &(dgx_point_2d_t){ .x = 4, .y = 4 }, 255);
+    CHECK(dgx_get_pixel(target, 4, 4) == 255 - dgx_get_pixel(point, 1, 1));
+    dgx_morph_sprite_destroy(&sprite);
+    dgx_screen_destroy(&point);
+    dgx_screen_destroy(&target);
+}
+
 static void test_vscreen_clear(void)
 {
     dgx_screen_t *s = dgx_vscreen_init(7, 5, 16, DgxScreenRGB);
@@ -305,6 +334,7 @@ int main(void)
     test_glow_blur();
     test_glow_rows();
     test_sprite();
+    test_sprite_8bit();
     test_vscreen_clear();
     CHECK_DONE();
 }

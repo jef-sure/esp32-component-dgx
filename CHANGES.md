@@ -1,5 +1,38 @@
 # Changes
 
+## 0.8.1 - 2026-10-22
+
+A glyph morphed into another dot by dot, as `dgx_font_make_morph_struct()`
+plans it, is now drawn by DGX itself, with the same renderers as the morph of
+dot matrices, and the dot sprite draws into 8-bit screens as well. Nothing
+breaks: the structure of such a morph gains one field. The new drawing was
+checked by host tests and built for the ESP32, not yet watched on a display.
+
+- `dgx_morph_symbol_draw()` draws a morph made by
+  `dgx_font_make_morph_struct()`, where dot i of one glyph flies to dot i of
+  the other, with the renderers of the morphing framework: the glow, the
+  sprite or a callback of your own. A dot is emitted at its middle, as
+  `dgx_morph_draw()` emits it. A glyph that comes out of nothing lights up,
+  and one that turns into nothing goes out. Dots that land on one pixel are
+  emitted once. Before, every program drew such a morph by itself, and one
+  that added the dots up drew a fat dot where the dots that one glyph has
+  more than the other meet, for example at the end of the "2" after a "0" in
+  `CasusDotView`.
+- `dgx_font_symbol_morph_t` has a new field, `scale`: the size of a dot, as
+  passed to `dgx_font_make_morph_struct()`.
+- The dot sprite, `dgx_morph_sprite_*`, also draws into an 8-bit virtual
+  screen. There it puts the brightness itself, or the value of its LUT for
+  it, to be turned into colors later by `dgx_vscreen8_to_screen16()`.
+- A font added to `src/fonts` is now built without a separate configure
+  step: the source list of the fonts is globbed with `CONFIGURE_DEPENDS`.
+- The README now says that the init tables of the panel drivers are not
+  locked either: create screens from one task, as with the bus backends.
+- `src/fonts/README.md` records two more origins: `CasusDotView` was drawn
+  for DGX (MIT), and `WeatherDotView25` is derived from Weather Icons
+  (SIL Open Font License 1.1). The origin and license of
+  `IBMCGALight8x16Light8x1616` are unknown, so the claim of 0.8.0 that
+  every font DGX ships has a free license does not hold for it.
+
 ## 0.8.0 - 2026-10-22
 
 This release removes two fonts, `ArialRegular12()` and

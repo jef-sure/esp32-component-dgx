@@ -87,7 +87,8 @@ void dgx_morph_glow_present(dgx_morph_glow_t *glow, float t, dgx_screen_t *scree
 
 /**
  * @brief Dot sprite renderer: a soft 8-bit dot blitted through a 256-entry
- * LUT, scaled by dot intensity. Black pixels are transparent.
+ * LUT, scaled by dot intensity. Black pixels are transparent; the others are
+ * put over what is there, so dots that meet are one dot.
  */
 typedef struct dgx_morph_sprite dgx_morph_sprite_t;
 
@@ -96,10 +97,14 @@ dgx_morph_sprite_t *dgx_morph_sprite_create(int diameter);
 
 void dgx_morph_sprite_destroy(dgx_morph_sprite_t **sprite);
 
-/** @param lut 256 colors in the target screen format; copied. */
+/** @param lut 256 colors in the target screen format, or 256 values for an 8-bit target; copied. */
 void dgx_morph_sprite_set_lut(dgx_morph_sprite_t *sprite, const uint32_t *lut);
 
-/** @param vscreen 16-, 18- or 24-bit virtual screen to draw into. */
+/**
+ * @param vscreen 8-, 16-, 18- or 24-bit virtual screen to draw into. An
+ *        8-bit one gets the brightness of the sprite itself, or the value the
+ *        LUT has for it, to be sent on with dgx_vscreen8_to_screen16().
+ */
 void dgx_morph_sprite_set_target(dgx_morph_sprite_t *sprite, dgx_screen_t *vscreen);
 
 /** dgx_morph_dot_func_t; draws the sprite centered on the point. */

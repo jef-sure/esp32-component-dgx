@@ -1001,6 +1001,89 @@ static void test_merge_to_empty(void)
     dgx_matrix_destroy(&from), dgx_matrix_destroy(&empty), dgx_matrix_destroy(&to);
 }
 
+typedef struct {
+    int     count;
+    int     x[64], y[64];
+    uint8_t intensity;
+} symbol_dots_t;
+
+static void symbol_dot(void *user_data, const dgx_point_2d_t *p, uint8_t intensity)
+{
+    symbol_dots_t *d = user_data;
+    if (d->count < 64) {
+        d->x[d->count] = p->x;
+        d->y[d->count] = p->y;
+    }
+    ++d->count;
+    d->intensity = intensity;
+}
+
+/* whether the dots emitted are the middles of the dots of a glyph at (x, y), each once */
+static bool symbol_is_glyph(const symbol_dots_t *d, dgx_font_t *font, uint32_t cp, int x, int y, int scale)
+{
+    int16_t        advance;
+    const glyph_t *g = dgx_font_find_glyph(cp, font, &advance);
+    if (!g || d->count != (int)g->number_of_dots) return false;
+    for (size_t i = 0; i < g->number_of_dots; ++i) {
+        int px = x + (g->xOffset + g->dots[i].x) * scale + scale / 2, py = y + (g->yOffset + g->dots[i].y) * scale + scale / 2;
+        int found = 0;
+        for (int k = 0; k < d->count; ++k) found += d->x[k] == px && d->y[k] == py;
+        if (found != 1) return false;
+    }
+    return true;
+}
+
+/* a morph by the order of the dots: the dots "0" has more than "2" end in the last dot of "2" as one dot */
+static void test_symbol_draw(void)
+{
+    dgx_font_t              *font = CasusDotView();
+    dgx_font_symbol_morph_t *m = dgx_font_make_morph_struct(font, '0', '2', 10, 50, 10, 50, 3);
+    CHECK(m && m->scale == 3 && m->number_of_dots == 27);
+    symbol_dots_t d = { 0 };
+    dgx_morph_symbol_draw(m, 1.0f, symbol_dot, &d);
+    CHECK(symbol_is_glyph(&d, font, '2', 10, 50, 3) && d.intensity == 255);
+    d = (symbol_dots_t){ 0 };
+    dgx_morph_symbol_draw(m, 0.0f, symbol_dot, &d);
+    CHECK(symbol_is_glyph(&d, font, '0', 10, 50, 3));
+    dgx_font_make_morph_struct_destroy(&m);
+
+    /* and the other way: they come out of it */
+    m = dgx_font_make_morph_struct(font, '2', '0', 10, 50, 10, 50, 3);
+    d = (symbol_dots_t){ 0 };
+    dgx_morph_symbol_draw(m, 0.0f, symbol_dot, &d);
+    CHECK(symbol_is_glyph(&d, font, '2', 10, 50, 3));
+    dgx_font_make_morph_struct_destroy(&m);
+
+    /* out of nothing: nothing at the start, half lit from the middle half way */
+    m = dgx_font_make_morph_struct(font, ' ', '2', 10, 50, 10, 50, 3);
+    CHECK(m && m->is_from_empty && !m->is_to_empty);
+    d = (symbol_dots_t){ 0 };
+    dgx_morph_symbol_draw(m, 0.0f, symbol_dot, &d);
+    CHECK(d.count == 0);
+    dgx_morph_symbol_draw(m, 0.5f, symbol_dot, &d);
+    CHECK(d.count > 0 && d.intensity == 128);
+    d = (symbol_dots_t){ 0 };
+    dgx_morph_symbol_draw(m, 1.0f, symbol_dot, &d);
+    CHECK(symbol_is_glyph(&d, font, '2', 10, 50, 3));
+    dgx_font_make_morph_struct_destroy(&m);
+
+    /* into nothing: gone at the end */
+    m = dgx_font_make_morph_struct(font, '2', ' ', 10, 50, 10, 50, 3);
+    d = (symbol_dots_t){ 0 };
+    dgx_morph_symbol_draw(m, 1.0f, symbol_dot, &d);
+    CHECK(d.count == 0);
+    dgx_font_make_morph_struct_destroy(&m);
+
+    /* nothing to draw and nothing to draw with */
+    dgx_morph_symbol_draw(NULL, 0.5f, symbol_dot, &d);
+    m = dgx_font_make_morph_struct(font, ' ', ' ', 0, 0, 0, 0, 1);
+    d = (symbol_dots_t){ 0 };
+    dgx_morph_symbol_draw(m, 0.5f, symbol_dot, &d);
+    dgx_morph_symbol_draw(m, 0.5f, NULL, NULL);
+    CHECK(d.count == 0);
+    dgx_font_make_morph_struct_destroy(&m);
+}
+
 int main(void)
 {
     test_classification();
@@ -1028,5 +1111,6 @@ int main(void)
     test_dots_over_letter();
     test_merge_draw();
     test_merge_to_empty();
+    test_symbol_draw();
     CHECK_DONE();
 }

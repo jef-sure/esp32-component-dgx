@@ -85,6 +85,7 @@ typedef struct {
     dgx_point_2d_t *m_end;
     bool is_from_empty;
     bool is_to_empty;
+    int scale;  ///< A dot is scale x scale pixels; m_start and m_end are their top left corners.
 } dgx_font_symbol_morph_t;
 
 struct dgx_font_;
@@ -199,7 +200,12 @@ void dgx_font_make_point8(dgx_screen_t *vpoint);
 /**
  * @brief Build a morph descriptor that interpolates between two dot-model glyphs.
  *
- * Used to animate one glyph smoothly into another. Free the result with
+ * Used to animate one glyph smoothly into another. Dot i of one glyph flies
+ * to dot i of the other, so a font whose dots are listed in an order chosen
+ * for that, as CasusDotView, morphs stroke into stroke. The dots one glyph
+ * has more than the other come out of its last dot, or go into it; a glyph
+ * out of nothing comes out of its middle. dgx_morph_symbol_draw() draws it
+ * with the renderers of the morphing framework. Free the result with
  * dgx_font_make_morph_struct_destroy().
  *
  * @param font  Dot-model font.

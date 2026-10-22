@@ -65,6 +65,21 @@ dgx_morph_text_t *dgx_morph_text_create(
 void dgx_morph_text_destroy(dgx_morph_text_t **text);
 
 /**
+ * @brief Emit the dots of a morph of one glyph into another by the order of
+ * their dots, see dgx_font_make_morph_struct(), at progress t.
+ *
+ * Dots go to the same renderers as those of dgx_morph_draw(): a point is the
+ * middle of a dot, in pixels. Each dot moves on a straight line, so t is
+ * eased by the caller if at all. Both glyphs present, the dots are at full
+ * brightness; a glyph out of nothing lights up with t, one into nothing goes
+ * out, and nothing is emitted at brightness 0. A dot on the same pixel as the
+ * one before it is not emitted again: the dots that one glyph has more than
+ * the other meet in its last dot, and an adding renderer, as the glow, would
+ * make it brighter and wider than the rest.
+ */
+void dgx_morph_symbol_draw(const dgx_font_symbol_morph_t *morph, float t, dgx_morph_dot_func_t dot, void *user_data);
+
+/**
  * @brief Time until the last changed letter finishes when letter i starts at
  * i * stagger_us and each letter takes duration_us; 0 if nothing changes.
  */
