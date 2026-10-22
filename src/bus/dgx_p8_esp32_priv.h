@@ -10,6 +10,7 @@
 typedef struct _dgx_p8_bus_t {
     dgx_bus_protocols_t       protocols;
     esp_lcd_i80_bus_handle_t  i80_bus;
+    bool                      owns_i80_bus; /* the bus was created by DGX, shared by its displays on it */
     esp_lcd_panel_io_handle_t io;
     SemaphoreHandle_t         transfer_done_sem;
     bool                      transfer_pending;

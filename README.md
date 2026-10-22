@@ -42,6 +42,7 @@ whose text is written stroke by stroke by a pen or turns into another text.
   - [A MIPI-DSI display without tearing](#a-mipi-dsi-display-without-tearing)
   - [Rotate the screen](#rotate-the-screen)
   - [Draw from several tasks](#draw-from-several-tasks)
+  - [An Arduino sketch](#an-arduino-sketch)
 - [Examples](#examples)
 - [Supported panels](#supported-panels)
 - [What's in the box](#whats-in-the-box)
@@ -71,14 +72,14 @@ DGX is an ESP-IDF component, published in the
 as `jef-sure/dgx`. Add it to a project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.7.0"
+idf.py add-dependency "jef-sure/dgx^0.8.0"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.7.0"
+  jef-sure/dgx: "^0.8.0"
 ```
 
 Then enable the drivers you need in `menuconfig`, under the **DGX** menu. A
@@ -97,7 +98,7 @@ Here's a complete setup for an ST7789 panel over SPI:
 #include "dgx_colors.h"
 #include "dgx_draw.h"
 #include "dgx_font.h"
-#include "fonts/ArialRegular12.h"
+#include "fonts/LiberationSansRegular12.h"
 
 // 1. create a bus
 dgx_bus_protocols_t *bus =
@@ -114,7 +115,7 @@ dgx_fill_rectangle(scr, 0, 0, scr->width, scr->height,
                    DGX_BLACK(dgx_rgb_to_16));
 dgx_font_string_utf8_screen(scr, 10, 18, "Hello world",
                             DGX_WHITE(dgx_rgb_to_16),
-                            DgxOutputNormal, 1, ArialRegular12(),
+                            DgxOutputNormal, 1, LiberationSansRegular12(),
                             NULL, NULL);
 ```
 
@@ -236,7 +237,7 @@ dgx_fonts_board(PIXELS 320 240 MM 57.6 43.2)             # the display, for size
 dgx_fonts_rules(../fonts.rules)                          # which faces may be used at which sizes
 dgx_font_need(body SIZE 3mm MONO TEXTS strings.txt)      # a monospaced face picked by the rules, with the characters of the strings
 dgx_font_need(title SIZE 5mm POSTSCRIPT DejaVuSans-Bold TEXTS strings.txt)  # an exact face, 5 mm high
-dgx_font_need(clock DGX VerdanaRegular32 LETTERS "0123456789:")             # one of DGX's fonts, used as is; its characters are checked
+dgx_font_need(clock DGX DejaVuSansBook32 LETTERS "0123456789:")             # one of DGX's fonts, used as is; its characters are checked
 ```
 
 ```c
@@ -252,6 +253,13 @@ with FreeType, and fontconfig; a project without needs requires nothing
 extra. Needs, sizes, characters, the rules, needs from a component and what
 the build produces: [docs/fonts-en.md](docs/fonts-en.md)
 ([Russian](docs/fonts-ru.md)). The example: [fonts_demo](examples/fonts_demo).
+
+DGX does not check font licenses; you do. Each build lists every font the
+program uses, with what its file says about its license, in
+`build/dgx_fonts/fonts-used.txt`. A `deny` line in the rules keeps a font
+out, even when a component asks for it by name; the rule `strict` admits
+only the fonts the rules allow. See
+[Fonts and their licenses](docs/fonts-en.md#fonts-and-their-licenses).
 
 ### A gauge
 
@@ -355,7 +363,7 @@ any size and onto any four corners.
 dgx_screen_t *tex = dgx_vscreen_init(64, 24, 16, DgxScreenRGB);
 dgx_fill_rectangle(tex, 0, 0, tex->width, tex->height, DGX_NAVY(dgx_rgb_to_16));
 dgx_font_string_utf8_screen(tex, 6, 17, "DGX", DGX_WHITE(dgx_rgb_to_16),
-                            DgxOutputNormal, 1, ArialRegular12(), NULL, NULL);
+                            DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
 
 // three times larger
 dgx_draw_texture_rect(scr, 10, 10, 192, 72, tex, 0, 0, tex->width, tex->height);
@@ -705,6 +713,87 @@ and let the others send it messages or finished virtual screens; or guard
 each batch with a mutex of your own. Both ways, with measurements, are in
 [Drawing from several tasks](#drawing-from-several-tasks).
 
+### An Arduino sketch
+
+DGX is an ESP-IDF component, so a sketch uses it from an ESP-IDF project
+that has Arduino as a component too; the Arduino IDE cannot build it, since
+DGX needs the ESP-IDF build with its Kconfig and CMake. Add both to
+`main/idf_component.yml`:
+
+```yaml
+dependencies:
+  espressif/arduino-esp32: "^3.3.0"
+  jef-sure/dgx: "*"
+```
+
+Arduino wants a 1 ms tick, and calls `setup()` and `loop()` from its own
+`app_main()` when autostart is enabled. Put both into `sdkconfig.defaults`
+with the DGX drivers you need:
+
+```
+CONFIG_FREERTOS_HZ=1000
+CONFIG_AUTOSTART_ARDUINO=y
+CONFIG_DGX_ENABLE_SPI=y
+CONFIG_DGX_ENABLE_SPI_ILI_9341=y
+```
+
+The sketch is `main/main.cpp`, listed in `main/CMakeLists.txt` as
+`idf_component_register(SRCS "main.cpp")`. The DGX headers are C++-ready
+and are included as they are. C++ does not convert an `int` to an enum
+implicitly, so pins are given as `GPIO_NUM_23`, not `23`:
+
+```cpp
+#include <Arduino.h>
+#include "bus/dgx_spi_esp32.h"
+#include "drivers/ili9341.h"
+#include "dgx_bits.h"
+#include "dgx_colors.h"
+#include "dgx_draw.h"
+#include "dgx_font.h"
+#include "fonts/DejaVuSansBook32.h"
+
+static dgx_screen_t *screen;
+
+void setup()
+{
+    dgx_bus_protocols_t *bus = dgx_spi_init(SPI3_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_23, GPIO_NUM_19,
+                                            GPIO_NUM_18, GPIO_NUM_5, GPIO_NUM_16, 40 * 1000 * 1000, 0);
+    screen = dgx_ili9341_init(bus, GPIO_NUM_17, GPIO_NUM_21, 16, DgxScreenRGB);
+    dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, DGX_BLACK(dgx_rgb_to_16));
+}
+
+void loop()
+{
+    char text[16];
+    snprintf(text, sizeof text, "%lu s", (unsigned long)(millis() / 1000));
+    dgx_fill_rectangle(screen, 0, 0, screen->width, 40, DGX_BLACK(dgx_rgb_to_16));
+    dgx_font_string_utf8_screen(screen, 10, 34, text, DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 1,
+                                DejaVuSansBook32(), NULL, NULL);
+    delay(1000);
+}
+```
+
+Two Arduino libraries meet DGX on the hardware:
+
+- `SPI`, and libraries built on it such as `SD`, drive their SPI host
+  directly, past the ESP-IDF driver DGX uses. The global `SPI` object takes
+  `SPI3_HOST` on an ESP32 and `SPI2_HOST` on the other chips. Give the
+  display a host of its own, or give the library the other one with
+  `SPIClass(HSPI)`.
+- `Wire` runs on the ESP-IDF I2C master driver, so a display can share its
+  bus with the sensors of the sketch (ESP-IDF 5.4 or newer):
+
+  ```cpp
+  Wire.begin(21, 22, 400000);
+  auto i2c = (i2c_master_bus_handle_t)i2cBusHandle(0);
+  dgx_screen_t *oled = dgx_ssd1306_init(dgx_i2c_init_on_bus(i2c, 0x3C, 400000), SSD1306_128X64, 0, GPIO_NUM_NC);
+  ```
+
+Everything else in this README, fonts made at build time included, works in
+a sketch unchanged.
+
+Example: [examples/arduino_demo](examples/arduino_demo).
+
 ## Examples
 
 Each example is an ESP-IDF project with its own README. They take DGX from
@@ -719,6 +808,7 @@ idf.py flash monitor
 | Example | Board | What it shows |
 | --- | --- | --- |
 | [screen_demo](examples/screen_demo) | ESP32 with an ILI9341 | a graphics test: fills, text, lines, rectangles, circles, triangles |
+| [arduino_demo](examples/arduino_demo) | CYD | DGX in an Arduino sketch: `setup()`, `loop()` and Arduino as an ESP-IDF component |
 | [fonts_demo](examples/fonts_demo) | CYD | fonts made at build time: a title in millimeters, a paragraph in a face picked by rules, a clock in a bundled font |
 | [dsi_demo](examples/dsi_demo) | JC1060P470 or JC8012P4A1C (ESP32-P4, 7-inch or 10.1-inch MIPI-DSI) | the same kind of test for a DSI display, update modes, an even frame rate, the board measured and the numbers kept |
 | [figures_scroll_demo](examples/figures_scroll_demo) | CYD or JC1060P470 | a pie chart, arcs, a Wi-Fi icon, a scrolling terminal and chart; prints timings |
@@ -1051,7 +1141,7 @@ Declared in [include/dgx_font.h](include/dgx_font.h):
 `DgxOutputTranspose`, `DgxOutputRotate90CCW`, `DgxOutputRotate90CW` or
 `DgxOutputTransverse`. `scale` is an integer multiplier (`1` = native size).
 Each bundled font header under `include/fonts/` exposes an accessor, e.g.
-`ArialRegular12()`.
+`LiberationSansRegular12()`.
 
 A font tells its kind in `f_type`: bitmaps (`DGX_FONT_BITMAP_LINES`,
 `DGX_FONT_BITMAP_STREAM`), dots (`DGX_FONT_DOTS`) or pen paths
@@ -1213,6 +1303,7 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_vscreen_region_to_screen(dst, x, y, src, x_src, y_src, w, h, flags)` | The same for a sub-region; `x`, `y` are where the corner of the region goes, scaled and turned as the flags ask. |
 | `dgx_vscreen8_to_screen16(dst, x, y, src, lut, flags)` | Expand an 8-bit indexed screen into 16-bit through a LUT. |
 | `dgx_vscreen8_region_to_screen16(dst, x, y, src, x_src, y_src, w, h, lut, flags)` | The same for a sub-region. |
+| `dgx_vscreen_to_argb8888(scr, x, y, w, h, lut, dst, dst_stride)` | Read a rectangle of a screen as 0xAARRGGBB colors, the layout of `SDL_PIXELFORMAT_ARGB8888`: for a window on a PC. An 8-bit screen goes through `lut`, or as grey without one. |
 | `dgx_overlay_set(display, layer, x, y, lut, alpha)` | Lay an 8-bit virtual screen over a 16-bit screen at `x`, `y` (`dgx_overlay.h`), or move it, or give it other colors: index 0 empty, the others the colors of `lut` mixed with what lies under them by `alpha` (0 to 255, in 32 steps). One layer a screen. Mixed into what comes from virtual screens: `dgx_vscreen8_to_screen16()`, `dgx_vscreen8_region_to_screen16()`, `dgx_vscreen_to_screen()`, `dgx_vscreen_region_to_screen()`, with all their flags; not into what is drawn straight on the screen. |
 | `dgx_overlay_clear(display)` | Take the layer away; its place becomes changed. |
 | `dgx_overlay_take_dirty(display, &x, &y, &w, &h)` | The rectangle the layer changed since the last call: drawn into, laid, moved, taken away. Put it again from the picture. |
@@ -1253,12 +1344,52 @@ Declared under [include/bus/](include/bus):
 | Function | Description |
 | --- | --- |
 | `dgx_spi_init(host_id, dma_chan, mosi, miso, sclk, cs, dc, clock_speed_hz, cpolpha_mode)` | SPI master bus. |
+| `dgx_spi_init_on_bus(host_id, cs, dc, clock_speed_hz, cpolpha_mode)` | A display on an SPI host the program has initialized. |
 | `dgx_i2c_init(i2c_num, i2c_address, sda, sclk, clock_speed_hz)` | I2C master bus. |
+| `dgx_i2c_init_on_bus(i2c_bus, i2c_address, clock_speed_hz)` | A display on an I2C master bus the program owns. |
 | `dgx_p8_init(d0..d7, wr, rd, cs, dc, pclk_hz)` | 8-bit parallel (I80) bus. |
+| `dgx_p8_init_on_bus(i80_bus, rd, cs, pclk_hz)` | A display on an I80 bus the program owns. |
 | `dgx_dsi_init(bus_id, data_lanes, lane_bit_rate_mbps, phy_ldo_chan, phy_ldo_mv)` | MIPI-DSI bus of ESP32-P4. `phy_ldo_chan` and `phy_ldo_mv` name the regulator of the chip that powers the DSI PHY, 3 and 2500 on the usual boards; -1 when it is powered otherwise. |
 
 Each returns a `dgx_bus_protocols_t *` to hand to a driver constructor. A
 driver pulls in only the transports it needs; enable them in `menuconfig`.
+The program disposes of a backend with `bus->dispose(bus)` after the screens
+on it are destroyed.
+
+A display often shares its bus with other devices: a touch controller or a
+clock chip on I2C, an SD card or a touch controller on SPI. Who owns the bus
+depends on the constructor:
+
+- `dgx_spi_init()`, `dgx_i2c_init()` and `dgx_p8_init()` put the display on
+  a bus DGX sets up: the SPI host, the I2C master bus of the port, the I80
+  bus of those pins. Further displays on the same host, port or pins share
+  it, and must name the same pins. DGX releases the bus with the last of its
+  displays, unless the program has put devices of its own on it.
+- `dgx_spi_init_on_bus()`, `dgx_i2c_init_on_bus()` and `dgx_p8_init_on_bus()`
+  put the display on a bus the program has set up and owns. DGX adds its
+  device and removes it on dispose; the program releases the bus afterwards.
+  An SPI host must have DMA and a `max_transfer_sz` of 0 or at least 4092
+  bytes; an I80 bus must be 8 bits wide with a `max_transfer_bytes` of at
+  least 4096.
+
+```c
+// an SSD1306 and a touch controller on one I2C bus the program owns
+i2c_master_bus_config_t cfg = {
+    .i2c_port = I2C_NUM_0, .sda_io_num = GPIO_NUM_21, .scl_io_num = GPIO_NUM_22,
+    .clk_source = I2C_CLK_SRC_DEFAULT, .glitch_ignore_cnt = 7, .flags.enable_internal_pullup = true,
+};
+i2c_master_bus_handle_t i2c;
+ESP_ERROR_CHECK(i2c_new_master_bus(&cfg, &i2c));
+dgx_bus_protocols_t *bus = dgx_i2c_init_on_bus(i2c, 0x3c, 400000);
+dgx_screen_t *scr = dgx_ssd1306_init(bus, SSD1306_128X64, 0, GPIO_NUM_NC);
+// ... i2c_master_bus_add_device(i2c, ...) for the touch controller ...
+```
+
+Both I2C constructors probe the address first and fail when no device
+answers. The ESP-IDF drivers take turns between the devices of a bus; a long
+picture on SPI holds the bus for one piece of up to 4000 bytes at a time.
+The bus tables of DGX are not locked: create and dispose of backends from one
+task.
 
 The 8-bit parallel bus stands on the I80 driver of the `esp_lcd` component,
 and that driver is two different ones. On an ESP32-S3 and an ESP32-P4 it can
@@ -1540,6 +1671,25 @@ the SSD1309, SH1106 and SSD1351 drivers against models of their controllers:
 make -C test/host
 ```
 
+A program can build the same sources on a PC, to run its own `main.c` there
+with a window for the display. `host/dgx_host.mk` lists the sources and the
+flags for a Makefile, and `host/stubs` stand in for the ESP-IDF headers they
+include; both come with the package from the registry. The host tests are
+built from that file too.
+
+```make
+include path/to/dgx/host/dgx_host.mk
+CPPFLAGS += $(DGX_HOST_CPPFLAGS)
+CFLAGS   += $(DGX_HOST_CFLAGS)
+LDLIBS   += $(DGX_HOST_LDLIBS)
+game: main.c $(DGX_HOST_SRCS)
+```
+
+`DGX_HOST_SRCS` is the sum of the groups `DGX_HOST_SRCS_SCREEN`, `_DRAW`,
+`_VSCREEN`, `_TEXT`, `_MORPH`, `_FB` and `_FONTS`; `DGX_HOST_DIR` is the
+directory of the file. A window shows a virtual screen through
+`dgx_vscreen_to_argb8888()`.
+
 The fonts made at build time have a test of their own, `make -C test/fonts`:
 it runs the tool on the needs in that directory, checks the characters and
 the pairs of face and size, compiles the generated C, and checks that a
@@ -1576,7 +1726,8 @@ src/                     implementations, by topic
 font2c/                  offline TTF/BDF -> C font generator, and dgx_fonts.py, which makes a program's fonts from its needs
 project_include.cmake    dgx_font_need() and the other font functions for a program's CMakeLists
 examples/                one project per example, see "Examples"
-test/host/               host tests with ESP-IDF stubs
+host/                    dgx_host.mk and ESP-IDF stubs: the platform-independent part built on a PC
+test/host/               host tests
 test/fonts/              the test of the fonts made at build time
 docs/                    morphing articles, handwritten text guides, fonts made at build time (English and Russian),
                          the converter and the tables of handwritten fonts (Russian),

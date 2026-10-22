@@ -23,7 +23,8 @@
 # header is on its include path. They are regenerated only when a need's texts, its fonts, the rules or the tool
 # change, and rewritten only when they differ. A project with no needs generates nothing and requires nothing of the
 # host; one with needs builds font2c from its source on the host (FreeType) and finds faces with fontconfig. Paths
-# are resolved from the CMakeLists that gives them.
+# are resolved from the CMakeLists that gives them. Beside the two files, fonts-used.txt lists every font the program
+# uses, with what its file says of its license; a deny in the rules keeps a font out however it is asked for.
 
 set(DGX_FONTS_COMPONENT_DIR "${COMPONENT_DIR}")
 set(DGX_FONTS_COMPONENT_NAME "${COMPONENT_NAME}")
@@ -324,7 +325,7 @@ function(_dgx_fonts_finish)
     endif()
     idf_build_get_property(python PYTHON)
     set(tool "${DGX_FONTS_COMPONENT_DIR}/font2c/dgx_fonts.py")
-    add_custom_command(OUTPUT "${out}/dgx_fonts.c" "${out}/dgx_fonts.h"
+    add_custom_command(OUTPUT "${out}/dgx_fonts.c" "${out}/dgx_fonts.h" "${out}/fonts-used.txt"
         COMMAND ${python} "${tool}" build "${needs_file}" "${out}"
         DEPENDS "${tool}" "${DGX_FONTS_COMPONENT_DIR}/font2c/font2c.c" "${needs_file}" ${inputs}
         COMMENT "DGX: the fonts of the program by its needs"
@@ -344,7 +345,8 @@ function(_dgx_fonts_finish)
             math(EXPR count "${count} + 1")
         endif()
     endforeach()
-    message(STATUS "DGX fonts: ${count} need(s) and ${listed} list(s), generated into ${out}")
+    message(STATUS "DGX fonts: ${count} need(s) and ${listed} list(s), generated into ${out}; "
+        "the fonts used and their licenses are listed in ${out}/fonts-used.txt: make sure you may use every one of them")
 endfunction()
 
 if(NOT DGX_FONTS_TOO_OLD)

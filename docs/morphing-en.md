@@ -744,7 +744,7 @@ tail stuck at the start forever. The config structs were removed from the API.
 **Font metrics.** The bundled fonts did not have `yBottomMax`, so the bottom
 rows of `0` in `CasusDotView` were lost: the box was 12 cells high instead of
 14. Also, `xWidest` is the maximum glyph width, not the right edge. In
-`VerdanaRegular32`, the right edge is 32, while `xWidest - xOffsetLowest` is
+`VerdanaRegular32` (a font DGX shipped then), the right edge is 32, while `xWidest - xOffsetLowest` is
 31. That is why `xRightMax` was added and all bundled fonts now have the
 metrics.
 

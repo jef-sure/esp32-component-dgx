@@ -15,6 +15,7 @@ typedef struct _dgx_spi_bus_t
     gpio_num_t                    csio;
     gpio_num_t                    dcio;
     int                           max_transfer_sz;
+    bool                          owns_host; /* the host was initialized by DGX, shared by its displays on it */
     int                           clock_speed_hz;
     uint8_t                       data_queued; /* transfers of pixels in trans_data on their way: 0, 1, or 2 inside write_data_async() */
     uint8_t                       data_slot;   /* the one of trans_data the next transfer of pixels takes */

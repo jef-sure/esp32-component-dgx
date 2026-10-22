@@ -5,10 +5,9 @@
 extern "C" {
 // @formatter:on
 #endif
-dgx_font_t* ArialRegular12();
+dgx_font_t* DejaVuSansBook32();
 #ifdef __cplusplus
 // @formatter:off
 }
 // @formatter:on
 #endif
-

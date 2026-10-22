@@ -118,7 +118,8 @@ The keywords of a need:
 Exactly one of these says where the font comes from: `SIZE` with
 `MONO`/`FAMILY` (picked by the rules), `SIZE` with `POSTSCRIPT`, `SOURCE`,
 `DGX`, `FILE`. An existing font (`DGX`, `FILE`) has a size of its own, so it
-takes no `SIZE`.
+takes no `SIZE`. `POSTSCRIPT` and `SOURCE` name the face themselves, so they
+take no `MONO` or `FAMILY`; a need that has both is an error.
 
 Fonts come in two kinds:
 
@@ -289,7 +290,10 @@ allow *                   40..
   comparisons `> 12`, `>= 12`, `< 40`, `<= 40`; `&` means "and", a comma or a
   space between conditions means "or".
 - `deny "<family>" [<sizes>]` forbids a family; without sizes, at every
-  size.
+  size. A deny applies to every font of the program, not only to those the
+  rules pick: see [Fonts and their licenses](#fonts-and-their-licenses).
+- `strict`, on a line of its own, admits only the fonts the `allow` lines
+  name, however they are asked for. It is off unless the rules say so.
 - The first `allow` line, in order, that has a face of the required size
   **with all the characters of the need** wins; among its faces a regular
   style comes first, then Medium, then bold, italic and the rest, and then
@@ -304,6 +308,95 @@ Fonts come from the machine the project is built on: another machine may
 pick differently, and without a suitable font the build stops. An exact
 face by PostScript name is looked up with `fc-list` and must match exactly; `fc-match` is not used, because it silently returns a different
 font for a name it does not know.
+
+## Fonts and their licenses
+
+DGX takes whatever fonts the program and its components ask for and does
+not judge their licenses. Whether you may ship a font is your decision,
+and the build puts what you need for it in plain sight.
+
+**What is in the program.** Every time the fonts are made, the build
+writes `build/dgx_fonts/fonts-used.txt`: each font the program uses, the
+file it came from, what that file says about its copyright and license
+(the name table of a TTF or OTF), and which needs and lists use it. The
+configure step prints its path, the build prints it again, and
+`dgx_fonts.h` points to it. Read it before you ship, and again after
+adding a component that asks for fonts.
+
+```
+DejaVu Sans Book
+  file: /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf, PostScript name DejaVuSans
+  version: Version 2.37
+  copyright: Copyright (c) 2003 by Bitstream, Inc. All Rights Reserved. ...
+  license: Fonts are (c) Bitstream (see below). DejaVu changes are in public domain. ... (shortened; the whole text is in the font file)
+  license URL: http://dejavu.sourceforge.net/wiki/index.php/License
+  used by: keys at 24 px, named by its PostScript name in /work/components/kbd/CMakeLists.txt
+
+TerminusTTFMedium12, a font of DGX
+  file: .../src/fonts/TerminusTTFMedium12.c
+  made from: Terminus (TTF) Medium 4.47 at 12 px
+  license: SIL Open Font License 1.1
+  used by: clock, used as is, in /work/main/CMakeLists.txt
+```
+
+A font file that states nothing about its license is listed with "the file
+says nothing of its copyright or license". A font the program brings as C
+(`FILE`) is listed without a license: only the program knows where it came
+from.
+
+**Keeping a font out.** Deny it in the program's rules:
+
+```
+deny "Arial*"
+```
+
+The rules never pick a denied face. A need or a list that names a denied
+font exactly, by `POSTSCRIPT`, `SOURCE`, `DGX`, `FILE` or a line of a
+`dgx_font_list`, stops the build, and the message names both sides:
+
+```
+dgx_fonts.py: /work/components/kbd/CMakeLists.txt: keys asks for DejaVu Sans Book
+(/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf) at 24 px, and /work/fonts.rules:7 denies it:
+the request and the rules disagree, one of them must change
+```
+
+DGX does not substitute another face: a component that asked for a font
+by name either gets that font or the build stops. Only the program has
+rules, so only the program decides; a component cannot override them.
+
+- A deny with sizes, `deny "DejaVu Sans" < 20`, keeps a face out at those
+  sizes only. A font used as is (`DGX`, `FILE`) has no size to compare, so
+  only a deny without sizes applies to it.
+- A font used as is is matched by its name, with spaces and punctuation
+  ignored as font2c ignores them: `deny "DejaVu Sans*"` also matches
+  `DejaVuSansBook32`, and `deny "Terminus (TTF)*"` matches
+  `TerminusTTFMedium12`. A font of DGX is
+  matched by its family as well, as recorded in `src/fonts/README.md`.
+- Rules with only `deny` lines and no `source` are enough when every need
+  names its face exactly. A need that the rules must pick a face for still
+  requires a source.
+
+**Strict rules.** If you have checked the licenses of a set of fonts and
+want the build to stop on anything else, add `strict` to the rules. Then a
+font is admitted only if an `allow` line names it, whether the rules pick
+it or a need names it exactly:
+
+```
+strict
+source dir ~/fonts-checked
+allow "Terminus (TTF)*"  12..32
+allow "DejaVu Sans*"     8..
+allow "Weather Icons"    1..
+```
+
+The sizes of the `allow` lines still choose faces for the needs the rules
+pick for; a font named exactly only needs an `allow` line for its family,
+at any size. `allow *` admits every font, so it defeats `strict`. Without
+the word `strict`, nothing changes from the rules described above.
+
+**The fonts of DGX.** The fonts in `src/fonts/` are made from fonts under
+free licenses, or were drawn for DGX. `src/fonts/README.md` lists what each
+one was made from and under what license.
 
 ## One font per face and size
 
@@ -322,7 +415,9 @@ drawn): one font per file.
 
 The build produces `build/dgx_fonts/dgx_fonts.c` and `dgx_fonts.h`.
 The first is compiled into the DGX library; the second is available to
-every component that depends on DGX. In the header, for each need:
+every component that depends on DGX. Next to them, `fonts-used.txt` lists
+the fonts and their licenses (see
+[Fonts and their licenses](#fonts-and-their-licenses)). In the header, for each need:
 
 ```c
 /* text: DejaVu Sans Mono Book at 48 px (12 pt x 4), made for this board */

@@ -19,8 +19,8 @@
 #include "drivers/jd9165.h"
 #include "drivers/jd9365.h"
 #include "drivers/vscreen.h"
-#include "fonts/ArialRegular12.h"
-#include "fonts/VerdanaRegular32.h"
+#include "fonts/LiberationSansRegular12.h"
+#include "fonts/DejaVuSansBook32.h"
 
 static const char *TAG = "dgx_dsi_demo";
 
@@ -109,7 +109,7 @@ static void demo_build_label(dgx_screen_t *screen);
 
 static void demo_text(dgx_screen_t *screen, int x, int y, const char *text, uint32_t color)
 {
-    dgx_font_string_utf8_screen(screen, x, y, text, color, DgxOutputNormal, 1, VerdanaRegular32(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, x, y, text, color, DgxOutputNormal, 1, DejaVuSansBook32(), NULL, NULL);
 }
 
 /* The corners named and the three colors named: what tells a wrong orientation or color order at a glance */
@@ -138,7 +138,7 @@ static void demo_test_card(dgx_screen_t *screen)
     snprintf(size, sizeof(size), "DGX on MIPI-DSI, %dx%d", w, h);
     demo_text(screen, bar, top - 30, size, demo_rgb(255, 200, 40));
     snprintf(size, sizeof(size), "%s, %d-bit color, build %d", screen->screen_name, EXAMPLE_LCD_COLOR_BITS, BUILD);
-    dgx_font_string_utf8_screen(screen, bar, top + 170, size, demo_rgb(60, 190, 255), DgxOutputNormal, 1, ArialRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, bar, top + 170, size, demo_rgb(60, 190, 255), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
 }
 
 /* a color of the rainbow, hue from 0 to 1535 */
@@ -333,7 +333,7 @@ static void demo_tuning_card(dgx_screen_t *screen)
     const demo_tuning_t    *n = &demo_numbers;
     const dgx_dsi_tuning_t *a = &n->built_in, *b = &n->tuning;
     const uint32_t          white = DGX_WHITE(demo_rgb), yellow = demo_rgb(255, 200, 40), cyan = demo_rgb(60, 190, 255), grey = demo_rgb(150, 160, 180);
-    /* 16 lines of Verdana 32 at most, above the build label: 34 pixels a line fit the 600 rows of the 7-inch panel */
+    /* 16 lines of DejaVu Sans 32 at most, above the build label: 34 pixels a line fit the 600 rows of the 7-inch panel */
     const int               left = 16, col_a = screen->width * 58 / 100, col_b = screen->width * 79 / 100, step = 34;
     char                    line[80], va[16], vb[16];
     int                     y = 36;

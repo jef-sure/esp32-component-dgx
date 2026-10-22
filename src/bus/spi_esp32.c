@@ -215,12 +215,75 @@ static void dgx_spi_send_data_async(struct _dgx_bus_protocols_t *_bus, const uin
     }
 }
 
+/*
+ * The SPI hosts DGX initializes, shared by the DGX displays on a host and freed
+ * with the last of them. A host the program initialized and named to
+ * dgx_spi_init_on_bus() is the program's: DGX only adds its device to it.
+ */
+typedef struct {
+    uint16_t       users;
+    bool           taken;
+    gpio_num_t     mosi, miso, sclk;
+    spi_dma_chan_t dma_chan;
+} dgx_spi_host_t;
+
+static dgx_spi_host_t dgx_spi_hosts[SOC_SPI_PERIPH_NUM];
+
+static esp_err_t dgx_spi_take_host(spi_host_device_t host_id, spi_dma_chan_t dma_chan, gpio_num_t mosi, gpio_num_t miso, gpio_num_t sclk)
+{
+    if (host_id < 0 || host_id >= SOC_SPI_PERIPH_NUM) {
+        ESP_LOGE(TAG, "SPI host %d does not exist", (int)host_id);
+        return ESP_ERR_INVALID_ARG;
+    }
+    dgx_spi_host_t *h = &dgx_spi_hosts[host_id];
+    if (h->taken) {
+        if (h->mosi != mosi || h->miso != miso || h->sclk != sclk || h->dma_chan != dma_chan) {
+            ESP_LOGE(TAG, "SPI host %d already uses MOSI %d, MISO %d, SCLK %d and DMA %d, not MOSI %d, MISO %d, SCLK %d and DMA %d", (int)host_id,
+                     (int)h->mosi, (int)h->miso, (int)h->sclk, (int)h->dma_chan, (int)mosi, (int)miso, (int)sclk, (int)dma_chan);
+            return ESP_ERR_INVALID_ARG;
+        }
+        return ESP_OK;
+    }
+    spi_bus_config_t buscfg;
+    memset(&buscfg, 0, sizeof(buscfg));
+    buscfg.miso_io_num     = miso;
+    buscfg.mosi_io_num     = mosi;
+    buscfg.sclk_io_num     = sclk;
+    buscfg.quadwp_io_num   = -1;
+    buscfg.quadhd_io_num   = -1;
+    buscfg.max_transfer_sz = -1; // the default of a bus with DMA, 4092 bytes
+    esp_err_t rc           = spi_bus_initialize(host_id, &buscfg, dma_chan);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "SPI host %d: spi_bus_initialize failed (%s); a host the program has initialized itself goes to dgx_spi_init_on_bus()",
+                 (int)host_id, esp_err_to_name(rc));
+        return rc;
+    }
+    *h = (dgx_spi_host_t){.taken = true, .mosi = mosi, .miso = miso, .sclk = sclk, .dma_chan = dma_chan};
+    return ESP_OK;
+}
+
+/* a host freed when no DGX display uses it; kept when the program has added devices of its own to it */
+static void dgx_spi_release_host(spi_host_device_t host_id)
+{
+    dgx_spi_host_t *h = &dgx_spi_hosts[host_id];
+    if (h->users || !h->taken) return;
+    esp_err_t rc = spi_bus_free(host_id);
+    if (rc != ESP_OK) {
+        ESP_LOGW(TAG, "SPI host %d kept, other devices are on it (%s)", (int)host_id, esp_err_to_name(rc));
+        return;
+    }
+    h->taken = false;
+}
+
 static void dgx_spi_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_spi_bus_t *bus = (dgx_spi_bus_t *)_bus;
     dgx_spi_wait_pending(_bus); // the device cannot be removed with transactions in flight
     spi_bus_remove_device(bus->spi);
-    spi_bus_free(bus->host_id);
+    if (bus->owns_host && dgx_spi_hosts[bus->host_id].users) {
+        --dgx_spi_hosts[bus->host_id].users;
+        dgx_spi_release_host(bus->host_id);
+    }
     free(bus->protocols.buffer);
     heap_caps_free(bus); // for symmetry with heap_caps_calloc
 }
@@ -230,25 +293,13 @@ static uint8_t *dgx_spi_memory_allocator(uint32_t len)
     return (uint8_t *)heap_caps_malloc(len, MALLOC_CAP_DMA);
 }
 
-dgx_bus_protocols_t *dgx_spi_init(spi_host_device_t host_id, spi_dma_chan_t dma_chan, gpio_num_t mosi, gpio_num_t miso, gpio_num_t sclk,
-                                  gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t /* default = 0 */ cpolpha_mode)
+/* the display's device added to an initialized host: the part both constructors share */
+static dgx_bus_protocols_t *dgx_spi_attach(spi_host_device_t host_id, bool owns_host, spi_dma_chan_t dma_chan, gpio_num_t mosi, gpio_num_t miso,
+                                           gpio_num_t sclk, gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t cpolpha_mode)
 {
-    spi_bus_config_t buscfg;
-    memset(&buscfg, 0, sizeof(buscfg));
-    buscfg.miso_io_num     = miso;
-    buscfg.mosi_io_num     = mosi;
-    buscfg.sclk_io_num     = sclk;
-    buscfg.quadwp_io_num   = -1;
-    buscfg.quadhd_io_num   = -1;
-    buscfg.max_transfer_sz = -1; // 4092;
-    if (spi_bus_initialize(host_id, &buscfg, dma_chan) != ESP_OK) {
-        ESP_LOGE(TAG, "dgx_spi_init: spi_bus_initialize failed");
-        return NULL;
-    }
     dgx_spi_bus_t *bus = (dgx_spi_bus_t *)heap_caps_calloc(1, sizeof(dgx_spi_bus_t), MALLOC_CAP_DMA);
     if (bus == 0) {
         ESP_LOGE(TAG, "dgx_spi_init failed to allocate dgx_spi_bus_t");
-        spi_bus_free(host_id);
         return NULL;
     }
     bus->protocols.bus_type         = DGX_BUS_SPI;
@@ -265,10 +316,10 @@ dgx_bus_protocols_t *dgx_spi_init(spi_host_device_t host_id, spi_dma_chan_t dma_
     bus->protocols.buffer           = bus->protocols.memory_allocator(bus->protocols.buffer_len);
     if (!bus->protocols.buffer) {
         ESP_LOGE(TAG, "dgx_spi_init buffer allocation failed");
-        spi_bus_free(host_id);
-        free(bus);
+        heap_caps_free(bus);
         return NULL;
     }
+    bus->owns_host             = owns_host;
     bus->host_id               = host_id;
     bus->dma_channel           = dma_chan;
     bus->dcio                  = dc;
@@ -277,7 +328,7 @@ dgx_bus_protocols_t *dgx_spi_init(spi_host_device_t host_id, spi_dma_chan_t dma_
     bus->mosi                  = mosi;
     bus->sclk                  = sclk;
     bus->clock_speed_hz        = clock_speed_hz;
-    bus->max_transfer_sz       = buscfg.max_transfer_sz;
+    bus->max_transfer_sz       = -1;
     bus->data_queued           = 0;
     bus->devcfg.clock_speed_hz = clock_speed_hz;
     bus->devcfg.spics_io_num   = cs;
@@ -293,11 +344,32 @@ dgx_bus_protocols_t *dgx_spi_init(spi_host_device_t host_id, spi_dma_chan_t dma_
     bus->devcfg.mode = cpolpha_mode;
     esp_err_t rc     = spi_bus_add_device(bus->host_id, &bus->devcfg, &bus->spi);
     if (rc != ESP_OK) {
-        ESP_LOGE(TAG, "dgx_spi_init spi_bus_add_device failed");
-        spi_bus_free(host_id);
+        ESP_LOGE(TAG, "dgx_spi_init spi_bus_add_device failed: %s", esp_err_to_name(rc));
         free(bus->protocols.buffer);
-        free(bus);
+        heap_caps_free(bus);
         return NULL;
     }
     return (dgx_bus_protocols_t *)bus;
+}
+
+dgx_bus_protocols_t *dgx_spi_init(spi_host_device_t host_id, spi_dma_chan_t dma_chan, gpio_num_t mosi, gpio_num_t miso, gpio_num_t sclk,
+                                  gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t /* default = 0 */ cpolpha_mode)
+{
+    if (dgx_spi_take_host(host_id, dma_chan, mosi, miso, sclk) != ESP_OK) return NULL;
+    dgx_bus_protocols_t *bus = dgx_spi_attach(host_id, true, dma_chan, mosi, miso, sclk, cs, dc, clock_speed_hz, cpolpha_mode);
+    if (!bus) {
+        dgx_spi_release_host(host_id);
+        return NULL;
+    }
+    ++dgx_spi_hosts[host_id].users;
+    return bus;
+}
+
+dgx_bus_protocols_t *dgx_spi_init_on_bus(spi_host_device_t host_id, gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t cpolpha_mode)
+{
+    if (host_id < 0 || host_id >= SOC_SPI_PERIPH_NUM) {
+        ESP_LOGE(TAG, "SPI host %d does not exist", (int)host_id);
+        return NULL;
+    }
+    return dgx_spi_attach(host_id, false, SPI_DMA_CH_AUTO, GPIO_NUM_NC, GPIO_NUM_NC, GPIO_NUM_NC, cs, dc, clock_speed_hz, cpolpha_mode);
 }

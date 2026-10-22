@@ -92,6 +92,9 @@ idf.py flash monitor
 | 256 KB | 458 KB | 1.0 ms | 1.2 ms | 0.18 ms | 16 ms |
 | 512 KB | 197 KB | 0.9 ms | 0.7 ms | 0.19 ms | 9.5 ms |
 
+The text was measured in Verdana 32, which DGX no longer ships; the demo now
+draws DejaVu Sans 32, a font of nearly the same height. Not measured again.
+
 A pixel set inside a batch takes 0.45 us, a pixel set alone 4.7 us, a whole
 virtual screen sent to the display 34 ms.
 

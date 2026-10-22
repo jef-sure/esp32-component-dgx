@@ -47,6 +47,32 @@ bool dgx_vscreen_is_linear(const dgx_screen_t *scr);
  */
 dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src);
 
+/**
+ * @brief Read a rectangle of a screen as 32-bit colors 0xAARRGGBB, alpha 0xff: for a window on a PC.
+ *
+ * The rows go to @p dst one under another, @p dst_stride pixels apart:
+ * the layout of SDL_PIXELFORMAT_ARGB8888. Each channel is widened to 8
+ * bits with its high bits repeated below, so white is 0xffffffff at any
+ * depth. A pixel of 1 bit is white or black. A pixel of 8 bits is an index
+ * into @p lut, the RGB565 table dgx_vscreen8_to_screen16() takes, or a
+ * level of grey when @p lut is NULL. The overlay layer of the screen is not
+ * mixed in.
+ *
+ * A virtual screen is read straight from its memory; any other screen that
+ * gives its pixels back (dgx_screen_is_readable()) pixel by pixel.
+ *
+ * @param scr           The screen.
+ * @param x,y           Top-left corner of the rectangle.
+ * @param width,height  Size of the rectangle; it must lie within the screen.
+ * @param lut           256-entry RGB565 table for an 8-bit screen, or NULL.
+ * @param dst           Where the colors go.
+ * @param dst_stride    Pixels from the start of a row of @p dst to the start of the next, at least @p width.
+ * @return false, and nothing written, when the rectangle is not within the screen or the screen does not give its
+ *         pixels back.
+ */
+bool dgx_vscreen_to_argb8888(dgx_screen_t *scr, int x, int y, int width, int height, const uint16_t *lut, uint32_t *dst,
+                             int dst_stride);
+
 /*
  * How a virtual screen is put on a screen: the last argument of
  * dgx_vscreen_to_screen(), dgx_vscreen_region_to_screen(),

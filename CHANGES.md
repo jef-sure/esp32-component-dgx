@@ -1,5 +1,96 @@
 # Changes
 
+## 0.8.0 - 2026-10-22
+
+This release removes two fonts, `ArialRegular12()` and
+`VerdanaRegular32()`: a program that uses them switches to
+`LiberationSansRegular12()` and `DejaVuSansBook32()`. Displays can now share
+a bus with other devices, DGX builds on a PC from one Makefile include, and a
+README recipe covers Arduino sketches. The new bus constructors and the
+Arduino sketch were built, not tried on hardware.
+
+- **Breaking: Arial and Verdana are gone from DGX.** `ArialRegular12()` and
+  `VerdanaRegular32()` were bitmaps rendered from Microsoft's Core fonts,
+  which are not under a free license; they and their headers are removed so
+  that every font DGX ships has a free license.
+  `LiberationSansRegular12()` takes the place of the first: Liberation Sans
+  has the metrics of Arial, and the font has the same characters, except
+  Arabic, which Liberation Sans lacks. `DejaVuSansBook32()` takes the place of
+  the second: the same characters, U+0020 to U+007E, two pixels shorter
+  (`yAdvance` 37 instead of 39). Both fonts are under free licenses. A program
+  that still wants Arial or Verdana declares a need for it and renders it on
+  its own build machine, under its own license. The demos, the README and the
+  pictures of the README use the new fonts.
+- **Fonts and their licenses.** DGX does not judge the licenses of the fonts
+  a program asks for; it now shows them and lets the program refuse them.
+  - Each build of the fonts writes `build/dgx_fonts/fonts-used.txt`: every
+    font of the program, the file it came from, what that file says about its
+    copyright and license, and which needs and lists use it. The configure
+    step and the build print its path, and `dgx_fonts.h` points to it.
+  - A `deny` in the program's rules now applies to every font, not only to
+    the faces the rules pick: a need or a list that names a denied font
+    exactly (`POSTSCRIPT`, `SOURCE`, `DGX`, `FILE`, a list) stops the build,
+    and the message names the request and the rule. No other face is put in
+    its place.
+  - `strict` in the rules admits only the fonts the `allow` lines name, however
+    they are asked for. It is off unless the rules say so.
+  - Rules with only `deny` lines and no `source` are accepted when no need
+    has its face picked by the rules.
+  - `src/fonts/README.md` records what each font of DGX was made from and
+    under what license.
+- **DGX built on a PC.** `host/dgx_host.mk` gives a Makefile the
+  platform-independent sources of DGX and the flags to build them:
+  `DGX_HOST_SRCS`, also in groups (`DGX_HOST_SRCS_SCREEN`, `_DRAW`,
+  `_VSCREEN`, `_TEXT`, `_MORPH`, `_FB`, `_FONTS`), `DGX_HOST_CPPFLAGS`,
+  `DGX_HOST_CFLAGS`, `DGX_HOST_LDLIBS` and `DGX_HOST_DIR`. The ESP-IDF stubs
+  moved from `test/host/stubs` to `host/stubs`, and the package declares the
+  directory. The host tests use the file themselves, so the list cannot fall
+  behind the sources.
+- **`dgx_vscreen_to_argb8888()`** reads a rectangle of a screen as
+  0xAARRGGBB colors, the layout of `SDL_PIXELFORMAT_ARGB8888`, for a window
+  on a PC: any depth of a virtual screen, an 8-bit one through an RGB565
+  table or as grey, and any other screen that gives its pixels back. Covered
+  by the host test `test_argb`.
+- **C++ and Arduino.** A new README recipe, "An Arduino sketch", and the
+  example `examples/arduino_demo` show DGX in a sketch built as an ESP-IDF
+  project with Arduino as a component, including a display on the I2C bus of
+  `Wire`. Every public header now compiles on its own in C and in C++:
+  - `dgx_screen_with_bus.h` is wrapped in `extern "C"` like the others;
+  - `drivers/st7789.h` includes `driver/gpio.h` for `gpio_num_t`;
+  - `bus/dgx_spi_esp32.h` no longer includes `hal/gpio_ll.h`, which it did
+    not need and which gave C++ warnings on the ESP32-P4.
+- **A display on a bus shared with other devices.** `dgx_i2c_init_on_bus()`,
+  `dgx_spi_init_on_bus()` and `dgx_p8_init_on_bus()` put a display on an I2C
+  master bus, an SPI host or an I80 bus the program has set up and owns, with
+  a touch controller, a clock chip or an SD card on it. DGX adds its device
+  and removes it on dispose, and never releases the bus itself.
+- **Several displays on a bus of DGX.** `dgx_i2c_init()`, `dgx_spi_init()`
+  and `dgx_p8_init()` used to set up the bus for each display, so a second
+  display on the same port, host or pins failed, and disposing of one
+  display released a bus other devices might still use. Displays on the same
+  port, host or pins now share one bus, which must be named with the same
+  pins; it is released with the last of them, and kept while the program has
+  devices of its own on it.
+- **I2C probe.** Both I2C constructors probe the address and fail when no
+  device answers, instead of logging an error at every transfer.
+- **Fonts made at build time, the last small points of the audit.**
+  - A need with `POSTSCRIPT` or `SOURCE` and also `MONO` or `FAMILY` is an
+    error; the last two used to be ignored in silence.
+  - `-t` in a line of a `font2c -jo` list is refused: it advises on what
+    `-x` would change, and a list changes nothing. It used to be accepted and
+    ignored.
+  - font2c writes its `.h` files aside and renames them when complete, as it
+    does the `.c` files, and so does `dgx_fonts.py` with `dgx_fonts.c` and
+    `dgx_fonts.h`: a stopped build leaves the old file or the new one.
+  - The strings of a `.po` file take every escape of C (`\a`, `\b`, `\f`,
+    `\v`, `\'`, `\?`, hexadecimal escapes of any length), and a backslash
+    before another character stands for that character.
+  - On Windows, `dgx_fonts.py` builds `font2c.exe` with `gcc` (or `CC`), and
+    font2c replaces its old files there too. Not tried on Windows.
+
+Checked by a host test of who owns the I2C and I80 buses and by ESP-IDF 5.5.4
+and 6.0.1 builds of every constructor for the ESP32. Not tried on hardware.
+
 ## 0.7.3 - 2026-10-21
 
 Fixes from an audit of the fonts made at build time (0.7.2). Checked by the

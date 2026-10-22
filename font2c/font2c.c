@@ -18,6 +18,17 @@
 #include FT_FREETYPE_H
 #include FT_TRUETYPE_DRIVER_H
 
+#ifdef _WIN32
+/* Windows: no realpath(), and rename() does not replace a file that is there */
+#define realpath(path, resolved) _fullpath((resolved), (path), 0)
+static int dgx_rename(const char *from, const char *to)
+{
+    remove(to);
+    return rename(from, to);
+}
+#define rename dgx_rename
+#endif
+
 typedef struct
 {
     size_t   bitmapOffset; ///< Pointer into GFXfont->bitmap
@@ -1274,9 +1285,12 @@ static int write_single_header(const char *funcname, int hw)
 {
     char fontname[260];
     snprintf(fontname, sizeof(fontname), "%s.h", funcname);
-    FILE *out = fopen(fontname, "w");
+    /* written aside and put in place when complete, as the .c is */
+    snprintf(hwUnfinished, sizeof(hwUnfinished), "%s.tmp", fontname);
+    FILE *out = fopen(hwUnfinished, "w");
     if (!out) {
-        fprintf(stderr, "Error opening font header file %s for writing: %s\n", fontname, strerror(errno));
+        fprintf(stderr, "Error opening font header file %s for writing: %s\n", hwUnfinished, strerror(errno));
+        hwUnfinished[0] = 0;
         return 1;
     }
     fprintf(out, "#pragma once\n");
@@ -1284,7 +1298,11 @@ static int write_single_header(const char *funcname, int hw)
     fprintf(out, "#ifdef __cplusplus\n// @formatter:off\nextern \"C\" {\n// @formatter:on\n#endif\n");
     fprintf(out, hw ? "dgx_font_t *%s();\n" : "dgx_font_t* %s();\n", funcname);
     fprintf(out, "#ifdef __cplusplus\n// @formatter:off\n}\n// @formatter:on\n#endif\n");
-    fclose(out);
+    if (ferror(out) | fclose(out) || rename(hwUnfinished, fontname)) {
+        fprintf(stderr, "Error writing font header file %s: %s\n", fontname, strerror(errno));
+        return 1;
+    }
+    hwUnfinished[0] = 0;
     return 0;
 }
 
@@ -1669,11 +1687,13 @@ static int jo_line(const char *listPath, int lineNo, const char *listDir, char *
         } else if (!strcmp(argv[a], "-f")) {
             if (a + 1 >= argc || nLetters >= 64) return fprintf(stderr, "%s: -f without a file\n", where), 1;
             letters[nLetters++] = argv[++a];
-        } else if (!strcmp(argv[a], "-g") || !strcmp(argv[a], "-t")) {
+        } else if (!strcmp(argv[a], "-t")) {
+            return fprintf(stderr, "%s: -t is advice for -x, which changes the file of a font; a list does neither\n", where), 1;
+        } else if (!strcmp(argv[a], "-g")) {
             char  *rest  = 0;
             double cells = a + 1 < argc ? strtod(argv[a + 1], &rest) : -1;
             if (!rest || rest == argv[a + 1] || *rest || !(cells >= 0 && cells <= 1000)) return fprintf(stderr, "%s: %s needs cells\n", where, argv[a]), 1;
-            if (argv[a][1] == 'g') pairLimit = cells;
+            pairLimit = cells;
             ++a;
         } else if (!strcmp(argv[a], "-x") || !strcmp(argv[a], "-i")) {
             return fprintf(stderr, "%s: %s changes the file of a font, which a list does not do\n", where, argv[a]), 1;
@@ -1829,10 +1849,11 @@ static int jo_write(const char *outName, FT_Library library)
         fprintf(stderr, "Error writing font file %s: %s\n", cname, strerror(errno));
         return 1;
     }
-    hwUnfinished[0] = 0;
-    FILE *h = fopen(hname, "w");
+    snprintf(hwUnfinished, sizeof(hwUnfinished), "%s.tmp", hname);
+    FILE *h = fopen(hwUnfinished, "w");
     if (!h) {
-        fprintf(stderr, "Error opening font header file %s for writing: %s\n", hname, strerror(errno));
+        fprintf(stderr, "Error opening font header file %s for writing: %s\n", hwUnfinished, strerror(errno));
+        hwUnfinished[0] = 0;
         return 1;
     }
     fprintf(h, "#pragma once\n/* The fonts of the lists given to font2c -jo: made, not edited. */\n#include \"dgx_font.h\"\n");
@@ -1847,7 +1868,11 @@ static int jo_write(const char *outName, FT_Library library)
         }
     }
     fprintf(h, "#ifdef __cplusplus\n// @formatter:off\n}\n// @formatter:on\n#endif\n");
-    fclose(h);
+    if (ferror(h) | fclose(h) || rename(hwUnfinished, hname)) {
+        fprintf(stderr, "Error writing font header file %s: %s\n", hname, strerror(errno));
+        return 1;
+    }
+    hwUnfinished[0] = 0;
     return 0;
 }
 

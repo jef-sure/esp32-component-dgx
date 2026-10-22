@@ -9,4 +9,4 @@ dgx_font_need(body SIZE 2.5mm MONO TEXTS strings.txt)
 # an exact face, 4.5 mm high, with the characters of the title
 dgx_font_need(title SIZE 4.5mm POSTSCRIPT DejaVuSans-Bold TEXTS title.txt)
 # a font bundled with DGX, used as is; the build checks that it has the digits and the colon
-dgx_font_need(clock DGX VerdanaRegular32 LETTERS "0123456789:")
+dgx_font_need(clock DGX DejaVuSansBook32 LETTERS "0123456789:")

@@ -11,6 +11,12 @@
 #include "dgx_screen.h"
 #include "bus/dgx_bus_protocols.h"
 
+#ifdef __cplusplus
+// @formatter:off
+extern "C" {
+// @formatter:on
+#endif
+
 typedef enum {
     DGX_SCREEN_AREA_PROTO_STD16 = 0,
     DGX_SCREEN_AREA_PROTO_CMD8  = 1,
@@ -89,3 +95,8 @@ static inline void dgx_screen_with_bus_init_area(dgx_screen_with_bus_t *scr, uin
     scr->scroll.columns = scr->scroll.mirror = false;
 }
 
+#ifdef __cplusplus
+// @formatter:off
+}
+// @formatter:on
+#endif

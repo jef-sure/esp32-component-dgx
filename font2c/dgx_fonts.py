@@ -65,12 +65,22 @@ The rules, one per line (# starts a comment), the same as the rules of DGX-GE we
     allow "DejaVu Sans Mono" 16..  sizes: 14 | 16..24 | 16.. | ..24 | > 12 | >= 12 | < 40 | <= 40; & means and,
     deny  "Comic*"                 a comma or a space between them means or; deny without sizes: at every size
     allow * 40..
+    strict                         only the fonts the allow lines name, however they are asked for (off by default)
 
 The allow lines are in order of preference: the first one with a face of the size that has all the characters wins;
 among its faces a regular style comes first, then Medium, then bold, italic and the rest, then the order of the
-sources. A face denied at
-the size is never taken. A face is found by its PostScript name with fc-list and must match exactly: fc-match
-would silently return another face for a name it does not know.
+sources. A face denied at the size is never taken. A face is found by its PostScript name with fc-list and must
+match exactly: fc-match would silently return another face for a name it does not know.
+
+The fonts and their licenses: each build writes fonts-used.txt beside dgx_fonts.c, every font the program uses with
+what its file says of its copyright and license and who asks for it. Whether the program may use them is for its
+author to judge; the rules are where they say no. A deny holds for every font, not only for those the rules pick: a
+need or a list that names a denied font exactly (postscript, source, dgx, file, a list) stops the build, naming both
+sides; no other face is put in its place. A font used as is has no size, so only a deny without sizes concerns it,
+and its name is matched without spaces and punctuation (deny "DejaVu Sans*" matches DejaVuSansBook32), a font of DGX by its
+family too, as src/fonts/README.md records it. With strict, a font gets in only when an allow line names it; the
+sizes of the allow lines still choose among faces, but do not keep out a font named exactly. Rules with no
+source lines are enough for denying; picking a face needs a source.
 """
 import argparse
 import fnmatch
@@ -79,6 +89,7 @@ import math
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import unicodedata
@@ -86,6 +97,7 @@ from collections import namedtuple
 
 Font = namedtuple("Font", "file index family style mono psname charset order")
 Rule = namedtuple("Rule", "allow pattern sizes where")
+Rules = namedtuple("Rules", "path sources rules strict")  # a rules file: strict when only its allow lines admit a font
 
 
 class FontsError(Exception):
@@ -159,9 +171,9 @@ def size_allowed(sizes, size):
 
 
 def parse_rules(text, name="rules", base=None):
-    """The sources [(kind, path or None)] and the rules [Rule] of a text of rules; a relative path of a source is
-    resolved from `base`, the directory of the rules file."""
-    sources, rules = [], []
+    """The sources [(kind, path or None)], the rules [Rule] and whether they are strict, of a text of rules; a relative
+    path of a source is resolved from `base`, the directory of the rules file."""
+    sources, rules, strict = [], [], False
     for number, raw in enumerate(text.splitlines(), 1):
         line = raw.split("#", 1)[0].strip()
         if not line:
@@ -187,14 +199,54 @@ def parse_rules(text, name="rules", base=None):
             if word == "allow" and not sizes.strip():
                 raise FontsError(f"{where}: allow without sizes: give them (16.. means 16 and up)")
             rules.append(Rule(word == "allow", pattern.lower(), parse_sizes(sizes, where) if sizes.strip() else None, where))
+        elif word == "strict":
+            if rest:
+                raise FontsError(f"{where}: strict takes nothing after it")
+            strict = True
         else:
-            raise FontsError(f"{where}: source, allow or deny, not '{word}'")
-    return sources, rules
+            raise FontsError(f"{where}: source, allow, deny or strict, not '{word}'")
+    return sources, rules, strict
 
 
 def matches(pattern, font):
     """The pattern of a rule against the family, or the family and the style."""
     return fnmatch.fnmatchcase(font.family.lower(), pattern) or fnmatch.fnmatchcase(f"{font.family} {font.style}".lower(), pattern)
+
+
+def matches_name(pattern, name):
+    """The pattern of a rule against a name of a font used as is, both without the spaces and the punctuation that
+    font2c leaves out of the names it gives: "Terminus (TTF)*" and "DejaVu Sans*" match TerminusTTFMedium12 and
+    DejaVuSansBook32."""
+    def bare(text):
+        return re.sub(r"[^0-9a-z*?\[\]!]", "", text.lower())
+    return fnmatch.fnmatchcase(bare(name), bare(pattern))
+
+
+def read_rules(path):
+    """The program's rules file as Rules."""
+    try:
+        text = open(path, encoding="utf-8-sig").read()
+    except OSError as e:
+        raise FontsError(f"rules {path}: {e.strerror}")
+    return Rules(path, *parse_rules(text, path, os.path.dirname(os.path.abspath(path))))
+
+
+def admit(rules, asked, px=None, face=None, names=()):
+    """Stops the build when a font that a need or a list names exactly is kept out by the program's rules: denied by
+    them, or, when they are strict, taken by none of their allow lines. A face to render is judged as the rules judge
+    faces, and a deny with sizes keeps it out at those sizes only; a font used as is is judged by its names, and no
+    sizes concern it. `asked` says who asks for the font and how."""
+    if rules is None:
+        return
+
+    def hit(rule):
+        return matches(rule.pattern, face) if face else any(matches_name(rule.pattern, n) for n in names)
+
+    for rule in rules.rules:
+        if not rule.allow and hit(rule) and (rule.sizes is None or px is not None and size_allowed(rule.sizes, px)):
+            raise FontsError(f"{asked}, and {rule.where} denies it: the request and the rules disagree, one of them must change")
+    if rules.strict and not any(rule.allow and hit(rule) for rule in rules.rules):
+        raise FontsError(f"{asked}, and the rules {rules.path} are strict and allow no such font: allow it there, or ask for another")
 
 
 _charsets = {}
@@ -313,6 +365,43 @@ def face_of_file(path, where):
     return found[0]
 
 
+NAME_IDS = {0: "copyright", 5: "version", 13: "license", 14: "license URL"}
+
+
+def name_table(path):
+    """What a font file says of itself in its name table: {copyright, version, license, license URL}, those it has, in
+    English when it has several languages; empty for a file that is not a TrueType or OpenType font."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        start = struct.unpack_from(">I", data, 12)[0] if data[:4] == b"ttcf" else 0  # a collection: its first face
+        for k in range(struct.unpack_from(">H", data, start + 4)[0]):
+            tag, _, offset, _ = struct.unpack_from(">4sIII", data, start + 12 + 16 * k)
+            if tag == b"name":
+                break
+        else:
+            return {}
+        _, count, strings = struct.unpack_from(">HHH", data, offset)
+        found = {}
+        for k in range(count):
+            platform, encoding, language, name_id, length, at = struct.unpack_from(">HHHHHH", data, offset + 6 + 12 * k)
+            if name_id not in NAME_IDS:
+                continue
+            raw = data[offset + strings + at:offset + strings + at + length]
+            if platform in (0, 3):  # Unicode, Windows: UTF-16; Windows English first
+                text, rank = raw.decode("utf-16-be", "replace"), 0 if platform == 0 or language == 0x409 else 1
+            elif platform == 1 and encoding == 0:  # Macintosh Roman
+                text, rank = raw.decode("mac_roman", "replace"), 2
+            else:
+                continue
+            text = " ".join(text.split())
+            if text and (name_id not in found or rank < found[name_id][0]):
+                found[name_id] = (rank, text)
+        return {NAME_IDS[i]: text for i, (_, text) in sorted(found.items())}
+    except (OSError, struct.error):
+        return {}
+
+
 # ----------------------------------------------------------------------------------------------------------------
 #  The letters of texts
 # ----------------------------------------------------------------------------------------------------------------
@@ -344,10 +433,20 @@ def po_strings(text):
     return out
 
 
+PO_ESCAPES = {'"': '"', "\\": "\\", "'": "'", "?": "?", "n": "\n", "r": "\r", "t": "\t", "a": "\a", "b": "\b", "f": "\f", "v": "\v"}
+
+
 def unescape(s):
-    return re.sub(r'\\(["\\nrt]|[0-7]{1,3}|x[0-9a-fA-F]{2})',
-                  lambda m: {'"': '"', "\\": "\\", "n": "\n", "r": "\r", "t": "\t"}.get(m.group(1))
-                  or chr(int(m.group(1)[1:], 16) if m.group(1)[0] == "x" else int(m.group(1), 8)), s)
+    """The escapes of a string of a .po file, as gettext takes them: those of C, octal and hexadecimal ones included; a
+    backslash before any other character stands for that character."""
+    def one(m):
+        e = m.group(1)
+        if e[0] == "x":
+            return chr(int(e[1:], 16))
+        if e[0] in "01234567":
+            return chr(int(e, 8))
+        return PO_ESCAPES.get(e, e)
+    return re.sub(r'\\(x[0-9a-fA-F]+|[0-7]{1,3}|.)', one, s, flags=re.S)
 
 
 def json_strings(value):
@@ -444,6 +543,67 @@ def hw_code_points(path, where):
     return out
 
 
+def hw_names(path):
+    """The names of a handwritten font: the one in its JSON and that of its file."""
+    names = [os.path.splitext(os.path.basename(path))[0]]
+    try:
+        name = json.load(open(path, encoding="utf-8-sig")).get("name")
+    except (OSError, ValueError, AttributeError):
+        name = None
+    return ([name] if isinstance(name, str) and name else []) + names
+
+
+Origin = namedtuple("Origin", "family source license")
+
+
+def dgx_origins(dgx, cache):
+    """What DGX's own fonts were made from and under what license, by function: the table of src/fonts/README.md."""
+    if "origins" not in cache:
+        origins = {}
+        try:
+            text = open(os.path.join(dgx, "src", "fonts", "README.md"), encoding="utf-8").read()
+        except OSError:
+            text = ""
+        for line in text.splitlines():
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if line.startswith("|") and len(cells) == 4 and re.fullmatch(r"`\w+`", cells[0]):
+                origins[cells[0].strip("`")] = Origin(*cells[1:])
+        cache["origins"] = origins
+    return cache["origins"]
+
+
+def list_fonts(path):
+    """The font files a list of font2c names, read as font2c reads it: [(where, file, size in pixels, or None for a
+    handwritten font's JSON)]. A line font2c would refuse is left to font2c to tell."""
+    try:
+        lines = open(path, encoding="utf-8-sig").read().splitlines()
+    except OSError as e:
+        raise FontsError(f"{path}: {e.strerror}")
+    here, out = os.path.dirname(os.path.abspath(path)), []
+    for number, line in enumerate(lines, 1):
+        words = []
+        for m in re.finditer(r'"([^"]*)"|(\S+)', line):
+            if m.group(2) is not None and m.group(2).startswith("#"):
+                break
+            words.append(m.group(1) if m.group(1) is not None else m.group(2))
+        rest = []
+        k = 0
+        while k < len(words):
+            if words[k] in ("-n", "-f", "-g"):
+                k += 2
+                continue
+            rest.append(words[k])
+            k += 1
+        if not rest:
+            continue
+        file = rest[0] if os.path.isabs(rest[0]) else os.path.join(here, rest[0])
+        if file.lower().endswith(".json"):
+            out.append((f"{path}:{number}", file, None))
+        elif len(rest) > 1 and rest[1].isdigit() and os.path.exists(file):
+            out.append((f"{path}:{number}", file, int(rest[1])))
+    return out
+
+
 def write_if_changed(path, text):
     """A file written only when it is not already so: a build does not make again what did not change."""
     try:
@@ -452,21 +612,26 @@ def write_if_changed(path, text):
                 return False
     except OSError:
         pass
-    with open(path, "w", encoding="utf-8") as f:
+    aside = path + ".tmp"
+    with open(aside, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
+    os.replace(aside, path)  # whole or not at all, should the build be stopped halfway
     return True
 
 
 def font2c_binary(dgx, outdir):
     """DGX's font2c, built from its source into outdir when the source is newer (FreeType needed)."""
     source = os.path.join(dgx, "font2c", "font2c.c")
-    built = os.path.join(outdir, "font2c")
+    built = os.path.join(outdir, "font2c.exe" if os.name == "nt" else "font2c")
     if not os.path.exists(source):
         raise FontsError(f"no font2c source in {dgx}: not a DGX component")
     if os.path.exists(built) and os.path.getmtime(built) >= os.path.getmtime(source):
         return built
     # the host's compiler with the host's tools: inside an ESP-IDF build the PATH leads to the chips' tools first
     env = dict(os.environ, PATH=os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep) if ".espressif" not in p))
+    compiler = os.environ.get("CC", "")
+    if not compiler or ".espressif" in compiler or "-esp" in os.path.basename(compiler):  # a CC of the chip is no use here
+        compiler = "gcc" if os.name == "nt" else "cc"  # MSYS2 and MinGW have gcc, not cc
     try:
         flags = subprocess.run(["pkg-config", "--cflags", "--libs", "freetype2"], capture_output=True, text=True, env=env)
     except OSError:
@@ -474,9 +639,9 @@ def font2c_binary(dgx, outdir):
     if flags.returncode:
         raise FontsError("the FreeType development files (libfreetype-dev) are not installed, so font2c cannot be built: " + flags.stderr.strip())
     try:
-        run = subprocess.run(["cc", "-O2", source, "-o", built] + flags.stdout.split(), capture_output=True, text=True, env=env)
+        run = subprocess.run([compiler, "-O2", source, "-o", built] + flags.stdout.split(), capture_output=True, text=True, env=env)
     except OSError:
-        raise FontsError("no host C compiler (cc) to build font2c with")
+        raise FontsError(f"no host C compiler ({compiler}; set CC to another) to build font2c with")
     if run.returncode:
         raise FontsError("font2c failed to build:\n" + run.stderr.strip())
     return built
@@ -565,7 +730,8 @@ def parse_needs(text, name="needs", base=None):
 
 
 # what a need comes to
-Made = namedtuple("Made", "need face px letters how mm")           # a bitmap font to make: face a Font, how the size came
+Made = namedtuple("Made", "need face px letters how mm by")        # a bitmap font to make: face a Font, how the size came, by
+                                                                   # what the face was chosen
 Hand = namedtuple("Hand", "need source letters")                   # a handwritten font to make, of its JSON
 AsIs = namedtuple("AsIs", "need path function how letters")        # a font taken as it is; how: dgx or file
 
@@ -649,14 +815,19 @@ def merge_needs(needs):
     return merged
 
 
-def resolve(declared, board, rules_path, dgx, fonts_cache):
-    """What a declared need comes to: a Made, a Hand or an AsIs."""
+def resolve(declared, board, rules, dgx, cache):
+    """What a declared need comes to: a Made, a Hand or an AsIs. rules: the program's Rules, or None."""
     need, fields, letters = declared.need, declared.fields, declared.letters
     ways = [k for k in ("dgx", "file", "source") if k in fields]
     if len(ways) > 1:
         raise FontsError(f"{need.where}: {need.name}: only one of dgx, file or source, not {' and '.join(ways)}")
     way = ways[0] if ways else "face"
     size_text, mm, face = fields.get("size", (None, None))[0], None, None
+    exact = [k for k in ("postscript", "source") if k in fields]
+    if exact and way != "dgx" and way != "file":
+        loose = [k for k in ("mono", "family") if k in fields]
+        if loose or len(exact) > 1:
+            raise FontsError(f"{need.where}: {need.name}: {exact[0]} names the face itself; {' and '.join(loose or exact[1:])} do not apply")
     if way in ("dgx", "file") and ("size" in fields or "mono" in fields or "family" in fields or "postscript" in fields):
         raise FontsError(f"{need.where}: {need.name}: an existing font has its own size and face: size, mono, family and postscript do not apply")
     if way == "dgx":
@@ -668,6 +839,8 @@ def resolve(declared, board, rules_path, dgx, fonts_cache):
         c_text = open(path, encoding="utf-8", errors="replace").read()
         function = accessor(c_text, f"{where}: {path}")
         check_letters(glyph_ranges(c_text, f"{where}: {path}"), letters, f"{where}: {name} of DGX")
+        origin = dgx_origins(dgx, cache).get(function)
+        admit(rules, f"{need.place}: {need.name} asks for {function} of DGX", names=[function] + ([origin.family] if origin else []))
         return AsIs(need, path, function, "dgx", letters)
     if way == "file":
         path, where = fields["file"]
@@ -677,6 +850,7 @@ def resolve(declared, board, rules_path, dgx, fonts_cache):
             raise FontsError(f"{where}: {path}: {e.strerror}")
         function = accessor(c_text, f"{where}: {path}")
         check_letters(glyph_ranges(c_text, f"{where}: {path}"), letters, f"{where}: {path}")
+        admit(rules, f"{need.place}: {need.name} asks for {function} of {path}", names=[function])
         return AsIs(need, path, function, "file", letters)
     if way == "source":
         path, where = fields["source"]
@@ -684,8 +858,9 @@ def resolve(declared, board, rules_path, dgx, fonts_cache):
             if "size" in fields:
                 raise FontsError(f"{where}: {need.name}: a handwritten font has no size; the size is chosen when text is drawn")
             check_letters(hw_code_points(path, where), letters, f"{where}: {path}")
+            admit(rules, f"{need.place}: {need.name} asks for the handwritten font {path}", names=hw_names(path))
             return Hand(need, path, letters)
-        face = face_of_file(path, where)
+        face, by = face_of_file(path, where), f"named by its file in {need.place}"
     if not letters:
         raise FontsError(f"{need.where}: {need.name}: no characters: give it texts or letters")
     if size_text is None:
@@ -693,31 +868,27 @@ def resolve(declared, board, rules_path, dgx, fonts_cache):
     px, mm, how = size_in_px(size_text, board, need.where)
     if face is None and "postscript" in fields:
         name, where = fields["postscript"]
-        face = face_by_postscript(name, where)
+        face, by = face_by_postscript(name, where), f"named by its PostScript name in {need.place}"
     if face is not None:
+        admit(rules, f"{need.place}: {need.name} asks for {face.family} {face.style} ({face.file}) at {px} px", px, face)
         check_letters(charset(face), letters, f"{need.where}: {face.family} {face.style} ({face.file})")
-        return Made(need, face, px, letters, how, mm)
+        return Made(need, face, px, letters, how, mm, by)
     # by the rules
-    if not rules_path:
+    if not rules:
         raise FontsError(f"{need.where}: {need.name} asks for a face by family or by the rules, and the program declared no rules: "
                          f"add dgx_fonts_rules(<file>) to its CMakeLists, or name a PostScript face")
-    if "rules" not in fonts_cache:
-        try:
-            text = open(rules_path, encoding="utf-8-sig").read()
-        except OSError as e:
-            raise FontsError(f"rules {rules_path}: {e.strerror}")
-        sources, rules = parse_rules(text, rules_path, os.path.dirname(os.path.abspath(rules_path)))
-        if not sources:
-            raise FontsError(f"{rules_path}: no source of fonts (source system, source dir or source list)")
-        fonts_cache["rules"] = (gather(sources), rules)
-    fonts, rules = fonts_cache["rules"]
+    if "faces" not in cache:
+        if not rules.sources:
+            raise FontsError(f"{rules.path}: no source of fonts (source system, source dir or source list) for the needs the rules pick a face for")
+        cache["faces"] = gather(rules.sources)
     mono = fields.get("mono", ("0", None))[0] not in ("0", "")
     family = fields.get("family", (None, None))[0]
-    found = candidates(fonts, rules, px, mono, family, "".join(sorted(letters)))
+    found = candidates(cache["faces"], rules.rules, px, mono, family, "".join(sorted(letters)))
     if not found:
         raise FontsError(f"{need.where}: {need.name}: no face allowed by the rules at {px} px{' (mono)' if mono else ''}"
                          f"{' of ' + family if family else ''} has all the characters: {''.join(sorted(letters))}")
-    return Made(need, found[0][1], px, letters, how, mm)
+    rule, face = found[0]
+    return Made(need, face, px, letters, how, mm, f"picked by the rules, {rule.where}")
 
 
 def check_letters(points, letters, where):
@@ -801,6 +972,72 @@ def join_needs(wants):
     return joined
 
 
+USED_HEAD = """\
+# The fonts of this program: where each one came from, what its file says of its license, and which needs and
+# lists use it. Generated by dgx_fonts.py of DGX each time the fonts are made. Do not edit.
+#
+# Make sure you may use every font listed here: DGX takes the fonts the program and its components ask for and
+# does not judge their licenses. To keep a font out, deny it in the program's rules (deny "Family*"): the rules
+# then never pick it, and a need or a list that names it exactly stops the build. The word strict in the rules
+# lets in only the fonts their allow lines name. See "Fonts and their licenses" in docs/fonts-en.md of DGX.
+"""
+
+
+def shortened(text, most=300):
+    """A long text cut at a word, saying so."""
+    if len(text) <= most:
+        return text
+    return text[:text.rfind(" ", 0, most)] + " ... (shortened; the whole text is in the font file)"
+
+
+def fonts_used(resolved, listed, dgx, cache):
+    """The text of fonts-used.txt: every font of the needs and the lists, once, with what it is and who uses it."""
+    fonts = {}
+
+    def entry(key, title, lines):
+        if key not in fonts:
+            fonts[key] = (title, lines, [])
+        return fonts[key][2]
+
+    def of_file(path):
+        info = name_table(path)
+        return [f"{k}: {shortened(info[k])}" for k in ("version", "copyright", "license", "license URL") if k in info] or \
+            ["the file says nothing of its copyright or license"]
+
+    for w in resolved:
+        if isinstance(w, Made):
+            f = w.face
+            uses = entry(("face", f.file), f"{f.family} {f.style}", [f"file: {f.file}, PostScript name {f.psname}"] + of_file(f.file))
+            uses.append(f"{w.need.name} at {w.px} px, {w.by}")
+        elif isinstance(w, Hand):
+            entry(("hand", w.source), f"the handwritten font {hw_names(w.source)[0]}", [f"file: {w.source}"]).append(
+                f"{w.need.name}, named by its file in {w.need.place}")
+        elif w.how == "dgx":
+            origin = dgx_origins(dgx, cache).get(w.function)
+            about = [f"made from: {origin.source}", f"license: {origin.license}"] if origin else \
+                ["what it was made from is not recorded in src/fonts/README.md of DGX"]
+            entry(("dgx", w.function), f"{w.function}, a font of DGX", [f"file: {w.path}"] + about).append(
+                f"{w.need.name}, used as is, in {w.need.place}")
+        else:
+            entry(("file", w.path), f"{w.function}, a font of the program", [f"file: {w.path}",
+                  "a font as C: what it was made from and under what license is for the program to know"]).append(
+                f"{w.need.name}, used as is, in {w.need.place}")
+    for where, file, px in listed:
+        if px is None:
+            entry(("hand", file), f"the handwritten font {hw_names(file)[0]}", [f"file: {file}"]).append(f"a list, {where}")
+        else:
+            face = face_of_file(file, where)
+            entry(("face", file), f"{face.family} {face.style}", [f"file: {file}, PostScript name {face.psname}"] + of_file(file)).append(
+                f"a list at {px} px, {where}")
+    out = [USED_HEAD]
+    for title, lines, uses in fonts.values():
+        out.append(title)
+        out += [f"  {line}" for line in lines]
+        out += [f"  used by: {use}" for use in dict.fromkeys(uses)]
+        out.append("")
+    return "\n".join(out)
+
+
 def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, component=None):
     """The fonts of a needs file into outdir; the board and the rules may come as arguments, for a host build, and win."""
     outdir = os.path.abspath(outdir)
@@ -827,7 +1064,20 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
         if other.name != n.name:
             raise FontsError(f"{n.where}: the needs {other.name} ({other.where}) and {n.name} differ only in case; their macros would not")
     cache = {}
-    wants = join_needs([resolve(d, board, rules_path, dgx, cache) for d in merge_needs(needs)])
+    program_rules = read_rules(rules_path) if rules_path else None
+    resolved = [resolve(d, board, program_rules, dgx, cache) for d in merge_needs(needs)]
+    for path in lists:
+        if not os.path.exists(path):
+            raise FontsError(f"{needs_path}: the list {path} does not exist")
+    listed = [(where, file, px) for path in lists for where, file, px in list_fonts(path)]
+    for where, file, px in listed:
+        if px is None:
+            admit(program_rules, f"{where}: the list asks for the handwritten font {file}", names=hw_names(file))
+        else:
+            face = face_of_file(file, where)
+            admit(program_rules, f"{where}: the list asks for {face.family} {face.style} ({file}) at {px} px", px, face)
+    report = os.path.join(outdir, "fonts-used.txt")
+    wants = join_needs(resolved)
     made = [w for w in wants if not isinstance(w, AsIs)]
     os.makedirs(outdir, exist_ok=True)
     work = os.path.join(outdir, "work")
@@ -857,8 +1107,6 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
                 f.write("# the needs of the program, as dgx_fonts.py gave them to font2c\n" + "\n".join(lines) + "\n")
             command += ["-jo", own]
         for path in lists:
-            if not os.path.exists(path):
-                raise FontsError(f"{needs_path}: the list {path} does not exist")
             command += ["-jo", path]
         command += ["-o", os.path.join(work, "dgx_fonts")]
         run = subprocess.run(command, capture_output=True, text=True)
@@ -885,6 +1133,7 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
          c_text.rstrip("\n") + "\n" if c_text else '#include "dgx_font.h"\n']
     h = ["#pragma once",
          "/* Generated by dgx_fonts.py of DGX from the needs declared in the project's CMakeLists files. Do not edit. */",
+         "/* The fonts used, where each came from and what its file says of its license: fonts-used.txt beside this file. */",
          '#include "dgx_font.h"']
     if any(isinstance(w, Hand) for w in wants):
         h.append('#include "dgx_hw_font.h"')
@@ -937,6 +1186,8 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
             h.append(f"#define DGX_FONTS_BOARD_HEIGHT_MM {board.mm[1]:g}")
     h += ["", "#ifdef __cplusplus", "}", "#endif", ""]
     shutil.rmtree(work, ignore_errors=True)
+    write_if_changed(report, fonts_used(resolved, listed, dgx, cache))
+    told.append(f"the fonts used and their licenses: {report}; make sure you may use every one of them")
     changed = write_if_changed(os.path.join(outdir, "dgx_fonts.h"), "\n".join(h))
     changed = write_if_changed(os.path.join(outdir, "dgx_fonts.c"), "\n".join(c)) or changed
     return told, changed
@@ -1040,7 +1291,7 @@ def main(argv=None):
             return 0
         if len(a.args) != 2 or not a.args[1].isdigit():
             raise FontsError(f"{a.what} RULES SIZE")
-        sources, rules = parse_rules(open(a.args[0], encoding="utf-8-sig").read(), a.args[0], os.path.dirname(os.path.abspath(a.args[0])))
+        sources, rules, _ = parse_rules(open(a.args[0], encoding="utf-8-sig").read(), a.args[0], os.path.dirname(os.path.abspath(a.args[0])))
         if not sources:
             raise FontsError(f"{a.args[0]}: no source of fonts (source system, source dir or source list)")
         found = candidates(gather(sources), rules, int(a.args[1]), a.mono, a.family, a.letters or "")

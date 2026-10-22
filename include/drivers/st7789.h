@@ -1,5 +1,6 @@
 #pragma once
 #include "dgx_screen.h"
+#include "driver/gpio.h"
 #ifdef __cplusplus
 // @formatter:off
 extern "C" {

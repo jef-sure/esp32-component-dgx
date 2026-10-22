@@ -1413,7 +1413,9 @@ they are: the bench's bus and screen were put into the demo source, nothing
 else touched. Added to them was matrix text drawn right on the display: a
 clock line in Verdana 32, a title in Terminus 12 at four times the size, a
 log of 18 lines in Terminus 12 where one line is rewritten every frame, and
-two lines of small text in Arial 12 and Droid Sans 9; before writing, a line
+two lines of small text in Arial 12 and Droid Sans 9 (DGX has since replaced
+Verdana 32 and Arial 12 with DejaVu Sans 32 and Liberation Sans 12; the
+numbers below were measured with the old fonts); before writing, a line
 is erased with a rectangle. Each demo runs 25 seconds. Two buffers, IDF
 6.0.1; the cells hold the processor time the demo task spends on one batch,
 in milliseconds, without waiting for the display and the demo's own pauses.

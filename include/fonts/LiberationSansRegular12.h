@@ -5,7 +5,7 @@
 extern "C" {
 // @formatter:on
 #endif
-dgx_font_t* VerdanaRegular32();
+dgx_font_t* LiberationSansRegular12();
 #ifdef __cplusplus
 // @formatter:off
 }

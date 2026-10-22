@@ -150,12 +150,51 @@ static uint32_t dgx_p8_read_data(struct _dgx_bus_protocols_t *_bus, uint8_t *dat
     return 0;
 }
 
+/*
+ * The I80 buses DGX creates, shared by the DGX displays on the same data, WR
+ * and DC pins, each with its own CS, and deleted with the last of them. A bus
+ * the program created and gave to dgx_p8_init_on_bus() is the program's.
+ */
+#define DGX_P8_SHARED_BUSES 2
+
+typedef struct {
+    esp_lcd_i80_bus_handle_t handle;
+    uint16_t                 users;
+    gpio_num_t               pins[10]; /* d0..d7, wr, dc */
+} dgx_p8_shared_t;
+
+static dgx_p8_shared_t dgx_p8_shared[DGX_P8_SHARED_BUSES];
+
+static dgx_p8_shared_t *dgx_p8_find_shared(esp_lcd_i80_bus_handle_t handle)
+{
+    for (int i = 0; i < DGX_P8_SHARED_BUSES; ++i) {
+        if (handle && dgx_p8_shared[i].handle == handle) return &dgx_p8_shared[i];
+    }
+    return NULL;
+}
+
+/* a bus deleted when no DGX display uses it; kept when the program has added panels of its own to it */
+static void dgx_p8_release_shared(dgx_p8_shared_t *s)
+{
+    if (!s || s->users || !s->handle) return;
+    esp_err_t rc = esp_lcd_del_i80_bus(s->handle);
+    if (rc != ESP_OK) {
+        ESP_LOGW(TAG, "I80 bus kept, other devices are on it (%s)", esp_err_to_name(rc));
+        return;
+    }
+    s->handle = NULL;
+}
+
 static void dgx_p8_dispose_bus_func(struct _dgx_bus_protocols_t *_bus) {
     dgx_p8_bus_t *bus = (dgx_p8_bus_t *)_bus;
     if (bus->io) dgx_p8_flush_command(bus);
     dgx_p8_wait_pending(bus);
     if (bus->io) esp_lcd_panel_io_del(bus->io);
-    if (bus->i80_bus) esp_lcd_del_i80_bus(bus->i80_bus);
+    if (bus->owns_i80_bus) {
+        dgx_p8_shared_t *s = dgx_p8_find_shared(bus->i80_bus);
+        if (s && s->users) --s->users;
+        dgx_p8_release_shared(s);
+    }
     if (bus->transfer_done_sem) vSemaphoreDelete(bus->transfer_done_sem);
     free(bus->protocols.buffer);
     free(bus);
@@ -165,21 +204,37 @@ static uint8_t *dgx_p8_memory_allocator(uint32_t len) {
     return (uint8_t *)heap_caps_malloc(len, MALLOC_CAP_DMA);
 }
 
-dgx_bus_protocols_t *dgx_p8_init(gpio_num_t lcd_d0, gpio_num_t lcd_d1, gpio_num_t lcd_d2, gpio_num_t lcd_d3, gpio_num_t lcd_d4, gpio_num_t lcd_d5,
-        gpio_num_t lcd_d6, gpio_num_t lcd_d7, gpio_num_t lcd_wr, gpio_num_t lcd_rd, gpio_num_t cs, gpio_num_t dc, int pclk_hz)
+static esp_err_t dgx_p8_take_bus(const gpio_num_t pins[10], esp_lcd_i80_bus_handle_t *out, dgx_p8_shared_t **shared)
 {
-    dgx_p8_bus_t *bus = (dgx_p8_bus_t *)calloc(1, sizeof(dgx_p8_bus_t));
-    if (!bus) {
-        ESP_LOGE(TAG, "dgx_p8_init failed to allocate dgx_p8_bus_t");
-        return NULL;
+    dgx_p8_shared_t *free_slot = NULL;
+    for (int i = 0; i < DGX_P8_SHARED_BUSES; ++i) {
+        dgx_p8_shared_t *s = &dgx_p8_shared[i];
+        if (!s->handle) {
+            if (!free_slot) free_slot = s;
+            continue;
+        }
+        if (!memcmp(s->pins, pins, sizeof(s->pins))) {
+            *out = s->handle, *shared = s;
+            return ESP_OK;
+        }
+        for (int a = 0; a < 10; ++a) {
+            for (int b = 0; b < 10; ++b) {
+                if (pins[a] >= 0 && pins[a] == s->pins[b]) {
+                    ESP_LOGE(TAG, "GPIO %d is a pin of another I80 bus of DGX; displays on one bus share its data, WR and DC pins", (int)pins[a]);
+                    return ESP_ERR_INVALID_ARG;
+                }
+            }
+        }
     }
-
-    // Create I80 bus
+    if (!free_slot) {
+        ESP_LOGE(TAG, "no more I80 buses");
+        return ESP_ERR_NO_MEM;
+    }
     esp_lcd_i80_bus_config_t bus_config = {
-        .dc_gpio_num = dc,
-        .wr_gpio_num = lcd_wr,
+        .dc_gpio_num = pins[9],
+        .wr_gpio_num = pins[8],
         .clk_src = LCD_CLK_SRC_DEFAULT,
-        .data_gpio_nums = { lcd_d0, lcd_d1, lcd_d2, lcd_d3, lcd_d4, lcd_d5, lcd_d6, lcd_d7 },
+        .data_gpio_nums = { pins[0], pins[1], pins[2], pins[3], pins[4], pins[5], pins[6], pins[7] },
         .bus_width = 8,
         .max_transfer_bytes = 4096,
 #if DGX_P8_DMA_BURST
@@ -189,22 +244,36 @@ dgx_bus_protocols_t *dgx_p8_init(gpio_num_t lcd_d0, gpio_num_t lcd_d1, gpio_num_
         .sram_trans_align = 4,
 #endif
     };
-    esp_err_t ret = esp_lcd_new_i80_bus(&bus_config, &bus->i80_bus);
+    esp_err_t ret = esp_lcd_new_i80_bus(&bus_config, &free_slot->handle);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "esp_lcd_new_i80_bus failed: %s", esp_err_to_name(ret));
-        free(bus);
+        ESP_LOGE(TAG, "esp_lcd_new_i80_bus failed: %s; a bus the program has created itself goes to dgx_p8_init_on_bus()", esp_err_to_name(ret));
+        free_slot->handle = NULL;
+        return ret;
+    }
+    memcpy(free_slot->pins, pins, sizeof(free_slot->pins));
+    free_slot->users = 0;
+    *out = free_slot->handle, *shared = free_slot;
+    return ESP_OK;
+}
+
+/* the display's panel IO added to an I80 bus: the part both constructors share */
+static dgx_bus_protocols_t *dgx_p8_attach(esp_lcd_i80_bus_handle_t i80_bus, bool owns_i80_bus, gpio_num_t lcd_rd, gpio_num_t cs, int pclk_hz)
+{
+    dgx_p8_bus_t *bus = (dgx_p8_bus_t *)calloc(1, sizeof(dgx_p8_bus_t));
+    if (!bus) {
+        ESP_LOGE(TAG, "dgx_p8_init failed to allocate dgx_p8_bus_t");
         return NULL;
     }
+    bus->i80_bus = i80_bus;
+    bus->owns_i80_bus = owns_i80_bus;
 
     // Create panel IO
     bus->transfer_done_sem = xSemaphoreCreateBinary();
     if (!bus->transfer_done_sem) {
         ESP_LOGE(TAG, "failed to create semaphore");
-        esp_lcd_del_i80_bus(bus->i80_bus);
         free(bus);
         return NULL;
     }
-
     esp_lcd_panel_io_i80_config_t io_config = {
         .cs_gpio_num = cs,
         .pclk_hz = pclk_hz,
@@ -223,11 +292,10 @@ dgx_bus_protocols_t *dgx_p8_init(gpio_num_t lcd_d0, gpio_num_t lcd_d1, gpio_num_
             .pclk_idle_low = 0,
         },
     };
-    ret = esp_lcd_new_panel_io_i80(bus->i80_bus, &io_config, &bus->io);
+    esp_err_t ret = esp_lcd_new_panel_io_i80(bus->i80_bus, &io_config, &bus->io);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "esp_lcd_new_panel_io_i80 failed: %s", esp_err_to_name(ret));
         vSemaphoreDelete(bus->transfer_done_sem);
-        esp_lcd_del_i80_bus(bus->i80_bus);
         free(bus);
         return NULL;
     }
@@ -252,10 +320,36 @@ dgx_bus_protocols_t *dgx_p8_init(gpio_num_t lcd_d0, gpio_num_t lcd_d1, gpio_num_
     bus->protocols.buffer = bus->protocols.memory_allocator(bus->protocols.buffer_len);
     if (!bus->protocols.buffer) {
         ESP_LOGE(TAG, "dgx_p8_init buffer allocation failed");
+        bus->owns_i80_bus = false; /* the constructor gives the bus back itself */
         dgx_p8_dispose_bus_func(&bus->protocols);
         return NULL;
     }
     bus->transfer_pending = false;
     bus->command_pending = false;
     return (dgx_bus_protocols_t *)bus;
+}
+
+dgx_bus_protocols_t *dgx_p8_init(gpio_num_t lcd_d0, gpio_num_t lcd_d1, gpio_num_t lcd_d2, gpio_num_t lcd_d3, gpio_num_t lcd_d4, gpio_num_t lcd_d5,
+        gpio_num_t lcd_d6, gpio_num_t lcd_d7, gpio_num_t lcd_wr, gpio_num_t lcd_rd, gpio_num_t cs, gpio_num_t dc, int pclk_hz)
+{
+    const gpio_num_t         pins[10] = {lcd_d0, lcd_d1, lcd_d2, lcd_d3, lcd_d4, lcd_d5, lcd_d6, lcd_d7, lcd_wr, dc};
+    esp_lcd_i80_bus_handle_t i80_bus;
+    dgx_p8_shared_t         *shared;
+    if (dgx_p8_take_bus(pins, &i80_bus, &shared) != ESP_OK) return NULL;
+    dgx_bus_protocols_t *bus = dgx_p8_attach(i80_bus, true, lcd_rd, cs, pclk_hz);
+    if (!bus) {
+        dgx_p8_release_shared(shared);
+        return NULL;
+    }
+    ++shared->users;
+    return bus;
+}
+
+dgx_bus_protocols_t *dgx_p8_init_on_bus(esp_lcd_i80_bus_handle_t i80_bus, gpio_num_t lcd_rd, gpio_num_t cs, int pclk_hz)
+{
+    if (!i80_bus) {
+        ESP_LOGE(TAG, "dgx_p8_init_on_bus: no I80 bus");
+        return NULL;
+    }
+    return dgx_p8_attach(i80_bus, false, lcd_rd, cs, pclk_hz);
 }

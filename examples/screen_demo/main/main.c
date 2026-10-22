@@ -15,8 +15,8 @@
 #include "dgx_font.h"
 #include "dgx_screen.h"
 #include "drivers/ili9341.h"
-#include "fonts/ArialRegular12.h"
-#include "fonts/VerdanaRegular32.h"
+#include "fonts/LiberationSansRegular12.h"
+#include "fonts/DejaVuSansBook32.h"
 
 static const char *TAG = "dgx_ili9341_demo";
 
@@ -47,7 +47,7 @@ static void demo_draw_footer(dgx_screen_t *screen, const char *title)
 
     dgx_fill_rectangle(screen, 0, screen->height - 28, screen->width, 28, footer_bg);
     dgx_draw_line(screen, 0, screen->height - 28, screen->width - 1, screen->height - 28, demo_rgb(48, 140, 255));
-    dgx_font_string_utf8_screen(screen, 8, screen->height - 10, title, footer_fg, DgxOutputNormal, 1, ArialRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 8, screen->height - 10, title, footer_fg, DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
 }
 
 static void demo_splash(dgx_screen_t *screen)
@@ -61,10 +61,10 @@ static void demo_splash(dgx_screen_t *screen)
     dgx_fill_rectangle(screen, 0, 0, screen->width, 48, demo_rgb(10, 28, 60));
     dgx_fill_rectangle(screen, 0, 48, screen->width, 4, cyan);
 
-    dgx_font_string_utf8_screen(screen, 14, 42, "DGX", ink, DgxOutputNormal, 1, VerdanaRegular32(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 138, 40, "ILI9341", gold, DgxOutputNormal, 1, ArialRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 138, 64, "ESP32 SPI demo", ink, DgxOutputNormal, 1, ArialRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 304, 170, "graphics", cyan, DgxOutputRotate90CCW, 1, ArialRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 14, 42, "DGX", ink, DgxOutputNormal, 1, DejaVuSansBook32(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 138, 40, "ILI9341", gold, DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 138, 64, "ESP32 SPI demo", ink, DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 304, 170, "graphics", cyan, DgxOutputRotate90CCW, 1, LiberationSansRegular12(), NULL, NULL);
 
     for (int x = 18; x < screen->width - 18; x += 32) {
         uint32_t color = (x / 32) % 3 == 0 ? cyan : ((x / 32) % 3 == 1 ? gold : rose);
@@ -78,17 +78,17 @@ static void demo_splash(dgx_screen_t *screen)
 static void demo_text(dgx_screen_t *screen)
 {
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, DGX_BLACK(dgx_rgb_to_16));
-    dgx_font_string_utf8_screen(screen, 12, 26, "Adafruit-style graphics test", demo_rgb(255, 214, 10), DgxOutputNormal, 1, ArialRegular12(), NULL,
+    dgx_font_string_utf8_screen(screen, 12, 26, "Adafruit-style graphics test", demo_rgb(255, 214, 10), DgxOutputNormal, 1, LiberationSansRegular12(), NULL,
                                 NULL);
-    dgx_font_string_utf8_screen(screen, 12, 56, "DGX draw + font primitives", demo_rgb(60, 190, 255), DgxOutputNormal, 1, ArialRegular12(), NULL,
+    dgx_font_string_utf8_screen(screen, 12, 56, "DGX draw + font primitives", demo_rgb(60, 190, 255), DgxOutputNormal, 1, LiberationSansRegular12(), NULL,
                                 NULL);
     dgx_font_string_utf8_screen(screen, 12, 86, "ILI9341 over SPI @ configurable clock", demo_rgb(220, 220, 220), DgxOutputNormal, 1,
-                                ArialRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 12, 126, "RED", DGX_RED(dgx_rgb_to_16), DgxOutputNormal, 1, ArialRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 62, 126, "GREEN", DGX_GREEN(dgx_rgb_to_16), DgxOutputNormal, 1, ArialRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 132, 126, "BLUE", DGX_BLUE(dgx_rgb_to_16), DgxOutputNormal, 1, ArialRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 12, 176, "rotated", demo_rgb(255, 128, 32), DgxOutputRotate90CCW, 1, ArialRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 292, 176, "text", demo_rgb(255, 128, 32), DgxOutputRotate90CW, 1, ArialRegular12(), NULL, NULL);
+                                LiberationSansRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 12, 126, "RED", DGX_RED(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 62, 126, "GREEN", DGX_GREEN(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 132, 126, "BLUE", DGX_BLUE(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 12, 176, "rotated", demo_rgb(255, 128, 32), DgxOutputRotate90CCW, 1, LiberationSansRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 292, 176, "text", demo_rgb(255, 128, 32), DgxOutputRotate90CW, 1, LiberationSansRegular12(), NULL, NULL);
     demo_draw_footer(screen, "Text, colors, and font orientation");
 }
 
@@ -119,7 +119,7 @@ static void demo_rectangles(dgx_screen_t *screen)
     }
 
     dgx_fill_rectangle(screen, 54, 46, 212, 116, demo_rgb(12, 12, 12));
-    dgx_font_string_utf8_screen(screen, 84, 112, "filled rectangles", DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 1, ArialRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 84, 112, "filled rectangles", DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
     demo_draw_footer(screen, "Nested fill test");
 }
 
@@ -155,7 +155,7 @@ static void demo_triangles(dgx_screen_t *screen)
     }
 
     dgx_fill_rectangle(screen, 102, 90, 116, 46, demo_rgb(8, 8, 14));
-    dgx_font_string_utf8_screen(screen, 116, 118, "triangles", DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 1, ArialRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 116, 118, "triangles", DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
     demo_draw_footer(screen, "Filled triangle fan");
 }
 
@@ -172,7 +172,7 @@ static void demo_color_bars(dgx_screen_t *screen)
     }
 
     dgx_fill_rectangle(screen, 48, 72, 224, 84, demo_rgb(8, 8, 8));
-    dgx_font_string_utf8_screen(screen, 74, 102, "RGB565 color bars", DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 1, ArialRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 74, 102, "RGB565 color bars", DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
     demo_draw_footer(screen, "Panel sanity check");
 }
 

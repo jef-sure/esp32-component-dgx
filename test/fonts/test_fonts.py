@@ -18,7 +18,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 DGX = os.path.abspath(os.path.join(HERE, "..", ".."))
 TOOL = os.path.join(DGX, "font2c", "dgx_fonts.py")
-STUBS = os.path.join(DGX, "test", "host", "stubs")
+STUBS = os.path.join(DGX, "host", "stubs")
 failures = 0
 
 
@@ -140,6 +140,8 @@ def test_mistakes(work):
         ("a need twice with different fonts", f"need title /a/CMakeLists.txt\nsize 12pt\ntext {title}\nneed title /b/CMakeLists.txt\nsize 14pt\ntext {title}\n",
          True, True, "declared twice with different fonts: DejaVu Sans Mono Book at 48 px in /a/CMakeLists.txt, DejaVu Sans Mono Book at 56 px in /b/CMakeLists.txt"),
         ("a font as it is with a size", f"need hand\ndgx font0ss\nsize 12pt\ntext {title}\n", True, True, "has its own size"),
+        ("an exact face with mono", f"need title\nsize 12pt\npostscript DejaVuSans\nmono 1\ntext {title}\n", True, True, "postscript names the face itself; mono do not apply"),
+        ("a font file with a family", f"need title\nsize 12pt\nsource /x.ttf\nfamily DejaVu*\ntext {title}\n", True, True, "source names the face itself; family do not apply"),
     ]
     for what, needs, board, rules, expected in cases:
         shutil.rmtree(os.path.join(work, "out"), ignore_errors=True)
@@ -266,7 +268,7 @@ def test_style_order():
     fonts = [m.Font("/x/Poppins-Medium.ttf", 0, "Poppins", "Medium", False, "Poppins-Medium", "61-7a", 0),
              m.Font("/x/Poppins-Regular.ttf", 0, "Poppins", "Regular", False, "Poppins-Regular", "61-7a", 1),
              m.Font("/x/Poppins-Bold.ttf", 0, "Poppins", "Bold", False, "Poppins-Bold", "61-7a", 2)]
-    _, rules = m.parse_rules("source system\nallow * 1..\n")
+    _, rules, _ = m.parse_rules("source system\nallow * 1..\n")
     found = [f.style for _, f in m.candidates(fonts, rules, 12, letters="abc")]
     check(found == ["Regular", "Medium", "Bold"], f"the order of the styles: {found}")
 
@@ -337,6 +339,11 @@ def test_characters_as_written(work):
     check(code == 1 and "differ only in case" in err, f"two needs that differ only in case are refused: {err.strip()}")
     # the icons of an icon font are characters of the Private Use Area: they are letters like any other, and a soft
     # hyphen or a zero-width joiner is not
+    po = os.path.join(work, "escapes.po")
+    with open(po, "w", encoding="utf-8") as f:
+        f.write('msgid ""\nmsgstr "header"\n\nmsgid "a\\x41\\101\\\\\\"\\q"\nmsgstr "\\u"\n')
+    code, out, err = tool("letters", po)
+    check(code == 0 and set(out.strip("\n")) == set('aA\\"qu'), f"the escapes of a .po: {out!r} {err.strip()}")
     icons = os.path.join(work, "icons.letters")
     with open(icons, "w", encoding="utf-8") as f:
         f.write("\uf010\uf002 a\u00ad\u200d")
@@ -358,6 +365,10 @@ def test_font2c_lines(work):
     run = subprocess.run([font2c, "-jo", os.path.join(work, "after.list"), "-o", os.path.join(work, "after")], capture_output=True, text=True)
     glyphs = glyphs_of(os.path.join(work, "after.c"), "after_DejaVuSansBook12") if run.returncode == 0 else None
     check(glyphs == {"x", "y", "z"}, f"-f after the size is the letters file, not a range: {run.stderr.strip()} {glyphs}")
+    with open(os.path.join(work, "t.list"), "w", encoding="utf-8") as f:
+        f.write(f"-t 2 {sans} 12 0x30 0x39\n")
+    run = subprocess.run([font2c, "-jo", os.path.join(work, "t.list"), "-o", os.path.join(work, "t")], capture_output=True, text=True)
+    check(run.returncode == 1 and "-t is advice for -x" in run.stderr, f"-t in a list is refused: {run.stderr.strip()}")
     alone = os.path.join(work, "alone-run")
     os.makedirs(alone, exist_ok=True)
     run = subprocess.run([font2c, sans, "12", "0x100000", "0x100010"], capture_output=True, text=True, cwd=alone)
@@ -456,6 +467,83 @@ endif()
         check(run.returncode != 0 and expected in said, f"{case}: told '{expected}': {said[-300:]}")
 
 
+def test_licenses(work):
+    """The fonts a program uses are listed with what their files say of their licenses; a deny of the program's rules
+    holds for every way a font is asked for, and strict rules admit only what their allow lines name."""
+    title = os.path.join(HERE, "title.txt")
+    rules = os.path.join(work, "lic.rules")
+    terminus = os.path.join(DGX, "src", "fonts", "TerminusTTFMedium12.c")
+    with open(os.path.join(work, "lic.list"), "w", encoding="utf-8") as f:
+        f.write(f"-n widget {dejavu_file('DejaVuSansMono')} 12 0x41 0x5a\n")
+
+    def run(rules_text, needs, lists=""):
+        with open(rules, "w", encoding="utf-8") as f:
+            f.write(rules_text)
+        path = os.path.join(work, "lic.needs")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"component {DGX}\nscale 4\nboard pixels 1280 800\nboard mm 217 136\nrules {rules}\n{lists}{needs}")
+        shutil.rmtree(os.path.join(work, "lic"), ignore_errors=True)
+        return tool("build", path, os.path.join(work, "lic"))
+
+    exact = f"need keys /k/CMakeLists.txt\nsize 4mm\npostscript DejaVuSans\ntext {title}\n"
+    as_is = f"need clock /c/CMakeLists.txt\ndgx TerminusTTFMedium12\nletters 0123456789:\n"
+    program = f"need time /t/CMakeLists.txt\nfile {terminus}\nletters 0123456789:\n"
+    picked = f"need text /p/CMakeLists.txt\nsize 12pt\nmono 1\ntext {title}\n"
+    listed = f"list {os.path.join(work, 'lic.list')}\n"
+    # the report: every font once, with its license, who uses it and how it came
+    code, out, err = run("source system\nallow \"DejaVu Sans Mono\" 8..\n", exact + as_is + picked, listed)
+    check(code == 0, f"a build with every kind of font: {err.strip()}")
+    used = os.path.join(work, "lic", "fonts-used.txt")
+    check("fonts-used.txt; make sure you may use every one of them" in out, f"the build tells where the list of fonts is: {out.strip()}")
+    if code == 0:
+        text = open(used, encoding="utf-8").read()
+        check("\nDejaVu Sans Book\n" in text and "  used by: keys at 24 px, named by its PostScript name in /k/CMakeLists.txt" in text,
+              "a face named exactly is listed with who named it")
+        check("  used by: text at 48 px, picked by the rules, " in text and "  used by: a list at 12 px, " in text,
+              "a face picked by the rules and a face of a list are listed once, with both uses")
+        check(text.count("\nDejaVu Sans Mono Book\n") == 1, "one face, one entry")
+        check("license URL: " in text, "what the font file says of its license is in the list")
+        check("TerminusTTFMedium12, a font of DGX\n" in text and "made from: Terminus (TTF) Medium" in text and "SIL Open Font License 1.1" in text,
+              "a font of DGX is listed with its origin from src/fonts/README.md")
+        h = open(os.path.join(work, "lic", "dgx_fonts.h"), encoding="utf-8").read()
+        check("fonts-used.txt beside this file" in h, "the header points at the list of fonts")
+    # a deny holds for every way a font is asked for, and the message names both sides
+    cases = [
+        ("a face named exactly", 'deny "DejaVu Sans"\n', exact,
+         "/k/CMakeLists.txt: keys asks for DejaVu Sans Book"),
+        ("a font of DGX by its family", 'deny "Terminus*"\n', as_is, "/c/CMakeLists.txt: clock asks for TerminusTTFMedium12 of DGX"),
+        ("a font of the program by its name", 'deny "TerminusTTF*"\n', program, "/t/CMakeLists.txt: time asks for TerminusTTFMedium12 of"),
+        ("a font of the program by the family as written", 'deny "Terminus (TTF)*"\n', program, "/t/CMakeLists.txt: time asks for"),
+        ("a font of a list", 'deny "DejaVu Sans Mono"\n', listed, "lic.list:1: the list asks for DejaVu Sans Mono Book"),
+    ]
+    for what, deny, needs, expected in cases:
+        code, out, err = run(deny, needs if not needs.startswith("list") else exact.replace("DejaVuSans", "DejaVuSans-Bold"),
+                             needs if needs.startswith("list") else "")
+        check(code == 1 and expected in err and "lic.rules:1 denies it" in err, f"denied, {what}: got exit {code}: {err.strip()}")
+    code, out, err = run('deny "DejaVu Sans" < 20\n', exact)
+    check(code == 0, f"a deny with sizes leaves a face named exactly at another size: {err.strip()}")
+    code, out, err = run('deny "Terminus*" < 20\n', as_is)
+    check(code == 0, f"a deny with sizes leaves a font used as is, which has no size: {err.strip()}")
+    # strict: only what an allow line names, however asked for
+    code, out, err = run('strict\nallow "DejaVu Sans Mono" 8..\n', exact)
+    check(code == 1 and "are strict and allow no such font" in err, f"strict rules refuse a face no allow line names: {err.strip()}")
+    code, out, err = run('strict\nallow "DejaVu Sans" 100..\nallow "Terminus*" 100..\n', exact + as_is)
+    check(code == 0, f"strict rules admit a font an allow line names, at any size: {err.strip()}")
+    code, out, err = run('strict extra\n', exact)
+    check(code == 1 and "strict takes nothing after it" in err, f"strict with words after it: {err.strip()}")
+    # rules without sources: enough for denying, not for picking
+    code, out, err = run('deny "Comic*"\n', picked)
+    check(code == 1 and "no source of fonts" in err, f"rules that pick need a source: {err.strip()}")
+    # every font of DGX has its row in src/fonts/README.md
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("dgx_fonts", TOOL)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    origins = m.dgx_origins(DGX, {})
+    fonts = sorted(os.path.splitext(f)[0] for f in os.listdir(os.path.join(DGX, "src", "fonts")) if f.endswith(".c"))
+    check(sorted(origins) == fonts, f"src/fonts/README.md has a row for every font of DGX and no other: {sorted(set(fonts) ^ set(origins))}")
+
+
 def main():
     if not have_dejavu():
         print("test_fonts.py: DejaVu Sans and DejaVu Sans Mono are not installed (fontconfig), nothing checked")
@@ -475,6 +563,7 @@ def main():
         test_characters_as_written(work)
         test_font2c_lines(work)
         test_cmake(work)
+        test_licenses(work)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     if failures:

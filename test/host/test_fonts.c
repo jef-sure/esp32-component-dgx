@@ -5,14 +5,14 @@
 #include "dgx_draw.h"
 #include "dgx_font.h"
 #include "drivers/vscreen.h"
-#include "fonts/ArialRegular12.h"
 #include "fonts/CasusDotView.h"
+#include "fonts/DejaVuSansBook32.h"
 #include "fonts/DroidSansRegular9.h"
 #include "fonts/IBMCGALight8x16Light8x1616.h"
 #include "fonts/IBMPlexMonoMedium28.h"
+#include "fonts/LiberationSansRegular12.h"
 #include "fonts/NotoMonoRegular28.h"
 #include "fonts/TerminusTTFMedium12.h"
-#include "fonts/VerdanaRegular32.h"
 #include "fonts/WeatherDotView25.h"
 #include "fonts/WeatherIconsRegular13.h"
 #include "fonts/WeatherIconsRegular27.h"
@@ -142,14 +142,14 @@ static void check_turns(const char *name, dgx_font_t *font, const char *text)
 int main(void)
 {
 #define FONT(f) check_metrics(#f, f())
-    FONT(ArialRegular12);
     FONT(CasusDotView);
+    FONT(DejaVuSansBook32);
     FONT(DroidSansRegular9);
     FONT(IBMCGALight8x16Light8x1616);
     FONT(IBMPlexMonoMedium28);
+    FONT(LiberationSansRegular12);
     FONT(NotoMonoRegular28);
     FONT(TerminusTTFMedium12);
-    FONT(VerdanaRegular32);
     FONT(WeatherDotView25);
     FONT(WeatherIconsRegular13);
     FONT(WeatherIconsRegular27);
@@ -165,8 +165,8 @@ int main(void)
     check_advance("font0ss", font0ss(), "a\U0010FFFFb");
 
     /* fonts of rows of bits and of a stream of them, a letter with a descender */
-    check_turns("ArialRegular12", ArialRegular12(), "FF");
-    check_turns("ArialRegular12", ArialRegular12(), "gg");
+    check_turns("LiberationSansRegular12", LiberationSansRegular12(), "FF");
+    check_turns("LiberationSansRegular12", LiberationSansRegular12(), "gg");
     check_turns("NotoMonoRegular28", NotoMonoRegular28(), "FF");
     check_turns("NotoMonoRegular28", NotoMonoRegular28(), "gg");
 

@@ -11,7 +11,7 @@
  * with transparency: it has no background, the page shows through it.
  * To build it and make the two banners, from the root of the repository:
  *
- *   cc -O2 -std=gnu11 -Itest/host/stubs -Iinclude -Isrc -include test/host/stubs/esp_log.h docs/images/banner.c \
+ *   cc -O2 -std=gnu11 -Ihost/stubs -Iinclude -Isrc -include host/stubs/esp_log.h docs/images/banner.c \
  *      src/screen/*.c src/draw/*.c src/vscreen/*.c src/text/*.c src/morph/*.c src/fonts/?*.c -lm -o /tmp/banner
  *   /tmp/banner b /tmp/x.pam && convert /tmp/x.pam docs/images/banner-dark.png
  *   /tmp/banner a /tmp/x.pam && convert /tmp/x.pam docs/images/banner-light.png
@@ -33,13 +33,13 @@
 #include "dgx_morph_render.h"
 #include "dgx_morph_sources.h"
 #include "drivers/vscreen.h"
-#include "fonts/ArialRegular12.h"
+#include "fonts/LiberationSansRegular12.h"
 #include "fonts/DroidSansRegular9.h"
 #include "fonts/IBMCGALight8x16Light8x1616.h"
 #include "fonts/IBMPlexMonoMedium28.h"
 #include "fonts/NotoMonoRegular28.h"
 #include "fonts/TerminusTTFMedium12.h"
-#include "fonts/VerdanaRegular32.h"
+#include "fonts/DejaVuSansBook32.h"
 #include "fonts/WeatherIconsRegular27.h"
 #include "fonts/font0ss.h"
 
@@ -155,15 +155,15 @@ static void recipe(char variant, bool dark)
     case 'f': { /* the fonts that come with the library, each naming itself */
         int y = 44;
         text(TerminusTTFMedium12(), 24, y, 2, line, "TerminusTTFMedium12  Привет, мир! Grüße"), y += 50;
-        text(ArialRegular12(), 24, y, 2, line, "ArialRegular12  Hello, world! ¿Qué tal?"), y += 50;
+        text(LiberationSansRegular12(), 24, y, 2, line, "LiberationSansRegular12  Hello, world! ¿Qué tal?"), y += 50;
         text(DroidSansRegular9(), 24, y, 2, dim, "DroidSansRegular9  the quick brown fox jumps over the lazy dog"), y += 44;
         text(IBMCGALight8x16Light8x1616(), 24, y + 6, 2, cold, "IBMCGALight8x16  C:\\> dir /w"), y += 78;
-        text(VerdanaRegular32(), 24, y, 2, warm, "Verdana 32"), text(VerdanaRegular32(), 560, y, 1, warm, "VerdanaRegular32"), y += 84;
+        text(DejaVuSansBook32(), 24, y, 2, warm, "DejaVu Sans 32"), text(DejaVuSansBook32(), 560, y, 1, warm, "DejaVuSansBook32"), y += 84;
         text(IBMPlexMonoMedium28(), 24, y, 2, line, "12:34"), text(IBMPlexMonoMedium28(), 360, y, 1, line, "IBMPlexMonoMedium28"),
             text(NotoMonoRegular28(), 760, y, 1, dim, "NotoMonoRegular28"), y += 96;
         /* the weather symbols a clock shows */
         static const char *weather = "\xef\x80\x8d \xef\x80\x82 \xef\x80\x93 \xef\x80\x99 \xef\x80\x9e \xef\x80\x9b \xef\x80\x94";
-        text(WeatherIconsRegular27(), 24, y, 2, cold, weather), text(TerminusTTFMedium12(), 760, y - 16, 2, dim, "WeatherIconsRegular27");
+        text(WeatherIconsRegular27(), 24, y, 2, cold, weather), text(TerminusTTFMedium12(), 1000, y - 16, 2, dim, "WeatherIconsRegular27");
         break;
     }
     case 'g': { /* a gauge at three values */
@@ -176,8 +176,8 @@ static void recipe(char variant, bool dark)
             dgx_gauge_set_value(&gauge[i], values[i]);
             snprintf(label, sizeof(label), "%d", values[i]);
             int16_t   yc, hh;
-            const int w = dgx_font_string_bounds(label, VerdanaRegular32(), &yc, &hh) * 2;
-            text(VerdanaRegular32(), cx - w / 2, cy + 22, 2, line, label);
+            const int w = dgx_font_string_bounds(label, DejaVuSansBook32(), &yc, &hh) * 2;
+            text(DejaVuSansBook32(), cx - w / 2, cy + 22, 2, line, label);
         }
         break;
     }

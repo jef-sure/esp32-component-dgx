@@ -12,6 +12,7 @@
 
 #include "dgx_arch.h"
 #include "dgx_bits.h"
+#include "dgx_draw.h"
 #include "dgx_screen_functions.h"
 #include "drivers/vscreen.h"
 #include "dgx_vscreen_priv.h"
@@ -324,4 +325,63 @@ dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src)
     uint32_t       csize   = dgx_color_points_to_bytes(_scr_src->color_bits, _scr_src->width * _scr_src->height);
     memcpy(scr->v_array, scr_src->v_array, csize);
     return _scr;
+}
+
+/* a channel of n bits widened to 8, its high bits repeated below: the largest value becomes 0xff */
+static inline uint32_t dgx_widen_channel(uint32_t c, unsigned n)
+{
+    return (c << (8 - n)) | (c >> (2 * n - 8));
+}
+
+static inline uint32_t dgx_argb_of_16(uint32_t v)
+{
+    return 0xff000000u | dgx_widen_channel((v >> 11) & 0x1f, 5) << 16 | dgx_widen_channel((v >> 5) & 0x3f, 6) << 8
+           | dgx_widen_channel(v & 0x1f, 5);
+}
+
+static inline uint32_t dgx_argb_of(uint8_t color_bits, uint32_t v, const uint16_t *lut)
+{
+    switch (color_bits) {
+    case 1:
+        return v ? 0xffffffffu : 0xff000000u;
+    case 4:
+        v >>= 4; /* the index is read in the high bits */
+        return lut ? dgx_argb_of_16(lut[v]) : 0xff000000u | (v * 0x11u) * 0x010101u;
+    case 8:
+        return lut ? dgx_argb_of_16(lut[v & 0xff]) : 0xff000000u | (v & 0xff) * 0x010101u;
+    case 12:
+        return 0xff000000u | ((v >> 12) & 0xf) * 0x110000u | ((v >> 8) & 0xf) * 0x1100u | ((v >> 4) & 0xf) * 0x11u;
+    case 16:
+        return dgx_argb_of_16(v);
+    case 18:
+        return 0xff000000u | dgx_widen_channel((v >> 18) & 0x3f, 6) << 16 | dgx_widen_channel((v >> 10) & 0x3f, 6) << 8
+               | dgx_widen_channel((v >> 2) & 0x3f, 6);
+    default:
+        return 0xff000000u | (v & 0xffffffu);
+    }
+}
+
+bool dgx_vscreen_to_argb8888(dgx_screen_t *_scr, int x, int y, int width, int height, const uint16_t *lut, uint32_t *dst,
+                             int dst_stride)
+{
+    if (!_scr || !dst || width < 0 || height < 0 || dst_stride < width) return false;
+    if (x < 0 || y < 0 || x + width > _scr->width || y + height > _scr->height) return false;
+    const uint8_t bits = _scr->color_bits;
+    if (dgx_vscreen_is_linear(_scr)) {
+        dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
+        for (int j = 0; j < height; ++j, dst += dst_stride) {
+            uint32_t offset = DGX_VSCR_OFFSET(scr, x, y + j);
+            uint8_t *lp     = DGX_VSCR_PTR(scr, offset);
+            if (bits == 16) {
+                for (int i = 0; i < width; ++i, lp += 2) dst[i] = dgx_argb_of_16((uint32_t)lp[0] << 8 | lp[1]);
+                continue;
+            }
+            for (int i = 0; i < width; ++i) dst[i] = dgx_argb_of(bits, dgx_read_buf_value(bits, &lp, (int)offset + i), lut);
+        }
+        return true;
+    }
+    if (!dgx_screen_is_readable(_scr)) return false;
+    for (int j = 0; j < height; ++j, dst += dst_stride)
+        for (int i = 0; i < width; ++i) dst[i] = dgx_argb_of(bits, dgx_get_pixel(_scr, x + i, y + j), lut);
+    return true;
 }
