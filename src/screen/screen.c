@@ -90,8 +90,8 @@ static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, in
             lenbits       = dgx_color_points_to_bytes(scr->color_bits, fill_scr_size) * 8u;
             fill_scr_size = 0;
         }
+        /* the buffer holds the same pixels for every piece: the next one is queued behind the one on its way */
         scr->write_area(scr, draw_buffer, lenbits);
-        if (fill_scr_size && scr->wait_buffer) scr->wait_buffer(scr);
     }
     if (draw_buffer != scr->draw_buffer) {
         free(draw_buffer);

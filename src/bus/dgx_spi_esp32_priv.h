@@ -51,3 +51,11 @@ esp_err_t dgx_spi_take_host(spi_host_device_t host_id, spi_dma_chan_t dma_chan, 
 void dgx_spi_release_host(spi_host_device_t host_id);
 void dgx_spi_host_join(spi_host_device_t host_id);
 void dgx_spi_host_leave(spi_host_device_t host_id);
+
+/*
+ * The length of the buffer of a display on a host, once its device is on it:
+ * half of it takes about 390 us on the wire at the clock the device has got
+ * over `data_lines`, it is 4000 bytes at least, 32000 at most and no more
+ * than the host takes in one transfer.
+ */
+size_t dgx_spi_buffer_len(spi_host_device_t host_id, spi_device_handle_t dev, unsigned data_lines);

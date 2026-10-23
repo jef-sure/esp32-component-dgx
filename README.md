@@ -1406,7 +1406,7 @@ depends on the constructor:
   and `dgx_p8_init_on_bus()` put the display on a bus the program has set up and owns. DGX adds its
   device and removes it on dispose; the program releases the bus afterwards.
   An SPI host must have DMA and a `max_transfer_sz` of 0 or at least 4092
-  bytes; an I80 bus must be 8 bits wide with a `max_transfer_bytes` of at
+  bytes; DGX sends pieces as long as the host takes, see below. An I80 bus must be 8 bits wide with a `max_transfer_bytes` of at
   least 4096.
 
 ```c
@@ -1424,7 +1424,16 @@ dgx_screen_t *scr = dgx_ssd1306_init(bus, SSD1306_128X64, 0, GPIO_NUM_NC);
 
 Both I2C constructors probe the address first and fail when no device
 answers. The ESP-IDF drivers take turns between the devices of a bus; a long
-picture on SPI holds the bus for one piece of up to 4000 bytes at a time.
+picture on SPI or QSPI holds the bus for one piece at a time. Every piece
+costs the same time to start, so a fast bus needs long pieces: the buffer of
+a display is as long as the wire takes about 0.8 ms to send at the clock the
+display has really got, and a virtual screen goes in halves of it, so that
+starting the pieces costs about 6 % of the time. The buffer is 4000 bytes at
+least and 32000 at most, in internal memory that DMA reaches: 4000 bytes on
+SPI at 40 MHz, as before, about 16000 on QSPI at 40 MHz. A slower clock
+takes a smaller buffer. DGX sets up its own
+hosts for 32000 bytes; on a host of the program the buffer is no longer
+than its `max_transfer_sz`.
 The bus tables of DGX and the init tables of the panel drivers are not
 locked: create and dispose of backends and screens from one task.
 

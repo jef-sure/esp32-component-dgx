@@ -58,8 +58,10 @@ dgx_bus_protocols_t* dgx_spi_init(          //
  * For a display that shares the bus with other devices of the program: a touch
  * controller, an SD card. The host must have been initialized by
  * spi_bus_initialize() with DMA (e.g. SPI_DMA_CH_AUTO) and a max_transfer_sz of
- * 0 or at least 4092 bytes, as DGX sends pixels in pieces of up to 4000 bytes.
- * DGX adds its device to the host and removes it when the backend is disposed;
+ * 0 or at least 4092 bytes. The buffer of the display, the longest piece of
+ * pixels DGX sends, is as long as the wire takes about 0.8 ms to send at its
+ * clock, 4000 bytes at least, 32000 at most and no more than the host takes:
+ * 4000 bytes at 40 MHz, 8000 at 80 MHz. DGX adds its device to the host and removes it when the backend is disposed;
  * the host stays the program's to free, after the backend. The ESP-IDF driver
  * takes turns between the devices; a long picture keeps the bus for the time
  * of each piece.

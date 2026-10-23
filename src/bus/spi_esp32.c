@@ -19,6 +19,22 @@
 
 static const char TAG[] = "DGX SPI BUS";
 
+/*
+ * Every piece of pixels costs the same time to start however long it is,
+ * DGX_SPI_PIECE_COST_US as measured on an ESP32-S3 with IDF 6.1, so a bus of
+ * four data lines, or a faster clock, needs longer pieces to lose as little.
+ * A virtual screen goes in halves of the buffer of a display, and a half is
+ * as long as the wire takes to send in the time that makes that cost
+ * DGX_SPI_LOSS_PERCENT of the whole: cost * (100 - loss) / loss, about
+ * 390 us. The buffer is DGX_SPI_MIN_BUFFER at least and no longer than
+ * DGX_SPI_MAX_TRANSFER, which is what a host DGX initializes takes and less
+ * than the 32768 bytes of one transfer of an ESP32-S3.
+ */
+#define DGX_SPI_PIECE_COST_US 25u
+#define DGX_SPI_LOSS_PERCENT  6u
+#define DGX_SPI_MIN_BUFFER    4000u
+#define DGX_SPI_MAX_TRANSFER  32000u
+
 /* transfers the device may hold at once; two of pixels are queued at most, one behind the other, the number is the one the bus has always been made with */
 #define DGX_SPI_QUEUE_SIZE 7
 
@@ -257,7 +273,7 @@ esp_err_t dgx_spi_take_host(spi_host_device_t host_id, spi_dma_chan_t dma_chan, 
     buscfg.sclk_io_num     = sclk;
     buscfg.quadwp_io_num   = quadwp;
     buscfg.quadhd_io_num   = quadhd;
-    buscfg.max_transfer_sz = -1; // the default of a bus with DMA, 4092 bytes
+    buscfg.max_transfer_sz = DGX_SPI_MAX_TRANSFER; // only the DMA descriptors depend on it, a few for 32000 bytes
     if (quadwp != GPIO_NUM_NC) buscfg.flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_QUAD;
     esp_err_t rc = spi_bus_initialize(host_id, &buscfg, dma_chan);
     if (rc != ESP_OK) {
@@ -279,6 +295,21 @@ void dgx_spi_release_host(spi_host_device_t host_id)
         return;
     }
     h->taken = false;
+}
+
+size_t dgx_spi_buffer_len(spi_host_device_t host_id, spi_device_handle_t dev, unsigned data_lines)
+{
+    int khz = 0;
+    if (spi_device_get_actual_freq(dev, &khz) != ESP_OK) khz = 0;
+    /* the time of a half in microseconds, and what the wire sends in two of them: a line sends khz / 1000 bits a microsecond */
+    const uint64_t half_us = (uint64_t)DGX_SPI_PIECE_COST_US * (100u - DGX_SPI_LOSS_PERCENT) / DGX_SPI_LOSS_PERCENT;
+    uint64_t       bits    = (uint64_t)khz * data_lines * 2u * half_us / 1000u;
+    uint64_t       len     = bits / 8u;
+    if (len > DGX_SPI_MAX_TRANSFER) len = DGX_SPI_MAX_TRANSFER;
+    size_t most = 0;
+    if (spi_bus_get_max_transaction_len(host_id, &most) == ESP_OK && most && len > most) len = most;
+    if (len < DGX_SPI_MIN_BUFFER) len = DGX_SPI_MIN_BUFFER;
+    return (size_t)len & ~(size_t)3; // whole words
 }
 
 void dgx_spi_host_join(spi_host_device_t host_id)
@@ -327,13 +358,6 @@ static dgx_bus_protocols_t *dgx_spi_attach(spi_host_device_t host_id, bool owns_
     bus->protocols.sync_write       = dgx_spi_sync_write;
     bus->protocols.dispose          = dgx_spi_dispose_bus_func;
     bus->protocols.memory_allocator = dgx_spi_memory_allocator;
-    bus->protocols.buffer_len       = 4000;
-    bus->protocols.buffer           = bus->protocols.memory_allocator(bus->protocols.buffer_len);
-    if (!bus->protocols.buffer) {
-        ESP_LOGE(TAG, "dgx_spi_init buffer allocation failed");
-        heap_caps_free(bus);
-        return NULL;
-    }
     bus->owns_host             = owns_host;
     bus->host_id               = host_id;
     bus->dma_channel           = dma_chan;
@@ -360,7 +384,15 @@ static dgx_bus_protocols_t *dgx_spi_attach(spi_host_device_t host_id, bool owns_
     esp_err_t rc     = spi_bus_add_device(bus->host_id, &bus->devcfg, &bus->spi);
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "dgx_spi_init spi_bus_add_device failed: %s", esp_err_to_name(rc));
-        free(bus->protocols.buffer);
+        heap_caps_free(bus);
+        return NULL;
+    }
+    /* the clock the device has really got decides the length of the buffer */
+    bus->protocols.buffer_len = dgx_spi_buffer_len(host_id, bus->spi, 1);
+    bus->protocols.buffer     = bus->protocols.memory_allocator(bus->protocols.buffer_len);
+    if (!bus->protocols.buffer) {
+        ESP_LOGE(TAG, "dgx_spi_init buffer allocation failed");
+        spi_bus_remove_device(bus->spi);
         heap_caps_free(bus);
         return NULL;
     }

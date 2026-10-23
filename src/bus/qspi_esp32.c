@@ -220,13 +220,6 @@ static dgx_bus_protocols_t *dgx_qspi_attach(spi_host_device_t host_id, bool owns
     bus->protocols.sync_write       = dgx_qspi_sync_write;
     bus->protocols.dispose          = dgx_qspi_dispose_bus_func;
     bus->protocols.memory_allocator = dgx_qspi_memory_allocator;
-    bus->protocols.buffer_len       = 4000;
-    bus->protocols.buffer           = bus->protocols.memory_allocator(bus->protocols.buffer_len);
-    if (!bus->protocols.buffer) {
-        ESP_LOGE(TAG, "dgx_qspi_init buffer allocation failed");
-        heap_caps_free(bus);
-        return NULL;
-    }
     bus->owns_host = owns_host;
     bus->host_id   = host_id;
     spi_device_interface_config_t devcfg;
@@ -241,7 +234,15 @@ static dgx_bus_protocols_t *dgx_qspi_attach(spi_host_device_t host_id, bool owns
     esp_err_t rc          = spi_bus_add_device(host_id, &devcfg, &bus->spi);
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "dgx_qspi_init spi_bus_add_device failed: %s", esp_err_to_name(rc));
-        free(bus->protocols.buffer);
+        heap_caps_free(bus);
+        return NULL;
+    }
+    /* four lines send a buffer four times as long as one line in the same time */
+    bus->protocols.buffer_len = dgx_spi_buffer_len(host_id, bus->spi, 4);
+    bus->protocols.buffer     = bus->protocols.memory_allocator(bus->protocols.buffer_len);
+    if (!bus->protocols.buffer) {
+        ESP_LOGE(TAG, "dgx_qspi_init buffer allocation failed");
+        spi_bus_remove_device(bus->spi);
         heap_caps_free(bus);
         return NULL;
     }

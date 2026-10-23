@@ -49,8 +49,11 @@ dgx_bus_protocols_t *dgx_qspi_init(spi_host_device_t host_id, spi_dma_chan_t dma
  *
  * The host must have been initialized by spi_bus_initialize() with its four
  * data lines, DMA (e.g. SPI_DMA_CH_AUTO) and a max_transfer_sz of 0 or at
- * least 4092 bytes, as DGX sends pixels in pieces of up to 4000 bytes. DGX
- * adds its device to the host and removes it when the backend is disposed; the
+ * least 4092 bytes. The buffer of the display, the longest piece of pixels
+ * DGX sends, is as long as the wire takes about 0.8 ms to send at its clock,
+ * 4000 bytes at least, 32000 at most and no more than the host takes: about
+ * 16000 bytes at 40 MHz, so give the host a max_transfer_sz of 16000 or more
+ * for the full speed. DGX adds its device to the host and removes it when the backend is disposed; the
  * host stays the program's to free, after the backend.
  *
  * @param host_id        SPI host the program has initialized.

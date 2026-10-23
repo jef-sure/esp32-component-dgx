@@ -1,5 +1,28 @@
 # Changes
 
+## 0.8.3 - 2026-10-23
+
+Displays on SPI and QSPI send their pixels in longer pieces when the bus is
+fast, and a filled rectangle no longer waits for every piece. Nothing
+breaks.
+
+- Every piece of pixels costs the same time to start, about 25 µs on an
+  ESP32-S3, however long it is. So the buffer of a display now follows the
+  clock the display has really got: a virtual screen goes in halves of the
+  buffer, and a half is as long as makes that cost 6 % of the time, about
+  390 µs on the wire. The buffer is 4000 bytes at least, as before, and
+  32000 at most: 4000 bytes on SPI at 40 MHz, so nothing changes there,
+  8000 at 80 MHz, about 16000 on QSPI at 40 MHz. On the Guition JC4827W543
+  at 40 MHz a virtual screen of 480x272 now goes to the display in 13.9 ms
+  instead of 15.8 ms, where the wire alone needs 13.1 ms.
+- A host DGX sets up takes transfers of up to 32000 bytes. On a host of the
+  program the buffer is no longer than its `max_transfer_sz`; give it 16000
+  bytes for QSPI at 40 MHz for the full speed.
+- `dgx_fill_rectangle()` on a display with a bus no longer waits after every
+  piece: they all come from one buffer of the same pixels, so the next one
+  goes into the queue right behind the one on its way. A full screen of the
+  JC4827W543 at 40 MHz is filled in 13.45 ms instead of 15.3 ms.
+
 ## 0.8.2 - 2026-10-23
 
 A QSPI bus and a driver for the NV3041A, the 480x272 controller of the
