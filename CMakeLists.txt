@@ -26,7 +26,7 @@ set(srcs
 list(APPEND srcs ${dgx_font_sources})
 
 if(CONFIG_DGX_ENABLE_SPI)
-	list(APPEND srcs "src/bus/spi_esp32.c")
+	list(APPEND srcs "src/bus/spi_esp32.c" "src/bus/qspi_esp32.c")
 endif()
 
 if(CONFIG_DGX_ENABLE_I2C)
@@ -55,6 +55,10 @@ endif()
 
 if(CONFIG_DGX_ENABLE_SPI_ILI_9341)
 	list(APPEND srcs "src/drivers/ili9341.c")
+endif()
+
+if(CONFIG_DGX_ENABLE_NV3041A)
+	list(APPEND srcs "src/drivers/nv3041a.c")
 endif()
 
 if(CONFIG_DGX_ENABLE_JD9165)

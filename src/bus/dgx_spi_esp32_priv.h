@@ -37,3 +37,17 @@ static inline gpio_num_t get_dc_pin(void *user_ptr)
 }
 
 void dgx_spi_wait_pending(struct _dgx_bus_protocols_t *_bus);
+
+/*
+ * The hosts DGX initializes itself, shared by its SPI and QSPI displays. A
+ * host is taken, or checked to have the same lines when it is taken already;
+ * GPIO_NUM_NC for quadwp and quadhd is a display of one data line, which goes
+ * on a host of four too. A display joins the host once it is on it and leaves
+ * it when disposed; the last to leave frees the host. A host taken for a
+ * display that then failed is released: freed if no display is on it.
+ */
+esp_err_t dgx_spi_take_host(spi_host_device_t host_id, spi_dma_chan_t dma_chan, gpio_num_t mosi, gpio_num_t miso, gpio_num_t sclk, gpio_num_t quadwp,
+                            gpio_num_t quadhd);
+void dgx_spi_release_host(spi_host_device_t host_id);
+void dgx_spi_host_join(spi_host_device_t host_id);
+void dgx_spi_host_leave(spi_host_device_t host_id);

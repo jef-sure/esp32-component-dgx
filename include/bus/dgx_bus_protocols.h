@@ -16,7 +16,8 @@ enum dgx_bus_type {  //
     DGX_BUS_SPI,     //
     DGX_BUS_I2C,     //
     DGX_BUS_P8,      //
-    DGX_BUS_DSI      //
+    DGX_BUS_DSI,     //
+    DGX_BUS_QSPI     //
 };
 
 enum {                 //

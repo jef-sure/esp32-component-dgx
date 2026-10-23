@@ -854,6 +854,7 @@ wire.
 | ST7735 | color TFT | SPI, P8 | `dgx_st7735_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ST7735` |
 | ST7789 | color TFT | SPI, P8 | `dgx_st7789_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ST7789` |
 | ILI9341 | color TFT | SPI, P8 | `dgx_ili9341_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ILI_9341` |
+| NV3041A | color TFT, 480x272 | QSPI | `dgx_nv3041a_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_NV3041A` |
 | GC9A01 | round color TFT | SPI, P8 | `dgx_gc9a01_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_GC9A01` |
 | SSD1351 | color OLED | SPI, P8 | `dgx_ssd1351_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SSD1351` |
 | SSD1306 | mono OLED | SPI, I2C | `dgx_ssd1306_init(bus, resolution, is_ext_vcc, rst)` | `CONFIG_DGX_ENABLE_SSD1306` |
@@ -866,10 +867,10 @@ wire.
 
 Common parameters:
 
-- `bus` — a `dgx_bus_protocols_t *` from `dgx_spi_init()`, `dgx_i2c_init()`,
-  `dgx_p8_init()` or `dgx_dsi_init()`.
+- `bus` — a `dgx_bus_protocols_t *` from `dgx_spi_init()`, `dgx_qspi_init()`,
+  `dgx_i2c_init()`, `dgx_p8_init()` or `dgx_dsi_init()`.
 - `rst` — reset GPIO, or `GPIO_NUM_NC` if the panel has no reset line.
-- `backlight` (ILI9341 only) — backlight GPIO, or `GPIO_NUM_NC` if it is not
+- `backlight` (ILI9341 and NV3041A) — backlight GPIO, or `GPIO_NUM_NC` if it is not
   under software control.
 - `color_bits` — pixel depth; `16` (RGB565) is the usual choice. The SPI and
   P8 color panels also take `18`: see
@@ -887,7 +888,7 @@ Color panels and ST7920 also expose an orientation setter
 is told its scan direction. An ST7920 has no command for that: its driver
 turns the picture where it sends it to the panel, and with `swap_xy` the
 screen is 64x128. A few drivers add extras: ILI9341 has
-`dgx_ili9341_backlight()`, GC9A01 has `dgx_gc9a01_display_off()` /
+`dgx_ili9341_backlight()`, NV3041A has `dgx_nv3041a_backlight()`, GC9A01 has `dgx_gc9a01_display_off()` /
 `dgx_gc9a01_display_on()`, SSD1351 has `dgx_ssd1351_brightness()`, SSD1306
 has `dgx_ssd1306_contrast()`, SSD1309 has `dgx_ssd1309_contrast()` and
 `dgx_ssd1309_column_offset()`, and SH1106 the same two under its own name.
@@ -916,6 +917,23 @@ tasks. How the bus is built and what was measured on it is in
 ([Russian](docs/dsi-display-ru.md)), and
 [examples/dsi_demo](examples/dsi_demo) is a working program.
 
+NV3041A is the controller of 4.3-inch 480x272 panels on a QSPI bus, as on
+the Guition JC4827W543 (ESP32-S3). The driver has the init commands of that
+board's panel, takes 16-bit color only, and starts in upright landscape. It
+keeps the backlight off until the panel memory has been cleared, so the noise
+the panel shows while it starts is never seen. That board has no reset line
+for the panel (`GPIO_NUM_NC`) and its backlight on GPIO1:
+
+```c
+dgx_bus_protocols_t *bus = dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_21, GPIO_NUM_48, GPIO_NUM_40,
+                                         GPIO_NUM_39, GPIO_NUM_47 /* sclk */, GPIO_NUM_45 /* cs */, 40 * 1000 * 1000, 0);
+dgx_screen_t *scr = dgx_nv3041a_init(bus, GPIO_NUM_NC, GPIO_NUM_1, 16, DgxScreenRGB);
+```
+
+The SPI clock is 80 MHz divided by a whole number, and a clock that does not
+divide evenly is rounded down: 32 MHz runs at 26.7 MHz. On that board 40 MHz
+gives a clean picture and 80 MHz a garbled one.
+
 For SSD1306, pick a geometry from `ssd1306_resolution_t`: `SSD1306_128X32`,
 `SSD1306_128X64`, `SSD1306_96X16`, `SSD1306_64X48` or `SSD1306_72X40`.
 
@@ -942,10 +960,10 @@ of the u8g2 driver written for the controller after its datasheet.
 
 ## What's in the box
 
-- Panel drivers for ST7735, ST7789, ILI9341, GC9A01, SSD1351, SSD1306, SSD1309,
-  SH1106, ST7565R, ST7920, JD9165 and JD9365.
-- SPI, I2C and 8-bit parallel (I80) transports for ESP32, and MIPI-DSI for
-  ESP32-P4.
+- Panel drivers for ST7735, ST7789, ILI9341, NV3041A, GC9A01, SSD1351, SSD1306,
+  SSD1309, SH1106, ST7565R, ST7920, JD9165 and JD9365.
+- SPI, QSPI, I2C and 8-bit parallel (I80) transports for ESP32, and MIPI-DSI
+  for ESP32-P4.
 - A color RAM-backed virtual screen and a 1-bit monochrome virtual screen.
   They are useful on their own, as staging buffers for animation, or as shadow
   buffers behind monochrome controllers. A virtual screen goes to a display or
@@ -1362,6 +1380,8 @@ Declared under [include/bus/](include/bus):
 | --- | --- |
 | `dgx_spi_init(host_id, dma_chan, mosi, miso, sclk, cs, dc, clock_speed_hz, cpolpha_mode)` | SPI master bus. |
 | `dgx_spi_init_on_bus(host_id, cs, dc, clock_speed_hz, cpolpha_mode)` | A display on an SPI host the program has initialized. |
+| `dgx_qspi_init(host_id, dma_chan, d0, d1, d2, d3, sclk, cs, clock_speed_hz, cpolpha_mode)` | QSPI bus on an SPI host: commands on one line, pixels on four, no D/C line. |
+| `dgx_qspi_init_on_bus(host_id, cs, clock_speed_hz, cpolpha_mode)` | A QSPI display on an SPI host the program has initialized with four data lines. |
 | `dgx_i2c_init(i2c_num, i2c_address, sda, sclk, clock_speed_hz)` | I2C master bus. |
 | `dgx_i2c_init_on_bus(i2c_bus, i2c_address, clock_speed_hz)` | A display on an I2C master bus the program owns. |
 | `dgx_p8_init(d0..d7, wr, rd, cs, dc, pclk_hz)` | 8-bit parallel (I80) bus. |
@@ -1377,13 +1397,13 @@ A display often shares its bus with other devices: a touch controller or a
 clock chip on I2C, an SD card or a touch controller on SPI. Who owns the bus
 depends on the constructor:
 
-- `dgx_spi_init()`, `dgx_i2c_init()` and `dgx_p8_init()` put the display on
-  a bus DGX sets up: the SPI host, the I2C master bus of the port, the I80
+- `dgx_spi_init()`, `dgx_qspi_init()`, `dgx_i2c_init()` and `dgx_p8_init()`
+  put the display on a bus DGX sets up: the SPI host, the I2C master bus of the port, the I80
   bus of those pins. Further displays on the same host, port or pins share
   it, and must name the same pins. DGX releases the bus with the last of its
   displays, unless the program has put devices of its own on it.
-- `dgx_spi_init_on_bus()`, `dgx_i2c_init_on_bus()` and `dgx_p8_init_on_bus()`
-  put the display on a bus the program has set up and owns. DGX adds its
+- `dgx_spi_init_on_bus()`, `dgx_qspi_init_on_bus()`, `dgx_i2c_init_on_bus()`
+  and `dgx_p8_init_on_bus()` put the display on a bus the program has set up and owns. DGX adds its
   device and removes it on dispose; the program releases the bus afterwards.
   An SPI host must have DMA and a `max_transfer_sz` of 0 or at least 4092
   bytes; an I80 bus must be 8 bits wide with a `max_transfer_bytes` of at
@@ -1589,7 +1609,7 @@ in the transports they require.
 
 | Option | Adds | Notes |
 | --- | --- | --- |
-| `CONFIG_DGX_ENABLE_SPI` | `bus/spi_esp32.c` | SPI transport |
+| `CONFIG_DGX_ENABLE_SPI` | `bus/spi_esp32.c`, `bus/qspi_esp32.c` | SPI and QSPI transports |
 | `CONFIG_DGX_ENABLE_I2C` | `bus/i2c_esp32.c` | I2C transport |
 | `CONFIG_DGX_ENABLE_P8` | `bus/p8_esp32.c` | 8-bit parallel (I80) transport |
 | `CONFIG_DGX_ENABLE_DSI` | `bus/dsi_esp32.c`, `bus/fb_area.c`, `bus/fb_tiles.c`, `bus/fb_flip.c` | MIPI-DSI transport; chips that have it (ESP32-P4) |
@@ -1598,6 +1618,7 @@ in the transports they require.
 | `CONFIG_DGX_ENABLE_SPI_GC9A01` | `drivers/gc9a01.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SPI_ILI_9341` | `drivers/ili9341.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SSD1351` | `drivers/ssd1351.c` | needs SPI or P8 |
+| `CONFIG_DGX_ENABLE_NV3041A` | `drivers/nv3041a.c` | needs SPI (its QSPI bus) |
 | `CONFIG_DGX_ENABLE_SSD1306` | `drivers/ssd1306.c` | needs SPI or I2C; selects `V_BW_SCREEN` |
 | `CONFIG_DGX_ENABLE_SSD1309` | `drivers/ssd1309.c` | needs SPI or I2C; selects `V_BW_SCREEN` |
 | `CONFIG_DGX_ENABLE_SH1106` | `drivers/sh1106.c` | needs SPI or I2C; selects `V_BW_SCREEN` |

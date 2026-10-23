@@ -1,6 +1,6 @@
 ## IDF Component Manager Manifest File
-version: "0.8.1"
-description: "Display and graphics component for ESP32 with SPI, I2C, parallel and MIPI-DSI display buses, virtual screens, drawing primitives, fonts, handwritten text and morphing"
+version: "0.8.2"
+description: "Display and graphics component for ESP32 with SPI, QSPI, I2C, parallel and MIPI-DSI display buses, virtual screens, drawing primitives, fonts, handwritten text and morphing"
 url: https://github.com/jef-sure/esp32-component-dgx
 repository: https://github.com/jef-sure/esp32-component-dgx.git
 documentation: https://github.com/jef-sure/esp32-component-dgx/blob/main/README.md
@@ -16,6 +16,7 @@ tags:
   - lcd
   - oled
   - spi
+  - qspi
   - i2c
   - mipi-dsi
   - framebuffer

@@ -1,5 +1,30 @@
 # Changes
 
+## 0.8.2 - 2026-10-23
+
+A QSPI bus and a driver for the NV3041A, the 480x272 controller of the
+4.3-inch panel on the Guition JC4827W543 (ESP32-S3). Nothing breaks. The
+driver was checked by eye on that board, with `dgx_qspi_init()`;
+`dgx_qspi_init_on_bus()` and a host shared with an SPI display were only
+built.
+
+- `dgx_qspi_init()` puts a QSPI panel on an SPI host: commands and their
+  parameters go on one line, pixels on four, and there is no D/C line.
+  `dgx_qspi_init_on_bus()` puts it on a host that the program has set up
+  with four data lines. A host that DGX sets up is shared by its SPI and QSPI
+  displays, as SPI hosts were before; a display with one data line can join
+  a host set up for four. `DGX_BUS_QSPI` is a new bus type. A picture goes in
+  pieces of up to 4000 bytes, each continuing where the previous one ended,
+  so the chip select is not held between them.
+- `dgx_nv3041a_init()`, `dgx_nv3041a_orientation()` and
+  `dgx_nv3041a_backlight()`, enabled by `CONFIG_DGX_ENABLE_NV3041A`. The
+  init commands are those of the board maker's demos, with one difference:
+  the panel needs `INVOFF` after a software reset, or the colors come out
+  inverted, while the demos send `INVON`. The backlight stays off until the
+  panel memory has been cleared. Only 16-bit color is supported. On that
+  board 40 MHz gives a clean picture, with the whole screen filled in
+  15.3 ms; 80 MHz garbles it.
+
 ## 0.8.1 - 2026-10-22
 
 A glyph morphed into another dot by dot, as `dgx_font_make_morph_struct()`
