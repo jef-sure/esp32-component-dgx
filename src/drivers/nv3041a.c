@@ -22,7 +22,7 @@
 
 #define NV3041A_SWRESET 0x01
 #define NV3041A_SLPOUT  0x11
-#define NV3041A_INVOFF  0x20
+#define NV3041A_INVON   0x21
 #define NV3041A_DISPON  0x29
 #define NV3041A_CASET   0x2A
 #define NV3041A_RASET   0x2B
@@ -70,7 +70,8 @@ static uint8_t *dgx_nv3041a_adj_madctl(dgx_screen_with_bus_t *scr, const struct 
  * The table of the maker of the panel, as its demos for the Guition
  * JC4827W543 send it: power, timings of the gates and sources, and gamma, in
  * its registers between the two writes of NV3041A_PAGE. The panel of that
- * board shows true colors with INVOFF, sent after the table. COLMOD 0x01 is
+ * board is IPS: its true colors need inversion on, so INVON follows after
+ * SLPOUT. COLMOD 0x01 is
  * RGB565 on this controller, 0x00 would be RGB666; 0x41 = 0x03 is the width of
  * the bus to its memory, 16 bits.
  */
@@ -166,14 +167,22 @@ static const dgx_lcd_init_cmd_t nv3041a_init_cmds[] = {
     {0x92, 0, 1, 0, {0x16}},
     {0xB2, 0, 1, 0, {0x16}},
     {NV3041A_PAGE, 0, 1, 0, {0x00}},
-    {NV3041A_INVOFF, 0, 0, 0, {0}}, // after a reset the colors are inverted, INVON leaves them so
     {NV3041A_SLPOUT, 0, 0, 120, {0}},
+    /* sleep out loads the factory defaults into the registers during its 120 ms
+     * (7.2.9): what the panel is to keep goes after it. MADCTL written only
+     * before it was lost, and the orientation the caller asked for never
+     * reached the running panel; the maker's demo writes it again after the
+     * whole init. */
+    {NV3041A_MADCTL, dgx_nv3041a_adj_madctl, 1, 0, {0}},
+    /* the glass of this board is IPS: its colors are inverted without INVON, which must
+     * come after SLPOUT — the maker's defaults reload into the registers during its 120ms */
+    {NV3041A_INVON, 0, 0, 20, {0}}, // display commands take effect from the next frame (7.2.10), ~17ms at 60Hz
     {0, 0, 0xff, 0, {0}} // Stop
 };
 
 /* the display turned on once its memory is cleared, so what was left in it is never seen */
 static const dgx_lcd_init_cmd_t nv3041a_on_cmds[] = {
-    {NV3041A_DISPON, 0, 0, 0, {0}},
+    {NV3041A_DISPON, 0, 0, 100, {0}}, // the maker's demo waits 100 ms before anything else
     {0, 0, 0xff, 0, {0}} // Stop
 };
 

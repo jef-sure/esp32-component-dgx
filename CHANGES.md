@@ -1,5 +1,121 @@
 # Changes
 
+## 0.9.0 - 2026-10-28
+
+One call breaks: `dgx_st7789_init()` takes the panel as a fifth argument,
+for the 240x320 panels the driver did not know before. Bitmap fonts get a
+font editor and patches that keep glyphs fixed by hand when a font is made
+again, `DroidSansRegular9` is fixed this way for small panels with large
+pixels, and a new pixel font, `CozetteRegular13`, has Cyrillic. A QSPI
+display gets all the pixels of a window in one selection of the chip.
+
+- `dgx_st7789_init()` takes the panel as a fifth argument, of the new type
+  `st7789_resolution_t`: `ST7789_RESOLUTION_240x240`, the only panel it
+  drove before, `ST7789_RESOLUTION_240x320`, or `ST7789_RESOLUTION_320x240`,
+  the same panel turned to landscape. A program written for 0.8 adds
+  `ST7789_RESOLUTION_240x240` to the call. On a 240x320 panel,
+  `dgx_st7789_orientation()` with the axes swapped makes the screen 320x240,
+  and without them 240x320 again. An unknown resolution gives NULL. Not yet
+  tried on a 240x320 panel.
+
+- A new font of DGX, `CozetteRegular13` (`fonts/CozetteRegular13.h`): the
+  Cozette bitmap font, drawn pixel by pixel at 13 px, so it stays crisp
+  on panels with few, large pixels, where a vector font scaled down to
+  9 or 12 px does not. It has ASCII, Latin-1 and Cyrillic, dashes, quotes,
+  € and №, under the MIT License. Its Nerd Font icons are left out; a
+  program that wants them makes the font from `cozette.bdf` itself.
+  `DroidSansRegular9` stays as it is.
+
+- A font editor, `font-editor/index.html`, for the bitmap fonts `font2c`
+  makes: it opens a `.c`, lets you redraw glyphs pixel by pixel and change
+  their size, advance and offsets, and saves the fixes as a patch,
+  `<name>.patch.json`. `font2c -p <patch>` applies a patch, and `-P <dir>`
+  looks for one by the name of the font; every glyph of the patch replaces
+  the rendered glyph whole, so the fixes survive when the font is made again.
+  A patch records the font and the size it was made for, and `font2c`
+  refuses it for any other. The `.c` files `font2c` writes now begin with a
+  comment naming the font, which the editor reads for that.
+
+- Fonts made at build time pick up their patches automatically: the one a
+  need names with the new `PATCH` keyword (`patch` in a needs file), or else
+  `<name>.patch.json` next to the CMakeLists or needs file that declares the
+  need, next to its `SOURCE` file, or in `src/fonts/` of DGX. Adding or
+  changing a patch there rebuilds the fonts. See "Glyphs fixed by hand" in
+  docs/fonts-en.md.
+
+- `font2c` renders bitmap fonts larger than 16 px with FreeType's hinted
+  anti-aliased renderer, keeps the pixels with at least 43% coverage and
+  crops each glyph to them. The bilevel renderer it used before merged the
+  stems of small letters into blobs at those sizes (the arches of an `m` in
+  Noto Mono at 28 px) and doubled the crossbar of an `e`. At 16 px and below
+  fonts are still rendered bilevel, because its dropout control keeps every
+  stem. `NotoMonoRegular28` is made again this way. `DejaVuSansBook32`,
+  `IBMPlexMonoMedium28` and `WeatherIconsRegular27` are left as they were;
+  made again, they would change too.
+
+- `DroidSansRegular9` is made again from DroidSans.ttf 1.00 with
+  `src/fonts/DroidSansRegular9.patch.json`, 75 glyphs fixed by hand for small
+  displays with large pixels. It has the same 702 characters as before. 106
+  accented letters that are not in the patch differ from 0.8.3 by 1 to 9
+  pixels each, mostly an accent moved by a pixel, with the same advances:
+  the Droid Sans file 0.8.3 was made from is not available, and this copy
+  places its composite glyphs differently.
+
+- A QSPI display gets all the pixels of a window in one selection of the
+  chip, as the maker of the Guition JC4827W543 sends them: the window and
+  the command that writes memory once, then the pixels in pieces with no
+  opcode or address of their own, the chip select held low between them.
+  0.8.2 and 0.8.3 sent every piece after the first in a selection of its
+  own with 0x3C, the continuing write of the MIPI DCS, and the NV3041A does
+  not take that: stripes of stray pixels came at the start of a window. The
+  bus now drives the chip select itself, as a GPIO (the pin passed to
+  `dgx_qspi_init()` as before); on a host the program shares with other
+  devices, it holds the host while the chip select is low. A display learns
+  which piece ends a window from the size of the window, so no caller has to
+  say it; a bus that holds its chip select gets the new optional member
+  `end_pixels` of `dgx_bus_protocols_t`, NULL in every other bus. Checked
+  by the host tests `test_frame_to_panel` and `test_life_panel` and on the
+  board.
+
+- Known: the NV3041A of the Guition JC4827W543 now and then writes a pair
+  of pixels just outside a window, and on a picture updated in small windows
+  they stay behind as dots. The commands and pixels DGX sends are right, and
+  the maker's own driver shows the same fault; sending whole frames from a
+  virtual screen hides it. The measurements, what did not help, and how to
+  turn on the TE line of that panel: [docs/nv3041a-en.md](docs/nv3041a-en.md)
+  ([Russian](docs/nv3041a-ru.md)).
+
+- A note on 0.8.3: a host that DGX sets up now takes transfers of up to
+  32000 bytes, and for that the SPI driver of ESP-IDF keeps more DMA
+  descriptors. A display on such a host takes 160 bytes more of internal
+  memory than on 0.8.2, as measured on an ESP32 with an ILI9341 on SPI at
+  40 MHz, though its buffer is still 4000 bytes there. On that display a
+  full screen is filled in 31.4 ms instead of 32.0 ms, where the wire alone
+  needs 30.7 ms.
+
+- The panel of the Guition JC4827W543 is IPS, and its true colors need
+  inversion on: `dgx_nv3041a_init()` now sends `INVON` after `SLPOUT`,
+  where 0.8.2 sent `INVOFF`. `SLPOUT` reloads the maker's defaults into the
+  registers during its 120 ms, so the command has to come after it, and
+  display commands take effect from the next frame, about 17 ms at 60 Hz.
+  Checked by eye on the board.
+
+- MADCTL, which turns the picture and swaps red with blue, was written once
+  inside the maker's page before `SLPOUT`: the reload took it away, and the
+  orientation the caller asked for never reached the running panel. It goes
+  after `SLPOUT` now, after `INVON`, and the display waits 100 ms after
+  `DISPON`, as the maker's demo does. The whole of the first table before
+  `SLPOUT` is left as the maker sends it.
+
+- The halves of the buffer a virtual screen is sent through are cut at a
+  multiple of the row length and of 4 bytes at once. The SPI DMA of the
+  ESP32 takes an address and a length of a multiple of 4 bytes; a piece
+  that is not, the IDF driver copies into a buffer of its own
+  (`setup_priv_desc`), a hidden memcpy of up to half the buffer per piece.
+  A row of an odd number of 16-bit pixels is 2 mod 4 bytes, so an odd-width
+  window was copied on every piece. A half too small for that many rows is
+  cut at rows only, as it was. Checked by the host test `test_region`.
+
 ## 0.8.3 - 2026-10-23
 
 Displays on SPI and QSPI send their pixels in longer pieces when the bus is

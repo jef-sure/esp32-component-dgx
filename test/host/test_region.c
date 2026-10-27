@@ -255,13 +255,18 @@ static void test_region(void)
         if (by_bus && !transparent && !indexed_kind) CHECK(areas == (inside ? 1 : 0));
         if (by_bus && !inside) CHECK(sent_pixels == 0 && areas == 0);
         if (by_bus && !transparent && !indexed_kind && inside) {
-            /* the buffer in two halves of 32 bytes: whole rows in a half where a row fits in it */
+            /* the buffer in two halves of 32 bytes: whole rows in a half where a row fits in it,
+             * and a multiple of 4 bytes with them, what the SPI DMA takes without a copy */
             const uint32_t all = 2u * (uint32_t)inside, row = 2u * (uint32_t)(area_r - area_l + 1), half = sizeof(bus_buffer) / 2;
+            uint32_t      rows = 1;
+            while (row * rows % 4u) ++rows;
+            const uint32_t cut = row * rows;
             if (all <= sizeof(bus_buffer)) {
                 CHECK(pieces == 1);
                 ++in_one;
             } else if (row <= half) {
-                CHECK(piece_first == half / row * row && piece_most == piece_first);
+                CHECK(cut <= half ? piece_first == half / cut * cut && piece_most == piece_first
+                                  : piece_first == half / row * row && piece_most == piece_first);
                 ++rows_fit;
             } else {
                 CHECK(piece_first == half && piece_most == half);

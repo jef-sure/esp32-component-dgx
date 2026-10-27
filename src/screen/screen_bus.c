@@ -113,6 +113,9 @@ static void dgx_screen_with_bus_send_window(dgx_screen_with_bus_t *sbus, uint16_
 /* a bus that takes pixels only together with their command */
 static bool dgx_screen_with_bus_bus_defers(const dgx_screen_with_bus_t *sbus)
 {
+    /* a bus that holds its chip select over a window is told the window
+     * with its first pixels, so it knows where the window ends */
+    if (sbus->bus->end_pixels && sbus->area_protocol != DGX_SCREEN_AREA_PROTO_CMD8) return true;
     return sbus->bus->bus_type == DGX_BUS_P8 && sbus->area_protocol != DGX_SCREEN_AREA_PROTO_CMD8;
 }
 
@@ -207,6 +210,48 @@ static uint32_t dgx_screen_with_bus_pixel_bytes(uint8_t color_bits)
     }
 }
 
+/* the next pixel of the window after `count` more; after the last one of the window comes its first */
+static inline void dgx_screen_with_bus_window_advance(dgx_screen_with_bus_t *sbus, uint32_t width, uint32_t count)
+{
+    const uint32_t at = (uint32_t)(sbus->window.x - sbus->window.left) + count;
+    const uint32_t y  = sbus->window.y + at / width;
+    sbus->window.x    = (uint16_t)(sbus->window.left + at % width);
+    sbus->window.y    = y > sbus->window.bottom ? sbus->window.top : (uint16_t)y;
+}
+
+/*
+ * The pixels of a window on a bus that holds its chip select over them all,
+ * as a QSPI panel takes them: the window is told once, with its first piece,
+ * the pieces after it go on in the same selection, and the piece that brings
+ * the last pixel of the window lets the chip select go. Every caller sends
+ * through here, so none of them has to say which piece is the last: the
+ * window knows its size. One that leaves its window unfinished has the
+ * selection ended by the next window, whose commands come first.
+ */
+static void dgx_screen_with_bus_write_held(dgx_screen_with_bus_t *sbus, const uint8_t *data, uint32_t pixels, uint32_t pixel_bytes, uint32_t most)
+{
+    dgx_bus_protocols_t *bus   = sbus->bus;
+    const uint32_t       width = (uint32_t)sbus->window.right - sbus->window.left + 1u;
+    while (pixels) {
+        if (!sbus->window.started) {
+            /* a window begins at its first pixel: the one told before it was finished, or never begun */
+            dgx_screen_with_bus_tell_window(sbus, sbus->window.left, sbus->window.right, sbus->window.top, sbus->window.bottom, sbus->window.full);
+            sbus->window.started = true;
+        }
+        const uint32_t rest  = (uint32_t)(sbus->window.bottom - sbus->window.y) * width + (sbus->window.right - sbus->window.x + 1u);
+        uint32_t       count = pixels < rest ? pixels : rest;
+        if (count > most) count = most;
+        bus->write_data_async(bus, data, count * pixel_bytes * 8u);
+        data += (size_t)count * pixel_bytes;
+        pixels -= count;
+        dgx_screen_with_bus_window_advance(sbus, width, count);
+        if (count == rest) {
+            bus->end_pixels(bus);
+            sbus->window.started = false;
+        }
+    }
+}
+
 void dgx_screen_with_bus_write_window(dgx_screen_with_bus_t *sbus, const uint8_t *data, uint32_t lenbits)
 {
     dgx_bus_protocols_t *bus = sbus->bus;
@@ -229,6 +274,10 @@ void dgx_screen_with_bus_write_window(dgx_screen_with_bus_t *sbus, const uint8_t
     /* a transfer of the bus is no longer than its buffer */
     const uint32_t most = bus->buffer_len >= pixel_bytes ? (uint32_t)(bus->buffer_len / pixel_bytes) : UINT32_MAX;
     uint32_t       pixels = lenbits / (8u * pixel_bytes);
+    if (bus->end_pixels && !sbus->window.cut) {
+        dgx_screen_with_bus_write_held(sbus, data, pixels, pixel_bytes, most);
+        return;
+    }
     /* a window the scroll of the panel cuts: across its rows, or across its columns, and then every row of it is cut */
     const bool rows_cut = sbus->window.cut && !sbus->scroll.columns, columns_cut = sbus->window.cut && sbus->scroll.columns;
     while (pixels) {
@@ -257,13 +306,11 @@ void dgx_screen_with_bus_write_window(dgx_screen_with_bus_t *sbus, const uint8_t
         if (count > pixels) count = pixels;
         if (count > most) count = most;
         bus->write_data_async(bus, data, count * pixel_bytes * 8u);
+        /* a bus that holds its chip select: every piece told its own window is a window of its own */
+        if (bus->end_pixels) bus->end_pixels(bus);
         data += (size_t)count * pixel_bytes;
         pixels -= count;
-        /* the next pixel; after the last one of the window comes its first */
-        const uint32_t at = (uint32_t)(sbus->window.x - sbus->window.left) + count;
-        const uint32_t y = sbus->window.y + at / width;
-        sbus->window.x = (uint16_t)(sbus->window.left + at % width);
-        sbus->window.y = y > sbus->window.bottom ? sbus->window.top : (uint16_t)y;
+        dgx_screen_with_bus_window_advance(sbus, width, count);
     }
     sbus->window.started = true;
 }

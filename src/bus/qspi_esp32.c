@@ -11,6 +11,7 @@
 
 #include "bus/dgx_qspi_esp32.h"
 #include "dgx_spi_esp32_priv.h"
+#include "driver/gpio.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 
@@ -20,13 +21,24 @@ static const char TAG[] = "DGX QSPI BUS";
  * A transfer of a QSPI panel is an opcode of 8 bits and an address of 24 on
  * one line, then its data. The command of the panel is the middle byte of the
  * address. With opcode 0x02 the data are the parameters of the command, on one
- * line; with 0x32 they are pixels, on four. Pixels that go on where the ones
- * before ended come with the command that continues writing memory, 0x3C of
- * the MIPI DCS, so a long picture needs no chip select held over its pieces.
+ * line; with 0x32 they are pixels, on four.
+ *
+ * All the pixels of a window go in one selection of the chip, as the maker of
+ * the Guition JC4827W543 sends them (Arduino_ESP32QSPI of its Arduino_GFX):
+ * the first piece with the opcode 0x32 and the command that writes memory,
+ * 0x2C, the pieces after it with no opcode and no address at all, and the
+ * chip select held low between them while the next piece is made. The
+ * NV3041A does not take a piece that goes on with the 0x3C of the MIPI DCS
+ * after the chip select has risen: stripes came at the start of a window. So
+ * the chip select is a GPIO driven here, not the one of the SPI hardware,
+ * which rises after every transfer; the screen tells the bus when the last
+ * pixel of the window has gone (end_pixels), and any command ends the
+ * selection too.
  */
 #define DGX_QSPI_OP_COMMAND 0x02u
 #define DGX_QSPI_OP_PIXELS  0x32u
-#define DGX_QSPI_RAMWRC     0x3Cu
+/* pixels with no window begun before them go on where the panel stands, as the maker's driver sends its pixels */
+#define DGX_QSPI_RAMWRC 0x3Cu
 
 /* transfers the device may hold at once, as on the SPI bus: two of pixels are queued at most */
 #define DGX_QSPI_QUEUE_SIZE 7
@@ -37,6 +49,9 @@ typedef struct _dgx_qspi_bus_t
     spi_host_device_t   host_id;
     bool                owns_host; /* the host was initialized by DGX, shared by its displays on it */
     spi_device_handle_t spi;
+    gpio_num_t          cs;
+    bool                selected; /* the chip select is low: a window has begun and has not ended */
+    bool                acquired; /* the host is held for the selection, as it is shared with devices DGX does not know */
     /*
      * A command goes in one transfer with its data, so it is held back until
      * the data come, or until it is known that there are none: another
@@ -47,7 +62,7 @@ typedef struct _dgx_qspi_bus_t
     bool                complained;  /* parameters with no command have been refused, and the log told of it once */
     uint8_t             data_queued; /* transfers of pixels in trans_data on their way: 0, 1, or 2 inside write_data_async() */
     uint8_t             data_slot;   /* the one of trans_data the next transfer of pixels takes */
-    spi_transaction_t   trans_data[2]; /* pixels, queued in turn: one may be under way when a call returns */
+    spi_transaction_ext_t trans_data[2]; /* pixels, queued in turn: one may be under way when a call returns */
     spi_transaction_t   trans_sync;    /* commands and parameters, waited for */
 } dgx_qspi_bus_t;
 
@@ -63,7 +78,35 @@ static void dgx_qspi_wait_pending(dgx_qspi_bus_t *bus)
     }
 }
 
-/* a command and its parameters on one line; the pixels on their way go first */
+/*
+ * The chip select low for a transfer or a window. On a host shared with
+ * devices DGX does not know the host is held as long as it is low: a transfer
+ * of another device would go into the panel.
+ */
+static void dgx_qspi_select(dgx_qspi_bus_t *bus)
+{
+    if (!bus->owns_host && !bus->acquired) {
+        spi_device_acquire_bus(bus->spi, portMAX_DELAY);
+        bus->acquired = true;
+    }
+    gpio_set_level(bus->cs, 0);
+    bus->selected = true;
+}
+
+/* the chip select high once all that was sent in the selection is out */
+static void dgx_qspi_deselect(dgx_qspi_bus_t *bus)
+{
+    if (!bus->selected) return;
+    dgx_qspi_wait_pending(bus);
+    gpio_set_level(bus->cs, 1);
+    bus->selected = false;
+    if (bus->acquired) {
+        spi_device_release_bus(bus->spi);
+        bus->acquired = false;
+    }
+}
+
+/* a command and its parameters on one line, in a selection of its own; a window begun ends before it */
 static void dgx_qspi_send_command_with(dgx_qspi_bus_t *bus, uint8_t cmd, const uint8_t *data, uint32_t len)
 {
     spi_transaction_t *trans = &bus->trans_sync;
@@ -77,8 +120,11 @@ static void dgx_qspi_send_command_with(dgx_qspi_bus_t *bus, uint8_t cmd, const u
         memcpy(trans->tx_data, data, (len + 7u) / 8u);
     }
     trans->length = len;
+    dgx_qspi_deselect(bus);
     dgx_qspi_wait_pending(bus);
+    dgx_qspi_select(bus);
     esp_err_t ret = spi_device_polling_transmit(bus->spi, trans);
+    dgx_qspi_deselect(bus);
     if (ret != ESP_OK) ESP_LOGE(TAG, "command 0x%02x with %u bits failed: %s", cmd, (unsigned)len, esp_err_to_name(ret));
 }
 
@@ -123,12 +169,18 @@ static void dgx_qspi_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t 
     dgx_qspi_send_command_with(bus, bus->command, data, len);
 }
 
-/* the next of trans_data made a transfer of pixels, with the command held back or the one that goes on writing memory */
+/*
+ * The next of trans_data made a transfer of pixels. With a command held back
+ * (0x2C, which starts the window) a new selection begins and the transfer
+ * carries the opcode and the command; inside a selection begun it is the
+ * pixels alone, going on where the piece before ended.
+ */
 static spi_transaction_t *dgx_qspi_data_trans(dgx_qspi_bus_t *bus, const uint8_t *data, uint32_t len)
 {
-    spi_transaction_t *trans = &bus->trans_data[bus->data_slot];
+    spi_transaction_ext_t *ext   = &bus->trans_data[bus->data_slot];
+    spi_transaction_t     *trans = &ext->base;
     bus->data_slot ^= 1u;
-    memset(trans, 0, sizeof(spi_transaction_t));
+    memset(ext, 0, sizeof(*ext));
     if (len <= 32) {
         trans->flags = SPI_TRANS_MODE_QIO | SPI_TRANS_USE_TXDATA;
         memcpy(trans->tx_data, data, (len + 7u) / 8u);
@@ -136,10 +188,19 @@ static spi_transaction_t *dgx_qspi_data_trans(dgx_qspi_bus_t *bus, const uint8_t
         trans->flags     = SPI_TRANS_MODE_QIO;
         trans->tx_buffer = data;
     }
-    trans->cmd           = DGX_QSPI_OP_PIXELS;
-    trans->addr          = (uint32_t)(bus->command_pending ? bus->command : DGX_QSPI_RAMWRC) << 8;
-    bus->command_pending = false;
-    trans->length        = len;
+    if (bus->command_pending || !bus->selected) {
+        dgx_qspi_deselect(bus);
+        dgx_qspi_select(bus);
+        trans->cmd           = DGX_QSPI_OP_PIXELS;
+        trans->addr          = (uint32_t)(bus->command_pending ? bus->command : DGX_QSPI_RAMWRC) << 8;
+        bus->command_pending = false;
+    } else {
+        trans->flags |= SPI_TRANS_VARIABLE_CMD | SPI_TRANS_VARIABLE_ADDR | SPI_TRANS_VARIABLE_DUMMY;
+        ext->command_bits = 0;
+        ext->address_bits = 0;
+        ext->dummy_bits   = 0;
+    }
+    trans->length = len;
     return trans;
 }
 
@@ -174,11 +235,18 @@ static void dgx_qspi_send_data_async(struct _dgx_bus_protocols_t *_bus, const ui
     }
 }
 
+/* the pixels on their way are out; a window begun stays selected, for more of its pixels */
 static void dgx_qspi_sync_write(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_qspi_bus_t *bus = (dgx_qspi_bus_t *)_bus;
     dgx_qspi_flush_command(bus);
     dgx_qspi_wait_pending(bus);
+}
+
+/* the window has all its pixels: the selection ends once they are out */
+static void dgx_qspi_end_pixels(struct _dgx_bus_protocols_t *_bus)
+{
+    dgx_qspi_deselect((dgx_qspi_bus_t *)_bus);
 }
 
 /* the display is not read through this bus: nothing is read, and the buffer is left as it was */
@@ -192,6 +260,7 @@ static void dgx_qspi_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_qspi_bus_t *bus = (dgx_qspi_bus_t *)_bus;
     dgx_qspi_sync_write(_bus); // the device cannot be removed with transactions in flight
+    dgx_qspi_deselect(bus);
     spi_bus_remove_device(bus->spi);
     if (bus->owns_host) dgx_spi_host_leave(bus->host_id);
     free(bus->protocols.buffer);
@@ -218,17 +287,28 @@ static dgx_bus_protocols_t *dgx_qspi_attach(spi_host_device_t host_id, bool owns
     bus->protocols.write_data       = dgx_qspi_send_data;
     bus->protocols.write_data_async = dgx_qspi_send_data_async;
     bus->protocols.sync_write       = dgx_qspi_sync_write;
+    bus->protocols.end_pixels       = dgx_qspi_end_pixels;
     bus->protocols.dispose          = dgx_qspi_dispose_bus_func;
     bus->protocols.memory_allocator = dgx_qspi_memory_allocator;
     bus->owns_host = owns_host;
     bus->host_id   = host_id;
+    bus->cs        = cs;
+    /* the chip select is driven here: high, the panel not selected, from the start */
+    gpio_set_level(cs, 1);
+    const gpio_config_t cs_config = {.pin_bit_mask = 1ULL << cs, .mode = GPIO_MODE_OUTPUT};
+    if (gpio_config(&cs_config) != ESP_OK) {
+        ESP_LOGE(TAG, "dgx_qspi_init: GPIO %d cannot be the chip select", (int)cs);
+        heap_caps_free(bus);
+        return NULL;
+    }
+    gpio_set_level(cs, 1);
     spi_device_interface_config_t devcfg;
     memset(&devcfg, 0, sizeof(devcfg));
     devcfg.command_bits   = 8;
     devcfg.address_bits   = 24;
     devcfg.mode           = cpolpha_mode;
     devcfg.clock_speed_hz = clock_speed_hz;
-    devcfg.spics_io_num   = cs;
+    devcfg.spics_io_num   = -1; /* driven by dgx_qspi_select() over a whole window */
     devcfg.flags          = SPI_DEVICE_HALFDUPLEX;
     devcfg.queue_size     = DGX_QSPI_QUEUE_SIZE;
     esp_err_t rc          = spi_bus_add_device(host_id, &devcfg, &bus->spi);
@@ -245,6 +325,11 @@ static dgx_bus_protocols_t *dgx_qspi_attach(spi_host_device_t host_id, bool owns
         spi_bus_remove_device(bus->spi);
         heap_caps_free(bus);
         return NULL;
+    }
+    {
+        int khz = 0;
+        if (spi_device_get_actual_freq(bus->spi, &khz) == ESP_OK && khz > 0)
+            ESP_LOGI(TAG, "QSPI clock %d kHz (asked %d)", khz, clock_speed_hz / 1000);
     }
     return (dgx_bus_protocols_t *)bus;
 }

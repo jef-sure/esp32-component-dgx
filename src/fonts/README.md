@@ -8,11 +8,19 @@ one was made from and under what license; `font2c/dgx_fonts.py` reads it to
 write `fonts-used.txt` of a program and to match `deny` lines of the rules
 against these fonts by family. A font added here gets its row.
 
+A `<name>.patch.json` here holds glyphs fixed by hand in the
+[font editor](../../font-editor/README.md) for the font of that name: one
+face at one size. A font of DGX made again is made with its patch (`font2c
+-p`), and a font a program makes at build time from the same face at the same
+size takes the patch too: see "Glyphs fixed by hand" in
+[docs/fonts-en.md](../../docs/fonts-en.md).
+
 | Font | Family | Made from | License |
 |------|--------|-----------|---------|
 | `CasusDotView` | Casus | dots drawn for DGX by Anton Petrusevich | MIT, as DGX |
+| `CozetteRegular13` | Cozette | cozette.bdf 1.30.0 of Ines (github.com/the-moonwitch/Cozette), a bitmap font drawn at 13 px, used at its own size: ASCII, Latin-1, Cyrillic U+0400 to U+045F, dashes, quotes, the ellipsis, € and №; the Nerd Font icons left out | MIT License, (c) 2020-2025 Ines |
 | `DejaVuSansBook32` | DejaVu Sans | DejaVuSans.ttf 2.37 at 32 px, characters U+0020 to U+007E | Bitstream Vera license; the DejaVu changes are in the public domain |
-| `DroidSansRegular9` | Droid Sans | Droid Sans of Google at 9 px | Apache License 2.0 |
+| `DroidSansRegular9` | Droid Sans | DroidSans.ttf 1.00 of Google at 9 px, with the glyphs of `DroidSansRegular9.patch.json` | Apache License 2.0 |
 | `IBMCGALight8x16Light8x1616` | IBM CGA | unknown: a font file named IBM CGA Light 8x16, its source not kept | unknown |
 | `IBMPlexMonoMedium28` | IBM Plex Mono | IBMPlexMono-Medium.ttf 2.3 of IBM at 28 px | SIL Open Font License 1.1 |
 | `LiberationSansRegular12` | Liberation Sans | LiberationSans-Regular.ttf 2.1.5 at 12 px, the characters Arial 12 had here before, Arabic aside | SIL Open Font License 1.1 |

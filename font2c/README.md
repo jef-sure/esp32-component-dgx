@@ -6,7 +6,13 @@ the fonts it needs in its CMakeLists, and `dgx_fonts.py` in this directory
 runs `font2c` for all of them at build time; see
 [docs/fonts-en.md](../docs/fonts-en.md). `font2c` handles two kinds of fonts:
 
-- TTF/BDF-style fonts, rendered to bitmaps at a given pixel size;
+- TTF/BDF-style fonts, rendered to bitmaps at a given pixel size. A size
+  of 16 px and less is rendered bilevel: at that size the dropout control
+  of the bilevel rasterizer keeps every stem, which matters more than
+  smoothness. A larger size is rendered anti-aliased with hinting, cut to
+  ink at 43% coverage and cropped to the ink: there the bilevel rasterizer
+  fused the stems of small letters into blobs and doubled crossbars, while
+  the hinted grayscale render keeps the stems FreeType snaps them to;
 - handwritten fonts made of Bezier curves, saved as `.json` by the
   [hw-fonts](https://github.com/jef-sure/hw-fonts) editor.
 
@@ -26,7 +32,7 @@ Unicode ranges, a UTF-8 text file with the characters (`-f`), or both.
 ```sh
 ./font2c path/to/YourFont.ttf 16 0x20 0x7e 0x410 0x44f
 ./font2c -f charset.txt path/to/YourFont.ttf 16
-./font2c [-n name] [-f charset_file] <font file> <size> [<first> <last>]*
+./font2c [-n name] [-f charset_file] [-p patch] [-P dir] <font file> <size> [<first> <last>]*
 ```
 
 It writes a `.c` and a matching `.h` named after the font family, style and
@@ -40,6 +46,20 @@ made this way can share one C file. To use the generated font:
    the build system has to notice the new file.
 3. Include the generated header and pass its accessor to the text API, like
    a bundled font.
+
+### Glyphs fixed by hand
+
+The [font editor](../font-editor/README.md) saves the glyphs you fixed as a
+patch, `<name>.patch.json`, where `<name>` is the name `font2c` gives the
+font from its family, style and size (`DroidSansRegular9`). `-p patch` takes
+a patch; `-P dir`, which may be repeated, looks for `<name>.patch.json` in
+the directory, and the first one found is used. Every glyph of the patch
+replaces the rendered glyph whole, with its own width, height, advance and
+offsets; the measures of the whole font are taken after. A patch that says
+it is for another font or size is refused, a glyph whose rows differ in
+length stops the run with the code point named, and a glyph of the patch the
+face does not have is reported. The `.c` carries a comment saying which font
+it is, so the editor can record that in the patch it saves.
 
 ### Several fonts in one file
 
@@ -67,8 +87,10 @@ size produce one font with the characters of both, and each `-n` name of
 theirs becomes a function of it; a line without `-n` gets a name from the
 family, style and size, prefixed with the output name
 (`my_fonts_DejaVuSansBook30`). The static arrays are named after the font,
-so nothing collides. `-x`, `-i`, `-n`, `-f`, `-g` and `-t` belong to the
-lines of a list, not to the command line of a `-jo` run.
+so nothing collides. `-x`, `-i`, `-n`, `-f`, `-g`, `-t` and `-p` belong to
+the lines of a list, not to the command line of a `-jo` run. `-P` may go on
+both: on the command line it applies to every font of the lists, after the
+`-P` of the font's own lines.
 
 [FontCreator](https://github.com/Llerr/FontCreator) is an alternative with a
 GUI: it generates embedded C font data and lets you edit glyphs. Use its

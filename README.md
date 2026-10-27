@@ -72,14 +72,14 @@ DGX is an ESP-IDF component, published in the
 as `jef-sure/dgx`. Add it to a project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.8.0"
+idf.py add-dependency "jef-sure/dgx^0.9.0"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.8.0"
+  jef-sure/dgx: "^0.9.0"
 ```
 
 Then enable the drivers you need in `menuconfig`, under the **DGX** menu. A
@@ -108,7 +108,7 @@ dgx_bus_protocols_t *bus =
                GPIO_NUM_27, 40 * 1000 * 1000, 0);
 
 // 2. create a screen on top of that bus
-dgx_screen_t *scr = dgx_st7789_init(bus, GPIO_NUM_33, 16, DgxScreenRGB);
+dgx_screen_t *scr = dgx_st7789_init(bus, GPIO_NUM_33, 16, DgxScreenRGB, ST7789_RESOLUTION_240x320);
 
 // 3. draw something
 dgx_fill_rectangle(scr, 0, 0, scr->width, scr->height,
@@ -223,6 +223,13 @@ dgx_font_string_utf8_screen(scr, 10, 30, "Привет", color, DgxOutputNormal,
 ```
 
 Details: [font2c/README.md](font2c/README.md).
+
+A glyph that comes out wrong on the panel is fixed by hand in the font
+editor, [font-editor/index.html](font-editor/README.md): open the `.c`,
+redraw the glyph and save the patch, `YourFontRegular16.patch.json`. Then
+make the font again with it, `./font2c/font2c -p YourFontRegular16.patch.json
+path/to/YourFont.ttf 16 ...`; a font made at build time finds its patch by
+itself, see "Glyphs fixed by hand" in [docs/fonts-en.md](docs/fonts-en.md).
 
 ### Fonts made at build time
 
@@ -731,10 +738,21 @@ each batch with a mutex of your own. Both ways, with measurements, are in
 
 ### An Arduino sketch
 
-DGX is an ESP-IDF component, so a sketch uses it from an ESP-IDF project
-that has Arduino as a component too; the Arduino IDE cannot build it, since
-DGX needs the ESP-IDF build with its Kconfig and CMake. Add both to
-`main/idf_component.yml`:
+DGX is an ESP-IDF component, and the Arduino-ESP32 core is itself a layer
+on top of ESP-IDF, so a sketch can call both APIs in one file. The sketch
+stays an ordinary one — `setup()`, `loop()`, `millis()`, `delay()`,
+`Serial` — while the project around it is an ESP-IDF project with Arduino
+as a component, and DGX keeps its `menuconfig` configuration. What cannot
+build it is the Arduino IDE, and PlatformIO with `framework = arduino`
+alone: those use a precompiled ESP-IDF with a fixed configuration and never
+run the CMake and Kconfig DGX brings. Two tools do:
+
+- the **ESP-IDF tools**: `idf.py` on the command line, or the ESP-IDF
+  extension of VS Code — the steps below;
+- **PlatformIO** with `framework = espidf, arduino`: the same CMake build
+  behind a `platformio.ini` — see the end of this section.
+
+With the ESP-IDF tools, add both libraries to `main/idf_component.yml`:
 
 ```yaml
 dependencies:
@@ -808,6 +826,23 @@ Two Arduino libraries meet DGX on the hardware:
 Everything else in this README, fonts made at build time included, works in
 a sketch unchanged.
 
+PlatformIO builds the same project for those who already use it:
+`framework = espidf, arduino` in `platformio.ini` runs the same CMake
+build, `sdkconfig.defaults` keeps working, and `pio run -t menuconfig`
+opens the same configuration. Take the layout of the platform's
+`espidf-arduino-blink` example, with the sketch under `src/`, and:
+
+```ini
+[env:cyd]
+platform = espressif32
+framework = espidf, arduino
+board = esp32dev
+```
+
+Arduino comes from the platform package in PlatformIO, so it is not a
+dependency there; `jef-sure/dgx`, named in an `idf_component.yml` next to
+the sketch, is the only one to add.
+
 Example: [examples/arduino_demo](examples/arduino_demo).
 
 ## Examples
@@ -852,7 +887,7 @@ wire.
 | Controller | Type | Buses | Constructor | Kconfig option |
 | --- | --- | --- | --- | --- |
 | ST7735 | color TFT | SPI, P8 | `dgx_st7735_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ST7735` |
-| ST7789 | color TFT | SPI, P8 | `dgx_st7789_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ST7789` |
+| ST7789 | color TFT | SPI, P8 | `dgx_st7789_init(bus, rst, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_SPI_ST7789` |
 | ILI9341 | color TFT | SPI, P8 | `dgx_ili9341_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ILI_9341` |
 | NV3041A | color TFT, 480x272 | QSPI | `dgx_nv3041a_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_NV3041A` |
 | GC9A01 | round color TFT | SPI, P8 | `dgx_gc9a01_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_GC9A01` |
@@ -882,6 +917,10 @@ Common parameters:
   modules show red as red with the BGR bit of the controller set, so there
   `DgxScreenRGB` sets that bit, the other way round from the other drivers.
   If red and blue are exchanged on your module, pass the other value.
+- `resolution` (ST7789) — the panel: `ST7789_RESOLUTION_240x240`,
+  `ST7789_RESOLUTION_240x320`, or `ST7789_RESOLUTION_320x240` for a 240x320
+  panel in landscape. On a 240x320 panel, swapping the axes in
+  `dgx_st7789_orientation()` makes the screen 320x240.
 
 Color panels and ST7920 also expose an orientation setter
 (`dgx_<driver>_orientation(scr, dir_x, dir_y, swap_xy)`). A color controller
@@ -926,13 +965,19 @@ for the panel (`GPIO_NUM_NC`) and its backlight on GPIO1:
 
 ```c
 dgx_bus_protocols_t *bus = dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_21, GPIO_NUM_48, GPIO_NUM_40,
-                                         GPIO_NUM_39, GPIO_NUM_47 /* sclk */, GPIO_NUM_45 /* cs */, 40 * 1000 * 1000, 0);
+                                         GPIO_NUM_39, GPIO_NUM_47 /* sclk */, GPIO_NUM_45 /* cs */, 32 * 1000 * 1000, 0);
 dgx_screen_t *scr = dgx_nv3041a_init(bus, GPIO_NUM_NC, GPIO_NUM_1, 16, DgxScreenRGB);
 ```
 
 The SPI clock is 80 MHz divided by a whole number, and a clock that does not
-divide evenly is rounded down: 32 MHz runs at 26.7 MHz. On that board 40 MHz
-gives a clean picture and 80 MHz a garbled one.
+divide evenly is rounded down: 32 MHz runs at 26.7 MHz. On that board 80 MHz
+garbles the picture.
+
+The panel of that board now and then writes a pair of pixels just outside a
+window it is sent. On a picture updated in small windows they stay behind as
+dots; a picture sent whole from a virtual screen, frame after frame, does not
+keep them. What was measured, and how to turn on the panel's TE line:
+[docs/nv3041a-en.md](docs/nv3041a-en.md) ([Russian](docs/nv3041a-ru.md)).
 
 For SSD1306, pick a geometry from `ssd1306_resolution_t`: `SSD1306_128X32`,
 `SSD1306_128X64`, `SSD1306_96X16`, `SSD1306_64X48` or `SSD1306_72X40`.
@@ -988,7 +1033,8 @@ of the u8g2 driver written for the controller after its datasheet.
   stroke at the pace of a pen.
 - `font2c`, an offline tool that turns TTF/BDF-style fonts and handwritten
   fonts of the hw-fonts editor into C source/header pairs, and a set of
-  pre-converted fonts in `src/fonts/`.
+  pre-converted fonts in `src/fonts/`; a font editor that fixes glyphs of
+  those fonts by hand and keeps the fixes as patches `font2c` applies.
 - Fonts made at build time from needs declared in CMake by a program and
   its components: a face picked by rules or named exactly, a size in
   points, millimeters or pixels, only the characters the texts use, one
@@ -1771,6 +1817,7 @@ src/                     implementations, by topic
   drivers/               panel drivers
   fonts/                 generated font sources (glob-built)
 font2c/                  offline TTF/BDF -> C font generator, and dgx_fonts.py, which makes a program's fonts from its needs
+font-editor/             the editor of the glyphs of a font2c font, in the browser; its fixes are patches for font2c
 project_include.cmake    dgx_font_need() and the other font functions for a program's CMakeLists
 examples/                one project per example, see "Examples"
 host/                    dgx_host.mk and ESP-IDF stubs: the platform-independent part built on a PC

@@ -170,12 +170,19 @@ void loadCharsetFile(const char *path)
 static void show_usage(const char *programName)
 {
     fprintf(stderr,
-            "Usage: %s [-n name] [-f charset_file] fontfile size [first last] .. [firstN lastN]\n"
+            "Usage: %s [-n name] [-f charset_file] [-p patch_file] [-P dir] fontfile size [first last] .. [firstN lastN]\n"
             "       %s [-n name] [-f charset_file] [-g cells] [-t cells] [-x | -i] fontfile.json [first last] .. [firstN lastN]\n"
             "  -n name: the name of the font: its function, its files name.c and name.h, and its\n"
             "           static arrays named name_bitmaps and so on, so that several fonts made\n"
             "           this way go into one C file; without it the family, the style and the size\n"
             "  -f charset_file: UTF-8 text file with characters to include\n"
+            "  -p patch_file: the fixes of the font editor, a .patch.json; the glyphs it has stand\n"
+            "                 for what is rendered, whole, so a font made again keeps them\n"
+            "  -P dir: look for the patch of the font in dir, by its name: <name>.patch.json, the\n"
+            "          name being the family, the style and the size, as without -n; the first\n"
+            "          dir that has it wins, -p wins over all; may be given more than once\n"
+            "  (on a line of a -jo list -p and -P patch that font; -P on the command line\n"
+            "   goes for every font of the lists, after the -P of its lines)\n"
             "  fontfile.json: a handwritten font saved by the hw-fonts editor\n"
             "  -g cells: list every pair of its symbols that stand closer than this\n"
             "            and the spaces that move them apart, 0 for no check; without\n"
@@ -186,6 +193,9 @@ static void show_usage(const char *programName)
             "  -i: the same, asking about each space\n",
             programName, programName);
 }
+
+/* the coverage a pixel must have to count as ink, of 255 */
+#define INK_THRESHOLD 110
 
 cp_ranges_t *SortedCharMap = 0;
 
@@ -255,18 +265,6 @@ void decodeBMXRLE(uint8_t *bitmap, uint16_t width, uint16_t height, uint8_t *enc
     for (size_t xi = width; xi < sq; xi++)
         bitmap[xi] = bitmap[xi] ^ bitmap[xi - width];
 }
-
-void encodeBM(uint8_t *bitmap, uint16_t pitch, uint16_t width, uint16_t height, uint8_t **ret, size_t *ret_len)
-{
-    width        = (width + 7) / 8;
-    size_t   sq  = (size_t)width * height;
-    uint8_t *xbm = (uint8_t *)malloc(sq);
-    for (size_t xi = 0; xi < height; ++xi) {
-        memcpy(xbm + xi * width, bitmap + pitch * xi, width);
-    }
-    *ret_len = sq;
-    *ret     = xbm;
-} // no decode required
 
 /* ------------------------------------------------------------------------- */
 /*  handwritten fonts: the JSON file of the hw-fonts editor                   */
@@ -1357,21 +1355,183 @@ static void bitmap_generated_name(FT_Face face, int size, char out[256])
     }
 }
 
+/* ------------------------------------------------------------------------------------------------------------- */
+/*  A patch of a font: the glyphs the editor fixed, taken over the rendered ones                                  */
+/* ------------------------------------------------------------------------------------------------------------- */
+
+/*
+ * A patch file is what the font editor saves: the glyphs it changed, each with its rows of '#' and '.' and its
+ * metrics. A glyph of the patch stands for the rendered one whole, its size taken from its rows, so a font made
+ * again keeps the fixes: the editor does not write the .c, the patch is the source of the changes. Version 2 says
+ * which font it fixes, "font" (the name font2c gives it: family, style and size) and "size" in pixels, and a patch
+ * of another font is refused; version 1 says nothing of it and is taken as it is.
+ */
+static json_t *PatchFont = 0;
+static int     PatchUsed = 0; /* the glyphs of the patch taken into the font */
+static char  **PatchDirs;     /* -P of the command line: where the patch of a font is looked for, after the -P of its line */
+static int     nPatchDirs;
+
+/* a glyph as it goes into the font: its ink, a byte a pixel (0 or 1), and its metrics in whole pixels */
+typedef struct {
+    int      width, height;
+    int      xOffset, yOffset, xAdvance;
+    uint8_t *ink;
+} ink_glyph_t;
+
+static int patch_load(const char *path, const char *generated, int size)
+{
+    json_t *patch = json_load(path);
+    if (!patch) return fprintf(stderr, "%s: cannot read the patch file\n", path), 1;
+    json_t *format  = json_get(patch, "format");
+    json_t *version = json_get(patch, "formatVersion");
+    json_t *glyphs  = json_get(patch, "glyphs");
+    if (!format || format->type != 's' || strcmp(format->str, "dgx-font-patch") || !version || version->type != 'n' ||
+        ((int)version->num != 1 && (int)version->num != 2) || !glyphs || glyphs->type != 'o') {
+        return fprintf(stderr, "%s: not a patch of this program (\"format\": \"dgx-font-patch\", \"formatVersion\": 1 or 2, \"glyphs\": {...})\n", path), 1;
+    }
+    json_t *font = json_get(patch, "font"), *px = json_get(patch, "size");
+    if ((font && font->type == 's' && strcmp(font->str, generated)) || (px && px->type == 'n' && (int)px->num != size)) {
+        return fprintf(stderr, "%s: the patch is for the font %s at %d px, not for %s at %d px\n", path, font && font->type == 's' ? font->str : generated,
+                       px && px->type == 'n' ? (int)px->num : size, generated, size), 1;
+    }
+    for (json_t *g = glyphs->child; g; g = g->next) {
+        char *rest = 0;
+        long  cp   = strtol(g->key, &rest, 16);
+        if (!g->key[0] || *rest || cp < 0 || cp > 0x10FFFF) return fprintf(stderr, "%s: \"%s\" is not a code point in hex\n", path, g->key), 1;
+    }
+    PatchFont = patch;
+    PatchUsed = 0;
+    return 0;
+}
+
+/* the glyph of code point `cp` in the patch, or null */
+static json_t *patch_glyph(uint32_t cp)
+{
+    if (!PatchFont) return 0;
+    for (json_t *g = json_get(PatchFont, "glyphs")->child; g; g = g->next) {
+        if (g->type == 'o' && strtol(g->key, 0, 16) == (long)cp) return g;
+    }
+    return 0;
+}
+
+/*
+ * The glyph of the patch stands for the rendered one whole: its rows of '#' and '.' (anything else is a pixel off)
+ * are its pixels, as many rows as it has and as wide as they are, and the metrics it has replace what FreeType
+ * measured. Rows of different lengths are a mistake of the patch, told and refused. The measures of the whole font
+ * (yOffsetLowest and the rest) are taken after, over the patched glyphs.
+ */
+static int patch_apply(ink_glyph_t *g, uint32_t cp, const char *where)
+{
+    json_t *p = patch_glyph(cp);
+    if (!p) return 0;
+    json_t *rows = json_get(p, "rows");
+    if (rows) {
+        if (rows->type != 'a') return fprintf(stderr, "%s: the rows of the patch of U+%04X are not a list\n", where, cp), 1;
+        int height = 0, width = 0;
+        for (json_t *r = rows->child; r; r = r->next, ++height) {
+            if (r->type != 's') return fprintf(stderr, "%s: a row of the patch of U+%04X is not a string\n", where, cp), 1;
+            int len = (int)strlen(r->str);
+            if (height && len != width) return fprintf(stderr, "%s: the rows of the patch of U+%04X are not all as long\n", where, cp), 1;
+            width = len;
+        }
+        if (!width) height = 0;
+        free(g->ink);
+        g->ink    = calloc((size_t)width * height + 1, 1);
+        g->width  = width;
+        g->height = height;
+        int y     = 0;
+        for (json_t *r = rows->child; r && width; r = r->next, ++y)
+            for (int x = 0; x < width; ++x) g->ink[y * width + x] = r->str[x] == '#';
+    }
+    json_t *v;
+    if ((v = json_get(p, "xAdvance")) && v->type == 'n') g->xAdvance = (int)v->num;
+    if ((v = json_get(p, "xOffset")) && v->type == 'n') g->xOffset = (int)v->num;
+    if ((v = json_get(p, "yOffset")) && v->type == 'n') g->yOffset = (int)v->num;
+    ++PatchUsed;
+    return 0;
+}
+
+/* the glyphs of the patch that did not go into the font: not in the face, which is told always, or not asked for */
+static void patch_unused(FT_Face face, const char *where, int quiet)
+{
+    if (!PatchFont) return;
+    for (json_t *g = json_get(PatchFont, "glyphs")->child; g; g = g->next) {
+        long cp = strtol(g->key, 0, 16);
+        if (!FT_Get_Char_Index(face, (FT_ULong)cp)) fprintf(stderr, "%s: U+%04lX of the patch is not in the face, the patch may be for another font\n", where, cp);
+        else if (!quiet && CPRanges && !isInRange((int)cp)) fprintf(stderr, "%s: U+%04lX of the patch is not among the characters asked for\n", where, cp);
+    }
+}
+
+/* the patch of a font found by its name, <generated>.patch.json, in the first of `dirs` that has it; null if none */
+static char *patch_find(const char *generated, char *const *dirs, int nDirs)
+{
+    for (int i = 0; i < nDirs; ++i) {
+        char *path = malloc(strlen(dirs[i]) + strlen(generated) + 20);
+        sprintf(path, "%s/%s.patch.json", dirs[i], generated);
+        FILE *f = fopen(path, "r");
+        if (f) {
+            fclose(f);
+            return path;
+        }
+        free(path);
+    }
+    return 0;
+}
+
+/*
+ * The glyph rendered in the slot as ink: bilevel at a small size, anti-aliased with hinting and cut to ink at
+ * INK_THRESHOLD at a larger one. The bilevel rasterizer drops no pixel of a stem (its dropout control), which at
+ * 16 px and less keeps the letters readable, while above that it fused the stems of small letters into blobs (the
+ * arches of an 'm') and doubled crossbars; the hinted grayscale render keeps the stems FreeType snaps them to. The
+ * grayscale bitmap has the box of the outline, which the cut leaves wider than its ink: it is cropped to the ink.
+ */
+static void ink_of_slot(FT_GlyphSlot slot, int bilevel, ink_glyph_t *g)
+{
+    const FT_Bitmap *b = &slot->bitmap;
+    g->width           = (int)b->width;
+    g->height          = (int)b->rows;
+    g->xOffset         = slot->bitmap_left;
+    g->yOffset         = 1 - slot->bitmap_top;
+    g->xAdvance        = (int)(slot->advance.x >> 6);
+    g->ink             = calloc((size_t)g->width * g->height + 1, 1);
+    for (int m = 0; m < g->height; ++m) {
+        const uint8_t *row = b->pitch >= 0 ? b->buffer + (size_t)m * b->pitch : b->buffer + (size_t)(g->height - 1 - m) * -b->pitch;
+        for (int n = 0; n < g->width; ++n)
+            g->ink[m * g->width + n] = bilevel ? (row[n >> 3] >> (7 - (n & 7))) & 1 : row[n] >= INK_THRESHOLD;
+    }
+    if (bilevel) return;
+    int left = g->width, right = -1, top = g->height, bottom = -1;
+    for (int m = 0; m < g->height; ++m)
+        for (int n = 0; n < g->width; ++n)
+            if (g->ink[m * g->width + n]) {
+                if (n < left) left = n;
+                if (n > right) right = n;
+                if (m < top) top = m;
+                if (m > bottom) bottom = m;
+            }
+    if (right < 0) {
+        g->width = g->height = 0;
+        return;
+    }
+    const int width = right - left + 1, height = bottom - top + 1;
+    for (int m = 0; m < height; ++m) memmove(g->ink + m * width, g->ink + (m + top) * g->width + left, width);
+    g->width = width, g->height = height;
+    g->xOffset += left, g->yOffset += top;
+}
+
 /*
  * The glyphs of `fontFile` at `size` pixels that CPRanges allow (all of them when there are none), written into
  * `out` with the function `funcname` and its static arrays named with `prefix` before them. Returns the number of
  * glyphs, or a negative number when nothing was written.
  */
 static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *fontFile, int size, const char *funcname, const char *prefix,
-                             const char *const *aliases, int nAliases, int includeLine, int quiet)
+                             const char *const *aliases, int nAliases, int includeLine, int quiet, const char *patchPath, char *const *patchDirs,
+                             int nPatchDirs)
 {
-    int                i, j, err;
-    int                bitmapOffset = 0;
-    FT_Face            face;
-    FT_Glyph           glyph;
-    FT_Bitmap         *bitmap;
-    FT_BitmapGlyphRec *g;
-    LoadedGlyph       *glyphs;
+    int          i, j, err;
+    int          bitmapOffset = 0;
+    FT_Face      face;
+    LoadedGlyph *glyphs;
 
     if ((err = FT_New_Face(library, fontFile, 0, &face))) {
         fprintf(stderr, "Font load error: %d", err);
@@ -1389,10 +1549,23 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
      */
     FT_Set_Pixel_Sizes(face, size, 0);
 
+    /* the patch of the font: the one named, or the first <generated>.patch.json of the directories */
+    char generated[256];
+    bitmap_generated_name(face, size, generated);
+    PatchFont   = 0;
+    char *found = patchPath ? 0 : patch_find(generated, patchDirs, nPatchDirs);
+    if (patchPath || found) {
+        if (patch_load(patchPath ? patchPath : found, generated, size)) return -1;
+    }
+    const int bilevel = size <= 16;
+
     FT_UInt gindex;
 
     cpr_free(&SortedCharMap);
     if (includeLine) fprintf(fontOut, "#include \"dgx_font.h\"\n");
+    /* what the font is, for the font editor: the patch it saves is for this font */
+    fprintf(fontOut, "/* font2c: %s, \"%s\" \"%s\" at %d px */\n", generated, face->family_name ? face->family_name : "",
+            face->style_name ? face->style_name : "", size);
     fprintf(fontOut, "static const uint8_t %sbitmaps[] = {\n  ", prefix);
     int     fComma        = 0;
     int32_t yOffsetLowest = 0, yBottomMax = 0, xWidest = 0, xOffsetLowest = 0, xRightMax = 0;
@@ -1400,25 +1573,18 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
     // Process glyphs and output huge bitmap data array
     for (i = FT_Get_First_Char(face, &gindex), j = 0; gindex != 0; i = FT_Get_Next_Char(face, i, &gindex)) {
         if (CPRanges && !isInRange(i)) continue;
-        // MONO renderer provides clean image with perfect crop
-        // (no wasted pixels) via bitmap struct.
-        if ((err = FT_Load_Char(face, i, FT_LOAD_TARGET_MONO))) {
+        if ((err = FT_Load_Char(face, i, bilevel ? FT_LOAD_TARGET_MONO : FT_LOAD_DEFAULT))) {
             fprintf(stderr, "Error %d loading char '%c'\n", err, i);
             continue;
         }
-
-        if ((err = FT_Render_Glyph(face->glyph, FT_RENDER_MODE_MONO))) {
+        if ((err = FT_Render_Glyph(face->glyph, bilevel ? FT_RENDER_MODE_MONO : FT_RENDER_MODE_NORMAL))) {
             fprintf(stderr, "Error %d rendering char '%c'\n", err, i);
             continue;
         }
-
-        if ((err = FT_Get_Glyph(face->glyph, &glyph))) {
-            fprintf(stderr, "Error %d getting glyph '%c'\n", err, i);
-            continue;
-        }
-
-        bitmap = &face->glyph->bitmap;
-        g      = (FT_BitmapGlyphRec *)glyph;
+        ink_glyph_t ink;
+        ink_of_slot(face->glyph, bilevel, &ink);
+        /* the editor's patch of this glyph, over what was rendered */
+        if (patch_apply(&ink, i, funcname)) return -1;
         if (j >= face->num_glyphs) {
             glyphs = realloc(glyphs, (j + 1) * sizeof(LoadedGlyph));
             if (!glyphs) {
@@ -1428,11 +1594,11 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
         }
         glyphs[j].codePoint          = i;
         glyphs[j].ginfo.bitmapOffset = bitmapOffset;
-        glyphs[j].ginfo.width        = bitmap->width;
-        glyphs[j].ginfo.height       = bitmap->rows;
-        glyphs[j].ginfo.xAdvance     = face->glyph->advance.x >> 6;
-        glyphs[j].ginfo.xOffset      = g->left;
-        glyphs[j].ginfo.yOffset      = 1 - g->top;
+        glyphs[j].ginfo.width        = ink.width;
+        glyphs[j].ginfo.height       = ink.height;
+        glyphs[j].ginfo.xAdvance     = ink.xAdvance;
+        glyphs[j].ginfo.xOffset      = ink.xOffset;
+        glyphs[j].ginfo.yOffset      = ink.yOffset;
         if (j == 0) {
             yOffsetLowest = glyphs[j].ginfo.yOffset;
             yBottomMax    = glyphs[j].ginfo.yOffset + glyphs[j].ginfo.height;
@@ -1456,18 +1622,20 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
         } else {
             fprintf(fontOut, "/* %04X */", i);
         }
-        uint8_t *ret;
-        size_t   ret_len;
-        encodeBM(bitmap->buffer, bitmap->pitch, bitmap->width, bitmap->rows, &ret, &ret_len);
-        for (int m = 0; m < bitmap->rows; ++m) {
+        /* the ink packed into rows of whole bytes, the leftmost pixel in the high bit */
+        const size_t bpl     = ((size_t)ink.width + 7) >> 3;
+        size_t       ret_len = bpl * ink.height;
+        uint8_t     *ret     = calloc(ret_len + 1, 1);
+        for (int m = 0; m < ink.height; ++m)
+            for (int n = 0; n < ink.width; ++n)
+                if (ink.ink[m * ink.width + n]) ret[m * bpl + (n >> 3)] |= 0x80u >> (n & 7);
+        for (int m = 0; m < ink.height; ++m) {
             fprintf(fontOut, "\n/* ");
-            for (int n = 0; n < bitmap->width; ++n) {
-                uint8_t b = bitmap->buffer[bitmap->pitch * m + n / 8];
-                fprintf(fontOut, "%c", (b & (0x80 >> (n & 7))) ? '#' : ' ');
-            }
+            for (int n = 0; n < ink.width; ++n) fprintf(fontOut, "%c", ink.ink[m * ink.width + n] ? '#' : ' ');
             fprintf(fontOut, " */");
         }
-        for (int m = 0; m < ret_len; ++m) {
+        free(ink.ink);
+        for (size_t m = 0; m < ret_len; ++m) {
             if (fComma != 0) {
                 fprintf(fontOut, ", ");
             }
@@ -1478,9 +1646,14 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
         bitmapOffset += ret_len;
         free(ret);
         fprintf(fontOut, "\n");
-        FT_Done_Glyph(glyph);
         ++j;
     }
+    if (PatchFont) {
+        patch_unused(face, funcname, quiet);
+        /* a line font2c's callers do not count as glyphs: it does not end in the word */
+        printf("%s: patched by %s (%d of its glyphs)\n", funcname, patchPath ? patchPath : found, PatchUsed);
+    }
+    free(found);
     if (!j) {
         /* a .c with no glyph would not compile; the old file, if any, stays */
         fprintf(stderr, "%s at %d px: none of the characters asked for is in the font, nothing to write\n", fontFile, size);
@@ -1553,7 +1726,7 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
 }
 
 /* a bitmap font on its own: fontfile size [first last]... into <name>.c and <name>.h */
-static int bitmap_font(FT_Library library, const char *fontFile, int size)
+static int bitmap_font(FT_Library library, const char *fontFile, int size, const char *patchFile)
 {
     FT_Face face;
     int     err;
@@ -1578,7 +1751,7 @@ static int bitmap_font(FT_Library library, const char *fontFile, int size)
         hwUnfinished[0] = 0;
         return -1;
     }
-    if (bitmap_font_write(fontOut, library, fontFile, size, funcname, arrayPrefix, 0, 0, 1, 0) < 0) return 1;
+    if (bitmap_font_write(fontOut, library, fontFile, size, funcname, arrayPrefix, 0, 0, 1, 0, patchFile, PatchDirs, nPatchDirs) < 0) return 1;
     if (ferror(fontOut) | fclose(fontOut) || rename(hwUnfinished, fontname)) {
         fprintf(stderr, "Error writing font file %s: %s\n", fontname, strerror(errno));
         return 1;
@@ -1614,6 +1787,9 @@ typedef struct {
     char       **names;         /* -n names; the first is the function */
     int          nNames;
     double       pairLimit;     /* -g of a handwritten line; below 0 no check */
+    char        *patch;         /* -p: the editor's fixes of this font, taken over what is rendered */
+    char       **patchDirs;     /* -P: where its patch is looked for by the name of the font, when no -p names one */
+    int          nPatchDirs;
 } jo_font_t;
 
 static jo_font_t *joFonts;
@@ -1674,6 +1850,9 @@ static int jo_line(const char *listPath, int lineNo, const char *listDir, char *
     char       *letters[64];
     int         nLetters = 0;
     const char *file     = 0;
+    const char *patch    = 0;
+    char       *dirs[64];
+    int         nDirs = 0;
     int         size = 0, hw = 0;
     double      pairLimit = -1;
     long        ranges[160];
@@ -1687,6 +1866,12 @@ static int jo_line(const char *listPath, int lineNo, const char *listDir, char *
         } else if (!strcmp(argv[a], "-f")) {
             if (a + 1 >= argc || nLetters >= 64) return fprintf(stderr, "%s: -f without a file\n", where), 1;
             letters[nLetters++] = argv[++a];
+        } else if (!strcmp(argv[a], "-p")) {
+            if (a + 1 >= argc) return fprintf(stderr, "%s: -p without a patch file\n", where), 1;
+            patch = argv[++a];
+        } else if (!strcmp(argv[a], "-P")) {
+            if (a + 1 >= argc || nDirs >= 64) return fprintf(stderr, "%s: -P without a directory\n", where), 1;
+            dirs[nDirs++] = argv[++a];
         } else if (!strcmp(argv[a], "-t")) {
             return fprintf(stderr, "%s: -t is advice for -x, which changes the file of a font; a list does neither\n", where), 1;
         } else if (!strcmp(argv[a], "-g")) {
@@ -1717,6 +1902,7 @@ static int jo_line(const char *listPath, int lineNo, const char *listDir, char *
         }
     }
     if (!file) return fprintf(stderr, "%s: no font file\n", where), 1;
+    if (hw && (patch || nDirs)) return fprintf(stderr, "%s: -p and -P patch bitmap fonts; a handwritten font is fixed in its editor\n", where), 1;
     if (nRanges % 2) return fprintf(stderr, "%s: the ranges of code points come in pairs, first and last: %ld has no pair\n", where, ranges[nRanges - 1]), 1;
     char *path = jo_path(listDir, file);
     char *real = realpath(path, 0);
@@ -1753,6 +1939,16 @@ static int jo_line(const char *listPath, int lineNo, const char *listDir, char *
         strcpy(f->generated, generated);
     }
     if (pairLimit >= 0) f->pairLimit = pairLimit;
+    if (patch) {
+        /* the line is read into a buffer the next line takes: the path is kept, from the directory of the list */
+        char *given = jo_path(listDir, patch);
+        if (f->patch && strcmp(f->patch, given)) {
+            return fprintf(stderr, "%s: the font %s is patched by %s and by %s; one font comes from one patch\n", where, generated, f->patch, given), 1;
+        }
+        if (f->patch) free(given);
+        else f->patch = given;
+    }
+    for (int i = 0; i < nDirs; ++i) jo_add_string(&f->patchDirs, &f->nPatchDirs, jo_path(listDir, dirs[i]));
     if (!nRanges && !nLetters) f->every = 1;
     if (!nNames) f->plain = 1;
     for (int r = 0; r + 1 < nRanges; r += 2) cpr_insert_range(&f->ranges, ranges[r], ranges[r + 1]);
@@ -1832,12 +2028,18 @@ static int jo_write(const char *outName, FT_Library library)
         const int          nAliases = f->nNames ? f->nNames - 1 : 0;
         if (f->hw) fprintf(out, "\n/* %s: %s */\n", funcname, f->file);
         else fprintf(out, "\n/* %s: %s at %d px */\n", funcname, f->file, f->size);
+        PatchFont = 0;
         int made;
         if (f->hw) {
             hwPairLimit = f->pairLimit;
             made        = hw_font_write(out, f->file, f->json, f->jsonName, f->jsonCodePoints, funcname, prefix, aliases, nAliases, 0, f->pairLimit >= 0, 1);
         } else {
-            made = bitmap_font_write(out, library, f->file, f->size, funcname, prefix, aliases, nAliases, 0, 1);
+            /* the directories of its lines first, then those of the command line */
+            char **dirs = malloc((f->nPatchDirs + nPatchDirs + 1) * sizeof(char *));
+            memcpy(dirs, f->patchDirs, f->nPatchDirs * sizeof(char *));
+            memcpy(dirs + f->nPatchDirs, PatchDirs, nPatchDirs * sizeof(char *));
+            made = bitmap_font_write(out, library, f->file, f->size, funcname, prefix, aliases, nAliases, 0, 1, f->patch, dirs, f->nPatchDirs + nPatchDirs);
+            free(dirs);
         }
         if (made < 0) return 1;
         if (f->hw) printf("%s: %s, %d symbols\n", funcname, f->file, made);
@@ -1879,11 +2081,11 @@ static int jo_write(const char *outName, FT_Library library)
 int main(int argc, char *argv[])
 {
     int         err;
-    const char *charsetFile = 0, *outName = 0;
+    const char *charsetFile = 0, *outName = 0, *patchFile = 0;
     char      **lists = 0;
     int         nLists = 0, opt;
     static const struct option longOptions[] = {{"jo", required_argument, 0, 'J'}, {0, 0, 0, 0}};
-    while ((opt = getopt_long_only(argc, argv, "f:g:t:xin:o:", longOptions, 0)) != -1) {
+    while ((opt = getopt_long_only(argc, argv, "f:g:t:xin:o:p:P:", longOptions, 0)) != -1) {
         switch (opt) {
         case 'f':
             charsetFile = optarg;
@@ -1917,6 +2119,12 @@ int main(int argc, char *argv[])
         case 'o':
             outName = optarg;
             break;
+        case 'p':
+            patchFile = optarg;
+            break;
+        case 'P':
+            jo_add_string(&PatchDirs, &nPatchDirs, optarg);
+            break;
         default:
             show_usage(argv[0]);
             return 1;
@@ -1925,9 +2133,9 @@ int main(int argc, char *argv[])
     atexit(hw_drop_unfinished);
 
     if (nLists) {
-        /* the lists hold the options of each font; here only the output */
-        if (charsetFile || nameOverride || hwPairLimit >= 0 || hwPairApart >= 0 || hwPairFix || optind < argc) {
-            fprintf(stderr, "-jo takes the fonts and their options from the lists; with it only -o goes on the command line\n");
+        /* the lists hold the options of each font; here only the output, and where patches are looked for */
+        if (charsetFile || nameOverride || hwPairLimit >= 0 || hwPairApart >= 0 || hwPairFix || patchFile || optind < argc) {
+            fprintf(stderr, "-jo takes the fonts and their options from the lists; with it only -o and -P go on the command line\n");
             return 1;
         }
         if (!outName) outName = "fonts";
@@ -1953,6 +2161,10 @@ int main(int argc, char *argv[])
     if (argc - optind >= 1) {
         size_t len = strlen(argv[optind]);
         if (len > 5 && !strcmp(argv[optind] + len - 5, ".json")) {
+            if (patchFile || nPatchDirs) {
+                fprintf(stderr, "-p and -P patch bitmap fonts; a handwritten font is fixed in its editor\n");
+                return 1;
+            }
             return hw_font(argv[optind], argv + optind + 1, argc - optind - 1, charsetFile);
         }
     }
@@ -1993,7 +2205,7 @@ int main(int argc, char *argv[])
     //    FT_UInt interpreter_version = TT_INTERPRETER_VERSION_35;
     //    FT_Property_Set(library, "truetype", "interpreter-version", &interpreter_version);
 
-    const int rc = bitmap_font(library, fontFile, size);
+    const int rc = bitmap_font(library, fontFile, size, patchFile);
     FT_Done_FreeType(library);
     return rc;
 }

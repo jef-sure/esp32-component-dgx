@@ -8,6 +8,7 @@
 #     dgx_font_need(time FILE fonts/PxCgaThin8.c LETTERS "0123456789:")       # a font of the program, used as is
 #     dgx_font_need(title SIZE 4.5mm POSTSCRIPT DejaVuSans TEXTS title.txt)  # an exact face at a size in millimeters
 #     dgx_font_need(note SOURCE fonts/Note.ttf SIZE 30px TEXTS note.txt)      # a font file of the program, rendered at 30 px
+#     dgx_font_need(menu SIZE 9px FAMILY "Droid Sans" PATCH fixes/menu.patch.json TEXTS menu.po)  # with the fixes of the font editor
 #
 # or keep them in a file with the same keywords, dgx_font_needs_file(fonts.needs), which a program's host build can
 # read as well (dgx_fonts.py build fonts.needs OUT --scale 4 ...). The program declares, once, the board the sizes
@@ -25,6 +26,11 @@
 # host; one with needs builds font2c from its source on the host (FreeType) and finds faces with fontconfig. Paths
 # are resolved from the CMakeLists that gives them. Beside the two files, fonts-used.txt lists every font the program
 # uses, with what its file says of its license; a deny in the rules keeps a font out however it is asked for.
+#
+# A font rendered from a face takes its patch, the fixes made to it in the font editor of DGX: the one PATCH names,
+# or else <name>.patch.json, <name> being the name font2c gives the font (family, style and size), found beside the
+# CMakeLists that declares the need, beside its SOURCE, or in src/fonts of DGX. A patch added or changed there makes
+# the fonts again.
 
 set(DGX_FONTS_COMPONENT_DIR "${COMPONENT_DIR}")
 set(DGX_FONTS_COMPONENT_NAME "${COMPONENT_NAME}")
@@ -52,6 +58,12 @@ function(_dgx_fonts_decode out text)
     set(${out} "${text}" PARENT_SCOPE)
 endfunction()
 
+# the patches of the font editor in a directory; one added or removed there configures the project again
+function(_dgx_fonts_patches_in out dir)
+    file(GLOB found CONFIGURE_DEPENDS "${dir}/*.patch.json")
+    set(${out} "${found}" PARENT_SCOPE)
+endfunction()
+
 function(_dgx_font_absolute out path)
     get_filename_component(abs "${path}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_LIST_DIR}")
     set(${out} "${abs}" PARENT_SCOPE)
@@ -62,7 +74,7 @@ function(dgx_font_need name)
     if(DGX_FONTS_TOO_OLD)
         message(FATAL_ERROR "dgx_font_need(${name}): ${DGX_FONTS_TOO_OLD}")
     endif()
-    cmake_parse_arguments(PARSE_ARGV 1 N "MONO" "SIZE;FAMILY;POSTSCRIPT;DGX;FILE;SOURCE;LETTERS;EXCEPT" "TEXTS")
+    cmake_parse_arguments(PARSE_ARGV 1 N "MONO" "SIZE;FAMILY;POSTSCRIPT;DGX;FILE;SOURCE;LETTERS;EXCEPT;PATCH" "TEXTS")
     if(NOT name MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
         message(FATAL_ERROR "dgx_font_need: the name of a need must be a C identifier, not '${name}'")
     endif()
@@ -72,7 +84,7 @@ function(dgx_font_need name)
     # a keyword given twice would keep its last value in silence
     if(ARGC GREATER 1)
         math(EXPR last "${ARGC} - 1")
-        foreach(key SIZE MONO FAMILY POSTSCRIPT DGX FILE SOURCE LETTERS EXCEPT)
+        foreach(key SIZE MONO FAMILY POSTSCRIPT DGX FILE SOURCE LETTERS EXCEPT PATCH)
             set(times 0)
             foreach(i RANGE 1 ${last})
                 if("${ARGV${i}}" STREQUAL "${key}")
@@ -105,7 +117,7 @@ function(dgx_font_need name)
         endif()
         list(APPEND inputs "${DGX_FONTS_COMPONENT_DIR}/src/fonts/${N_DGX}.c")
     endif()
-    foreach(key FILE SOURCE)
+    foreach(key FILE SOURCE PATCH)
         if(DEFINED N_${key})
             string(TOLOWER "${key}" low)
             _dgx_font_absolute(abs "${N_${key}}")
@@ -116,6 +128,15 @@ function(dgx_font_need name)
             list(APPEND inputs "${abs}")
         endif()
     endforeach()
+    # the patches its font may find by its name: beside this CMakeLists and beside its SOURCE
+    _dgx_fonts_patches_in(patches "${CMAKE_CURRENT_LIST_DIR}")
+    list(APPEND inputs ${patches})
+    if(DEFINED N_SOURCE)
+        _dgx_font_absolute(abs "${N_SOURCE}")
+        get_filename_component(dir "${abs}" DIRECTORY)
+        _dgx_fonts_patches_in(patches "${dir}")
+        list(APPEND inputs ${patches})
+    endif()
     foreach(text IN LISTS N_TEXTS)
         _dgx_font_absolute(abs "${text}")
         if(NOT EXISTS "${abs}")
@@ -209,13 +230,18 @@ function(dgx_font_needs_file path)
                 set_property(GLOBAL APPEND PROPERTY DGX_FONT_NEEDS "${record}")
             endif()
             set(record "need ${CMAKE_MATCH_1} ${abs}:${number}")
-        elseif(line MATCHES "^(text|file|source)[ \t]+(.+)$")
+        elseif(line MATCHES "^(text|file|source|patch)[ \t]+(.+)$")
             set(key "${CMAKE_MATCH_1}")
             string(STRIP "${CMAKE_MATCH_2}" given)
             _dgx_fonts_decode(given "${given}")
             get_filename_component(p "${given}" ABSOLUTE BASE_DIR "${dir}")
             if(NOT EXISTS "${p}")
                 message(FATAL_ERROR "${abs}:${number}: ${key} ${p} does not exist")
+            endif()
+            if(key STREQUAL "source")
+                get_filename_component(sdir "${p}" DIRECTORY)
+                _dgx_fonts_patches_in(patches "${sdir}")
+                list(APPEND inputs ${patches})
             endif()
             _dgx_fonts_encode(p "${p}")
             string(APPEND record "\n${key} ${p}")
@@ -257,11 +283,14 @@ function(dgx_font_needs_file path)
     if(record)
         set_property(GLOBAL APPEND PROPERTY DGX_FONT_NEEDS "${record}")
     endif()
+    # the patches its fonts may find by their names beside it
+    _dgx_fonts_patches_in(patches "${dir}")
+    list(APPEND inputs ${patches})
     set_property(GLOBAL APPEND PROPERTY DGX_FONT_INPUTS ${inputs})
 endfunction()
 
-# A list of fonts for font2c -jo, passed through as is: one font per line, [-n name] [-f letters] fontfile size
-# [first last]..., paths resolved from the directory of the list. Its fonts go into the same dgx_fonts.c and their
+# A list of fonts for font2c -jo, passed through as is: one font per line, [-n name] [-f letters] [-p patch]
+# [-P dir] fontfile size [first last]..., paths resolved from the directory of the list. Its fonts go into the same dgx_fonts.c and their
 # functions are declared in dgx_fonts.h: for a component or a program that names its font files and characters
 # itself, alongside the needs.
 function(dgx_font_list path)
@@ -286,6 +315,10 @@ function(dgx_font_list path)
             get_filename_component(p "${word}" ABSOLUTE BASE_DIR "${dir}")
             if(EXISTS "${p}" AND NOT IS_DIRECTORY "${p}")
                 list(APPEND inputs "${p}")
+            elseif(IS_DIRECTORY "${p}")
+                # a directory of -P: the patches font2c may find in it
+                _dgx_fonts_patches_in(patches "${p}")
+                list(APPEND inputs ${patches})
             endif()
         endforeach()
     endforeach()
@@ -302,6 +335,9 @@ function(_dgx_fonts_finish)
     get_property(board GLOBAL PROPERTY DGX_FONTS_SETTINGS)
     get_property(rules GLOBAL PROPERTY DGX_FONTS_RULES)
     get_property(inputs GLOBAL PROPERTY DGX_FONT_INPUTS)
+    # the fixes DGX keeps for the faces it knows, taken by every font made of one of them
+    _dgx_fonts_patches_in(patches "${DGX_FONTS_COMPONENT_DIR}/src/fonts")
+    list(APPEND inputs ${patches})
     set(out "${CMAKE_BINARY_DIR}/dgx_fonts")
     file(MAKE_DIRECTORY "${out}")
     set(content "# the needs of the project, gathered from its CMakeLists files at configure time; generated, do not edit\ncomponent ${DGX_FONTS_COMPONENT_DIR}\n")

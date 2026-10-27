@@ -390,6 +390,87 @@ def test_font2c_lines(work):
           f"a line without -n keeps its function beside the -n name: {run.stderr.strip()}")
 
 
+def test_patches(work):
+    """The fixes of the font editor: a patch found by the name of the font beside the needs, one named by a need, one
+    of another size refused, a glyph of the patch of another size than the rendered one, rows of unequal length."""
+    pd = os.path.join(work, "patched")
+    os.makedirs(pd, exist_ok=True)
+    a_rows = ["#..#", ".##.", "#..#"]
+
+    def patch(path, glyphs, version=2, font="DejaVuSansBook12", size=12):
+        body = {"format": "dgx-font-patch", "formatVersion": version, "glyphs": glyphs}
+        if version == 2:
+            body.update({"font": font, "size": size})
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(body, f)
+
+    patch(os.path.join(pd, "DejaVuSansBook12.patch.json"), {"0041": {"rows": a_rows, "xAdvance": 9, "xOffset": 1, "yOffset": -5}})
+    with open(os.path.join(pd, "p.needs"), "w", encoding="utf-8") as f:
+        f.write("need pat\nsize 12px\npostscript DejaVuSans\nletters AB\n")
+    out = os.path.join(pd, "out")
+    code, told, err = tool("build", os.path.join(pd, "p.needs"), out)
+    check(code == 0 and "patched by" in told, f"a patch beside the needs, found by the name of the font: {err.strip()} {told.strip()}")
+    if code == 0:
+        code, text, err = tool("json", os.path.join(out, "dgx_fonts.c"), "--font", "dgx_font_pat")
+        glyphs = json.loads(text)["glyphs"] if code == 0 else {}
+        a = glyphs.get(str(ord("A")), {})
+        check(a.get("rows") == a_rows and (a.get("w"), a.get("h"), a.get("xAdvance"), a.get("xOffset"), a.get("yOffset")) == (4, 3, 9, 1, -5),
+              f"the glyph of the patch stands whole, of its own size and metrics: {a}")
+        check(str(ord("B")) in glyphs and glyphs[str(ord("B"))]["rows"] != a_rows, "a glyph the patch has not is rendered")
+    # a patch named by the need, of version 1, from another directory
+    other = os.path.join(work, "other.patch.json")
+    patch(other, {"0042": {"rows": ["##", "##"], "xAdvance": 3, "xOffset": 0, "yOffset": -2}}, version=1)
+    with open(os.path.join(pd, "q.needs"), "w", encoding="utf-8") as f:
+        f.write(f"need pat\nsize 12px\npostscript DejaVuSans\nletters AB\npatch {other}\n")
+    code, told, err = tool("build", os.path.join(pd, "q.needs"), out)
+    if code == 0:
+        code, text, err = tool("json", os.path.join(out, "dgx_fonts.c"), "--font", "dgx_font_pat")
+        glyphs = json.loads(text)["glyphs"] if code == 0 else {}
+        check(glyphs.get(str(ord("B")), {}).get("rows") == ["##", "##"] and glyphs.get(str(ord("A")), {}).get("rows") != a_rows,
+              "the patch the need names wins over the one found by name")
+    else:
+        check(False, f"a patch named by the need: {err.strip()}")
+    # a patch of another size, named
+    wrong = os.path.join(work, "wrong.patch.json")
+    patch(wrong, {"0041": {"rows": a_rows}}, size=14)
+    with open(os.path.join(pd, "r.needs"), "w", encoding="utf-8") as f:
+        f.write(f"need pat\nsize 12px\npostscript DejaVuSans\nletters AB\npatch {wrong}\n")
+    code, told, err = tool("build", os.path.join(pd, "r.needs"), out)
+    check(code == 1 and "the patch is for the font DejaVuSansBook12 at 14 px" in err, f"a patch of another size is refused: {err.strip()}")
+    # rows of unequal length
+    patch(wrong, {"0041": {"rows": ["##", "###"]}})
+    code, told, err = tool("build", os.path.join(pd, "r.needs"), out)
+    check(code == 1 and "U+0041 are not all as long" in err, f"rows of unequal length are refused: {err.strip()}")
+    # font2c alone: -P, a glyph of the patch the face has not, a handwritten font with -p
+    font2c = os.path.join(out, "font2c")
+    alone = os.path.join(work, "patch-alone")
+    os.makedirs(alone, exist_ok=True)
+    patch(os.path.join(pd, "DejaVuSansBook12.patch.json"), {"0041": {"rows": a_rows}, "10FFFD": {"rows": ["#"]}})
+    run = subprocess.run([font2c, "-P", pd, dejavu_file(), "12", "0x41", "0x42"], capture_output=True, text=True, cwd=alone)
+    check(run.returncode == 0 and "U+10FFFD of the patch is not in the face" in run.stderr and "patched by" in run.stdout,
+          f"-P finds the patch, a glyph the face has not is told: {run.stderr.strip()}")
+    run = subprocess.run([font2c, "-p", other, "font.json"], capture_output=True, text=True, cwd=alone)
+    check(run.returncode == 1 and "a handwritten font is fixed in its editor" in run.stderr, f"-p with a handwritten font: {run.stderr.strip()}")
+    # dgx_fonts.py reads a list with -p and -P as font2c does
+    with open(os.path.join(pd, "p.list"), "w", encoding="utf-8") as f:
+        f.write(f"-n listed -P . -p {other} {dejavu_file()} 12 0x41 0x42\n")
+    with open(os.path.join(pd, "l.needs"), "w", encoding="utf-8") as f:
+        f.write(f"list {os.path.join(pd, 'p.list')}\n")
+    code, told, err = tool("build", os.path.join(pd, "l.needs"), out)
+    check(code == 0 and "listed: from a list, 2 glyphs" in told, f"a list with -p and -P: {err.strip()} {told.strip()}")
+    # the patches that come with the fonts of DGX: Droid Sans at 9 px made at build time takes src/fonts/DroidSansRegular9.patch.json
+    droid = next((p for p in (os.path.expanduser("~/.wine/drive_c/windows/Fonts/droidsans.ttf"), "/usr/share/fonts/truetype/droid/DroidSans.ttf")
+                  if os.path.exists(p)), None)
+    if droid:
+        with open(os.path.join(pd, "d.needs"), "w", encoding="utf-8") as f:
+            f.write(f"need droid\nsize 9px\nsource {droid}\nletters %&A\n")
+        code, told, err = tool("build", os.path.join(pd, "d.needs"), out)
+        check(code == 0 and os.path.join(DGX, "src", "fonts", "DroidSansRegular9.patch.json") in told,
+              f"a font made at build time takes the patch that comes with the font of DGX of the same name: {err.strip()} {told.strip()}")
+    else:
+        print("test_patches: no Droid Sans file here, the patch of a font of DGX is not tried")
+
+
 def test_cmake(work):
     """project_include.cmake on the host, with the two ESP-IDF functions it uses as stubs: a configure and a build with
     needs from a CMakeLists, a needs file and a list, and the mistakes a CMakeLists can make."""
@@ -408,6 +489,10 @@ def test_cmake(work):
         f.write("xyz")
     with open(os.path.join(cm, "own.list"), "w", encoding="utf-8") as f:
         f.write(f"-n widget {sans} 12 -f own.letters\n")
+    # the fixes of the font editor beside the CMakeLists, found by the name of the font
+    with open(os.path.join(cm, "DejaVuSansBook12.patch.json"), "w", encoding="utf-8") as f:
+        json.dump({"format": "dgx-font-patch", "formatVersion": 2, "font": "DejaVuSansBook12", "size": 12,
+                   "glyphs": {"0074": {"rows": ["#.#", ".#.", "#.#"], "xAdvance": 5, "xOffset": 1, "yOffset": -3}}}, f)
     with open(os.path.join(cm, "CMakeLists.txt"), "w", encoding="utf-8") as f:
         f.write(f"""cmake_minimum_required(VERSION 3.19)
 project(dgx_fonts_on_the_host C)
@@ -450,6 +535,7 @@ endif()
         check(f"text {os.path.join(cm, 't.txt')}" in needs and "need fromfile" in needs, "a needs file with a byte order mark is read")
         ninja = open(os.path.join(build_dir, "build.ninja"), encoding="utf-8").read()
         check("own.letters" in ninja, "the file of -f in a list is an input of the rule")
+        check("DejaVuSansBook12.patch.json" in ninja, "a patch beside the CMakeLists is an input of the rule")
         run = subprocess.run(["cmake", "--build", build_dir], capture_output=True, text=True)
         check(run.returncode == 0, f"build: {(run.stdout + run.stderr).strip()[-800:]}")
         if run.returncode == 0:
@@ -461,6 +547,7 @@ endif()
             check(set("[a;b]tq") <= (glyphs_of(c, "dgx_font_brackets") or set()), "the characters of LETTERS with brackets and a semicolon are in the font")
             check(set("[{]; tqxyz") <= (glyphs_of(c, "dgx_font_fromfile") or set()), "the characters of the needs file, the space too, are in the font")
             check("widget: from a list, 12 glyphs" in run.stdout, f"a list's font that shares a need's font is counted: {run.stdout.strip()[-200:]}")
+            check("patched by" in run.stdout, f"the font of the needs takes the patch beside the CMakeLists: {run.stdout.strip()[-300:]}")
     for case, expected in (("missing", "none.txt does not exist"), ("twice", "SIZE given twice")):
         build_dir, run = configure(case)
         said = " ".join(run.stderr.split())  # CMake wraps its messages
@@ -562,6 +649,7 @@ def main():
         test_half_pixels(work)
         test_characters_as_written(work)
         test_font2c_lines(work)
+        test_patches(work)
         test_cmake(work)
         test_licenses(work)
     finally:

@@ -46,6 +46,8 @@ is an error):
                                          has no size
     list /abs/fonts.list                 a list of fonts for font2c -jo, passed through: its fonts go into the
                                          same output file
+    patch /abs/fixes.patch.json          the fixes of the font editor for the font of this need (font2c -p); without
+                                         it the font's own patch is looked for by its name (below)
 
 A font gets only the characters that were asked for: those of its texts and its `letters`. The needs are passed to
 font2c as one list (-jo), one line per need, with -n dgx_font_<need> and a file of its characters: font2c renders
@@ -54,6 +56,13 @@ dgx_font_<need>(). An existing font must contain the characters of its need, or 
 required of it, every DGX font handles spaces. A need declared twice, by two components say, is one need when both
 resolve to the same font, with the characters of both; two different fonts under one name stop the build, and the
 message names both places.
+
+A font rendered from a face takes the fixes made to it in the font editor of DGX, a patch, when there is one: the
+one its need names with patch, or else the first <name>.patch.json found, <name> being the name font2c gives the
+font (the family, the style and the size, DroidSansRegular9 say), in the directory of the file that declared the
+need, in the directory of its source file, and in src/fonts of DGX, in this order. The glyphs of the patch stand for
+the rendered ones; a patch made for another font or size is refused. A font used as is (dgx, file) is not patched:
+it is a .c already, made with its patch when it had one.
 
 The rules, one per line (# starts a comment), the same as the rules of DGX-GE were:
 
@@ -589,7 +598,7 @@ def list_fonts(path):
         rest = []
         k = 0
         while k < len(words):
-            if words[k] in ("-n", "-f", "-g"):
+            if words[k] in ("-n", "-f", "-g", "-p", "-P"):
                 k += 2
                 continue
             rest.append(words[k])
@@ -720,7 +729,7 @@ def parse_needs(text, name="needs", base=None):
                 raise FontsError(f"{where}: board pixels <w> <h> or board mm <w> <h>, not '{value}'")
         elif current is None:
             raise FontsError(f"{where}: '{key}' comes before any need")
-        elif key in ("text", "file", "source"):
+        elif key in ("text", "file", "source", "patch"):
             current.words.append((key, path_of(value), where))
         else:
             current.words.append((key, value, where))
@@ -778,7 +787,7 @@ def need_fields(need):
     for key, value, where in need.words:
         if key in ("text", "letters", "except"):
             continue
-        if key not in ("size", "mono", "family", "postscript", "dgx", "file", "source"):
+        if key not in ("size", "mono", "family", "postscript", "dgx", "file", "source", "patch"):
             raise FontsError(f"{where}: unknown keyword '{key}' for the need {need.name}")
         if key in fields:
             raise FontsError(f"{where}: {key} given twice for the need {need.name}")
@@ -828,6 +837,12 @@ def resolve(declared, board, rules, dgx, cache):
         loose = [k for k in ("mono", "family") if k in fields]
         if loose or len(exact) > 1:
             raise FontsError(f"{need.where}: {need.name}: {exact[0]} names the face itself; {' and '.join(loose or exact[1:])} do not apply")
+    if "patch" in fields:
+        patch, where = fields["patch"]
+        if way in ("dgx", "file") or (way == "source" and fields["source"][0].lower().endswith(".json")):
+            raise FontsError(f"{where}: {need.name}: a patch fixes a font rendered from a face; a font used as is or a handwritten one is not patched")
+        if not os.path.exists(patch):
+            raise FontsError(f"{where}: {need.name}: the patch {patch} does not exist")
     if way in ("dgx", "file") and ("size" in fields or "mono" in fields or "family" in fields or "postscript" in fields):
         raise FontsError(f"{need.where}: {need.name}: an existing font has its own size and face: size, mono, family and postscript do not apply")
     if way == "dgx":
@@ -915,6 +930,27 @@ def api_names(dgx):
 # ----------------------------------------------------------------------------------------------------------------
 #  The build
 # ----------------------------------------------------------------------------------------------------------------
+
+def place_dir(place):
+    """The directory of the file a need was declared in: a CMakeLists, or a needs file with :line after it."""
+    m = re.fullmatch(r"(.*):\d+", place)
+    path = m.group(1) if m and not os.path.isdir(place) else place
+    return os.path.dirname(path) if os.path.isfile(path) else None
+
+
+def patch_words(w):
+    """The words of a line of font2c for the patch of a need: -p of the one it names, or -P of the directories its
+    patch is looked for in by the name of the font, the directory of its declaration and that of its source file."""
+    named = w.need.words and [value for key, value, _ in w.need.words if key == "patch"]
+    if named:
+        return ["-p", list_word(named[0])]
+    words, dirs = [], [place_dir(w.need.place)]
+    if any(key == "source" for key, _, _ in w.need.words):
+        dirs.append(os.path.dirname(w.face.file))
+    for d in dict.fromkeys(d for d in dirs if d):
+        words += ["-P", list_word(d)]
+    return words
+
 
 def list_word(path):
     """A path as a word of a list of font2c: in quotes when it has a space."""
@@ -1093,11 +1129,12 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
                 f.write("".join(sorted(w.letters)))
             words += ["-f", list_word(letters)]
         if isinstance(w, Made):
+            words += patch_words(w)
             words += [list_word(w.face.file), str(w.px)]
         else:
             words.append(list_word(w.source))
         lines.append(" ".join(words))
-    counts, c_text, h_text = {}, "", ""
+    counts, c_text, h_text, patched = {}, "", "", {}
     if lines or lists:
         tool = font2c_binary(dgx, outdir)
         command = [tool]
@@ -1108,12 +1145,15 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
             command += ["-jo", own]
         for path in lists:
             command += ["-jo", path]
+        # the fixes DGX keeps for its faces, for every font made, after the directories of a need or a line
+        command += ["-P", os.path.join(dgx, "src", "fonts")]
         command += ["-o", os.path.join(work, "dgx_fonts")]
         run = subprocess.run(command, capture_output=True, text=True)
         if run.returncode:
             raise FontsError(f"font2c failed: {run.stderr.strip() or run.stdout.strip()}")
         for m in re.finditer(r"^(\w+): .* (\d+) (?:glyphs|symbols)$", run.stdout, re.M):
             counts[m.group(1)] = int(m.group(2))
+        patched = dict(re.findall(r"^(\w+): patched by (.*) \(\d+ of its glyphs\)$", run.stdout, re.M))
         c_text = open(os.path.join(work, "dgx_fonts.c"), encoding="utf-8", errors="replace").read()
         h_text = open(os.path.join(work, "dgx_fonts.h"), encoding="utf-8", errors="replace").read()
         points = font_points(c_text)
@@ -1150,7 +1190,8 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
             h.append(f"#define DGX_FONT_{upper}_PX {w.px}")
             if w.mm is not None:
                 h.append(f"#define DGX_FONT_{upper}_MM {w.mm:g}")
-            told.append(f"{w.need.name}: {w.face.family} {w.face.style} {w.px} px ({w.how}), {counts.get(name, 0)} glyphs")
+            told.append(f"{w.need.name}: {w.face.family} {w.face.style} {w.px} px ({w.how}), {counts.get(name, 0)} glyphs"
+                        + (f", patched by {patched[name]}" if name in patched else ""))
         elif isinstance(w, Hand):
             h.append(f"/* {w.need.name}: the handwritten font {os.path.basename(w.source)}; its size is chosen when text is drawn */")
             h.append(f"dgx_font_t *{name}(void);")

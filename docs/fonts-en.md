@@ -114,6 +114,7 @@ The keywords of a need:
 | `SOURCE <file>` | A font from this file: a TTF or OTF with a `SIZE`, or the JSON of a handwritten font from the hw-fonts editor, which has no size. |
 | `DGX <name>` | One of DGX's own fonts, used as is: `font0ss`, `TerminusTTFMedium12` and the others in `src/fonts/`. |
 | `FILE <file.c>` | A font the program already has as a `.c` file, used as is; the program compiles it itself, DGX only checks its characters and declares the function. |
+| `PATCH <file>` | The glyphs fixed by hand for this font in the font editor (see [Glyphs fixed by hand](#glyphs-fixed-by-hand)); without it a patch is looked up by the name of the font. |
 
 Exactly one of these says where the font comes from: `SIZE` with
 `MONO`/`FAMILY` (picked by the rules), `SIZE` with `POSTSCRIPT`, `SOURCE`,
@@ -411,6 +412,43 @@ characters of the dialogs" and the keyboard asks for "the same face at
 A handwritten font from a JSON has no size (the size is chosen when text is
 drawn): one font per file.
 
+## Glyphs fixed by hand
+
+At small sizes a rendered glyph sometimes comes out wrong on the panel: a
+stem broken, a letter off its line, an accent in the wrong place. The font
+editor of DGX, `font-editor/index.html`, opens a `.c` written by `font2c`,
+lets you redraw the glyphs pixel by pixel and change their size, advance and
+offsets, and saves the result as a **patch**, `<name>.patch.json`. The `.c`
+is never edited by hand: `font2c` makes it again from the face and the patch,
+and every glyph of the patch replaces the rendered one completely, with its
+own size and metrics. A font made again keeps the fixes.
+
+A patch belongs to one font: one face at one size. Its file name is the name
+`font2c` gives that font, the family, the style and the size with spaces and
+punctuation removed, as in `DroidSansRegular9.patch.json`, and the patch
+records the same name and the size inside. `font2c` refuses a patch that was
+made for another font or size.
+
+A font rendered at build time takes its patch without being asked:
+
+1. the file named by `PATCH` (or `patch` in a needs file), if any;
+2. otherwise `<name>.patch.json` next to the CMakeLists or the needs file
+   that declares the need;
+3. then next to the `SOURCE` file, for a need with one;
+4. then in `src/fonts/` of DGX, where DGX keeps the fixes of the faces its
+   own fonts come from.
+
+The first one found wins. A patch added or changed in one of these places
+makes the fonts again on the next build. A font used as is (`DGX`, `FILE`)
+is not patched: it is a `.c` already, made with its patch if it had one.
+A patch may have glyphs the font does not need; they are skipped, so one
+patch serves every need of that face and size, whatever characters each
+asks for.
+
+`font2c` takes the same patches directly: `-p <file>` names one, `-P <dir>`
+(repeatable) looks for `<name>.patch.json` in a directory. Both can also be
+used on a line of a `-jo` list.
+
 ## What you get
 
 The build produces `build/dgx_fonts/dgx_fonts.c` and `dgx_fonts.h`.
@@ -589,12 +627,13 @@ python3 font2c/dgx_fonts.py letters assets/ru.po main/keys.json            # the
 python3 font2c/dgx_fonts.py json build/dgx_fonts/dgx_fonts.c --font dgx_font_keys  # a font as JSON with its glyph pixels, for editors
 ```
 
-`font2c` has two new options. `-jo <list>` (repeatable) and `-o <name>` put
-every font of the lists into one `<name>.c` with a `<name>.h`, merging
+`font2c` has these options for it. `-jo <list>` (repeatable) and `-o <name>`
+put every font of the lists into one `<name>.c` with a `<name>.h`, merging
 duplicates and naming the arrays after the fonts so nothing collides. `-n
 <name>` is for a single run: the function and the files take that name, and
-the static arrays get it as a prefix. Without these options the output is
-unchanged.
+the static arrays get it as a prefix. `-p <file>` and `-P <dir>` apply a
+patch of the font editor (see [Glyphs fixed by hand](#glyphs-fixed-by-hand)).
+Without these options the output is unchanged.
 
 ## How it works
 

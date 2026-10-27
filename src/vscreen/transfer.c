@@ -187,7 +187,19 @@ static inline void dgx_vscreen_halves_begin(dgx_vscreen_halves_t *h, dgx_screen_
         len = all_bytes;
     } else {
         if (len == 0) len = (uint32_t)buffer_len / pixel_bytes * pixel_bytes, h->alone = true;
-        if (len >= row_bytes) len = len / row_bytes * row_bytes;
+        /* the halves start at buffer and buffer+len and go out through the SPI DMA,
+         * which takes an address and a length of a multiple of 4 bytes: one that is
+         * not, the driver copies into a buffer of its own (setup_priv_desc of
+         * esp_driver_spi). A multiple of the row length and of 4 bytes at once: a
+         * row that is itself one needs no more rows, one that is 2 mod 4 needs an
+         * even number of them, an odd row needs four. A half too small for that
+         * many rows is cut at rows only, as it was. */
+        if (len >= row_bytes) {
+            uint32_t rows = 1;
+            while (row_bytes * rows % 4u) ++rows;
+            const uint32_t cut = row_bytes * rows;
+            len                = len >= cut ? len / cut * cut : len / row_bytes * row_bytes;
+        }
     }
     h->scr     = scr;
     h->half[0] = h->at = buffer;

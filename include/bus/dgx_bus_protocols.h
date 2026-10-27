@@ -183,6 +183,12 @@ typedef struct _dgx_bus_protocols_t {
     dgx_bus_write_ink_func write_ink;   /*!< NULL for a bus that cannot mix two colors by an amount itself */
     dgx_bus_move_func move;             /*!< NULL for a bus whose pixels are not memory at hand */
     dgx_bus_write_indexed_func write_indexed; /*!< NULL for a bus that has only its window for indices */
+    /*!
+     * The last pixel of the window has been handed over: a bus that holds its
+     * chip select over all the pixels of a window lets it go when they are
+     * sent. NULL for a bus that does not hold it.
+     */
+    dgx_bus_sync_write_func end_pixels;
 } dgx_bus_protocols_t;
 
 #ifdef __cplusplus

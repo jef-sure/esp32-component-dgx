@@ -1,0 +1,61 @@
+.pixel-box {
+    display: inline-block;
+    background: #f8f9fa;
+    padding: 4px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    --pixel-size: 16px;
+}
+
+.pixel-row {
+    display: flex;
+}
+
+.pixel {
+    width: var(--pixel-size);
+    height: var(--pixel-size);
+    padding: 0;
+    border: 1px solid #ced4da;
+    background: #fff;
+    border-radius: 0;
+}
+
+.pixel.on {
+    background: #212529;
+}
+
+.pixel:hover {
+    border-color: #0d6efd;
+}
+
+.glyph-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.glyph-pick {
+    font-family: monospace;
+    min-width: 4em;
+}
+
+.glyph-edit {
+    user-select: none;
+}
+
+.font-view canvas {
+    cursor: pointer;
+}
+
+/* the line of glyphs scrolls sideways: the canvas keeps its pixels,
+ * one glyph is one click target at any zoom */
+.line-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.real-size canvas {
+    image-rendering: pixelated;
+}
