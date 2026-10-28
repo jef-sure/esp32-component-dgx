@@ -1,4 +1,5 @@
 #include "dgx_font.h"
+/* font2c: WeatherIconsRegular27, "Weather Icons" "Regular" at 27 px */
 static const uint8_t bitmaps[] = {
   /* F000 - uniF000 */
 /*                          ##               */

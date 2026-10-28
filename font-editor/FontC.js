@@ -2,10 +2,12 @@
  * A DGX bitmap font as C (what font2c writes), read and written back.
  *
  * The editor edits pixels; everything else in the file is kept as it was
- * found, and written the way font2c writes it: bitmaps[] with a comment of
- * the glyph and its rows as '#' and ' ', the glyph_t table, glyph_ranges[]
- * and the dgx_font_t at the end. Only the rows of a glyph are re-encoded
- * when its pixels change; its width and height are the pixels'.
+ * found, and written the way font2c writes it, byte for byte: bitmaps[] with
+ * a comment of the glyph, its name kept, and its rows as '#' and ' ', the
+ * glyph_t table, glyph_ranges[] and the dgx_font_t at the end. The text
+ * before the arrays of a font (the #include, font2c's comments, the aliases
+ * of the font before it) is kept as it was. Only the rows of a glyph are
+ * re-encoded when its pixels change; its width and height are the pixels'.
  */
 
 var FontC = (() => {
@@ -90,6 +92,10 @@ var FontC = (() => {
         if (!rm) return null;
         if (body.indexOf('};', rm.index) < 0) return null;
 
+        /* the names font2c gives the glyphs in their comments: 0041 - A */
+        const names = {};
+        const art = body.slice(m.index, body.indexOf('};', m.index));
+        for (const c of art.matchAll(/\/\*\s*([0-9A-Fa-f]{4,6})\s+-\s+(.*?)\s*\*\//g)) names[parseInt(c[1], 16)] = c[2];
         const clean = stripComments(body);
         const cm = /\w*bitmaps\s*\[\s*\]\s*=\s*\{(.*?)\};/s.exec(clean);
         const bitmaps = [...cm[1].matchAll(/0x([0-9A-Fa-f]+)/g)].map(x => parseInt(x[1], 16));
@@ -121,6 +127,7 @@ var FontC = (() => {
             xRightMax: +fields.xRightMax || 0,
             number_of_ranges: ranges.length,
             glyphs: {},
+            names,
             order: [],
         };
         for (const r of ranges) {
@@ -144,9 +151,10 @@ var FontC = (() => {
         return { font, at: m.index };
     }
 
-    /* every font of a .c text: {fonts, blocks, error}; `blocks` are the spans
-     * of the text as they go: a bitmap font as its parsed state, a block that
-     * is not edited (handwritten, dots) as its text, kept as it was found */
+    /* every font of a .c text: {fonts, blocks, tail, error}; `blocks` are the
+     * spans of the text as they go: a bitmap font as its parsed state and the
+     * text before its arrays, a block that is not edited (handwritten, dots,
+     * an alias) as its text, kept as it was found */
     function parse(text) {
         const spans = fontBlocks(text);
         if (!spans.length) return { fonts: [], blocks: [], error: 'no dgx_font_t *<name>() in it: not a font of font2c' };
@@ -157,7 +165,7 @@ var FontC = (() => {
             const r = readBlock(text, b);
             if (r) {
                 fonts.push(r.font);
-                blocks.push({ type: 'bitmap', at: r.at, font: r.font });
+                blocks.push({ type: 'bitmap', pre: text.slice(b.from, b.from + r.at), font: r.font });
             } else {
                 blocks.push({ type: 'text', at: b.from, text: text.slice(b.from, b.to) });
             }
@@ -186,29 +194,30 @@ var FontC = (() => {
     }
 
     /*
-     * One font as the .c font2c writes: the header of the block as it was,
-     * then bitmaps[] with the art comment of every glyph, the tables and the
-     * dgx_font_t. `head` is the text before the arrays (the #include and what
-     * else there was); the arrays carry the prefix the file had (font2c -jo).
+     * One font as the .c font2c writes, the same bytes for the same glyphs:
+     * `pre`, the text of the block before the arrays, then bitmaps[] with the
+     * art comment of every glyph, the tables and the dgx_font_t. The block
+     * ends at the brace of the function; what follows it is the next block's.
      */
-    function generate(font, head) {
-        const out = [];
+    function generate(font, pre) {
+        const out = [pre];
         const p = font.prefix || '';
         const cps = font.order.slice().sort((a, b) => a - b);
         const ranges = rangesOf(cps);
         const m = measures(font, cps);
-        const id = font.identity;
-        out.push(head.replace(/\s*$/, '\n'));
-        if (id && id.family !== undefined) out.push(`/* font2c: ${id.font}, "${id.family}" "${id.style}" at ${id.size} px */\n`);
-        out.push(`static const uint8_t ${p}bitmaps[] = {\n`);
+        const hex = (v, n) => v.toString(16).toUpperCase().padStart(n, '0');
+        out.push(`static const uint8_t ${p}bitmaps[] = {\n  `);
         let at = 0;
         const glyphRows = {};
         for (const cp of cps) {
             const g = font.glyphs[cp];
             const bytes = bytesOf(g.rows);
-            out.push(`  /* ${cp.toString(16).toUpperCase().padStart(4, '0')} */`);
-            for (const row of g.rows) out.push('/* ' + row.replace(/\./g, ' ') + ' */');
-            out.push(bytes.map((b, i) => (i % 12 === 0 ? '\n' : '') + (at + i ? ', ' : '') + '0x' + b.toString(16).toUpperCase().padStart(2, '0')).join('') + '\n');
+            const name = font.names && font.names[cp];
+            out.push(`/* ${hex(cp, 4)}${name ? ' - ' + name : ''} */`);
+            for (const row of g.rows) out.push('\n/* ' + row.replace(/\./g, ' ') + ' */');
+            /* a comma before every byte but the first of the font, a line every 12 bytes of a glyph */
+            bytes.forEach((b, i) => out.push((at + i ? ', ' : '') + (i % 12 === 0 ? '\n' : '') + '0x' + hex(b, 2)));
+            out.push('\n');
             glyphRows[cp] = { at, len: bytes.length };
             at += bytes.length;
         }
@@ -218,7 +227,7 @@ var FontC = (() => {
         for (const r of ranges) {
             for (let i = 0; i < r.number; ++i) {
                 const cp = r.first + i, g = font.glyphs[cp], gr = glyphRows[cp];
-                out.push(`${gi ? ', ' : ''}  { {.bitmap = ${p}bitmaps + ${String(gr.at).padStart(5)} }, ${String(g.w).padStart(3)}, ${String(g.h).padStart(3)}, ${String(g.xAdvance).padStart(3)}, ${String(g.xOffset).padStart(4)}, ${String(g.yOffset).padStart(4)} } /* ${cp.toString(16).toUpperCase().padStart(4, '0')} */\n`);
+                out.push(`${gi ? ', ' : ''}  { {.bitmap = ${p}bitmaps + ${String(gr.at).padStart(5)} }, ${String(g.w).padStart(3)}, ${String(g.h).padStart(3)}, ${String(g.xAdvance).padStart(3)}, ${String(g.xOffset).padStart(4)}, ${String(g.yOffset).padStart(4)} } /* ${hex(cp, 4)} */\n`);
                 ++gi;
             }
         }
@@ -232,38 +241,31 @@ var FontC = (() => {
         out.push(', {0x0   , 0x0   , 0 }\n');
         out.push('};\n');
         out.push(`// Bitmap size: ${at}\n`);
-        out.push(`dgx_font_t* ${font.name}() {\n`);
-        out.push(`\tstatic dgx_font_t rval = { \n`);
-        out.push(`    .glyph_ranges = ${p}glyph_ranges,\n`);
-        out.push(`    .yAdvance = ${font.yAdvance},\n`);
-        out.push(`    .yOffsetLowest = ${m.yOffsetLowest},\n`);
-        out.push(`    .xWidest = ${m.xWidest},\n`);
-        out.push(`    .xWidthAverage = ${m.xWidthAverage},\n`);
-        out.push(`    .f_type = ${font.f_type},\n`);
-        out.push(`    .yBottomMax = ${m.yBottomMax},\n`);
-        out.push(`    .xOffsetLowest = ${m.xOffsetLowest},\n`);
-        out.push(`    .xRightMax = ${m.xRightMax},\n`);
-        out.push(`    .number_of_ranges = ${ranges.length}\n`);
-        out.push(`  };\n`);
-        out.push(`\treturn &rval;\n}\n`);
+        out.push(`dgx_font_t* ${font.name}() {\n\t`);
+        out.push(`static dgx_font_t rval = { \n\t\t`);
+        out.push(`.glyph_ranges = ${p}glyph_ranges,\n\t\t`);
+        out.push(`.yAdvance = ${font.yAdvance},\n\t\t`);
+        out.push(`.yOffsetLowest = ${m.yOffsetLowest},\n\t\t`);
+        out.push(`.xWidest = ${m.xWidest},\n\t\t`);
+        out.push(`.xWidthAverage = ${m.xWidthAverage},\n\t`);
+        out.push(`.f_type = ${font.f_type},\n\t\t`);
+        out.push(`.yBottomMax = ${m.yBottomMax},\n\t\t`);
+        out.push(`.xOffsetLowest = ${m.xOffsetLowest},\n\t\t`);
+        out.push(`.xRightMax = ${m.xRightMax},\n\t\t`);
+        out.push(`.number_of_ranges = ${ranges.length}\n\t`);
+        out.push(`};\n\t`);
+        out.push(`return &rval;\n}`);
         return out.join('');
     }
 
     /*
-     * The whole file as it is written back: `head` before everything, then
-     * every block as it goes — a bitmap font generated from its parsed state,
-     * a block that is not edited (handwritten, dots) as its text, kept as it
-     * was found — and the text after the last block.
+     * The whole file as it is written back: every block as it goes, a bitmap
+     * font generated from its parsed state after the text that was before its
+     * arrays, a block that is not edited (handwritten, dots, an alias) as its
+     * text, kept as it was found, and the text after the last block.
      */
-    function generateFile(fonts, blocks, tail, head) {
-        let out = head || '';
-        let first = true;
-        for (const b of blocks) {
-            if (b.type === 'text') { out += b.text; continue; }
-            out += generate(b.font, first ? '' : '\n');
-            first = false;
-        }
-        return out + (tail || '');
+    function generateFile(blocks, tail) {
+        return blocks.map(b => b.type === 'text' ? b.text : generate(b.font, b.pre)).join('') + (tail || '');
     }
 
     return { parse, generate, generateFile, rangesOf, encodeRows, measures };

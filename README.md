@@ -965,18 +965,21 @@ for the panel (`GPIO_NUM_NC`) and its backlight on GPIO1:
 
 ```c
 dgx_bus_protocols_t *bus = dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_21, GPIO_NUM_48, GPIO_NUM_40,
-                                         GPIO_NUM_39, GPIO_NUM_47 /* sclk */, GPIO_NUM_45 /* cs */, 32 * 1000 * 1000, 0);
+                                         GPIO_NUM_39, GPIO_NUM_47 /* sclk */, GPIO_NUM_45 /* cs */, 40 * 1000 * 1000, 0);
 dgx_screen_t *scr = dgx_nv3041a_init(bus, GPIO_NUM_NC, GPIO_NUM_1, 16, DgxScreenRGB);
 ```
 
-The SPI clock is 80 MHz divided by a whole number, and a clock that does not
-divide evenly is rounded down: 32 MHz runs at 26.7 MHz. On that board 80 MHz
-garbles the picture.
+40 MHz is the limit the datasheet sets for four lines and RGB565, and the
+panel of that board works there. To stay within the datasheet, ask for
+26666667, which runs at 26.7 MHz: the SPI clock is 80 MHz divided by a whole
+number, and one that does not divide evenly is rounded down. 80 MHz garbles
+the picture.
 
 The panel of that board now and then writes a pair of pixels just outside a
 window it is sent. On a picture updated in small windows they stay behind as
 dots; a picture sent whole from a virtual screen, frame after frame, does not
-keep them. What was measured, and how to turn on the panel's TE line:
+keep them, so send this panel whole frames. A note on the whole panel, from
+how it takes pixels to its TE line, with what was measured and tried:
 [docs/nv3041a-en.md](docs/nv3041a-en.md) ([Russian](docs/nv3041a-ru.md)).
 
 For SSD1306, pick a geometry from `ssd1306_resolution_t`: `SSD1306_128X32`,
@@ -1428,6 +1431,7 @@ Declared under [include/bus/](include/bus):
 | `dgx_spi_init_on_bus(host_id, cs, dc, clock_speed_hz, cpolpha_mode)` | A display on an SPI host the program has initialized. |
 | `dgx_qspi_init(host_id, dma_chan, d0, d1, d2, d3, sclk, cs, clock_speed_hz, cpolpha_mode)` | QSPI bus on an SPI host: commands on one line, pixels on four, no D/C line. |
 | `dgx_qspi_init_on_bus(host_id, cs, clock_speed_hz, cpolpha_mode)` | A QSPI display on an SPI host the program has initialized with four data lines. |
+| `dgx_spi_init_with(..., options)`, `dgx_spi_init_on_bus_with(..., options)`, `dgx_qspi_init_with(..., options)`, `dgx_qspi_init_on_bus_with(..., options)` | The same four with choices of the program in a `dgx_spi_options_t`, such as the longest buffer; NULL for the defaults. |
 | `dgx_i2c_init(i2c_num, i2c_address, sda, sclk, clock_speed_hz)` | I2C master bus. |
 | `dgx_i2c_init_on_bus(i2c_bus, i2c_address, clock_speed_hz)` | A display on an I2C master bus the program owns. |
 | `dgx_p8_init(d0..d7, wr, rd, cs, dc, pclk_hz)` | 8-bit parallel (I80) bus. |
@@ -1479,7 +1483,27 @@ least and 32000 at most, in internal memory that DMA reaches: 4000 bytes on
 SPI at 40 MHz, as before, about 16000 on QSPI at 40 MHz. A slower clock
 takes a smaller buffer. DGX sets up its own
 hosts for 32000 bytes; on a host of the program the buffer is no longer
-than its `max_transfer_sz`.
+than its `max_transfer_sz`. The buffer is internal memory on every chip,
+and a program that needs that memory more than the speed sets the longest
+buffer itself:
+
+```c
+// the QSPI display of the JC4827W543 with a buffer of 8000 bytes instead of about 16000
+const dgx_spi_options_t options = {.buffer_max = 8000};
+dgx_bus_protocols_t *bus = dgx_qspi_init_with(SPI2_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_21, GPIO_NUM_48, GPIO_NUM_40, GPIO_NUM_39,
+                                              GPIO_NUM_47 /* sclk */, GPIO_NUM_45 /* cs */, 40 * 1000 * 1000, 0, &options);
+```
+
+A shorter buffer sends pixels in more pieces. The buffer is never longer
+than the limit, which may go below the 4000 bytes DGX takes at least; DGX
+cuts it down to a multiple of 16 bytes.
+A virtual screen of the depth of the display, sent unturned with no overlay
+layer, whose rows lie one after another in memory (its whole width, or a
+single row), goes to an SPI or QSPI display straight from where it lies, by
+DMA in pieces of the buffer, with nothing copied: from internal memory DMA
+reaches, or from PSRAM on an ESP32-S2, S3 or P4 when DMA from PSRAM keeps up
+with the wire, up to 26.7 MHz on four lines. Anything else goes through the
+halves of the buffer.
 The bus tables of DGX and the init tables of the panel drivers are not
 locked: create and dispose of backends and screens from one task.
 

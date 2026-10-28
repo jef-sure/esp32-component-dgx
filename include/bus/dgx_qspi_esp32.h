@@ -9,6 +9,7 @@
 
 
 #include "bus/dgx_bus_protocols.h"
+#include "bus/dgx_spi_esp32.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 
@@ -36,7 +37,7 @@ extern "C" {
  * @param dma_chan       DMA channel (e.g. SPI_DMA_CH_AUTO).
  * @param d0,d1,d2,d3    The four data GPIOs: D0 is MOSI, D1 MISO, D2 WP and D3 HD of the host.
  * @param sclk           Serial clock GPIO.
- * @param cs             Chip-select GPIO; the bus drives it itself and holds it low over all the pixels of a window.
+ * @param cs             Chip-select GPIO, driven by the SPI hardware for every transfer.
  * @param clock_speed_hz SPI clock in Hz (e.g. 40 * 1000 * 1000).
  * @param cpolpha_mode   SPI mode 0..3 (CPOL/CPHA); pass 0 for most panels.
  * @return Bus backend usable by panel drivers, or NULL on failure.
@@ -57,13 +58,27 @@ dgx_bus_protocols_t *dgx_qspi_init(spi_host_device_t host_id, spi_dma_chan_t dma
  * host stays the program's to free, after the backend.
  *
  * @param host_id        SPI host the program has initialized.
- * @param cs             Chip-select GPIO of the panel; the bus drives it itself and holds it low over all the pixels of a
- *                       window, the host held for that time, so no other device of the host is served in between.
+ * @param cs             Chip-select GPIO of the panel, driven by the SPI hardware for every transfer: other devices
+ *                       of the host are served between the pieces of a picture.
  * @param clock_speed_hz SPI clock of this device in Hz.
  * @param cpolpha_mode   SPI mode 0..3 (CPOL/CPHA); pass 0 for most panels.
  * @return Bus backend usable by panel drivers, or NULL on failure.
  */
 dgx_bus_protocols_t *dgx_qspi_init_on_bus(spi_host_device_t host_id, gpio_num_t cs, int clock_speed_hz, uint8_t cpolpha_mode);
+
+/**
+ * @brief dgx_qspi_init() with choices of the program, such as the longest buffer (dgx_spi_options_t).
+ * @param options NULL for the defaults, as dgx_qspi_init().
+ */
+dgx_bus_protocols_t *dgx_qspi_init_with(spi_host_device_t host_id, spi_dma_chan_t dma_chan, gpio_num_t d0, gpio_num_t d1, gpio_num_t d2, gpio_num_t d3,
+                                        gpio_num_t sclk, gpio_num_t cs, int clock_speed_hz, uint8_t cpolpha_mode, const dgx_spi_options_t *options);
+
+/**
+ * @brief dgx_qspi_init_on_bus() with choices of the program, such as the longest buffer (dgx_spi_options_t).
+ * @param options NULL for the defaults, as dgx_qspi_init_on_bus().
+ */
+dgx_bus_protocols_t *dgx_qspi_init_on_bus_with(spi_host_device_t host_id, gpio_num_t cs, int clock_speed_hz, uint8_t cpolpha_mode,
+                                               const dgx_spi_options_t *options);
 
 #ifdef __cplusplus
 // @formatter:off

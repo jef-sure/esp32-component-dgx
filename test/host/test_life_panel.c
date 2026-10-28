@@ -30,7 +30,7 @@
 
 static uint8_t panel[DW * DH * 2];
 static int     window_l, window_r, window_t, window_b, at_x, at_y;
-static bool    selected;
+static bool    window_begun; /* RAMWR has gone with pixels, and no command since */
 static uint8_t pending_command;
 static long    orphans;
 
@@ -43,7 +43,7 @@ static void put(const uint8_t *data, uint32_t bytes)
 }
 static void bus_write_command(struct _dgx_bus_protocols_t *bus, uint8_t cmd)
 {
-    selected = false;
+    window_begun = false;
     pending_command = cmd;
     if (cmd == RAMWR) at_x = window_l, at_y = window_t;
 }
@@ -56,16 +56,16 @@ static void bus_write_data(struct _dgx_bus_protocols_t *bus, const uint8_t *data
 }
 static void bus_write_data_async(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t lenbits)
 {
+    /* with RAMWR held the pixels begin at the window, with no command they go on, as 0x3C does */
     if (pending_command == RAMWR) {
         pending_command = 0;
-        selected = true;
-    } else if (!selected) {
+        window_begun = true;
+    } else if (!window_begun) {
         ++orphans;
     }
     put(data, lenbits / 8u);
 }
 static void bus_sync_write(struct _dgx_bus_protocols_t *bus) { pending_command = 0; }
-static void bus_end_pixels(struct _dgx_bus_protocols_t *bus) { selected = false; }
 
 typedef dgx_bit_matrix_t *(*seed_func_t)(void);
 
@@ -205,7 +205,7 @@ int main(int argc, char **argv)
     bus.bus_type = DGX_BUS_QSPI;
     bus.buffer = bus_buffer, bus.buffer_len = buffer_len;
     bus.write_command = bus_write_command, bus.write_data = bus_write_data, bus.write_data_async = bus_write_data_async;
-    bus.sync_write = bus_sync_write, bus.end_pixels = argc > 2 ? NULL : bus_end_pixels;
+    bus.sync_write = bus_sync_write;
     dgx_screen_with_bus_t *sbus = calloc(1, sizeof(*sbus));
     sbus->bus = &bus;
     dgx_screen_t *lcd = &sbus->scr;

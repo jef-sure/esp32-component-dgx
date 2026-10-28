@@ -44,10 +44,10 @@ static void dgx_vscreen_2h_update_area(dgx_screen_t *_scr, int left, int right, 
         top = DGX_MAX(0, top);
         bottom = DGX_MIN(scr->base.height - 1, bottom);
         if (top > bottom) return;
-        scr->left_screen->set_area(scr->left_screen, ll, lr, top, bottom);
-        scr->right_screen->set_area(scr->right_screen, rl - scr->left_screen->width, rr - scr->left_screen->width, top, bottom);
         scr->left_screen->wait_buffer(scr->left_screen);
         scr->right_screen->wait_buffer(scr->right_screen);
+        scr->left_screen->set_area(scr->left_screen, ll, lr, top, bottom);
+        scr->right_screen->set_area(scr->right_screen, rl - scr->left_screen->width, rr - scr->left_screen->width, top, bottom);
         uint16_t *lbuf = (uint16_t *)lbus->buffer;
         uint16_t *rbuf = (uint16_t *)rbus->buffer;
         for (int br = top; br <= bottom; ++br) {

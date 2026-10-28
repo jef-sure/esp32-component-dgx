@@ -165,15 +165,18 @@ static bool dgx_transfer_bus_takes(const dgx_screen_t *dst, uint8_t bytes)
  * on to the next half with no pause. A half is of whole pixels, and of
  * whole rows where a row fits in it: a row is then not cut, and a display
  * whose window goes with its pixels is not told a window for the rest of a
- * row. A rectangle the whole buffer takes goes in one piece: a second one
- * would cost a transfer of its own. A buffer too small for two halves of a
- * pixel each is one half, and every piece of it is waited for.
+ * row. What is left over after whole halves goes first, so the wire starts
+ * once that much is copied, and the pieces are as many. A rectangle the
+ * whole buffer takes goes in one piece: a second one would cost a transfer
+ * of its own. A buffer too small for two halves of a pixel each is one half,
+ * and every piece of it is waited for.
  */
 typedef struct {
     dgx_screen_t *scr;
     uint8_t      *half[2];
     uint8_t      *at;    /* where the next byte goes */
     uint32_t      len;   /* bytes of a half */
+    uint32_t      cap;   /* bytes of the half being filled: len, or the leftover that goes first */
     int           which; /* the half being filled */
     bool          alone; /* one half only */
 } dgx_vscreen_halves_t;
@@ -205,13 +208,16 @@ static inline void dgx_vscreen_halves_begin(dgx_vscreen_halves_t *h, dgx_screen_
     h->half[0] = h->at = buffer;
     h->half[1]         = h->alone ? buffer : buffer + len;
     h->len             = len;
+    h->cap             = len;
     h->which           = 0;
+    /* what is left over after whole halves goes first: the wire starts once that much is copied, with as many pieces */
+    if (all_bytes > buffer_len && !h->alone && all_bytes % len) h->cap = all_bytes % len;
 }
 
 /* bytes left in the half being filled */
 static inline uint32_t dgx_vscreen_halves_room(const dgx_vscreen_halves_t *h)
 {
-    return h->len - (uint32_t)(h->at - h->half[h->which]);
+    return h->cap - (uint32_t)(h->at - h->half[h->which]);
 }
 
 /* the half filled goes to the display, the other one is filled next */
@@ -220,7 +226,8 @@ static inline void dgx_vscreen_halves_send(dgx_vscreen_halves_t *h)
     h->scr->write_area(h->scr, h->half[h->which], 8u * (uint32_t)(h->at - h->half[h->which]));
     if (h->alone) h->scr->wait_buffer(h->scr);
     h->which ^= 1;
-    h->at = h->half[h->which];
+    h->at  = h->half[h->which];
+    h->cap = h->len;
 }
 
 /* what is left goes, and all of it has gone when this returns */
@@ -234,8 +241,9 @@ static inline void dgx_vscreen_halves_end(dgx_vscreen_halves_t *h)
 static void dgx_vscreen_halves_window(dgx_vscreen_halves_t *h, dgx_screen_t *dst, int x, int y, int w, int h_rows, uint32_t bytes)
 {
     dgx_bus_protocols_t *bus = ((dgx_screen_with_bus_t *)dst)->bus;
-    dst->set_area(dst, (uint16_t)x, (uint16_t)(x + w - 1), (uint16_t)y, (uint16_t)(y + h_rows - 1));
+    /* the buffer free first: waiting after the window would send its memory write alone, ahead of the pixels */
     dst->wait_buffer(dst);
+    dst->set_area(dst, (uint16_t)x, (uint16_t)(x + w - 1), (uint16_t)y, (uint16_t)(y + h_rows - 1));
     const uint32_t row_bytes = (uint32_t)w * bytes;
     dgx_vscreen_halves_begin(h, dst, bus->buffer, bus->buffer_len, bytes, row_bytes, row_bytes * (uint32_t)h_rows);
 }
@@ -294,6 +302,31 @@ static bool dgx_vscreen_rows_to_bus(dgx_screen_t *_scr_dst, int x_dst, int y_dst
     const uint32_t bip = dgx_color_points_to_bytes(scr_src->base.color_bits, 1);
     return bus->write_rows(bus, (uint16_t)x_dst, (uint16_t)y_dst, (uint16_t)width, (uint16_t)height,
                            DGX_VSCR_PTR(scr_src, DGX_VSCR_OFFSET(scr_src, x_src, y_src)), (uint32_t)scr_src->base.width * bip);
+}
+
+/*
+ * A rectangle whose rows lie one after another in the virtual screen, its
+ * whole rows or a single row, handed in one write to a display whose bus
+ * sends from there by DMA as the pixels lie: no copy into the bus buffer,
+ * the bus cuts the pixels into its transfers. The depth is the same on both
+ * sides, a virtual screen keeps the byte order of the wire, and the picture
+ * is not turned, so the rows go as they are. All of them have gone when this
+ * returns, as through the halves.
+ */
+static bool dgx_vscreen_in_place_to_bus(dgx_screen_t *dst, int x_dst, int y_dst, dgx_vscreen_t *scr_src, int x_src, int y_src, int width, int height,
+                                        uint8_t bytes)
+{
+    if (!dgx_transfer_bus_takes(dst, bytes)) return false;
+    if (width != scr_src->base.width && height != 1) return false;
+    if (!dst->set_area || !dst->write_area || !dst->wait_buffer) return false;
+    dgx_bus_protocols_t *bus  = ((dgx_screen_with_bus_t *)dst)->bus;
+    uint8_t             *from = DGX_VSCR_PTR(scr_src, DGX_VSCR_OFFSET(scr_src, x_src, y_src));
+    if (!bus->sends_from || !bus->sends_from(bus, from)) return false;
+    dst->wait_buffer(dst);
+    dst->set_area(dst, (uint16_t)x_dst, (uint16_t)(x_dst + width - 1), (uint16_t)y_dst, (uint16_t)(y_dst + height - 1));
+    dst->write_area(dst, from, (uint32_t)width * (uint32_t)height * bytes * 8u);
+    dst->wait_buffer(dst);
+    return true;
 }
 
 /*
@@ -383,6 +416,7 @@ static bool dgx_transfer_as_it_is(dgx_screen_t *dst, const dgx_transfer_place_t 
         /* the bus has taken the pixels as they lie in memory */
         return true;
     }
+    if (!transparent && !over && rows && dgx_vscreen_in_place_to_bus(dst, p->x, p->y, scr_src, sx, sy, p->w, p->h, bytes)) return true;
     if (rows && !transparent && dgx_transfer_bus_takes(dst, bytes)) {
         dgx_vscreen_halves_t halves;
         dgx_vscreen_halves_window(&halves, dst, p->x, p->y, p->w, p->h, bytes);
@@ -478,8 +512,8 @@ static bool dgx_transfer_turned_to_bus(dgx_screen_t *dst, const dgx_transfer_pla
     const size_t         pitch   = (size_t)src->width * bip;
     if (!bus->buffer || bus->buffer_len < bip || !dst->set_area || !dst->write_area || !dst->wait_buffer) return false;
     const bool swapped = p->turn & 4u, x_back = p->turn & 1u, y_back = p->turn & 2u;
-    dst->set_area(dst, (uint16_t)p->x, (uint16_t)(p->x + p->w - 1), (uint16_t)p->y, (uint16_t)(p->y + p->h - 1));
     dst->wait_buffer(dst);
+    dst->set_area(dst, (uint16_t)p->x, (uint16_t)(p->x + p->w - 1), (uint16_t)p->y, (uint16_t)(p->y + p->h - 1));
     const uint32_t       row_bytes = (uint32_t)p->w * bip;
     dgx_vscreen_halves_t halves;
     dgx_vscreen_halves_begin(&halves, dst, bus->buffer, bus->buffer_len - bus->buffer_len % bip, (uint32_t)bip, row_bytes, row_bytes * (uint32_t)p->h);

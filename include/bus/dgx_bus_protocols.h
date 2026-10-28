@@ -41,6 +41,7 @@ typedef void (*dgx_bus_write_data_func)(struct _dgx_bus_protocols_t *bus, const 
 typedef uint32_t (*dgx_bus_read_data_func)(struct _dgx_bus_protocols_t *bus, uint8_t *data, uint32_t len);
 typedef void (*dgx_bus_write_data_async_func)(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t len);
 typedef void (*dgx_bus_sync_write_func)(struct _dgx_bus_protocols_t *bus);
+typedef bool (*dgx_bus_sends_from_func)(struct _dgx_bus_protocols_t *bus, const void *pixels);
 
 /*
  * Special protocol functions
@@ -166,6 +167,20 @@ typedef bool (*dgx_bus_write_indexed_func)(struct _dgx_bus_protocols_t *bus, uin
 typedef bool (*dgx_bus_move_func)(struct _dgx_bus_protocols_t *bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height, uint16_t to_left,
                                   uint16_t to_top);
 
+/*
+ * A bus that sends a command in one transfer with its data, as the QSPI and
+ * the 8-bit parallel buses do, holds the command back until the data come.
+ * Then:
+ * - write_data() sends the held command with the data as its parameters;
+ * - write_data_async() sends the held command with the data as pixels, and
+ *   with no command held the data are always pixels that go on where the
+ *   ones before ended (on QSPI, with 0x3C, the memory write continue);
+ * - sync_write() sends a held command alone, with no data: a window set and
+ *   then waited for sends its memory write bare, ahead of the pixels;
+ * - write_commands() on QSPI sends every byte as a command of its own, so a
+ *   panel that takes its window as commands with the bounds in them
+ *   (DGX_SCREEN_AREA_PROTO_CMD8) cannot be on that bus.
+ */
 typedef struct _dgx_bus_protocols_t {
     enum dgx_bus_type bus_type;
     const char *bus_name;
@@ -184,11 +199,12 @@ typedef struct _dgx_bus_protocols_t {
     dgx_bus_move_func move;             /*!< NULL for a bus whose pixels are not memory at hand */
     dgx_bus_write_indexed_func write_indexed; /*!< NULL for a bus that has only its window for indices */
     /*!
-     * The last pixel of the window has been handed over: a bus that holds its
-     * chip select over all the pixels of a window lets it go when they are
-     * sent. NULL for a bus that does not hold it.
+     * true when write_data_async() sends pixels at this address by DMA where
+     * they lie, in internal memory or in PSRAM, with nothing copied: a caller
+     * whose pixels lie in one piece then hands them over as they are instead
+     * of copying them into the bus buffer. NULL for a bus that always copies.
      */
-    dgx_bus_sync_write_func end_pixels;
+    dgx_bus_sends_from_func sends_from;
 } dgx_bus_protocols_t;
 
 #ifdef __cplusplus

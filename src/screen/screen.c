@@ -70,6 +70,12 @@ static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, in
     uint8_t *lp  = draw_buffer;
     uint32_t pic = draw_buffer ? dgx_bytes_to_color_points(scr->color_bits, draw_buffer_len) : 0;
     if (pic > fill_scr_size) pic = fill_scr_size;
+    /* pixels in steps of `whole` end on a whole byte, as 12-bit ones do by pairs; the bytes of 8 pixels are the bits
+     * of one. A buffer sent more than once ends on one, or the pixels after it would start inside a byte. */
+    const uint32_t pixel_bits = dgx_color_points_to_bytes(scr->color_bits, 8u);
+    uint32_t       whole      = 1;
+    while (whole * pixel_bits % 8u) ++whole;
+    if (pic < fill_scr_size) pic -= pic % whole;
     if (pic == 0) {
         /* no buffer to send from, as a bus that was given none has, or a depth pixels are not counted in */
         ESP_LOGE("DGX SLOW BUS FUNC", "no draw buffer for fill_rectangle");
@@ -78,9 +84,20 @@ static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, in
         return;
     }
     if (scr->wait_buffer) scr->wait_buffer(scr);
-    dgx_fill_pixels(scr->color_bits, lp, 0, pic, color); // index inside the buffer, not on the screen
+    /* What is left over after whole buffers goes first: the wire starts once that much is filled, and the rest of
+     * the buffer is filled while it is on its way. The pieces are as many, so this is never slower. A leftover that
+     * does not end on a whole byte stays last, as the pieces after it start at the beginning of the buffer. */
+    uint32_t first = fill_scr_size % pic;
+    if (first % whole) first = 0;
+    dgx_fill_pixels(scr->color_bits, lp, 0, first ? first : pic, color); // index inside the buffer, not on the screen
     uint32_t pic_lenbits = dgx_color_points_to_bytes(scr->color_bits, pic) * 8u;
     scr->set_area(scr, x, x + w - 1, y, y + h - 1);
+    if (first) {
+        const uint32_t first_bytes = dgx_color_points_to_bytes(scr->color_bits, first);
+        scr->write_area(scr, draw_buffer, first_bytes * 8u);
+        fill_scr_size -= first;
+        dgx_fill_pixels(scr->color_bits, lp + first_bytes, 0, pic - first, color); // past the bytes on their way
+    }
     while (fill_scr_size != 0) {
         uint32_t lenbits;
         if (fill_scr_size >= pic) {

@@ -1,4 +1,5 @@
 #include "dgx_font.h"
+/* font2c: DejaVuSansBook32, "DejaVu Sans" "Book" at 32 px */
 static const uint8_t bitmaps[] = {
   /* 0020 - space */
 /*   */

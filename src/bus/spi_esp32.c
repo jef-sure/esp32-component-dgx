@@ -14,7 +14,10 @@
 #include "dgx_spi_esp32_priv.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_memory_utils.h"
 #include "hal/gpio_ll.h"
+#include "sdkconfig.h"
+#include "soc/soc_caps.h"
 #include "soc/gpio_reg.h"
 
 static const char TAG[] = "DGX SPI BUS";
@@ -69,11 +72,9 @@ void dgx_spi_wait_pending(struct _dgx_bus_protocols_t *_bus)
     spi_transaction_t *rtrans;
     /* the only transfers left on their way when a call returns are those of pixels, in trans_data */
     while (bus->data_queued) {
+        rtrans        = NULL;
         esp_err_t ret = spi_device_get_trans_result(bus->spi, &rtrans, portMAX_DELAY);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "dgx_spi_wait_pending:spi_device_get_trans_result failed");
-            assert(0); // Crash!
-        }
+        dgx_spi_check_result(ret, rtrans, &bus->psram_late, "dgx_spi_wait_pending:spi_device_get_trans_result");
         if (rtrans == &bus->trans_data[0] || rtrans == &bus->trans_data[1]) --bus->data_queued;
     }
 }
@@ -188,6 +189,7 @@ static spi_transaction_t *dgx_spi_data_trans(dgx_spi_bus_t *bus, const uint8_t *
         memcpy(trans->tx_data, data, (len + 7u) / 8u);
     } else {
         trans->tx_buffer = data;
+        if (!bus->psram_late && esp_ptr_external_ram(data) && dgx_spi_dma_reaches(bus->host_id, data)) trans->flags = SPI_TRANS_DMA_USE_PSRAM;
     }
     trans->length = len;
     trans->user   = set_dc_pin(bus->dcio, 1);
@@ -200,20 +202,12 @@ static spi_transaction_t *dgx_spi_data_trans(dgx_spi_bus_t *bus, const uint8_t *
  * processor to queue it, and only this one is on its way when it returns, as
  * before. A short one is polled, after all the others.
  */
-static void dgx_spi_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
+static void dgx_spi_send_piece(dgx_spi_bus_t *bus, const uint8_t *data, uint32_t len)
 {
-    dgx_spi_bus_t *bus = (dgx_spi_bus_t *)_bus;
-    if (len == 0) {
-        ESP_LOGE(TAG, "dgx_spi_send_data_async len == 0!");
-        return;
-    }
     if (len <= 2048) {
-        if (bus->data_queued) dgx_spi_wait_pending(_bus);
-        esp_err_t rc = spi_device_polling_transmit(bus->spi, dgx_spi_data_trans(bus, data, len));
-        if (rc != ESP_OK) {
-            ESP_LOGE(TAG, "spi_device_polling_transmit/dgx_spi_send_data_async failed");
-            assert(0);
-        }
+        if (bus->data_queued) dgx_spi_wait_pending(&bus->protocols);
+        spi_transaction_t *trans = dgx_spi_data_trans(bus, data, len);
+        dgx_spi_check_result(spi_device_polling_transmit(bus->spi, trans), trans, &bus->psram_late, "spi_device_polling_transmit/dgx_spi_send_data_async");
         return;
     }
     esp_err_t rc = spi_device_queue_trans(bus->spi, dgx_spi_data_trans(bus, data, len), portMAX_DELAY);
@@ -223,12 +217,38 @@ static void dgx_spi_send_data_async(struct _dgx_bus_protocols_t *_bus, const uin
     }
     /* results come in the order the transfers were queued: the first ones are those before this one */
     for (++bus->data_queued; bus->data_queued > 1; --bus->data_queued) {
-        spi_transaction_t *rtrans;
-        if (spi_device_get_trans_result(bus->spi, &rtrans, portMAX_DELAY) != ESP_OK) {
-            ESP_LOGE(TAG, "dgx_spi_send_data_async:spi_device_get_trans_result failed");
-            assert(0);
-        }
+        spi_transaction_t *rtrans = NULL;
+        dgx_spi_check_result(spi_device_get_trans_result(bus->spi, &rtrans, portMAX_DELAY), rtrans, &bus->psram_late,
+                             "dgx_spi_send_data_async:spi_device_get_trans_result");
     }
+}
+
+/*
+ * Pixels, in pieces no longer than the buffer of the bus: the host takes no
+ * transfer longer than that, and a caller of write_area may hand a whole
+ * frame. A piece is a multiple of 12 bytes, whole pixels of 2, 3 and 4 bytes
+ * and whole words for the DMA; the panel goes on writing its memory from one
+ * to the next, as it does between the pieces of a fill.
+ */
+static void dgx_spi_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
+{
+    dgx_spi_bus_t *bus = (dgx_spi_bus_t *)_bus;
+    if (len == 0) {
+        ESP_LOGE(TAG, "dgx_spi_send_data_async len == 0!");
+        return;
+    }
+    const uint32_t most = (uint32_t)(bus->protocols.buffer_len - bus->protocols.buffer_len % 12u) * 8u;
+    /* a piece no longer than the buffer goes whole, the buffer itself above all */
+    if (len <= bus->protocols.buffer_len * 8u) {
+        dgx_spi_send_piece(bus, data, len);
+        return;
+    }
+    while (most && len > most) {
+        dgx_spi_send_piece(bus, data, most);
+        data += most / 8u;
+        len -= most;
+    }
+    dgx_spi_send_piece(bus, data, len);
 }
 
 /*
@@ -273,6 +293,8 @@ esp_err_t dgx_spi_take_host(spi_host_device_t host_id, spi_dma_chan_t dma_chan, 
     buscfg.sclk_io_num     = sclk;
     buscfg.quadwp_io_num   = quadwp;
     buscfg.quadhd_io_num   = quadhd;
+    /* not 0: ESP-IDF 6.0 and 6.1 take a quad bus for an octal one in the GPIO matrix and route data4 to data7 to GPIO 0 */
+    buscfg.data4_io_num = buscfg.data5_io_num = buscfg.data6_io_num = buscfg.data7_io_num = -1;
     buscfg.max_transfer_sz = DGX_SPI_MAX_TRANSFER; // only the DMA descriptors depend on it, a few for 32000 bytes
     if (quadwp != GPIO_NUM_NC) buscfg.flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_QUAD;
     esp_err_t rc = spi_bus_initialize(host_id, &buscfg, dma_chan);
@@ -297,7 +319,7 @@ void dgx_spi_release_host(spi_host_device_t host_id)
     h->taken = false;
 }
 
-size_t dgx_spi_buffer_len(spi_host_device_t host_id, spi_device_handle_t dev, unsigned data_lines)
+size_t dgx_spi_buffer_len(spi_host_device_t host_id, spi_device_handle_t dev, unsigned data_lines, size_t most)
 {
     int khz = 0;
     if (spi_device_get_actual_freq(dev, &khz) != ESP_OK) khz = 0;
@@ -306,10 +328,59 @@ size_t dgx_spi_buffer_len(spi_host_device_t host_id, spi_device_handle_t dev, un
     uint64_t       bits    = (uint64_t)khz * data_lines * 2u * half_us / 1000u;
     uint64_t       len     = bits / 8u;
     if (len > DGX_SPI_MAX_TRANSFER) len = DGX_SPI_MAX_TRANSFER;
-    size_t most = 0;
-    if (spi_bus_get_max_transaction_len(host_id, &most) == ESP_OK && most && len > most) len = most;
+    size_t host_most = 0;
+    if (spi_bus_get_max_transaction_len(host_id, &host_most) == ESP_OK && host_most && len > host_most) len = host_most;
     if (len < DGX_SPI_MIN_BUFFER) len = DGX_SPI_MIN_BUFFER;
-    return (size_t)len & ~(size_t)3; // whole words
+    /* the program's limit is the most, below the least DGX takes too; the length goes down to a multiple of 16
+     * bytes, or of a word under 16, one word at least. The SPI driver asks nothing of a buffer it sends from
+     * internal memory (alignment 1 for TX in IDF 5.5 and 6.1); 16 bytes is what DMA from PSRAM asks under flash
+     * encryption or PSRAM ECC, and costs at most 12 bytes. */
+    if (most && len > most) len = most;
+    const uint64_t words = len & ~(uint64_t)3;
+    len &= ~(uint64_t)15;
+    if (!len) len = words ? words : 4u;
+    return (size_t)len;
+}
+
+void dgx_spi_check_result(esp_err_t rc, const spi_transaction_t *trans, bool *psram_late, const char *what)
+{
+    if (rc == ESP_OK) return;
+    if (rc == ESP_ERR_INVALID_STATE && trans && (trans->flags & SPI_TRANS_DMA_TX_FAIL)) {
+        if (!*psram_late) ESP_LOGE(TAG, "pixels from PSRAM came too late for the DMA at this clock; they go through internal memory from now on");
+        *psram_late = true;
+        return;
+    }
+    ESP_LOGE(TAG, "%s failed: %s", what, esp_err_to_name(rc));
+    assert(0);
+}
+
+bool dgx_spi_psram_too_slow(spi_device_handle_t dev, unsigned data_lines)
+{
+    int khz = 0;
+    if (spi_device_get_actual_freq(dev, &khz) != ESP_OK || khz <= 0) return true;
+    return (uint64_t)khz * data_lines > DGX_SPI_PSRAM_DMA_KBITS;
+}
+
+bool dgx_spi_dma_reaches(spi_host_device_t host_id, const void *pixels)
+{
+    (void)host_id;
+    if (esp_ptr_external_ram(pixels)) {
+#if CONFIG_SPIRAM && SOC_PSRAM_DMA_CAPABLE
+#if CONFIG_IDF_TARGET_ESP32S2
+        if (host_id == SPI3_HOST) return false;
+#endif
+        return esp_ptr_dma_ext_capable(pixels);
+#else
+        return false;
+#endif
+    }
+    return esp_ptr_dma_capable(pixels) && ((uintptr_t)pixels & 3u) == 0;
+}
+
+static bool dgx_spi_sends_from(struct _dgx_bus_protocols_t *_bus, const void *pixels)
+{
+    const dgx_spi_bus_t *bus = (const dgx_spi_bus_t *)_bus;
+    return !(bus->psram_late && esp_ptr_external_ram(pixels)) && dgx_spi_dma_reaches(bus->host_id, pixels);
 }
 
 void dgx_spi_host_join(spi_host_device_t host_id)
@@ -341,7 +412,8 @@ static uint8_t *dgx_spi_memory_allocator(uint32_t len)
 
 /* the display's device added to an initialized host: the part both constructors share */
 static dgx_bus_protocols_t *dgx_spi_attach(spi_host_device_t host_id, bool owns_host, spi_dma_chan_t dma_chan, gpio_num_t mosi, gpio_num_t miso,
-                                           gpio_num_t sclk, gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t cpolpha_mode)
+                                           gpio_num_t sclk, gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t cpolpha_mode,
+                                           const dgx_spi_options_t *options)
 {
     dgx_spi_bus_t *bus = (dgx_spi_bus_t *)heap_caps_calloc(1, sizeof(dgx_spi_bus_t), MALLOC_CAP_DMA);
     if (bus == 0) {
@@ -356,6 +428,7 @@ static dgx_bus_protocols_t *dgx_spi_attach(spi_host_device_t host_id, bool owns_
     bus->protocols.write_data       = dgx_spi_send_data;
     bus->protocols.write_data_async = dgx_spi_send_data_async;
     bus->protocols.sync_write       = dgx_spi_sync_write;
+    bus->protocols.sends_from       = dgx_spi_sends_from;
     bus->protocols.dispose          = dgx_spi_dispose_bus_func;
     bus->protocols.memory_allocator = dgx_spi_memory_allocator;
     bus->owns_host             = owns_host;
@@ -387,8 +460,9 @@ static dgx_bus_protocols_t *dgx_spi_attach(spi_host_device_t host_id, bool owns_
         heap_caps_free(bus);
         return NULL;
     }
-    /* the clock the device has really got decides the length of the buffer */
-    bus->protocols.buffer_len = dgx_spi_buffer_len(host_id, bus->spi, 1);
+    /* the clock the device has really got decides the length of the buffer, and whether DMA from PSRAM keeps up */
+    bus->protocols.buffer_len = dgx_spi_buffer_len(host_id, bus->spi, 1, options ? options->buffer_max : 0);
+    bus->psram_late           = dgx_spi_psram_too_slow(bus->spi, 1);
     bus->protocols.buffer     = bus->protocols.memory_allocator(bus->protocols.buffer_len);
     if (!bus->protocols.buffer) {
         ESP_LOGE(TAG, "dgx_spi_init buffer allocation failed");
@@ -399,11 +473,11 @@ static dgx_bus_protocols_t *dgx_spi_attach(spi_host_device_t host_id, bool owns_
     return (dgx_bus_protocols_t *)bus;
 }
 
-dgx_bus_protocols_t *dgx_spi_init(spi_host_device_t host_id, spi_dma_chan_t dma_chan, gpio_num_t mosi, gpio_num_t miso, gpio_num_t sclk,
-                                  gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t /* default = 0 */ cpolpha_mode)
+dgx_bus_protocols_t *dgx_spi_init_with(spi_host_device_t host_id, spi_dma_chan_t dma_chan, gpio_num_t mosi, gpio_num_t miso, gpio_num_t sclk,
+                                       gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t cpolpha_mode, const dgx_spi_options_t *options)
 {
     if (dgx_spi_take_host(host_id, dma_chan, mosi, miso, sclk, GPIO_NUM_NC, GPIO_NUM_NC) != ESP_OK) return NULL;
-    dgx_bus_protocols_t *bus = dgx_spi_attach(host_id, true, dma_chan, mosi, miso, sclk, cs, dc, clock_speed_hz, cpolpha_mode);
+    dgx_bus_protocols_t *bus = dgx_spi_attach(host_id, true, dma_chan, mosi, miso, sclk, cs, dc, clock_speed_hz, cpolpha_mode, options);
     if (!bus) {
         dgx_spi_release_host(host_id);
         return NULL;
@@ -412,11 +486,23 @@ dgx_bus_protocols_t *dgx_spi_init(spi_host_device_t host_id, spi_dma_chan_t dma_
     return bus;
 }
 
-dgx_bus_protocols_t *dgx_spi_init_on_bus(spi_host_device_t host_id, gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t cpolpha_mode)
+dgx_bus_protocols_t *dgx_spi_init(spi_host_device_t host_id, spi_dma_chan_t dma_chan, gpio_num_t mosi, gpio_num_t miso, gpio_num_t sclk,
+                                  gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t /* default = 0 */ cpolpha_mode)
+{
+    return dgx_spi_init_with(host_id, dma_chan, mosi, miso, sclk, cs, dc, clock_speed_hz, cpolpha_mode, NULL);
+}
+
+dgx_bus_protocols_t *dgx_spi_init_on_bus_with(spi_host_device_t host_id, gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t cpolpha_mode,
+                                              const dgx_spi_options_t *options)
 {
     if (host_id < 0 || host_id >= SOC_SPI_PERIPH_NUM) {
         ESP_LOGE(TAG, "SPI host %d does not exist", (int)host_id);
         return NULL;
     }
-    return dgx_spi_attach(host_id, false, SPI_DMA_CH_AUTO, GPIO_NUM_NC, GPIO_NUM_NC, GPIO_NUM_NC, cs, dc, clock_speed_hz, cpolpha_mode);
+    return dgx_spi_attach(host_id, false, SPI_DMA_CH_AUTO, GPIO_NUM_NC, GPIO_NUM_NC, GPIO_NUM_NC, cs, dc, clock_speed_hz, cpolpha_mode, options);
+}
+
+dgx_bus_protocols_t *dgx_spi_init_on_bus(spi_host_device_t host_id, gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t cpolpha_mode)
+{
+    return dgx_spi_init_on_bus_with(host_id, cs, dc, clock_speed_hz, cpolpha_mode, NULL);
 }

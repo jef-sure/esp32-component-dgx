@@ -417,37 +417,42 @@ drawn): one font per file.
 At small sizes a rendered glyph sometimes comes out wrong on the panel: a
 stem broken, a letter off its line, an accent in the wrong place. The font
 editor of DGX, `font-editor/index.html`, opens a `.c` written by `font2c`,
-lets you redraw the glyphs pixel by pixel and change their size, advance and
-offsets, and saves the result as a **patch**, `<name>.patch.json`. The `.c`
-is never edited by hand: `font2c` makes it again from the face and the patch,
-and every glyph of the patch replaces the rendered one completely, with its
-own size and metrics. A font made again keeps the fixes.
+lets you redraw the glyphs pixel by pixel, change their size, advance and
+offsets or fit them to the pixels, and saves the result as a **patch**. The
+`.c` is never edited by hand: `font2c` makes it again from the face and the
+patch, and every glyph of the patch replaces the rendered one completely,
+with its own size and metrics. A font made again keeps the fixes.
 
-A patch belongs to one font: one face at one size. Its file name is the name
-`font2c` gives that font, the family, the style and the size with spaces and
-punctuation removed, as in `DroidSansRegular9.patch.json`, and the patch
-records the same name and the size inside. `font2c` refuses a patch that was
-made for another font or size.
+The editor saves one patch for the whole `.c`, with a part for every font of
+it that has changes. A part names its font, by the name `font2c` gives it
+(the family, the style and the size with spaces and punctuation removed, as
+in `DroidSansRegular9`), and its size; `font2c` gives each font it makes the
+part that names it. The patch of a `.c` of one font is named after that
+font, `DroidSansRegular9.patch.json`; the patch of a `.c` of several, such as
+`build/dgx_fonts/dgx_fonts.c`, is named after the file, `dgx_fonts.patch.json`.
+A patch named for a font, by `PATCH` or by its file name, that has no part for
+it is refused.
 
 A font rendered at build time takes its patch without being asked:
 
 1. the file named by `PATCH` (or `patch` in a needs file), if any;
-2. otherwise `<name>.patch.json` next to the CMakeLists or the needs file
-   that declares the need;
+2. otherwise a `.patch.json` with a part for the font next to the CMakeLists
+   or the needs file that declares the need;
 3. then next to the `SOURCE` file, for a need with one;
 4. then in `src/fonts/` of DGX, where DGX keeps the fixes of the faces its
    own fonts come from.
 
-The first one found wins. A patch added or changed in one of these places
-makes the fonts again on the next build. A font used as is (`DGX`, `FILE`)
+The first one found wins. Two patches of one directory with a part for the
+same font stop the build, with both named. A patch added or changed in one
+of these places makes the fonts again on the next build. A font used as is (`DGX`, `FILE`)
 is not patched: it is a `.c` already, made with its patch if it had one.
 A patch may have glyphs the font does not need; they are skipped, so one
 patch serves every need of that face and size, whatever characters each
 asks for.
 
 `font2c` takes the same patches directly: `-p <file>` names one, `-P <dir>`
-(repeatable) looks for `<name>.patch.json` in a directory. Both can also be
-used on a line of a `-jo` list.
+(repeatable) looks in a directory for a patch with a part for the font. Both
+can also be used on a line of a `-jo` list.
 
 ## What you get
 

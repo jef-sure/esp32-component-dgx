@@ -28,9 +28,9 @@
 # uses, with what its file says of its license; a deny in the rules keeps a font out however it is asked for.
 #
 # A font rendered from a face takes its patch, the fixes made to it in the font editor of DGX: the one PATCH names,
-# or else <name>.patch.json, <name> being the name font2c gives the font (family, style and size), found beside the
-# CMakeLists that declares the need, beside its SOURCE, or in src/fonts of DGX. A patch added or changed there makes
-# the fonts again.
+# or else a .patch.json with a part for the font, which names it by the name font2c gives it (family, style and
+# size), found beside the CMakeLists that declares the need, beside its SOURCE, or in src/fonts of DGX. A patch added
+# or changed there makes the fonts again.
 
 set(DGX_FONTS_COMPONENT_DIR "${COMPONENT_DIR}")
 set(DGX_FONTS_COMPONENT_NAME "${COMPONENT_NAME}")

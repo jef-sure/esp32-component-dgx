@@ -1,4 +1,5 @@
 #include "dgx_font.h"
+/* font2c: TerminusTTFMedium12, "Terminus (TTF)" "Medium" at 12 px */
 static const uint8_t bitmaps[] = {
   /* 0020 - space */
 /*        */

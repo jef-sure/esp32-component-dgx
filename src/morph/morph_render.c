@@ -333,9 +333,9 @@ static void glow_send(dgx_morph_glow_t *g, dgx_screen_t *scr, int x_dst, int y_d
             buffer_pixels = (size_t)width;
         }
         if (buffer) {
-            scr->set_area(scr, (uint16_t)(x_dst + left), (uint16_t)(x_dst + right - 1), (uint16_t)(y_dst + top), (uint16_t)(y_dst + bottom - 1));
-            /* what was sent before may still be on its way to the panel from this buffer */
+            /* what was sent before may still be on its way to the panel from this buffer; waited for before the window, not after it */
             if (scr->wait_buffer) scr->wait_buffer(scr);
+            scr->set_area(scr, (uint16_t)(x_dst + left), (uint16_t)(x_dst + right - 1), (uint16_t)(y_dst + top), (uint16_t)(y_dst + bottom - 1));
             for (int y = top; y < bottom; ++y) {
                 const uint8_t *row = (map ? map + (size_t)y * g->width : glow_blurred_row(g, y)) + left;
                 for (int todo = width; todo > 0;) {

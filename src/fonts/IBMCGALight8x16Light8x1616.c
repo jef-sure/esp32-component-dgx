@@ -1,4 +1,14 @@
+/*
+ * IBM CGA Light 8x16 of the IBM fonts of farsil: icl8x16u.bdf of
+ * https://github.com/farsil/ibmfonts, "BDF conversion (c) 2016 farsil".
+ * Licensed under Creative Commons Attribution-ShareAlike 4.0 International,
+ * https://creativecommons.org/licenses/by-sa/4.0/
+ * Changed: turned into a TTF by bdf2ttf and into this C file by font2c of
+ * DGX at 16 px. This file and any font made from it are under the same
+ * license.
+ */
 #include "dgx_font.h"
+/* font2c: IBMCGALight8x16Light8x1616, "IBM CGA Light 8x16" "Light8x16" at 16 px */
 static const uint8_t bitmaps[] = {
   /* 0000 - uni0000.dup1 */
 /*          */

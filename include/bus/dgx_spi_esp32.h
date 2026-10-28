@@ -75,6 +75,37 @@ dgx_bus_protocols_t* dgx_spi_init(          //
  */
 dgx_bus_protocols_t *dgx_spi_init_on_bus(spi_host_device_t host_id, gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t cpolpha_mode);
 
+/**
+ * @brief Choices of the program for an SPI or QSPI display; the constructors without _with take the defaults.
+ */
+typedef struct {
+    /*!
+     * The most bytes the buffer of the display may take, 0 for as long as DGX
+     * picks by the clock. The buffer is in internal memory that DMA reaches,
+     * on every chip, and a fast bus takes a long one: up to 32000 bytes for
+     * QSPI. A shorter buffer saves that memory and sends pixels in more
+     * pieces, each of which costs about 25 us to start. The buffer is never
+     * longer than this, also below the 4000 bytes DGX takes at least: DGX
+     * cuts it down to a multiple of 16 bytes (of 4 under 16, and takes 4 for
+     * less than that).
+     */
+    size_t buffer_max;
+} dgx_spi_options_t;
+
+/**
+ * @brief dgx_spi_init() with choices of the program.
+ * @param options NULL for the defaults, as dgx_spi_init().
+ */
+dgx_bus_protocols_t *dgx_spi_init_with(spi_host_device_t host_id, spi_dma_chan_t dma_chan, gpio_num_t mosi, gpio_num_t miso, gpio_num_t sclk,
+                                       gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t cpolpha_mode, const dgx_spi_options_t *options);
+
+/**
+ * @brief dgx_spi_init_on_bus() with choices of the program.
+ * @param options NULL for the defaults, as dgx_spi_init_on_bus().
+ */
+dgx_bus_protocols_t *dgx_spi_init_on_bus_with(spi_host_device_t host_id, gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t cpolpha_mode,
+                                              const dgx_spi_options_t *options);
+
 #ifdef __cplusplus
 // @formatter:off
 }

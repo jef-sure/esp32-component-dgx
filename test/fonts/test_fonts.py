@@ -392,7 +392,8 @@ def test_font2c_lines(work):
 
 def test_patches(work):
     """The fixes of the font editor: a patch found by the name of the font beside the needs, one named by a need, one
-    of another size refused, a glyph of the patch of another size than the rendered one, rows of unequal length."""
+    of another size refused, a glyph of the patch of another size than the rendered one, rows of unequal length, a
+    patch of several fonts found by what it holds."""
     pd = os.path.join(work, "patched")
     os.makedirs(pd, exist_ok=True)
     a_rows = ["#..#", ".##.", "#..#"]
@@ -458,6 +459,38 @@ def test_patches(work):
         f.write(f"list {os.path.join(pd, 'p.list')}\n")
     code, told, err = tool("build", os.path.join(pd, "l.needs"), out)
     check(code == 0 and "listed: from a list, 2 glyphs" in told, f"a list with -p and -P: {err.strip()} {told.strip()}")
+    # a patch of several fonts, version 3, under a name of its own: every font finds its part in it
+    md = os.path.join(work, "multi")
+    os.makedirs(md, exist_ok=True)
+    several = os.path.join(md, "fonts.patch.json")
+    with open(several, "w", encoding="utf-8") as f:
+        json.dump({"format": "dgx-font-patch", "formatVersion": 3, "fonts": [
+            {"font": "DejaVuSansBook12", "size": 12, "glyphs": {"0041": {"rows": a_rows, "xAdvance": 9, "xOffset": 1, "yOffset": -5}}},
+            {"font": "DejaVuSansBook14", "size": 14, "glyphs": {"0042": {"rows": ["##", "##"], "xAdvance": 3, "xOffset": 0, "yOffset": -2}}},
+            {"font": "DejaVuSansBook30", "size": 30, "glyphs": {}}]}, f)
+    with open(os.path.join(md, "m.needs"), "w", encoding="utf-8") as f:
+        f.write("need small\nsize 12px\npostscript DejaVuSans\nletters AB\n"
+                "need large\nsize 14px\npostscript DejaVuSans\nletters AB\n")
+    mout = os.path.join(md, "out")
+    code, told, err = tool("build", os.path.join(md, "m.needs"), mout)
+    check(code == 0 and told.count(f"patched by {several}") == 2, f"a patch of several fonts beside the needs patches each: {err.strip()} {told.strip()}")
+    if code == 0:
+        small = json.loads(tool("json", os.path.join(mout, "dgx_fonts.c"), "--font", "dgx_font_small")[1])["glyphs"]
+        large = json.loads(tool("json", os.path.join(mout, "dgx_fonts.c"), "--font", "dgx_font_large")[1])["glyphs"]
+        check(small[str(ord("A"))]["rows"] == a_rows and small[str(ord("B"))]["rows"] != ["##", "##"] and
+              large[str(ord("B"))]["rows"] == ["##", "##"] and large[str(ord("A"))]["rows"] != a_rows,
+              "every font takes its own part of the patch, and only that")
+    # two patches of one directory for one font
+    shutil.copy(several, os.path.join(md, "again.patch.json"))
+    code, told, err = tool("build", os.path.join(md, "m.needs"), mout)
+    check(code == 1 and "one font comes from one patch" in err, f"two patches for one font beside the needs: {err.strip()}")
+    os.remove(os.path.join(md, "again.patch.json"))
+    # named by a need, but with no part for its font
+    with open(os.path.join(md, "n.needs"), "w", encoding="utf-8") as f:
+        f.write(f"need mid\nsize 13px\npostscript DejaVuSans\nletters AB\npatch {several}\n")
+    code, told, err = tool("build", os.path.join(md, "n.needs"), mout)
+    check(code == 1 and "the patch has no part for the font DejaVuSansBook13 at 13 px; its fonts: DejaVuSansBook12 at 12 px" in err,
+          f"a patch of several fonts named for a font it has no part for: {err.strip()}")
     # the patches that come with the fonts of DGX: Droid Sans at 9 px made at build time takes src/fonts/DroidSansRegular9.patch.json
     droid = next((p for p in (os.path.expanduser("~/.wine/drive_c/windows/Fonts/droidsans.ttf"), "/usr/share/fonts/truetype/droid/DroidSans.ttf")
                   if os.path.exists(p)), None)

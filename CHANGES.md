@@ -1,5 +1,233 @@
 # Changes
 
+## 0.9.1 - 2026-10-29
+
+- A QSPI display is back on the chip select of the SPI hardware, as in
+  0.8.3, and every piece of pixels after the first carries 0x3C again. The
+  chip select is now held one clock before the first edge and two after the
+  last. The NV3041A asks for 10 and 30 ns (TCSS and TCSH, section 8.3.2 of
+  its datasheet), and with those fields at 0 the hardware gave about half a
+  clock, 12 ns at 40 MHz.
+  - 0.9.0 drove the chip select as a GPIO and held it low over a whole
+    window, because the NV3041A seemed to reject 0x3C after the chip select
+    rises. That was never tested apart from the short hold. With the hold
+    fixed, the panel takes 0x3C: on the board, a window written in 89 pieces
+    of odd lengths came out exact.
+  - The held chip select had two faults, found by reading the code, not
+    seen on a board. On a host DGX set up, a transfer of another device
+    between two pieces would go into the panel. And a window left
+    unfinished, as a rotated sprite whose bottom corner is off the screen
+    leaves it, kept the chip select low; on a host of the program it also
+    kept the host locked, so a read from an SD card on that host by the same
+    task would wait forever.
+  - The member `end_pixels` of `dgx_bus_protocols_t`, added in 0.9.0 for the
+    held chip select, is removed.
+  - The stray pixels of the Guition JC4827W543 come as often as before.
+
+- `dgx_spi_init_with()`, `dgx_spi_init_on_bus_with()`, `dgx_qspi_init_with()`
+  and `dgx_qspi_init_on_bus_with()` take the choices of the program in a
+  `dgx_spi_options_t`, NULL for the defaults. The first is `buffer_max`, the
+  longest the buffer of the display may be. The buffer is internal memory
+  that DMA reaches, on every chip: the heap does not give PSRAM for
+  `MALLOC_CAP_DMA` even where DMA reaches it. DGX makes it as long as the
+  clock asks, about 16000 bytes for QSPI at 40 MHz and up to 32000. A
+  program that needs the memory more sets less, below the 4000 bytes DGX
+  takes at least too. The buffer is never longer than that: DGX cuts it
+  down to a multiple of 16 bytes. A shorter buffer means more pieces:
+  - on the Guition JC4827W543, QSPI at 40 MHz, a whole frame of 480x272
+    through the copy took 14.48 ms with 8000 bytes, 13.88 ms with the 15640
+    DGX picked then (15632 now) and 13.67 ms with 32000; a fill of the
+    whole screen took 13.75, 13.45 and 13.33 ms;
+  - on the CYD, SPI at 40 MHz, a frame of 320x240 took 34.59 ms with 2000
+    bytes and 32.05 ms with the 4000 DGX picks; a fill took 31.99 and
+    31.39 ms.
+
+  The fills were timed before they sent their leftover first (below).
+
+- A virtual screen goes to an SPI or QSPI display straight from its memory,
+  with nothing copied, when its rows can go as they lie: the same depth as
+  the display, not turned or scaled, no overlay layer, and whole rows of it
+  or a single row, so that the rows lie one after another. The bus decides
+  by the address: internal memory its DMA reaches, from a whole word, or
+  PSRAM on a chip whose DMA reaches PSRAM, with `SPI_TRANS_DMA_USE_PSRAM`.
+  Anything else goes through the halves of the bus buffer as before.
+  - DMA from PSRAM shares PSRAM with the CPU and can fall behind the wire.
+    On the Guition JC4827W543, an ESP32-S3 with octal PSRAM at 80 MHz, it
+    fell behind on the first frame at 40 MHz on four lines, and kept up at
+    26.7 MHz and below, also with the other core writing PSRAM all the
+    time. So a bus whose wire is faster than 26.7 MHz on four lines sends
+    pixels from PSRAM through the copy. If DMA from PSRAM falls behind
+    anyway, the bus logs it once and copies from then on; before, any
+    failed transfer stopped the program on an assert.
+  - A whole frame of 480x272 from PSRAM on that board: 13.89 ms through the
+    copy at 40 MHz, with 59 % of the sending core free; 20.35 ms in place at
+    26.7 MHz, with 92 % free, where the copy took 20.81 ms with 68 % free.
+    All the numbers are in [docs/nv3041a-en.md](docs/nv3041a-en.md).
+  - The bus interface gets `sends_from`, which answers whether the bus
+    sends pixels at an address where they lie.
+
+- `font2c` no longer misreads a face that has bitmaps of its own. Asked for
+  a size at which the face has an embedded bitmap, FreeType returns that
+  bitmap at 1 bit per pixel, and above 16 px `font2c` read it as 8 bits per
+  pixel: the glyphs came out as garbage and the reads ran past the end of
+  the bitmap. Terminus TTF has such bitmaps at 18 to 32 px. The bitmap is
+  now read by its pixel mode, so a face's own bitmaps are taken as they are,
+  as they already were at 16 px and below. A glyph whose bitmap is neither
+  1 nor 8 bits per pixel is left out with a message. Fonts without embedded
+  bitmaps come out byte for byte as before.
+
+- `write_area()` of a display on SPI takes a buffer longer than the bus
+  buffer: the bus sends it in pieces of the bus buffer. Before, a buffer
+  longer than the host's `max_transfer_sz` made the IDF driver refuse the
+  transfer, and the bus stopped on an assert. Nothing in DGX sends such a
+  buffer; a program with a whole frame in hand may. The QSPI bus does the
+  same, now that the screen no longer cuts the pixels of a QSPI display.
+
+- A virtual screen sent to a display, the glow of a morph and the
+  two-panel screen wait for the bus buffer before they set the window, not
+  after. On a QSPI display waiting after the window sent the memory write
+  command alone, ahead of the pixels: one transfer more per picture.
+
+- A fill on a display behind a bus, and a virtual screen sent through the
+  halves of the bus buffer, send what is left over after whole pieces
+  first: the bus starts once that much is filled or copied, and the pieces
+  are as many. A leftover that does not end on a whole byte stays last. A
+  whole frame usually has no leftover and goes as before. In µs per call,
+  leftover last and first, on the Guition JC4827W543 (QSPI at 40 MHz,
+  buffer 15632 bytes) and on the CYD (SPI at 40 MHz, 4000 bytes):
+  - a fill of the whole screen: 13449.5 and 13439.8; 31383.7 and 31378.5;
+  - a fill of 480x35 and of 320x26: 1792.1 and 1764.1; 3449.2 and 3442.4;
+  - a part of a virtual screen, 460x100 and 300x100, through the copy:
+    5003.6 and 4941.2; 12582.6 and 12579.2; mirrored: 5094.1 and 5029.8;
+    12600.8 and 12585.4.
+
+  Why it is never slower for a fill, and when it could be for a virtual
+  screen, is in [docs/first-piece-en.md](docs/first-piece-en.md).
+
+- A fill of 12-bit pixels on a display behind a bus whose buffer holds an
+  odd number of pixels sent half a pixel too many with every buffer, and
+  the colors after it came out wrong. A buffer sent more than once now ends
+  on a whole byte. ST7789, ST7735 and GC9A01 take 12-bit pixels. Whether it
+  showed depends on the length of the buffer, which follows the clock and
+  now `buffer_max`. 0.9.0 has it too; a new host test found it.
+
+- A QSPI bus that DGX sets up marks the data4 to data7 pins as unused (-1).
+  Under ESP-IDF 6.0 and 6.1, a quad bus routed through the GPIO matrix is
+  handled as an octal one, and with those pins left at 0 the SPI driver
+  connected its data4 to data7 outputs to GPIO 0, logging "GPIO 0 is
+  conflict with others" three times. On the Guition JC4827W543, GPIO 0 is
+  the TE line of the panel. ESP-IDF 5.5 is not affected.
+
+- [docs/nv3041a-en.md](docs/nv3041a-en.md) ([Russian](docs/nv3041a-ru.md))
+  is now a note on the whole panel of the Guition JC4827W543, not only its
+  stray pixels: setting it up with whole frames, how it takes commands and
+  pixels, what its start needs, the bus clock, the TE line, the other parts
+  of the board, the GPIO0 issue of ESP-IDF 6, and how DGX got here.
+
+- The font editor saves one patch for a whole `.c` file, with a part for
+  each font that has changes. Before, a file of several fonts made by
+  `font2c -jo` needed a patch per font, saved one at a time. A patch read
+  into the editor gives each part to the font it names and keeps the parts
+  for fonts the file does not have. The patch format is now version 3: a
+  list of parts under `"fonts"`, each with the `"font"`, `"size"` and
+  `"glyphs"` of a version 2 patch. `font2c` reads versions 1 to 3, so older
+  patches work as before.
+  - `font2c` gives each font the part of the patch that names it. With `-P`,
+    and for fonts made at build time, it finds the patch of a font by what
+    the patch holds, not only by its file name: any `.patch.json` in the
+    directory with a part for the font. Two such patches in one directory
+    stop the run, and both are named.
+  - In 0.9.0, once a patch had been read for one font of a file, the editor
+    offered to save the patch of any other font under the name of the patch
+    read.
+  - A JSON error from `font2c` names the file.
+
+- The font editor fits the metrics of glyphs to their pixels. `Fit to
+  pixels` trims the empty rows and columns of a glyph, its pixels staying
+  where they are, and sets its advance so that the glyph keeps its gap
+  before the next glyph: the gap it had before it was changed, which the
+  patch remembers as `rightGap`, or the one an advance typed in left.
+  Digits keep their advance, so that numbers stay in columns. `Fit changed
+  glyphs`, beside the button that saves the patch, does the same for every
+  changed glyph of the file whose metrics do not fit, tells how many there
+  are, and is undone with one Undo.
+
+- `LiberationSansRegular12` is made again with
+  `src/fonts/LiberationSansRegular12.patch.json`: 85 glyphs redrawn by hand,
+  Latin and Cyrillic letters, digits and signs that came out uneven at
+  12 px. Most keep the advance FreeType gave them. Where a letter became
+  wider or narrower, its advance or its place was set so that it does not
+  run into its neighbours: `l`, `«` and `»` take 1 px more, `r` 2 px, `z`
+  1 px, so that its top bar, now as wide as the letter, does not meet `y`,
+  `t` and `v`; `Ж`, `ж`, `З` and `з` take 1 px less; `Э`, `э`, `ф`, `ю`,
+  `я`, `s` and `0` keep their advance with the room they gained, `0` so
+  that the digits stay one width. `(` and `)` sit 1 px higher. The other 519
+  glyphs are as they were.
+
+- `DroidSansRegular9` has its advances fitted to the 75 glyphs fixed by
+  hand. When those glyphs were redrawn their advances were left as they
+  were, so 22 of them stood too close to the next letter or too far from
+  it: `' , - ; l r v x х` touched it, `+ D G H M O Q U W` left a gap of 2
+  or 3 px. Each now has a gap of 1 px, the usual one of the font; `&`, `{`
+  and `}` had 0 px and `1` had 2 px.
+
+- The font editor shows the glyph edited on its line. The grid goes on
+  around the glyph's own cells over the whole height of the font, with
+  rulers of the columns from the pen and the rows from the baseline, blue
+  lines at the pen and at the advance and the baseline row underlined, so
+  the offsets and the gaps on both sides are seen. The letters set before
+  and after it, `n`, `H`, `н`, `Н` or `0` by its alphabet and case or any
+  typed in, are drawn in grey, red where they touch it. Under the metrics,
+  `Meets` lists the letters the glyph touches on each side, side by side or
+  at a corner, in red those it did not touch when the .c was read; a letter
+  clicked there is set beside it in the grid.
+
+- The font editor is laid out anew. The files are on the left of the top
+  bar: open a .c, open a patch, save the patch (the main button), save the
+  .c. The tools and the moves of the pixels are over the grid, the
+  metrics beside it in short fields. The glyphs
+  of the font are tiles with the character and its code, the changed ones
+  in yellow, all or the changed ones only; a file of several fonts has a
+  tab for each. Notes on a patch read are no longer shown as errors, and
+  the grid starts at a cell size that suits the height of the font.
+
+- Six fonts of DGX made before 0.9.0, `DejaVuSansBook32`,
+  `IBMCGALight8x16Light8x1616`, `IBMPlexMonoMedium28`,
+  `LiberationSansRegular12`, `TerminusTTFMedium12` and
+  `WeatherIconsRegular27`, now carry the comment that names the font and
+  its size, as `font2c` writes it. Without it the font editor could not tell
+  which font such a file holds, and the patches it saved for them did not
+  name the font. The glyphs are unchanged. `WeatherDotView25` was not made
+  by `font2c` from a face and has no such name. The editor now warns
+  plainly when a .c does not name its font.
+
+- The origin of `IBMCGALight8x16Light8x1616` is found. It is "IBM CGA
+  Light 8x16", `icl8x16u.bdf` of the IBM fonts of farsil
+  (github.com/farsil/ibmfonts), turned into a TTF and made at 16 px; the
+  current `font2c` makes the same 782 glyphs from that TTF. Its license is
+  Creative Commons Attribution-ShareAlike 4.0, which `src/fonts/README.md`
+  and so `fonts-used.txt` now give instead of "unknown", and the .c names
+  the author, the license and what was changed at its top. The family
+  recorded for it is now "IBM CGA Light 8x16"; a `deny "IBM CGA*"` in the
+  rules still keeps it out.
+
+- The .c the font editor saves is byte for byte the one `font2c` makes from
+  the same glyphs. Before, the rows of each glyph's comment ran together on
+  one line, the names of the glyphs were lost, and in a file of several
+  fonts the comment before each font after the first was dropped.
+
+- [docs/first-piece-en.md](docs/first-piece-en.md)
+  ([Russian](docs/first-piece-ru.md)): a short start cut off the first
+  piece of pixels, so that the wire starts sooner, was tried for virtual
+  screens and fills and measured on the CYD and the Guition JC4827W543. It
+  added one piece, gained at most 0.1 ms a frame, lost 9 µs on the CYD, and
+  where it pays depends on the speed of the CPU and its memory, so DGX does
+  without it. Fills and virtual screens sent through the halves send their
+  leftover first instead.
+
+- The font editor loads Vue 3.5.44, pinned like Pinia and Bootstrap, instead
+  of whatever 3.x unpkg serves that day.
+
 ## 0.9.0 - 2026-10-28
 
 One call breaks: `dgx_st7789_init()` takes the panel as a fifth argument,

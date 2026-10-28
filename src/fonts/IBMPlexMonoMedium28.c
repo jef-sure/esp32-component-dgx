@@ -1,4 +1,5 @@
 #include "dgx_font.h"
+/* font2c: IBMPlexMonoMedium28, "IBM Plex Mono" "Medium" at 28 px */
 static const uint8_t bitmaps[] = {
   /* 0020 - space */
 /*   */

@@ -42,3 +42,13 @@ env/
 # OS
 Thumbs.db
 .directory
+
+# assistants: instructions, plans and settings stay out of the repository
+/PLAN*
+/CLAUDE.md
+/CLAUDE.local.md
+/AGENTS.md
+/GEMINI.md
+.claude/
+.cursor/
+.github/copilot-instructions.md

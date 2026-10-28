@@ -6,6 +6,7 @@
  */
 
 #include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <ft2build.h>
 #include <getopt.h>
@@ -177,10 +178,12 @@ static void show_usage(const char *programName)
             "           this way go into one C file; without it the family, the style and the size\n"
             "  -f charset_file: UTF-8 text file with characters to include\n"
             "  -p patch_file: the fixes of the font editor, a .patch.json; the glyphs it has stand\n"
-            "                 for what is rendered, whole, so a font made again keeps them\n"
-            "  -P dir: look for the patch of the font in dir, by its name: <name>.patch.json, the\n"
-            "          name being the family, the style and the size, as without -n; the first\n"
-            "          dir that has it wins, -p wins over all; may be given more than once\n"
+            "                 for what is rendered, whole, so a font made again keeps them; of a\n"
+            "                 patch of several fonts the font takes its own part\n"
+            "  -P dir: look for the patch of the font in dir: a .patch.json with a part for the\n"
+            "          font, the name of the font being the family, the style and the size, as\n"
+            "          without -n; the first dir that has one wins, -p wins over all; may be\n"
+            "          given more than once\n"
             "  (on a line of a -jo list -p and -P patch that font; -P on the command line\n"
             "   goes for every font of the lists, after the -P of its lines)\n"
             "  fontfile.json: a handwritten font saved by the hw-fonts editor\n"
@@ -280,7 +283,7 @@ typedef struct _json {
     int           edit;             /* of jsonEdits, from 1, when the value is to be written anew */
 } json_t;
 
-static const char *jsonText, *jsonPos;
+static const char *jsonText, *jsonPos, *jsonPath;
 
 /* what is to be changed in the text of the file: "lead" and a number in place of "len" bytes at "at" */
 typedef struct {
@@ -296,7 +299,7 @@ static void json_fail(const char *what)
 {
     int line = 1;
     for (const char *c = jsonText; c < jsonPos; ++c) line += *c == '\n';
-    fprintf(stderr, "JSON error in line %d: %s\n", line, what);
+    fprintf(stderr, "%s: JSON error in line %d: %s\n", jsonPath, line, what);
     exit(1);
 }
 
@@ -411,6 +414,7 @@ static json_t *json_load(const char *path)
     }
     text[size] = 0;
     fclose(f);
+    jsonPath = path;
     jsonText = jsonPos = text;
     json_t *v = json_value();
     json_space();
@@ -1364,7 +1368,9 @@ static void bitmap_generated_name(FT_Face face, int size, char out[256])
  * metrics. A glyph of the patch stands for the rendered one whole, its size taken from its rows, so a font made
  * again keeps the fixes: the editor does not write the .c, the patch is the source of the changes. Version 2 says
  * which font it fixes, "font" (the name font2c gives it: family, style and size) and "size" in pixels, and a patch
- * of another font is refused; version 1 says nothing of it and is taken as it is.
+ * of another font is refused; version 1 says nothing of it and is taken as it is. Version 3 holds the fixes of
+ * several fonts, as many as a file of -jo has: "fonts" is a list of parts, each with its "font", "size" and
+ * "glyphs" as in version 2, and a font takes the part that names it. A lone part may name no font, as version 1.
  */
 static json_t *PatchFont = 0;
 static int     PatchUsed = 0; /* the glyphs of the patch taken into the font */
@@ -1378,28 +1384,88 @@ typedef struct {
     uint8_t *ink;
 } ink_glyph_t;
 
+/* the parts of a patch, one after another: the patch itself up to version 2, the members of "fonts" in version 3 */
+static json_t *patch_parts(json_t *patch)
+{
+    return (int)json_get(patch, "formatVersion")->num == 3 ? json_get(patch, "fonts")->child : patch;
+}
+
+/* a patch file read and checked, or null with the mistake told */
+static json_t *patch_read(const char *path)
+{
+    json_t   *patch   = json_load(path);
+    json_t   *format  = json_get(patch, "format");
+    json_t   *version = json_get(patch, "formatVersion");
+    json_t   *fonts   = json_get(patch, "fonts");
+    json_t   *glyphs  = json_get(patch, "glyphs");
+    const int v       = version && version->type == 'n' ? (int)version->num : 0;
+    if (!format || format->type != 's' || strcmp(format->str, "dgx-font-patch") || v < 1 || v > 3 ||
+        (v == 3 ? !fonts || fonts->type != 'a' : !glyphs || glyphs->type != 'o')) {
+        return fprintf(stderr, "%s: not a patch of this program (\"format\": \"dgx-font-patch\", \"formatVersion\": 1 or 2 with \"glyphs\": {...}, "
+                               "or 3 with \"fonts\": [...])\n", path), (json_t *)0;
+    }
+    int parts = 0, named = 0;
+    for (json_t *p = patch_parts(patch); p; p = p->next, ++parts) {
+        json_t *font = json_get(p, "font"), *px = json_get(p, "size");
+        glyphs = json_get(p, "glyphs");
+        if (p->type != 'o' || !glyphs || glyphs->type != 'o') return fprintf(stderr, "%s: a part of the patch has no \"glyphs\": {...}\n", path), (json_t *)0;
+        if ((font && font->type != 's') || (px && px->type != 'n')) {
+            return fprintf(stderr, "%s: the \"font\" of a part of the patch is not a name or its \"size\" not a number\n", path), (json_t *)0;
+        }
+        named += font && px;
+        for (json_t *q = patch_parts(patch); font && q != p; q = q->next) {
+            json_t *qfont = json_get(q, "font"), *qpx = json_get(q, "size");
+            if (qfont && !strcmp(qfont->str, font->str) && (!px || !qpx || qpx->num == px->num)) {
+                return fprintf(stderr, "%s: two parts of the patch are for the font %s\n", path, font->str), (json_t *)0;
+            }
+        }
+        for (json_t *g = glyphs->child; g; g = g->next) {
+            char *rest = 0;
+            long  cp   = strtol(g->key, &rest, 16);
+            if (!g->key[0] || *rest || cp < 0 || cp > 0x10FFFF) return fprintf(stderr, "%s: \"%s\" is not a code point in hex\n", path, g->key), (json_t *)0;
+        }
+    }
+    if (parts > 1 && named < parts) return fprintf(stderr, "%s: a patch of several fonts names the font and the size of every part\n", path), (json_t *)0;
+    return patch;
+}
+
+/*
+ * The part of a patch for the font `generated` at `size`, or null: the part that names that font, or the lone part
+ * that names none when the file is given for this font (`named`: by -p, or found by its name).
+ */
+static json_t *patch_part(json_t *patch, const char *generated, int size, int named)
+{
+    json_t *first = patch_parts(patch);
+    for (json_t *p = first; p; p = p->next) {
+        json_t *font = json_get(p, "font"), *px = json_get(p, "size");
+        if (font && !strcmp(font->str, generated) && (!px || (int)px->num == size)) return p;
+    }
+    json_t *px = first ? json_get(first, "size") : 0;
+    return named && first && !first->next && !json_get(first, "font") && (!px || (int)px->num == size) ? first : 0;
+}
+
+/* a patch given for a font that has no part for it, told: what it is for instead */
+static int patch_refused(const char *path, json_t *patch, const char *generated, int size)
+{
+    json_t *first = patch_parts(patch);
+    if (first && !first->next) {
+        json_t *font = json_get(first, "font"), *px = json_get(first, "size");
+        return fprintf(stderr, "%s: the patch is for the font %s at %d px, not for %s at %d px\n", path, font ? font->str : generated,
+                       px ? (int)px->num : size, generated, size), 1;
+    }
+    fprintf(stderr, "%s: the patch has no part for the font %s at %d px; its fonts:", path, generated, size);
+    for (json_t *p = first; p; p = p->next) fprintf(stderr, "%s %s at %d px", p == first ? "" : ",", json_get(p, "font")->str, (int)json_get(p, "size")->num);
+    fprintf(stderr, first ? "\n" : " none\n");
+    return 1;
+}
+
 static int patch_load(const char *path, const char *generated, int size)
 {
-    json_t *patch = json_load(path);
-    if (!patch) return fprintf(stderr, "%s: cannot read the patch file\n", path), 1;
-    json_t *format  = json_get(patch, "format");
-    json_t *version = json_get(patch, "formatVersion");
-    json_t *glyphs  = json_get(patch, "glyphs");
-    if (!format || format->type != 's' || strcmp(format->str, "dgx-font-patch") || !version || version->type != 'n' ||
-        ((int)version->num != 1 && (int)version->num != 2) || !glyphs || glyphs->type != 'o') {
-        return fprintf(stderr, "%s: not a patch of this program (\"format\": \"dgx-font-patch\", \"formatVersion\": 1 or 2, \"glyphs\": {...})\n", path), 1;
-    }
-    json_t *font = json_get(patch, "font"), *px = json_get(patch, "size");
-    if ((font && font->type == 's' && strcmp(font->str, generated)) || (px && px->type == 'n' && (int)px->num != size)) {
-        return fprintf(stderr, "%s: the patch is for the font %s at %d px, not for %s at %d px\n", path, font && font->type == 's' ? font->str : generated,
-                       px && px->type == 'n' ? (int)px->num : size, generated, size), 1;
-    }
-    for (json_t *g = glyphs->child; g; g = g->next) {
-        char *rest = 0;
-        long  cp   = strtol(g->key, &rest, 16);
-        if (!g->key[0] || *rest || cp < 0 || cp > 0x10FFFF) return fprintf(stderr, "%s: \"%s\" is not a code point in hex\n", path, g->key), 1;
-    }
-    PatchFont = patch;
+    json_t *patch = patch_read(path);
+    if (!patch) return 1;
+    json_t *part = patch_part(patch, generated, size, 1);
+    if (!part) return patch_refused(path, patch, generated, size);
+    PatchFont = part;
     PatchUsed = 0;
     return 0;
 }
@@ -1462,18 +1528,44 @@ static void patch_unused(FT_Face face, const char *where, int quiet)
     }
 }
 
-/* the patch of a font found by its name, <generated>.patch.json, in the first of `dirs` that has it; null if none */
-static char *patch_find(const char *generated, char *const *dirs, int nDirs)
+/*
+ * The patch of a font in the first of `dirs` that has one: a .patch.json there with a part for the font, or
+ * <generated>.patch.json with a lone part that names no font (version 1). Two patches of one directory for the font
+ * are a mistake, told, and so is <generated>.patch.json for another font. 0 with `*found` the path or null, 1 when
+ * told.
+ */
+static int patch_find(const char *generated, int size, char *const *dirs, int nDirs, char **found)
 {
-    for (int i = 0; i < nDirs; ++i) {
-        char *path = malloc(strlen(dirs[i]) + strlen(generated) + 20);
-        sprintf(path, "%s/%s.patch.json", dirs[i], generated);
-        FILE *f = fopen(path, "r");
-        if (f) {
-            fclose(f);
-            return path;
+    static const char suffix[] = ".patch.json";
+    const size_t      sl       = sizeof(suffix) - 1;
+    *found                     = 0;
+    for (int i = 0; i < nDirs && !*found; ++i) {
+        DIR *d = opendir(dirs[i]);
+        if (!d) continue;
+        for (struct dirent *e; (e = readdir(d));) {
+            const size_t len = strlen(e->d_name);
+            if (len <= sl || strcmp(e->d_name + len - sl, suffix)) continue;
+            char *path = malloc(strlen(dirs[i]) + len + 2);
+            sprintf(path, "%s/%s", dirs[i], e->d_name);
+            const int named = len - sl == strlen(generated) && !strncmp(e->d_name, generated, len - sl);
+            json_t   *patch = patch_read(path);
+            json_t   *part  = patch ? patch_part(patch, generated, size, named) : 0;
+            int       wrong = !patch || (named && !part && patch_refused(path, patch, generated, size));
+            if (part && *found) {
+                fprintf(stderr, "the font %s at %d px has fixes in %s and in %s; one font comes from one patch\n", generated, size, *found, path);
+                wrong = 1;
+            }
+            if (wrong) {
+                free(path);
+                free(*found);
+                *found = 0;
+                closedir(d);
+                return 1;
+            }
+            if (part) *found = path;
+            else free(path);
         }
-        free(path);
+        closedir(d);
     }
     return 0;
 }
@@ -1484,10 +1576,15 @@ static char *patch_find(const char *generated, char *const *dirs, int nDirs)
  * 16 px and less keeps the letters readable, while above that it fused the stems of small letters into blobs (the
  * arches of an 'm') and doubled crossbars; the hinted grayscale render keeps the stems FreeType snaps them to. The
  * grayscale bitmap has the box of the outline, which the cut leaves wider than its ink: it is cropped to the ink.
+ * A face that has bitmaps of its own at the size gives those whatever the load asks for, as Terminus does up to
+ * 32 px, at 1 bit a pixel: the bitmap is read by its pixel mode, not by the size. Returns -1 for a pixel mode that
+ * is neither 1 bit nor 8 bits a pixel.
  */
-static void ink_of_slot(FT_GlyphSlot slot, int bilevel, ink_glyph_t *g)
+static int ink_of_slot(FT_GlyphSlot slot, ink_glyph_t *g)
 {
-    const FT_Bitmap *b = &slot->bitmap;
+    const FT_Bitmap *b    = &slot->bitmap;
+    const int        mono = b->pixel_mode == FT_PIXEL_MODE_MONO;
+    if (!mono && b->pixel_mode != FT_PIXEL_MODE_GRAY) return -1;
     g->width           = (int)b->width;
     g->height          = (int)b->rows;
     g->xOffset         = slot->bitmap_left;
@@ -1497,9 +1594,9 @@ static void ink_of_slot(FT_GlyphSlot slot, int bilevel, ink_glyph_t *g)
     for (int m = 0; m < g->height; ++m) {
         const uint8_t *row = b->pitch >= 0 ? b->buffer + (size_t)m * b->pitch : b->buffer + (size_t)(g->height - 1 - m) * -b->pitch;
         for (int n = 0; n < g->width; ++n)
-            g->ink[m * g->width + n] = bilevel ? (row[n >> 3] >> (7 - (n & 7))) & 1 : row[n] >= INK_THRESHOLD;
+            g->ink[m * g->width + n] = mono ? (row[n >> 3] >> (7 - (n & 7))) & 1 : row[n] >= INK_THRESHOLD;
     }
-    if (bilevel) return;
+    if (mono) return 0;
     int left = g->width, right = -1, top = g->height, bottom = -1;
     for (int m = 0; m < g->height; ++m)
         for (int n = 0; n < g->width; ++n)
@@ -1511,12 +1608,13 @@ static void ink_of_slot(FT_GlyphSlot slot, int bilevel, ink_glyph_t *g)
             }
     if (right < 0) {
         g->width = g->height = 0;
-        return;
+        return 0;
     }
     const int width = right - left + 1, height = bottom - top + 1;
     for (int m = 0; m < height; ++m) memmove(g->ink + m * width, g->ink + (m + top) * g->width + left, width);
     g->width = width, g->height = height;
     g->xOffset += left, g->yOffset += top;
+    return 0;
 }
 
 /*
@@ -1549,11 +1647,12 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
      */
     FT_Set_Pixel_Sizes(face, size, 0);
 
-    /* the patch of the font: the one named, or the first <generated>.patch.json of the directories */
+    /* the patch of the font: the one named, or the one of the first directory that has a part for it */
     char generated[256];
     bitmap_generated_name(face, size, generated);
     PatchFont   = 0;
-    char *found = patchPath ? 0 : patch_find(generated, patchDirs, nPatchDirs);
+    char *found = 0;
+    if (!patchPath && patch_find(generated, size, patchDirs, nPatchDirs, &found)) return -1;
     if (patchPath || found) {
         if (patch_load(patchPath ? patchPath : found, generated, size)) return -1;
     }
@@ -1582,7 +1681,11 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
             continue;
         }
         ink_glyph_t ink;
-        ink_of_slot(face->glyph, bilevel, &ink);
+        if (ink_of_slot(face->glyph, &ink)) {
+            fprintf(stderr, "U+%04X: the bitmap of the glyph has pixel mode %d, which is not read; the glyph is left out\n", (unsigned)i,
+                    (int)face->glyph->bitmap.pixel_mode);
+            continue;
+        }
         /* the editor's patch of this glyph, over what was rendered */
         if (patch_apply(&ink, i, funcname)) return -1;
         if (j >= face->num_glyphs) {

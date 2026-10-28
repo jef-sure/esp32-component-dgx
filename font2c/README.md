@@ -50,16 +50,27 @@ made this way can share one C file. To use the generated font:
 ### Glyphs fixed by hand
 
 The [font editor](../font-editor/README.md) saves the glyphs you fixed as a
-patch, `<name>.patch.json`, where `<name>` is the name `font2c` gives the
-font from its family, style and size (`DroidSansRegular9`). `-p patch` takes
-a patch; `-P dir`, which may be repeated, looks for `<name>.patch.json` in
-the directory, and the first one found is used. Every glyph of the patch
-replaces the rendered glyph whole, with its own width, height, advance and
-offsets; the measures of the whole font are taken after. A patch that says
-it is for another font or size is refused, a glyph whose rows differ in
-length stops the run with the code point named, and a glyph of the patch the
-face does not have is reported. The `.c` carries a comment saying which font
-it is, so the editor can record that in the patch it saves.
+patch, one for the whole `.c`, with a part for each of its fonts that has
+fixes. A part names its font by the name `font2c` gives it from its family,
+style and size (`DroidSansRegular9`), and its size; the font takes the part
+that names it. `-p patch` takes a patch; `-P dir`, which may be repeated,
+looks in the directory for a `.patch.json` with a part for the font, and the
+first directory that has one is used. Every glyph of the patch replaces the
+rendered glyph whole, with its own width, height, advance and offsets; the
+measures of the whole font are taken after. A patch given for a font
+(`-p`, or found as `<name>.patch.json`) without a part for it is refused, as
+are two patches of one directory for the same font. A glyph whose rows
+differ in length stops the run with the code point named, and a glyph of the
+patch the face does not have is reported. The `.c` carries a comment saying
+which font it is, so the editor can record that in the patch it saves.
+
+The patch file, `"format": "dgx-font-patch"`, is version 3 with a list of
+parts, `"fonts": [{"font": ..., "size": ..., "glyphs": {...}}, ...]`; a
+patch of one font may leave out its `font` and `size`. A glyph has its
+`rows` and may have `xAdvance`, `xOffset` and `yOffset`; its `rightGap`, the
+gap the editor keeps on its right when it fits the metrics, is the editor's
+alone and `font2c` passes it by. Versions 1 and 2, the patches of older
+editors, are one font with its `glyphs` at the top and are read as before.
 
 ### Several fonts in one file
 

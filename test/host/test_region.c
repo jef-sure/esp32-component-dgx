@@ -200,7 +200,7 @@ static void test_region(void)
     lcd->set_pixel = panel_set_pixel, lcd->update_screen = panel_update;
 
     /* rectangles the buffer takes whole, of rows that fit in a half of it, and of rows cut */
-    int in_one = 0, rows_fit = 0, rows_cut = 0;
+    int in_one = 0, rows_fit = 0, rows_cut = 0, leftover_first = 0;
     for (int round = 0; round < 12000; ++round) {
         bool transparent = round & 1, by_bus = (round >> 1) & 1;
         /* the bus of every third round makes the colors itself, of every sixth it refuses some of them */
@@ -264,17 +264,17 @@ static void test_region(void)
             if (all <= sizeof(bus_buffer)) {
                 CHECK(pieces == 1);
                 ++in_one;
-            } else if (row <= half) {
-                CHECK(cut <= half ? piece_first == half / cut * cut && piece_most == piece_first
-                                  : piece_first == half / row * row && piece_most == piece_first);
-                ++rows_fit;
             } else {
-                CHECK(piece_first == half && piece_most == half);
-                ++rows_cut;
+                /* a half of whole rows where a row fits in it; what is left over after whole halves goes first */
+                const uint32_t len = row > half ? half : cut <= half ? half / cut * cut : half / row * row;
+                CHECK(piece_first == (all % len ? all % len : len) && piece_most == len);
+                leftover_first += all % len != 0;
+                if (row <= half) ++rows_fit;
+                else ++rows_cut;
             }
         }
     }
-    CHECK(in_one > 30 && rows_fit > 50 && rows_cut > 100);
+    CHECK(in_one > 30 && rows_fit > 50 && rows_cut > 100 && leftover_first > 100);
     CHECK(queued_pieces > 1000 && smoothed_rounds > 2000);
     smoothed = REF_BLOCKS;
     dgx_screen_destroy(&few);

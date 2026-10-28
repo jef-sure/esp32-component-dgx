@@ -47,7 +47,7 @@ is an error):
     list /abs/fonts.list                 a list of fonts for font2c -jo, passed through: its fonts go into the
                                          same output file
     patch /abs/fixes.patch.json          the fixes of the font editor for the font of this need (font2c -p); without
-                                         it the font's own patch is looked for by its name (below)
+                                         it a patch with a part for the font is looked for (below)
 
 A font gets only the characters that were asked for: those of its texts and its `letters`. The needs are passed to
 font2c as one list (-jo), one line per need, with -n dgx_font_<need> and a file of its characters: font2c renders
@@ -58,11 +58,12 @@ resolve to the same font, with the characters of both; two different fonts under
 message names both places.
 
 A font rendered from a face takes the fixes made to it in the font editor of DGX, a patch, when there is one: the
-one its need names with patch, or else the first <name>.patch.json found, <name> being the name font2c gives the
-font (the family, the style and the size, DroidSansRegular9 say), in the directory of the file that declared the
-need, in the directory of its source file, and in src/fonts of DGX, in this order. The glyphs of the patch stand for
-the rendered ones; a patch made for another font or size is refused. A font used as is (dgx, file) is not patched:
-it is a .c already, made with its patch when it had one.
+one its need names with patch, or else the first .patch.json found with a part for the font, which names it by the
+name font2c gives it (the family, the style and the size, DroidSansRegular9 say), in the directory of the file that
+declared the need, in the directory of its source file, and in src/fonts of DGX, in this order. One patch holds the
+fixes of several fonts, a part each. The glyphs of the part stand for the rendered ones; a patch named for a font
+without a part for it is refused, and so are two patches of one directory for the same font. A font used as is
+(dgx, file) is not patched: it is a .c already, made with its patch when it had one.
 
 The rules, one per line (# starts a comment), the same as the rules of DGX-GE were:
 
