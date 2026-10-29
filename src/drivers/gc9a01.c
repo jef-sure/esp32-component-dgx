@@ -6,6 +6,7 @@
 #include "dgx_screen_functions.h"
 #include "dgx_spi_area_protocol.h"
 #include "drivers/dgx_lcd_init.h"
+#include "drivers/dgx_panel.h"
 #include "esp_log.h"
 
 #define GC9A01_SWRESET 0x01
@@ -24,76 +25,6 @@
 #define GC9A01_MADCTL_MX  0x40
 #define GC9A01_MADCTL_MV  0x20
 #define GC9A01_MADCTL_BGR 0x08
-
-typedef struct _dgx_gc9a01_t
-{
-    dgx_screen_with_bus_t base;
-    gpio_num_t            rst;
-} dgx_gc9a01_t;
-
-static const char TAG[] = "DGX GC9A01";
-
-static uint8_t *dgx_gc9a01_adj_madctl(dgx_screen_with_bus_t *scr, const struct _dgx_lcd_init_cmd_t *init_cmd)
-{
-    static uint8_t adj_data[1];
-
-    adj_data[0] = init_cmd->data[0];
-    if (scr->scr.rgb_order == DgxScreenRGB) {
-        adj_data[0] &= (uint8_t)~GC9A01_MADCTL_BGR;
-    } else {
-        adj_data[0] |= GC9A01_MADCTL_BGR;
-    }
-    return adj_data;
-}
-
-static uint8_t *dgx_gc9a01_adj_colmod(dgx_screen_with_bus_t *scr, const struct _dgx_lcd_init_cmd_t *init_cmd)
-{
-    static uint8_t adj_data[1];
-
-    (void)init_cmd;
-    if (scr->scr.color_bits == 12) {
-        adj_data[0] = 0x03;
-    } else if (scr->scr.color_bits == 18) {
-        adj_data[0] = 0x06;
-    } else {
-        adj_data[0] = 0x05;
-    }
-    return adj_data;
-}
-
-static void dgx_gc9a01_set_area(dgx_screen_t *_scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
-{
-    dgx_screen_with_bus_t *scr = (dgx_screen_with_bus_t *)_scr;
-
-    if (left > right) {
-        uint16_t tmp = left;
-        left         = right;
-        right        = tmp;
-    }
-    if (top > bottom) {
-        uint16_t tmp = top;
-        top          = bottom;
-        bottom       = tmp;
-    }
-    /* a window off the screen is no window: what is sent into it must not land in the one before */
-    scr->area_void = left >= _scr->width || top >= _scr->height;
-    if (scr->area_void) {
-        return;
-    }
-    if (right > _scr->width - 1) {
-        right = _scr->width - 1;
-    }
-    if (bottom > _scr->height - 1) {
-        bottom = _scr->height - 1;
-    }
-
-    left += _scr->cg_col_shift;
-    right += _scr->cg_col_shift;
-    top += _scr->cg_row_shift;
-    bottom += _scr->cg_row_shift;
-
-    dgx_screen_with_bus_set_area_window_full(scr, left, right, top, bottom);
-}
 
 static const dgx_lcd_init_cmd_t gc9a01_init_cmds[] = {
     {0xEF,          0,                     0,    0,   {0}                                                                     },
@@ -114,8 +45,8 @@ static const dgx_lcd_init_cmd_t gc9a01_init_cmds[] = {
     {0x8E,          0,                     1,    0,   {0xFF}                                                                  },
     {0x8F,          0,                     1,    0,   {0xFF}                                                                  },
     {0xB6,          0,                     2,    0,   {0x00, 0x20}                                                            },
-    {GC9A01_COLMOD, dgx_gc9a01_adj_colmod, 1,    0,   {0x05}                                                                  },
-    {GC9A01_MADCTL, dgx_gc9a01_adj_madctl, 1,    0,   {GC9A01_MADCTL_BGR}                                                     },
+    {GC9A01_COLMOD, dgx_panel_adj_colmod, 1,    0,   {0x05}                                                                  },
+    {GC9A01_MADCTL, dgx_panel_adj_madctl, 1,    0,   {GC9A01_MADCTL_BGR}                                                     },
     {0x90,          0,                     4,    0,   {0x08, 0x08, 0x08, 0x08}                                                },
     {0xBD,          0,                     1,    0,   {0x06}                                                                  },
     {0xBC,          0,                     1,    0,   {0x00}                                                                  },
@@ -149,97 +80,47 @@ static const dgx_lcd_init_cmd_t gc9a01_init_cmds[] = {
     {0,             0,                     0xFF, 0,   {0}                                                                     },
 };
 
+/*
+ * Both bounds of the window go every time, also one that has not changed:
+ * the GC9A01 does not work with a bound left out, as the window of the other
+ * displays leaves one out. Its datasheet says nothing of it, and
+ * Adafruit_GC9A01A and TFT_eSPI send both every time too.
+ */
+const dgx_panel_t dgx_panel_gc9a01 = {
+    .name           = "GC9A01",
+    .width          = 240,
+    .height         = 240,
+    .colmod         = {0x03, 0x05, 0x06},
+    .ramrd          = GC9A01_RAMRD,
+    .reset_low_ms   = 100,
+    .reset_after_ms = 100,
+    .flags          = DGX_PANEL_BOTH_BOUNDS,
+    .init           = gc9a01_init_cmds,
+};
+
 dgx_screen_t *dgx_gc9a01_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo)
 {
-
-    if (bus == NULL) {
-        ESP_LOGE(TAG, "Display bus is not initialized");
-        return NULL;
-    }
-    if (color_bits != 12 && color_bits != 16 && color_bits != 18) {
-        ESP_LOGE(TAG, "%u-bit color is not set up by this driver, only 12, 16 and 18", (unsigned)color_bits);
-        return NULL;
-    }
-
-    dgx_gc9a01_t *scr = (dgx_gc9a01_t *)calloc(1, sizeof(dgx_gc9a01_t));
-
-    if (!scr) {
-        ESP_LOGE(TAG, "Screen structure memory allocation failed");
-        return NULL;
-    }
-
-    scr->rst                      = rst;
-    scr->base.bus                 = bus;
-    scr->base.scr.cg_row_shift    = 0;
-    scr->base.scr.cg_col_shift    = 0;
-    scr->base.scr.width           = 240;
-    scr->base.scr.height          = 240;
-    scr->base.scr.color_bits      = color_bits;
-    scr->base.scr.rgb_order       = cbo;
-    scr->base.scr.screen_name     = "GC9A01";
-    scr->base.scr.screen_submodel = 0;
-    scr->base.scr.screen_subtype  = DgxPhysicalScreenWithBus;
-
-    dgx_screen_with_bus_init_area(&scr->base, GC9A01_CASET, GC9A01_PASET, GC9A01_RAMWR, GC9A01_RAMRD, DGX_SCREEN_AREA_PROTO_STD16);
-
-    if (rst >= 0) {
-        dgx_gpio_set_direction(rst, GPIO_MODE_OUTPUT);
-        dgx_gpio_set_level(rst, 0);
-        dgx_delay(100);
-        dgx_gpio_set_level(rst, 1);
-        dgx_delay(100);
-    }
-
-    dgx_lcd_init(&scr->base, gc9a01_init_cmds);
-    dgx_scr_init_slow_bus_optimized_funcs((dgx_screen_t *)scr);
-    scr->base.scr.set_area = dgx_gc9a01_set_area;
-    return (dgx_screen_t *)scr;
+    return dgx_panel_init(bus, &dgx_panel_gc9a01, rst, GPIO_NUM_NC, color_bits, cbo);
 }
 
-void dgx_gc9a01_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+void dgx_gc9a01_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
-    dgx_gc9a01_t *scr     = (dgx_gc9a01_t *)_scr;
-    uint8_t       cmd     = GC9A01_MADCTL;
-    uint8_t       data[1] = {0};
-
-    _scr->dir_x        = dir_x;
-    _scr->dir_y        = dir_y;
-    _scr->swap_xy      = swap_xy;
-    _scr->cg_row_shift = 0;
-    _scr->cg_col_shift = 0;
-    _scr->width        = 240;
-    _scr->height       = 240;
-
-    if (dir_x == DgxScreenRightLeft) {
-        data[0] |= GC9A01_MADCTL_MX;
-    }
-    if (dir_y == DgxScreenBottomTop) {
-        data[0] |= GC9A01_MADCTL_MY;
-    }
-    if (swap_xy) {
-        data[0] |= GC9A01_MADCTL_MV;
-    }
-    if (_scr->rgb_order == DgxScreenBGR) {
-        data[0] |= GC9A01_MADCTL_BGR;
-    }
-
-    scr->base.bus->write_command(scr->base.bus, cmd);
-    scr->base.bus->write_data(scr->base.bus, data, 8);
+    dgx_panel_orientation(scr, dir_x, dir_y, swap_xy);
 }
 
 void dgx_gc9a01_display_off(dgx_screen_t *_scr)
 {
-    dgx_gc9a01_t *scr = (dgx_gc9a01_t *)_scr;
+    dgx_screen_with_bus_t *scr = (dgx_screen_with_bus_t *)_scr;
 
-    scr->base.bus->write_command(scr->base.bus, GC9A01_DISPOFF);
+    scr->bus->write_command(scr->bus, GC9A01_DISPOFF);
     /* a bus that sends a command together with its data holds it back until it knows there is none */
-    if (scr->base.bus->sync_write) scr->base.bus->sync_write(scr->base.bus);
+    if (scr->bus->sync_write) scr->bus->sync_write(scr->bus);
 }
 
 void dgx_gc9a01_display_on(dgx_screen_t *_scr)
 {
-    dgx_gc9a01_t *scr = (dgx_gc9a01_t *)_scr;
+    dgx_screen_with_bus_t *scr = (dgx_screen_with_bus_t *)_scr;
 
-    scr->base.bus->write_command(scr->base.bus, GC9A01_DISPON);
-    if (scr->base.bus->sync_write) scr->base.bus->sync_write(scr->base.bus);
+    scr->bus->write_command(scr->bus, GC9A01_DISPON);
+    if (scr->bus->sync_write) scr->bus->sync_write(scr->bus);
 }

@@ -13,6 +13,10 @@
 
 #include "driver/gpio.h" /* the waits of the init table, for nothing on the host */
 #include "drivers/dgx_lcd_init.c"
+/* the panel and the driver both name their log tag TAG */
+#define TAG TAG_PANEL
+#include "drivers/panel.c"
+#undef TAG
 #include "drivers/st7789.c"
 
 #include "dgx_draw.h"

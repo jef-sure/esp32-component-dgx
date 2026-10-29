@@ -7,6 +7,7 @@ extern "C"
 #endif
 
 #include "bus/dgx_bus_protocols.h"
+#include "drivers/dgx_panel.h"
 #include "dgx_screen.h"
 #include "driver/gpio.h"
 
@@ -44,6 +45,11 @@ void dgx_nv3041a_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_ori
  * @return ESP_OK on success, or an error code on failure.
  */
 esp_err_t dgx_nv3041a_backlight(dgx_screen_t *scr, bool on);
+
+/**
+ * @brief The panel dgx_nv3041a_init() makes its screen of: a copy of it with what a module has otherwise goes to dgx_panel_init().
+ */
+extern const dgx_panel_t dgx_panel_nv3041a;
 
 #ifdef __cplusplus
 // @formatter:off

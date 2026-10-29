@@ -3,67 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 
-#ifdef ESP_PLATFORM
-#include "sdkconfig.h"
-#endif
-
 #include "bus/dgx_bus_protocols.h"
-
-/* the short transfers of an SPI bus are its own: without that bus there is nothing to link them with */
-#if CONFIG_DGX_ENABLE_SPI
-#include "bus/dgx_spi_esp32.h"
-#include "../bus/dgx_spi_esp32_priv.h"
-
-/*
- * One short command or parameter transfer. These are 1-4 bytes long: polling
- * them takes a fraction of the time a queued, interrupt-driven transaction
- * needs, and that is what a single pixel or a short line mostly consists of.
- */
-static void dgx_spi_area_send(dgx_spi_bus_t *bus, bool is_data, const uint8_t *bytes, uint8_t count)
-{
-    spi_transaction_t *trans = &bus->trans_sync;
-    memset(trans, 0, sizeof(*trans));
-    trans->length = count * 8u;
-    trans->flags  = SPI_TRANS_USE_TXDATA;
-    memcpy(trans->tx_data, bytes, count);
-    trans->user = set_dc_pin(bus->dcio, is_data);
-    spi_device_polling_transmit(bus->spi, trans);
-}
-
-static void dgx_spi_area_send_range(dgx_screen_with_bus_t *sbus, uint8_t cmd, uint16_t from, uint16_t to)
-{
-    dgx_spi_bus_t *bus = (dgx_spi_bus_t *)sbus->bus;
-    dgx_spi_area_send(bus, false, &cmd, 1);
-    if (sbus->area_protocol == DGX_SCREEN_AREA_PROTO_STD8) {
-        const uint8_t range[2] = {(uint8_t)from, (uint8_t)to};
-        dgx_spi_area_send(bus, true, range, sizeof(range));
-    } else {
-        const uint8_t range[4] = {from >> 8, from & 0xff, to >> 8, to & 0xff};
-        dgx_spi_area_send(bus, true, range, sizeof(range));
-    }
-}
-
-static void dgx_screen_with_bus_set_area_window_spi(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom,
-                                                    bool full)
-{
-    dgx_spi_bus_t *bus = (dgx_spi_bus_t *)sbus->bus;
-
-    /* pixel data of the previous operation may still be queued */
-    dgx_spi_wait_pending((dgx_bus_protocols_t *)bus);
-
-    if (full || sbus->cached_area.left != left || sbus->cached_area.right != right) {
-        dgx_spi_area_send_range(sbus, sbus->xcmd_set, left, right);
-        sbus->cached_area.left  = left;
-        sbus->cached_area.right = right;
-    }
-    if (full || sbus->cached_area.top != top || sbus->cached_area.bottom != bottom) {
-        dgx_spi_area_send_range(sbus, sbus->ycmd_set, top, bottom);
-        sbus->cached_area.top    = top;
-        sbus->cached_area.bottom = bottom;
-    }
-    dgx_spi_area_send(bus, false, &sbus->wcmd_send, 1);
-}
-#endif /* CONFIG_DGX_ENABLE_SPI */
 
 /* the window as six commands of a controller that takes its bounds as commands */
 static void dgx_screen_with_bus_send_window_cmd8(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
@@ -93,6 +33,8 @@ static void dgx_screen_with_bus_send_range(dgx_screen_with_bus_t *sbus, uint8_t 
 /*
  * The window by the commands of the bus, and the command that writes memory
  * after it. A bound that has not changed is not sent again, unless `full`.
+ * The SPI bus polls such short transfers: a window of a single pixel or of a
+ * short line is mostly them.
  */
 static void dgx_screen_with_bus_send_window(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom, bool full)
 {
@@ -119,18 +61,6 @@ static bool dgx_screen_with_bus_bus_defers(const dgx_screen_with_bus_t *sbus)
 bool dgx_screen_with_bus_window_is_deferred(const dgx_screen_with_bus_t *sbus)
 {
     return sbus->window.cut || dgx_screen_with_bus_bus_defers(sbus);
-}
-
-/* the window told to the display now, the way its bus does it best */
-static void dgx_screen_with_bus_tell_window(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom, bool full)
-{
-#if CONFIG_DGX_ENABLE_SPI
-    if (sbus->bus->bus_type == DGX_BUS_SPI) {
-        dgx_screen_with_bus_set_area_window_spi(sbus, left, right, top, bottom, full);
-        return;
-    }
-#endif
-    dgx_screen_with_bus_send_window(sbus, left, right, top, bottom, full);
 }
 
 /*
@@ -219,7 +149,7 @@ void dgx_screen_with_bus_write_window(dgx_screen_with_bus_t *sbus, const uint8_t
          * does not take it.
          */
         if (!sbus->window.started) {
-            dgx_screen_with_bus_tell_window(sbus, sbus->window.left, sbus->window.right, sbus->window.top, sbus->window.bottom, sbus->window.full);
+            dgx_screen_with_bus_send_window(sbus, sbus->window.left, sbus->window.right, sbus->window.top, sbus->window.bottom, sbus->window.full);
             sbus->window.started = true;
         }
         bus->write_data_async(bus, data, lenbits);
@@ -241,18 +171,18 @@ void dgx_screen_with_bus_write_window(dgx_screen_with_bus_t *sbus, const uint8_t
         if (columns_cut) {
             const uint16_t last = dgx_screen_with_bus_scroll_run(sbus, sbus->window.x, sbus->window.right);
             count = (uint32_t)last - sbus->window.x + 1u;
-            dgx_screen_with_bus_tell_window(sbus, dgx_screen_with_bus_scroll_map(sbus, sbus->window.x), dgx_screen_with_bus_scroll_map(sbus, last),
+            dgx_screen_with_bus_send_window(sbus, dgx_screen_with_bus_scroll_map(sbus, sbus->window.x), dgx_screen_with_bus_scroll_map(sbus, last),
                                             sbus->window.y, sbus->window.y, sbus->window.full);
         } else if (sbus->window.x == sbus->window.left) {
             const uint16_t last = rows_cut ? dgx_screen_with_bus_scroll_run(sbus, sbus->window.y, sbus->window.bottom) : sbus->window.bottom;
             const uint16_t top = rows_cut ? dgx_screen_with_bus_scroll_map(sbus, sbus->window.y) : sbus->window.y;
             count = ((uint32_t)last - sbus->window.y + 1u) * width;
-            dgx_screen_with_bus_tell_window(sbus, sbus->window.left, sbus->window.right, top, (uint16_t)(top + (last - sbus->window.y)),
+            dgx_screen_with_bus_send_window(sbus, sbus->window.left, sbus->window.right, top, (uint16_t)(top + (last - sbus->window.y)),
                                             sbus->window.full);
         } else {
             const uint16_t row = rows_cut ? dgx_screen_with_bus_scroll_map(sbus, sbus->window.y) : sbus->window.y;
             count = (uint32_t)sbus->window.right - sbus->window.x + 1u;
-            dgx_screen_with_bus_tell_window(sbus, sbus->window.x, sbus->window.right, row, row, sbus->window.full);
+            dgx_screen_with_bus_send_window(sbus, sbus->window.x, sbus->window.right, row, row, sbus->window.full);
         }
         if (count > pixels) count = pixels;
         if (count > most) count = most;
@@ -275,14 +205,6 @@ void dgx_screen_with_bus_set_area_window(dgx_screen_with_bus_t *sbus, uint16_t l
         return;
     }
     if (dgx_screen_with_bus_scroll_window(sbus, &left, &right, &top, &bottom, false)) return;
-
-#if CONFIG_DGX_ENABLE_SPI
-    if (sbus->bus->bus_type == DGX_BUS_SPI) {
-        dgx_screen_with_bus_set_area_window_spi(sbus, left, right, top, bottom, false);
-        return;
-    }
-#endif
-
     if (dgx_screen_with_bus_bus_defers(sbus)) {
         dgx_screen_with_bus_keep_window(sbus, left, right, top, bottom, false);
         return;
@@ -302,14 +224,6 @@ void dgx_screen_with_bus_set_area_window_full(dgx_screen_with_bus_t *sbus, uint1
         return;
     }
     if (dgx_screen_with_bus_scroll_window(sbus, &left, &right, &top, &bottom, true)) return;
-
-#if CONFIG_DGX_ENABLE_SPI
-    if (sbus->bus->bus_type == DGX_BUS_SPI) {
-        dgx_screen_with_bus_set_area_window_spi(sbus, left, right, top, bottom, true);
-        return;
-    }
-#endif
-
     if (dgx_screen_with_bus_bus_defers(sbus)) {
         dgx_screen_with_bus_keep_window(sbus, left, right, top, bottom, true);
         return;

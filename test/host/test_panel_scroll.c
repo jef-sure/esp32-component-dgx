@@ -16,6 +16,7 @@
 #include "driver/gpio.h"
 
 #include "drivers/dgx_lcd_init.c"
+#include "drivers/panel.c"
 #include "drivers/ili9341.c"
 
 #include "dgx_draw.h"

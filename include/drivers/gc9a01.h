@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 #include "bus/dgx_bus_protocols.h"
+#include "drivers/dgx_panel.h"
 
 /**
  * @brief Create a GC9A01 round panel screen on top of a bus (SPI or P8).
@@ -43,6 +44,11 @@ void dgx_gc9a01_display_on(dgx_screen_t *scr);
  * @param swap_xy Swap the X and Y axes.
  */
 void dgx_gc9a01_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
+
+/**
+ * @brief The panel dgx_gc9a01_init() makes its screen of: a copy of it with what a module has otherwise goes to dgx_panel_init().
+ */
+extern const dgx_panel_t dgx_panel_gc9a01;
 
 #ifdef __cplusplus
 // @formatter:off

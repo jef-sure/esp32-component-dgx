@@ -41,6 +41,12 @@ if(CONFIG_DGX_ENABLE_DSI)
 	list(APPEND srcs "src/bus/dsi_esp32.c" "src/bus/fb_area.c" "src/bus/fb_tiles.c" "src/bus/fb_flip.c")
 endif()
 
+# a panel of the MIPI display command set made from its description: the drivers below are such descriptions, and a
+# program may make one of its own, so it comes with the buses of such panels
+if(CONFIG_DGX_ENABLE_SPI OR CONFIG_DGX_ENABLE_P8)
+	list(APPEND srcs "src/drivers/panel.c")
+endif()
+
 if(CONFIG_DGX_ENABLE_SPI_ST7735)
 	list(APPEND srcs "src/drivers/st7735.c")
 endif()
@@ -59,6 +65,10 @@ endif()
 
 if(CONFIG_DGX_ENABLE_NV3041A)
 	list(APPEND srcs "src/drivers/nv3041a.c")
+endif()
+
+if(CONFIG_DGX_ENABLE_ST77916)
+	list(APPEND srcs "src/drivers/st77916.c")
 endif()
 
 if(CONFIG_DGX_ENABLE_JD9165)

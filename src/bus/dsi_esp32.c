@@ -1731,9 +1731,14 @@ static uint8_t *dgx_dsi_memory_allocator(uint32_t len)
     return memory ? memory : (uint8_t *)malloc(len);
 }
 
-static void dgx_dsi_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
+/*
+ * What dgx_dsi_video_setup() made, let go: the panel with its frame buffers,
+ * what tells of the end of a frame, the tiles, the 2D DMA with the copy after
+ * a flip, and the clients of the accelerator. The bus is then as
+ * dgx_dsi_init() made it, and takes a display again.
+ */
+static void dgx_dsi_video_drop(dgx_dsi_bus_t *bus)
 {
-    dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)_bus;
 #if DGX_DSI_DMA2D
     /*
      * No piece left for after a flip may be copied once the panel has freed
@@ -1751,10 +1756,27 @@ static void dgx_dsi_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
 #endif
 #if DGX_DSI_PPA_FILL
     if (bus->filler) ppa_unregister_client(bus->filler);
+    bus->filler = NULL;
 #if DGX_DSI_PPA_MIX
     if (bus->mixer) ppa_unregister_client(bus->mixer);
+    bus->mixer = NULL;
 #endif
 #endif
+    bus->panel                   = NULL;
+    bus->refreshed               = NULL;
+    bus->started                 = false;
+    bus->frame[0]                = NULL;
+    bus->frame[1]                = NULL;
+    bus->area.fb                 = NULL;
+    bus->protocols.write_rows    = NULL;
+    bus->protocols.write_indexed = NULL;
+    bus->protocols.write_ink     = NULL;
+}
+
+static void dgx_dsi_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
+{
+    dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)_bus;
+    dgx_dsi_video_drop(bus);
     if (bus->io) esp_lcd_panel_io_del(bus->io);
     if (bus->dsi) esp_lcd_del_dsi_bus(bus->dsi);
     if (bus->phy_power) esp_ldo_release_channel(bus->phy_power);
@@ -1921,11 +1943,7 @@ bool dgx_dsi_video_setup(dgx_bus_protocols_t *_bus, const dgx_dsi_video_t *video
     }
     if (ret != ESP_OK || !fb || (two && !fb2)) {
         ESP_LOGE(TAG, "the frame buffers of the display: %s", esp_err_to_name(ret));
-        esp_lcd_panel_del(bus->panel);
-        bus->panel = NULL;
-        if (bus->refreshed) vSemaphoreDelete(bus->refreshed);
-        bus->refreshed = NULL;
-        if (bus->tiles.owed) dgx_fb_tiles_free(&bus->tiles);
+        dgx_dsi_video_drop(bus);
         return false;
     }
     bus->frames             = two ? 2 : 1;
@@ -2015,6 +2033,8 @@ bool dgx_dsi_video_start(dgx_bus_protocols_t *_bus)
     esp_err_t ret = esp_lcd_panel_init(bus->panel);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "esp_lcd_panel_init failed: %s", esp_err_to_name(ret));
+        /* the display is let go: its constructor may be called again on this bus */
+        dgx_dsi_video_drop(bus);
         return false;
     }
     bus->started = true;

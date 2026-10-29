@@ -88,6 +88,14 @@ config DGX_ENABLE_NV3041A
     help
         The 480x272 controller of QSPI panels, on the bus of dgx_qspi_init().
 
+config DGX_ENABLE_ST77916
+    bool "Enable ST77916 panel driver"
+    depends on DGX_ENABLE_SPI
+    default n
+    help
+        The 360x360 controller of round panels, on the bus of dgx_qspi_init(),
+        or of dgx_spi_init() for a panel of one data line.
+
 config DGX_ENABLE_JD9165
     bool "Enable JD9165 panel driver"
     depends on DGX_ENABLE_DSI

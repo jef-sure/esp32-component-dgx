@@ -289,6 +289,58 @@ def test_json_of_a_bundled_font():
               "the glyph of 0 has its rows of pixels")
 
 
+def test_editor_round_trip(work):
+    """The C of a bitmap font as the font editor reads and writes it (font-editor/FontC.js under node), against font2c,
+    which writes it, and dgx_fonts.py, which reads it for editors: a font font2c makes now comes back from the editor
+    byte for byte, and so does the stream the editor writes of it, which dgx_fonts.py reads as the editor does; the
+    editor and dgx_fonts.py read the same glyphs from every bitmap font of DGX, and what the editor writes of one it
+    reads back and writes again unchanged."""
+    node = shutil.which("node")
+    if not node:
+        print("test_fonts.py: node is not installed, the reading and writing of the font editor is not checked")
+        return
+
+    def editor(*args):
+        run = subprocess.run([node, os.path.join(HERE, "round_trip.js"), DGX] + list(args), capture_output=True, text=True)
+        if run.returncode != 0:
+            return {"error": run.stderr.strip()}
+        return json.loads(run.stdout) if run.stdout.strip() else {}
+
+    def glyphs_read(path):
+        code, text, err = tool("json", path)
+        if code != 0:
+            return None
+        return {cp: [g["w"], g["h"], g["xAdvance"], g["xOffset"], g["yOffset"], "|".join(g["rows"])] for cp, g in json.loads(text)["glyphs"].items()}
+
+    made = os.path.join(work, "round-trip")
+    os.makedirs(made, exist_ok=True)
+    run = subprocess.run([os.path.join(work, "out", "font2c"), dejavu_file(), "14", "0x20", "0x7e", "0x410", "0x44f"], capture_output=True,
+                         text=True, cwd=made)
+    made_c = [f for f in os.listdir(made) if f.endswith(".c")]
+    check(run.returncode == 0 and len(made_c) == 1, f"font2c makes a font for the editor: {run.stderr.strip()} {os.listdir(made)}")
+    if made_c:
+        path = os.path.join(made, made_c[0])
+        read = editor("read", path)
+        check(read.get("same"), f"the editor writes a font of font2c back byte for byte: {read.get('error', '')}")
+        check(read.get("glyphs") is not None and read.get("glyphs") == glyphs_read(path), "the editor and dgx_fonts.py read a font of font2c alike")
+        stream = os.path.join(made, "stream.c")
+        editor("stream", path, stream)
+        again = editor("read", stream) if os.path.exists(stream) else {"error": "no stream written"}
+        check(again.get("same") and again.get("glyphs") == read.get("glyphs"),
+              f"a stream the editor writes comes back from it byte for byte and with the same glyphs: {again.get('error', '')}")
+        check(glyphs_read(stream) == read.get("glyphs"), "dgx_fonts.py reads a stream the editor writes as the editor does")
+    for name in sorted(os.listdir(os.path.join(DGX, "src", "fonts"))):
+        if not name.endswith(".c"):
+            continue
+        path = os.path.join(DGX, "src", "fonts", name)
+        read = editor("read", path)
+        if "no bitmap font" in read.get("error", ""):
+            continue  # handwritten and dot fonts are not edited
+        check("error" not in read, f"{name}: the editor reads it: {read.get('error')}")
+        check(read.get("glyphs") == glyphs_read(path), f"{name}: the editor and dgx_fonts.py read the same glyphs")
+        check(read.get("stable"), f"{name}: what the editor writes of it, it reads back and writes again unchanged")
+
+
 def dejavu_file(name="DejaVuSans"):
     return subprocess.run(["fc-list", f":postscriptname={name}", "--format", "%{file}\n"], capture_output=True, text=True).stdout.split("\n")[0]
 
@@ -777,6 +829,7 @@ def main():
         test_characters_as_written(work)
         test_font2c_lines(work)
         test_font2c_long_paths(work)
+        test_editor_round_trip(work)
         test_patches(work)
         test_cmake(work)
         test_licenses(work)

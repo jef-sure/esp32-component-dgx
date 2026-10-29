@@ -1,0 +1,7254 @@
+## ili9341 16 rgb
+M 4 2
+G 4 1
+W 100
+G 4 0
+W 100
+G 4 1
+C 01
+S
+W 150
+C 28
+S
+C 3a
+D 55
+C c0
+D 23
+C c1
+D 10
+C c5
+D 3e 28
+C c7
+D 86
+C 36
+D 08
+C b1
+D 00 18
+C b6
+D 0a a2 27 04
+C 26
+D 01
+C e0
+D 0f 31 2b 0c 0e 08 4e f1 37 07 10 03 0e 09 00
+C e1
+D 00 0e 14 03 11 07 31 c1 48 08 0f 0c 31 36 0f
+C 11
+S
+W 150
+C 29
+S
+M 21 2
+G 21 1
+# turn lr tb
+C 36
+D 08
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 00 00 ef
+C 2b
+D 01 38 01 3f
+C 2c
+P 30720 799280e4e829d125
+S
+C 37
+D 01 38
+S
+# turn rl tb
+C 36
+D 48
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 00 00 ef
+C 2b
+D 01 38 01 3f
+C 2c
+P 30720 799280e4e829d125
+S
+C 37
+D 01 38
+S
+# turn lr bt
+C 36
+D 88
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 00 00 ef
+C 2b
+D 01 38 01 3f
+C 2c
+P 30720 799280e4e829d125
+S
+C 37
+D 00 08
+S
+# turn rl bt
+C 36
+D c8
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 00 00 ef
+C 2b
+D 01 38 01 3f
+C 2c
+P 30720 799280e4e829d125
+S
+C 37
+D 00 08
+S
+# turn lr tb swap
+C 36
+D 28
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb swap
+C 36
+D 68
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt swap
+C 36
+D a8
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt swap
+C 36
+D e8
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# fill
+S
+C 2a
+D 00 00 01 3f
+C 2b
+D 00 00 00 ef
+C 2c
+P 1228800 fa8fc31b38b2b325
+S
+G 21 0
+G 21 1
+## ili9341 18 rgb
+M 4 2
+G 4 1
+W 100
+G 4 0
+W 100
+G 4 1
+C 01
+S
+W 150
+C 28
+S
+C 3a
+D 66
+C c0
+D 23
+C c1
+D 10
+C c5
+D 3e 28
+C c7
+D 86
+C 36
+D 08
+C b1
+D 00 18
+C b6
+D 0a a2 27 04
+C 26
+D 01
+C e0
+D 0f 31 2b 0c 0e 08 4e f1 37 07 10 03 0e 09 00
+C e1
+D 00 0e 14 03 11 07 31 c1 48 08 0f 0c 31 36 0f
+C 11
+S
+W 150
+C 29
+S
+M 21 2
+G 21 1
+# turn lr tb
+C 36
+D 08
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 00 00 ef
+C 2b
+D 01 38 01 3f
+C 2c
+P 46080 47c772a1b690e6a5
+S
+C 37
+D 01 38
+S
+# turn rl tb
+C 36
+D 48
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 00 00 ef
+C 2b
+D 01 38 01 3f
+C 2c
+P 46080 47c772a1b690e6a5
+S
+C 37
+D 01 38
+S
+# turn lr bt
+C 36
+D 88
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 00 00 ef
+C 2b
+D 01 38 01 3f
+C 2c
+P 46080 47c772a1b690e6a5
+S
+C 37
+D 00 08
+S
+# turn rl bt
+C 36
+D c8
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 00 00 ef
+C 2b
+D 01 38 01 3f
+C 2c
+P 46080 47c772a1b690e6a5
+S
+C 37
+D 00 08
+S
+# turn lr tb swap
+C 36
+D 28
+C 33
+D 00 00 01 40 00 00
+C 37
+D 00 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb swap
+C 36
+D 68
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt swap
+C 36
+D a8
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt swap
+C 36
+D e8
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# fill
+S
+C 2a
+D 00 00 01 3f
+C 2b
+D 00 00 00 ef
+C 2c
+P 1843200 ac3adc6dad29a725
+S
+G 21 0
+G 21 1
+## ili9341 16 bgr
+M 4 2
+G 4 1
+W 100
+G 4 0
+W 100
+G 4 1
+C 01
+S
+W 150
+C 28
+S
+C 3a
+D 55
+C c0
+D 23
+C c1
+D 10
+C c5
+D 3e 28
+C c7
+D 86
+C 36
+D 00
+C b1
+D 00 18
+C b6
+D 0a a2 27 04
+C 26
+D 01
+C e0
+D 0f 31 2b 0c 0e 08 4e f1 37 07 10 03 0e 09 00
+C e1
+D 00 0e 14 03 11 07 31 c1 48 08 0f 0c 31 36 0f
+C 11
+S
+W 150
+C 29
+S
+M 21 2
+G 21 1
+# turn lr tb
+C 36
+D 00
+# turn rl tb
+C 36
+D 40
+# turn lr bt
+C 36
+D 80
+# turn rl bt
+C 36
+D c0
+# turn lr tb swap
+C 36
+D 20
+# turn rl tb swap
+C 36
+D 60
+# turn lr bt swap
+C 36
+D a0
+# turn rl bt swap
+C 36
+D e0
+G 21 0
+G 21 1
+## ili9341 refused 12 rgb
+## st7789 240x240 12 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C 3a
+D 33
+W 10
+C 36
+D 00
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 00 ef
+C 21
+S
+W 10
+C 13
+S
+W 10
+C 29
+S
+W 500
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 52 00 52
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 54 00 59
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 52 00 52
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 54 00 59
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 51 00 51
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 53 00 5c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 51 00 51
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 53 00 5c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# fill
+S
+C 2a
+D 00 50 01 3f
+C 2b
+D 00 00 00 ef
+C 2c
+P 691200 c7823dce06267ca5
+S
+## st7789 240x240 16 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C 3a
+D 55
+W 10
+C 36
+D 00
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 00 ef
+C 21
+S
+W 10
+C 13
+S
+W 10
+C 29
+S
+W 500
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 52 00 52
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 54 00 59
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 52 00 52
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 54 00 59
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 51 00 51
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 53 00 5c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 51 00 51
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 53 00 5c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# fill
+S
+C 2a
+D 00 50 01 3f
+C 2b
+D 00 00 00 ef
+C 2c
+P 921600 8b835a3198fe8f25
+S
+## st7789 240x240 18 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C 3a
+D 66
+W 10
+C 36
+D 00
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 00 ef
+C 21
+S
+W 10
+C 13
+S
+W 10
+C 29
+S
+W 500
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 52 00 52
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 54 00 59
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 52 00 52
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 54 00 59
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 51 00 51
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 53 00 5c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 51 00 51
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 53 00 5c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# fill
+S
+C 2a
+D 00 50 01 3f
+C 2b
+D 00 00 00 ef
+C 2c
+P 1382400 1fff0dcc48e1c625
+S
+## st7789 240x240 16 bgr
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C 3a
+D 55
+W 10
+C 36
+D 08
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 00 ef
+C 21
+S
+W 10
+C 13
+S
+W 10
+C 29
+S
+W 500
+# turn lr tb
+C 36
+D 08
+# turn rl tb
+C 36
+D 48
+# turn lr bt
+C 36
+D 88
+# turn rl bt
+C 36
+D c8
+# turn lr tb swap
+C 36
+D 28
+# turn rl tb swap
+C 36
+D 68
+# turn lr bt swap
+C 36
+D a8
+# turn rl bt swap
+C 36
+D e8
+## st7789 240x320 12 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C 3a
+D 33
+W 10
+C 36
+D 00
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 01 3f
+C 21
+S
+W 10
+C 13
+S
+W 10
+C 29
+S
+W 500
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# fill
+S
+C 2a
+D 00 00 01 3f
+C 2b
+D 00 00 00 ef
+C 2c
+P 921600 9d3e23a439551925
+S
+## st7789 240x320 16 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C 3a
+D 55
+W 10
+C 36
+D 00
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 01 3f
+C 21
+S
+W 10
+C 13
+S
+W 10
+C 29
+S
+W 500
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# fill
+S
+C 2a
+D 00 00 01 3f
+C 2b
+D 00 00 00 ef
+C 2c
+P 1228800 fa8fc31b38b2b325
+S
+## st7789 240x320 18 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C 3a
+D 66
+W 10
+C 36
+D 00
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 01 3f
+C 21
+S
+W 10
+C 13
+S
+W 10
+C 29
+S
+W 500
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# fill
+S
+C 2a
+D 00 00 01 3f
+C 2b
+D 00 00 00 ef
+C 2c
+P 1843200 ac3adc6dad29a725
+S
+## st7789 240x320 16 bgr
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C 3a
+D 55
+W 10
+C 36
+D 08
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 01 3f
+C 21
+S
+W 10
+C 13
+S
+W 10
+C 29
+S
+W 500
+# turn lr tb
+C 36
+D 08
+# turn rl tb
+C 36
+D 48
+# turn lr bt
+C 36
+D 88
+# turn rl bt
+C 36
+D c8
+# turn lr tb swap
+C 36
+D 28
+# turn rl tb swap
+C 36
+D 68
+# turn lr bt swap
+C 36
+D a8
+# turn rl bt swap
+C 36
+D e8
+## st7789 320x240 12 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C 3a
+D 33
+W 10
+C 36
+D 00
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 01 3f
+C 21
+S
+W 10
+C 13
+S
+W 10
+C 29
+S
+W 500
+C 36
+D 60
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# fill
+S
+C 2a
+D 00 00 01 3f
+C 2b
+D 00 00 00 ef
+C 2c
+P 921600 9d3e23a439551925
+S
+## st7789 320x240 16 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C 3a
+D 55
+W 10
+C 36
+D 00
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 01 3f
+C 21
+S
+W 10
+C 13
+S
+W 10
+C 29
+S
+W 500
+C 36
+D 60
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# fill
+S
+C 2a
+D 00 00 01 3f
+C 2b
+D 00 00 00 ef
+C 2c
+P 1228800 fa8fc31b38b2b325
+S
+## st7789 320x240 18 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C 3a
+D 66
+W 10
+C 36
+D 00
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 01 3f
+C 21
+S
+W 10
+C 13
+S
+W 10
+C 29
+S
+W 500
+C 36
+D 60
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# fill
+S
+C 2a
+D 00 00 01 3f
+C 2b
+D 00 00 00 ef
+C 2c
+P 1843200 ac3adc6dad29a725
+S
+## st7789 320x240 16 bgr
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C 3a
+D 55
+W 10
+C 36
+D 08
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 01 3f
+C 21
+S
+W 10
+C 13
+S
+W 10
+C 29
+S
+W 500
+C 36
+D 68
+# turn lr tb
+C 36
+D 08
+# turn rl tb
+C 36
+D 48
+# turn lr bt
+C 36
+D 88
+# turn rl bt
+C 36
+D c8
+# turn lr tb swap
+C 36
+D 28
+# turn rl tb swap
+C 36
+D 68
+# turn lr bt swap
+C 36
+D a8
+# turn rl bt swap
+C 36
+D e8
+## st7789 refused 24 rgb
+## st7735 12 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C b1
+D 01 2c 2d
+C b2
+D 01 2c 2d
+C b3
+D 01 2c 2d 01 2c 2d
+C b4
+D 07
+C c0
+D a2 02 84
+C c1
+D c5
+C c2
+D 0a 00
+C c3
+D 8a 2a
+C c4
+D 8a ee
+C c5
+D 0e
+W 9
+C 36
+D 00
+C 3a
+D 03
+C 2a
+D 00 00 00 7f
+C 2b
+D 00 00 00 9f
+C e0
+D 02 1c 07 12 37 32 29 2d 29 25 2b 39 00 01 03 10
+C e1
+D 03 1d 07 06 2e 2c 29 2d 2e 2e 37 3f 00 00 02 10
+C 13
+S
+W 10
+C 29
+S
+W 100
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# fill
+S
+C 2a
+D 00 00 00 9f
+C 2b
+D 00 00 00 7f
+C 2c
+P 245760 121663443020cb25
+S
+## st7735 16 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C b1
+D 01 2c 2d
+C b2
+D 01 2c 2d
+C b3
+D 01 2c 2d 01 2c 2d
+C b4
+D 07
+C c0
+D a2 02 84
+C c1
+D c5
+C c2
+D 0a 00
+C c3
+D 8a 2a
+C c4
+D 8a ee
+C c5
+D 0e
+W 9
+C 36
+D 00
+C 3a
+D 05
+C 2a
+D 00 00 00 7f
+C 2b
+D 00 00 00 9f
+C e0
+D 02 1c 07 12 37 32 29 2d 29 25 2b 39 00 01 03 10
+C e1
+D 03 1d 07 06 2e 2c 29 2d 2e 2e 37 3f 00 00 02 10
+C 13
+S
+W 10
+C 29
+S
+W 100
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# fill
+S
+C 2a
+D 00 00 00 9f
+C 2b
+D 00 00 00 7f
+C 2c
+P 327680 a6179baa637be325
+S
+## st7735 18 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C b1
+D 01 2c 2d
+C b2
+D 01 2c 2d
+C b3
+D 01 2c 2d 01 2c 2d
+C b4
+D 07
+C c0
+D a2 02 84
+C c1
+D c5
+C c2
+D 0a 00
+C c3
+D 8a 2a
+C c4
+D 8a ee
+C c5
+D 0e
+W 9
+C 36
+D 00
+C 3a
+D 06
+C 2a
+D 00 00 00 7f
+C 2b
+D 00 00 00 9f
+C e0
+D 02 1c 07 12 37 32 29 2d 29 25 2b 39 00 01 03 10
+C e1
+D 03 1d 07 06 2e 2c 29 2d 2e 2e 37 3f 00 00 02 10
+C 13
+S
+W 10
+C 29
+S
+W 100
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# fill
+S
+C 2a
+D 00 00 00 9f
+C 2b
+D 00 00 00 7f
+C 2c
+P 491520 7dcfcdf2d9931325
+S
+## st7735 16 bgr
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C b1
+D 01 2c 2d
+C b2
+D 01 2c 2d
+C b3
+D 01 2c 2d 01 2c 2d
+C b4
+D 07
+C c0
+D a2 02 84
+C c1
+D c5
+C c2
+D 0a 00
+C c3
+D 8a 2a
+C c4
+D 8a ee
+C c5
+D 0e
+W 9
+C 36
+D 08
+C 3a
+D 05
+C 2a
+D 00 00 00 7f
+C 2b
+D 00 00 00 9f
+C e0
+D 02 1c 07 12 37 32 29 2d 29 25 2b 39 00 01 03 10
+C e1
+D 03 1d 07 06 2e 2c 29 2d 2e 2e 37 3f 00 00 02 10
+C 13
+S
+W 10
+C 29
+S
+W 100
+# turn lr tb
+C 36
+D 08
+# turn rl tb
+C 36
+D 48
+# turn lr bt
+C 36
+D 88
+# turn rl bt
+C 36
+D c8
+# turn lr tb swap
+C 36
+D 28
+# turn rl tb swap
+C 36
+D 68
+# turn lr bt swap
+C 36
+D a8
+# turn rl bt swap
+C 36
+D e8
+## st7735 refused 24 rgb
+## gc9a01 12 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C ef
+S
+C eb
+D 14
+C fe
+S
+C ef
+S
+C eb
+D 14
+C 84
+D 40
+C 85
+D ff
+C 86
+D ff
+C 87
+D ff
+C 88
+D 0a
+C 89
+D 21
+C 8a
+D 00
+C 8b
+D 80
+C 8c
+D 01
+C 8d
+D 01
+C 8e
+D ff
+C 8f
+D ff
+C b6
+D 00 20
+C 3a
+D 03
+C 36
+D 00
+C 90
+D 08 08 08 08
+C bd
+D 06
+C bc
+D 00
+C ff
+D 60 01 04
+C c3
+D 13
+C c4
+D 13
+C c9
+D 22
+C be
+D 11
+C e1
+D 10 0e
+C df
+D 21 0c 02
+C f0
+D 45 09 08 08 26 2a
+C f1
+D 43 70 72 36 37 6f
+C f2
+D 45 09 08 08 26 2a
+C f3
+D 43 70 72 36 37 6f
+C ed
+D 1b 0b
+C ae
+D 77
+C cd
+D 63
+C 70
+D 07 07 04 0e 0f 09 07 08 03
+C e8
+D 34
+C 62
+D 18 0d 71 ed 70 70 18 0f 71 ef 70 70
+C 63
+D 18 11 71 f1 70 70 18 13 71 f3 70 70
+C 64
+D 28 29 f1 01 f1 00 07
+C 66
+D 3c 00 cd 67 45 45 10 00 00 00
+C 67
+D 00 3c 00 00 00 01 54 10 32 98
+C 74
+D 10 85 80 00 00 4e 00
+C 98
+D 3e 07
+C 35
+S
+C 21
+S
+C 11
+S
+W 120
+C 29
+S
+W 20
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ea07b4dda340
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 720 3ca6c5edd307249f
+S
+# fill
+S
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 00 ef
+C 2c
+P 691200 c7823dce06267ca5
+S
+C 28
+S
+C 29
+S
+## gc9a01 16 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C ef
+S
+C eb
+D 14
+C fe
+S
+C ef
+S
+C eb
+D 14
+C 84
+D 40
+C 85
+D ff
+C 86
+D ff
+C 87
+D ff
+C 88
+D 0a
+C 89
+D 21
+C 8a
+D 00
+C 8b
+D 80
+C 8c
+D 01
+C 8d
+D 01
+C 8e
+D ff
+C 8f
+D ff
+C b6
+D 00 20
+C 3a
+D 05
+C 36
+D 00
+C 90
+D 08 08 08 08
+C bd
+D 06
+C bc
+D 00
+C ff
+D 60 01 04
+C c3
+D 13
+C c4
+D 13
+C c9
+D 22
+C be
+D 11
+C e1
+D 10 0e
+C df
+D 21 0c 02
+C f0
+D 45 09 08 08 26 2a
+C f1
+D 43 70 72 36 37 6f
+C f2
+D 45 09 08 08 26 2a
+C f3
+D 43 70 72 36 37 6f
+C ed
+D 1b 0b
+C ae
+D 77
+C cd
+D 63
+C 70
+D 07 07 04 0e 0f 09 07 08 03
+C e8
+D 34
+C 62
+D 18 0d 71 ed 70 70 18 0f 71 ef 70 70
+C 63
+D 18 11 71 f1 70 70 18 13 71 f3 70 70
+C 64
+D 28 29 f1 01 f1 00 07
+C 66
+D 3c 00 cd 67 45 45 10 00 00 00
+C 67
+D 00 3c 00 00 00 01 54 10 32 98
+C 74
+D 10 85 80 00 00 4e 00
+C 98
+D 3e 07
+C 35
+S
+C 21
+S
+C 11
+S
+W 120
+C 29
+S
+W 20
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# fill
+S
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 00 ef
+C 2c
+P 921600 8b835a3198fe8f25
+S
+C 28
+S
+C 29
+S
+## gc9a01 18 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C ef
+S
+C eb
+D 14
+C fe
+S
+C ef
+S
+C eb
+D 14
+C 84
+D 40
+C 85
+D ff
+C 86
+D ff
+C 87
+D ff
+C 88
+D 0a
+C 89
+D 21
+C 8a
+D 00
+C 8b
+D 80
+C 8c
+D 01
+C 8d
+D 01
+C 8e
+D ff
+C 8f
+D ff
+C b6
+D 00 20
+C 3a
+D 06
+C 36
+D 00
+C 90
+D 08 08 08 08
+C bd
+D 06
+C bc
+D 00
+C ff
+D 60 01 04
+C c3
+D 13
+C c4
+D 13
+C c9
+D 22
+C be
+D 11
+C e1
+D 10 0e
+C df
+D 21 0c 02
+C f0
+D 45 09 08 08 26 2a
+C f1
+D 43 70 72 36 37 6f
+C f2
+D 45 09 08 08 26 2a
+C f3
+D 43 70 72 36 37 6f
+C ed
+D 1b 0b
+C ae
+D 77
+C cd
+D 63
+C 70
+D 07 07 04 0e 0f 09 07 08 03
+C e8
+D 34
+C 62
+D 18 0d 71 ed 70 70 18 0f 71 ef 70 70
+C 63
+D 18 11 71 f1 70 70 18 13 71 f3 70 70
+C 64
+D 28 29 f1 01 f1 00 07
+C 66
+D 3c 00 cd 67 45 45 10 00 00 00
+C 67
+D 00 3c 00 00 00 01 54 10 32 98
+C 74
+D 10 85 80 00 00 4e 00
+C 98
+D 3e 07
+C 35
+S
+C 21
+S
+C 11
+S
+W 120
+C 29
+S
+W 20
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# fill
+S
+C 2a
+D 00 00 00 ef
+C 2b
+D 00 00 00 ef
+C 2c
+P 1382400 1fff0dcc48e1c625
+S
+C 28
+S
+C 29
+S
+## gc9a01 16 bgr
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C ef
+S
+C eb
+D 14
+C fe
+S
+C ef
+S
+C eb
+D 14
+C 84
+D 40
+C 85
+D ff
+C 86
+D ff
+C 87
+D ff
+C 88
+D 0a
+C 89
+D 21
+C 8a
+D 00
+C 8b
+D 80
+C 8c
+D 01
+C 8d
+D 01
+C 8e
+D ff
+C 8f
+D ff
+C b6
+D 00 20
+C 3a
+D 05
+C 36
+D 08
+C 90
+D 08 08 08 08
+C bd
+D 06
+C bc
+D 00
+C ff
+D 60 01 04
+C c3
+D 13
+C c4
+D 13
+C c9
+D 22
+C be
+D 11
+C e1
+D 10 0e
+C df
+D 21 0c 02
+C f0
+D 45 09 08 08 26 2a
+C f1
+D 43 70 72 36 37 6f
+C f2
+D 45 09 08 08 26 2a
+C f3
+D 43 70 72 36 37 6f
+C ed
+D 1b 0b
+C ae
+D 77
+C cd
+D 63
+C 70
+D 07 07 04 0e 0f 09 07 08 03
+C e8
+D 34
+C 62
+D 18 0d 71 ed 70 70 18 0f 71 ef 70 70
+C 63
+D 18 11 71 f1 70 70 18 13 71 f3 70 70
+C 64
+D 28 29 f1 01 f1 00 07
+C 66
+D 3c 00 cd 67 45 45 10 00 00 00
+C 67
+D 00 3c 00 00 00 01 54 10 32 98
+C 74
+D 10 85 80 00 00 4e 00
+C 98
+D 3e 07
+C 35
+S
+C 21
+S
+C 11
+S
+W 120
+C 29
+S
+W 20
+# turn lr tb
+C 36
+D 08
+# turn rl tb
+C 36
+D 48
+# turn lr bt
+C 36
+D 88
+# turn rl bt
+C 36
+D c8
+# turn lr tb swap
+C 36
+D 28
+# turn rl tb swap
+C 36
+D 68
+# turn lr bt swap
+C 36
+D a8
+# turn rl bt swap
+C 36
+D e8
+C 28
+S
+C 29
+S
+## gc9a01 refused 24 rgb
+## ssd1351 16 rgb
+M 4 2
+G 4 1
+W 100
+G 4 0
+W 100
+G 4 1
+C fd
+D 12
+C fd
+D b1
+C ae
+S
+C b3
+D f1
+C ca
+D 7f
+C a2
+D 00
+C b5
+D 00
+C ab
+D 01
+C b1
+D 32
+C be
+D 05
+C a6
+S
+C c1
+D d0 d0 d0
+C c7
+D 0f
+C b4
+D a0 b5 55
+C b6
+D 01
+C af
+S
+W 500
+C a0
+D 74
+C a1
+D 80
+# turn lr tb
+C a0
+D 74
+C a1
+D 80
+S
+C 15
+D 01 01
+C 75
+D 02 02
+C 5c
+P 16 0821ef07b4ddabbf
+S
+S
+C 15
+D 03 0c
+C 75
+D 04 09
+C 5c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb
+C a0
+D 76
+C a1
+D 80
+S
+C 15
+D 01 01
+C 75
+D 02 02
+C 5c
+P 16 0821ef07b4ddabbf
+S
+S
+C 15
+D 03 0c
+C 75
+D 04 09
+C 5c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt
+C a0
+D 64
+C a1
+D 00
+S
+C 15
+D 01 01
+C 75
+D 02 02
+C 5c
+P 16 0821ef07b4ddabbf
+S
+S
+C 15
+D 03 0c
+C 75
+D 04 09
+C 5c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt
+C a0
+D 66
+C a1
+D 00
+S
+C 15
+D 01 01
+C 75
+D 02 02
+C 5c
+P 16 0821ef07b4ddabbf
+S
+S
+C 15
+D 03 0c
+C 75
+D 04 09
+C 5c
+P 960 33dc5bc23c289e05
+S
+# turn lr tb swap
+C a0
+D 75
+C a1
+D 80
+S
+C 75
+D 01 01
+C 15
+D 02 02
+C 5c
+P 16 0821ef07b4ddabbf
+S
+S
+C 75
+D 03 0c
+C 15
+D 04 09
+C 5c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb swap
+C a0
+D 77
+C a1
+D 80
+S
+C 75
+D 01 01
+C 15
+D 02 02
+C 5c
+P 16 0821ef07b4ddabbf
+S
+S
+C 75
+D 03 0c
+C 15
+D 04 09
+C 5c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt swap
+C a0
+D 65
+C a1
+D 00
+S
+C 75
+D 01 01
+C 15
+D 02 02
+C 5c
+P 16 0821ef07b4ddabbf
+S
+S
+C 75
+D 03 0c
+C 15
+D 04 09
+C 5c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt swap
+C a0
+D 67
+C a1
+D 00
+S
+C 75
+D 01 01
+C 15
+D 02 02
+C 5c
+P 16 0821ef07b4ddabbf
+S
+S
+C 75
+D 03 0c
+C 15
+D 04 09
+C 5c
+P 960 33dc5bc23c289e05
+S
+# fill
+S
+C 75
+D 00 7f
+C 15
+D 00 7f
+C 5c
+P 262144 74f7e827439d2325
+S
+C c7
+D 08
+## ssd1351 18 rgb
+M 4 2
+G 4 1
+W 100
+G 4 0
+W 100
+G 4 1
+C fd
+D 12
+C fd
+D b1
+C ae
+S
+C b3
+D f1
+C ca
+D 7f
+C a2
+D 00
+C b5
+D 00
+C ab
+D 01
+C b1
+D 32
+C be
+D 05
+C a6
+S
+C c1
+D d0 d0 d0
+C c7
+D 0f
+C b4
+D a0 b5 55
+C b6
+D 01
+C af
+S
+W 500
+C a0
+D b4
+C a1
+D 80
+# turn lr tb
+C a0
+D b4
+C a1
+D 80
+S
+C 15
+D 01 01
+C 75
+D 02 02
+C 5c
+S
+P 24 d94985186c0c0a49
+S
+S
+C 15
+D 03 0c
+C 75
+D 04 09
+C 5c
+S
+P 1440 fb12a484a33fc365
+S
+# turn rl tb
+C a0
+D b6
+C a1
+D 80
+S
+C 15
+D 01 01
+C 75
+D 02 02
+C 5c
+S
+P 24 d94985186c0c0a49
+S
+S
+C 15
+D 03 0c
+C 75
+D 04 09
+C 5c
+S
+P 1440 fb12a484a33fc365
+S
+# turn lr bt
+C a0
+D a4
+C a1
+D 00
+S
+C 15
+D 01 01
+C 75
+D 02 02
+C 5c
+S
+P 24 d94985186c0c0a49
+S
+S
+C 15
+D 03 0c
+C 75
+D 04 09
+C 5c
+S
+P 1440 fb12a484a33fc365
+S
+# turn rl bt
+C a0
+D a6
+C a1
+D 00
+S
+C 15
+D 01 01
+C 75
+D 02 02
+C 5c
+S
+P 24 d94985186c0c0a49
+S
+S
+C 15
+D 03 0c
+C 75
+D 04 09
+C 5c
+S
+P 1440 fb12a484a33fc365
+S
+# turn lr tb swap
+C a0
+D b5
+C a1
+D 80
+S
+C 75
+D 01 01
+C 15
+D 02 02
+C 5c
+S
+P 24 d94985186c0c0a49
+S
+S
+C 75
+D 03 0c
+C 15
+D 04 09
+C 5c
+S
+P 1440 fb12a484a33fc365
+S
+# turn rl tb swap
+C a0
+D b7
+C a1
+D 80
+S
+C 75
+D 01 01
+C 15
+D 02 02
+C 5c
+S
+P 24 d94985186c0c0a49
+S
+S
+C 75
+D 03 0c
+C 15
+D 04 09
+C 5c
+S
+P 1440 fb12a484a33fc365
+S
+# turn lr bt swap
+C a0
+D a5
+C a1
+D 00
+S
+C 75
+D 01 01
+C 15
+D 02 02
+C 5c
+S
+P 24 d94985186c0c0a49
+S
+S
+C 75
+D 03 0c
+C 15
+D 04 09
+C 5c
+S
+P 1440 fb12a484a33fc365
+S
+# turn rl bt swap
+C a0
+D a7
+C a1
+D 00
+S
+C 75
+D 01 01
+C 15
+D 02 02
+C 5c
+S
+P 24 d94985186c0c0a49
+S
+S
+C 75
+D 03 0c
+C 15
+D 04 09
+C 5c
+S
+P 1440 fb12a484a33fc365
+S
+# fill
+S
+C 75
+D 00 7f
+C 15
+D 00 7f
+C 5c
+S
+P 6144 bda97ed76da11625
+S
+P 3168 51abfef32b7e8591
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 1272 5912d39f5f992210
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 1272 5912d39f5f992210
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 1272 5912d39f5f992210
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 1272 5912d39f5f992210
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 1272 5912d39f5f992210
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 1272 5912d39f5f992210
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 1272 5912d39f5f992210
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 1272 5912d39f5f992210
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 1272 5912d39f5f992210
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 1272 5912d39f5f992210
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 1272 5912d39f5f992210
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 6144 bda97ed76da11625
+S
+P 1272 5912d39f5f992210
+S
+C c7
+D 08
+S
+## ssd1351 16 bgr
+M 4 2
+G 4 1
+W 100
+G 4 0
+W 100
+G 4 1
+C fd
+D 12
+C fd
+D b1
+C ae
+S
+C b3
+D f1
+C ca
+D 7f
+C a2
+D 00
+C b5
+D 00
+C ab
+D 01
+C b1
+D 32
+C be
+D 05
+C a6
+S
+C c1
+D d0 d0 d0
+C c7
+D 0f
+C b4
+D a0 b5 55
+C b6
+D 01
+C af
+S
+W 500
+C a0
+D 70
+C a1
+D 80
+# turn lr tb
+C a0
+D 70
+C a1
+D 80
+# turn rl tb
+C a0
+D 72
+C a1
+D 80
+# turn lr bt
+C a0
+D 60
+C a1
+D 00
+# turn rl bt
+C a0
+D 62
+C a1
+D 00
+# turn lr tb swap
+C a0
+D 71
+C a1
+D 80
+# turn rl tb swap
+C a0
+D 73
+C a1
+D 80
+# turn lr bt swap
+C a0
+D 61
+C a1
+D 00
+# turn rl bt swap
+C a0
+D 63
+C a1
+D 00
+C c7
+D 08
+## ssd1351 refused 12 rgb
+## nv3041a 16 rgb
+M 1 2
+G 1 0
+M 4 2
+G 4 1
+W 10
+G 4 0
+W 10
+G 4 1
+W 120
+C 01
+S
+W 120
+C ff
+D a5
+C 36
+D c0
+C 3a
+D 01
+C 41
+D 03
+C 44
+D 15
+C 45
+D 15
+C 7d
+D 03
+C c1
+D ab
+C c2
+D 17
+C c3
+D 10
+C c6
+D 3a
+C c7
+D 25
+C c8
+D 11
+C 7a
+D 49
+C 6f
+D 2f
+C 78
+D 4b
+C c9
+D 00
+C 67
+D 33
+C 51
+D 4b
+C 52
+D 7c
+C 53
+D 1c
+C 54
+D 77
+C 46
+D 0a
+C 47
+D 2a
+C 48
+D 0a
+C 49
+D 1a
+C 56
+D 43
+C 57
+D 42
+C 58
+D 3c
+C 59
+D 64
+C 5a
+D 41
+C 5b
+D 3c
+C 5c
+D 02
+C 5d
+D 3c
+C 5e
+D 1f
+C 60
+D 80
+C 61
+D 3f
+C 62
+D 21
+C 63
+D 07
+C 64
+D e0
+C 65
+D 01
+C ca
+D 20
+C cb
+D 52
+C cc
+D 10
+C cd
+D 42
+C d0
+D 20
+C d1
+D 52
+C d2
+D 10
+C d3
+D 42
+C d4
+D 0a
+C d5
+D 32
+C 80
+D 04
+C a0
+D 00
+C 81
+D 07
+C a1
+D 05
+C 82
+D 06
+C a2
+D 04
+C 86
+D 2c
+C a6
+D 2a
+C 87
+D 46
+C a7
+D 44
+C 83
+D 39
+C a3
+D 39
+C 84
+D 3a
+C a4
+D 3a
+C 85
+D 3f
+C a5
+D 3f
+C 88
+D 08
+C a8
+D 08
+C 89
+D 0f
+C a9
+D 0f
+C 8a
+D 17
+C aa
+D 17
+C 8b
+D 10
+C ab
+D 10
+C 8c
+D 16
+C ac
+D 16
+C 8d
+D 14
+C ad
+D 14
+C 8e
+D 11
+C ae
+D 11
+C 8f
+D 14
+C af
+D 14
+C 90
+D 06
+C b0
+D 06
+C 91
+D 0f
+C b1
+D 0f
+C 92
+D 16
+C b2
+D 16
+C ff
+D 00
+C 11
+S
+W 120
+C 36
+D c0
+C 21
+S
+W 20
+S
+C 2a
+D 00 00 01 df
+C 2b
+D 00 00 01 0f
+C 2c
+P 2088960 210b5c42546bd325
+S
+C 29
+S
+W 100
+G 1 1
+# turn lr tb
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr tb swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# fill
+S
+C 2a
+D 00 00 01 0f
+C 2b
+D 00 00 01 df
+C 2c
+P 2088960 9f3e673950be4b25
+S
+G 1 0
+G 1 1
+## nv3041a 16 bgr
+M 1 2
+G 1 0
+M 4 2
+G 4 1
+W 10
+G 4 0
+W 10
+G 4 1
+W 120
+C 01
+S
+W 120
+C ff
+D a5
+C 36
+D c8
+C 3a
+D 01
+C 41
+D 03
+C 44
+D 15
+C 45
+D 15
+C 7d
+D 03
+C c1
+D ab
+C c2
+D 17
+C c3
+D 10
+C c6
+D 3a
+C c7
+D 25
+C c8
+D 11
+C 7a
+D 49
+C 6f
+D 2f
+C 78
+D 4b
+C c9
+D 00
+C 67
+D 33
+C 51
+D 4b
+C 52
+D 7c
+C 53
+D 1c
+C 54
+D 77
+C 46
+D 0a
+C 47
+D 2a
+C 48
+D 0a
+C 49
+D 1a
+C 56
+D 43
+C 57
+D 42
+C 58
+D 3c
+C 59
+D 64
+C 5a
+D 41
+C 5b
+D 3c
+C 5c
+D 02
+C 5d
+D 3c
+C 5e
+D 1f
+C 60
+D 80
+C 61
+D 3f
+C 62
+D 21
+C 63
+D 07
+C 64
+D e0
+C 65
+D 01
+C ca
+D 20
+C cb
+D 52
+C cc
+D 10
+C cd
+D 42
+C d0
+D 20
+C d1
+D 52
+C d2
+D 10
+C d3
+D 42
+C d4
+D 0a
+C d5
+D 32
+C 80
+D 04
+C a0
+D 00
+C 81
+D 07
+C a1
+D 05
+C 82
+D 06
+C a2
+D 04
+C 86
+D 2c
+C a6
+D 2a
+C 87
+D 46
+C a7
+D 44
+C 83
+D 39
+C a3
+D 39
+C 84
+D 3a
+C a4
+D 3a
+C 85
+D 3f
+C a5
+D 3f
+C 88
+D 08
+C a8
+D 08
+C 89
+D 0f
+C a9
+D 0f
+C 8a
+D 17
+C aa
+D 17
+C 8b
+D 10
+C ab
+D 10
+C 8c
+D 16
+C ac
+D 16
+C 8d
+D 14
+C ad
+D 14
+C 8e
+D 11
+C ae
+D 11
+C 8f
+D 14
+C af
+D 14
+C 90
+D 06
+C b0
+D 06
+C 91
+D 0f
+C b1
+D 0f
+C 92
+D 16
+C b2
+D 16
+C ff
+D 00
+C 11
+S
+W 120
+C 36
+D c8
+C 21
+S
+W 20
+S
+C 2a
+D 00 00 01 df
+C 2b
+D 00 00 01 0f
+C 2c
+P 2088960 210b5c42546bd325
+S
+C 29
+S
+W 100
+G 1 1
+# turn lr tb
+C 36
+D c8
+# turn rl tb
+C 36
+D 88
+# turn lr bt
+C 36
+D 48
+# turn rl bt
+C 36
+D 08
+# turn lr tb swap
+C 36
+D e8
+# turn rl tb swap
+C 36
+D a8
+# turn lr bt swap
+C 36
+D 68
+# turn rl bt swap
+C 36
+D 28
+G 1 0
+G 1 1
+## nv3041a refused 18 rgb
+## st77916 16 rgb
+M 1 2
+G 1 0
+M 4 2
+G 4 0
+W 10
+G 4 1
+W 120
+C 01
+S
+W 120
+C 36
+D 00
+C 3a
+D 55
+C f0
+D 08
+C f2
+D 08
+C 9b
+D 51
+C 86
+D 53
+C f2
+D 80
+C f0
+D 00
+C f0
+D 01
+C f1
+D 01
+C b0
+D 54
+C b1
+D 3f
+C b2
+D 2a
+C b4
+D 46
+C b5
+D 34
+C b6
+D d5
+C b7
+D 30
+C b8
+D 04
+C ba
+D 00
+C bb
+D 08
+C bc
+D 08
+C bd
+D 00
+C c0
+D 80
+C c1
+D 10
+C c2
+D 37
+C c3
+D 80
+C c4
+D 10
+C c5
+D 37
+C c6
+D a9
+C c7
+D 41
+C c8
+D 51
+C c9
+D a9
+C ca
+D 41
+C cb
+D 51
+C d0
+D 91
+C d1
+D 68
+C d2
+D 69
+C f5
+D 00 a5
+C dd
+D 35
+C de
+D 35
+C f1
+D 10
+C f0
+D 00
+C f0
+D 02
+C e0
+D 70 09 12 0c 0b 27 38 54 4e 19 15 15 2c 2f
+C e1
+D 70 08 11 0c 0b 27 38 43 4c 18 14 14 2b 2d
+C f0
+D 10
+C f3
+D 10
+C e0
+D 0a
+C e1
+D 00
+C e2
+D 0b
+C e3
+D 00
+C e4
+D e0
+C e5
+D 06
+C e6
+D 21
+C e7
+D 00
+C e8
+D 05
+C e9
+D 82
+C ea
+D df
+C eb
+D 89
+C ec
+D 20
+C ed
+D 14
+C ee
+D ff
+C ef
+D 00
+C f8
+D ff
+C f9
+D 00
+C fa
+D 00
+C fb
+D 30
+C fc
+D 00
+C fd
+D 00
+C fe
+D 00
+C ff
+D 00
+C 60
+D 42
+C 61
+D e0
+C 62
+D 40
+C 63
+D 40
+C 64
+D 02
+C 65
+D 00
+C 66
+D 40
+C 67
+D 03
+C 68
+D 00
+C 69
+D 00
+C 6a
+D 00
+C 6b
+D 00
+C 70
+D 42
+C 71
+D e0
+C 72
+D 40
+C 73
+D 40
+C 74
+D 02
+C 75
+D 00
+C 76
+D 40
+C 77
+D 03
+C 78
+D 00
+C 79
+D 00
+C 7a
+D 00
+C 7b
+D 00
+C 80
+D 38
+C 81
+D 00
+C 82
+D 04
+C 83
+D 02
+C 84
+D dc
+C 85
+D 00
+C 86
+D 00
+C 87
+D 00
+C 88
+D 38
+C 89
+D 00
+C 8a
+D 06
+C 8b
+D 02
+C 8c
+D de
+C 8d
+D 00
+C 8e
+D 00
+C 8f
+D 00
+C 90
+D 38
+C 91
+D 00
+C 92
+D 08
+C 93
+D 02
+C 94
+D e0
+C 95
+D 00
+C 96
+D 00
+C 97
+D 00
+C 98
+D 38
+C 99
+D 00
+C 9a
+D 0a
+C 9b
+D 02
+C 9c
+D e2
+C 9d
+D 00
+C 9e
+D 00
+C 9f
+D 00
+C a0
+D 38
+C a1
+D 00
+C a2
+D 03
+C a3
+D 02
+C a4
+D db
+C a5
+D 00
+C a6
+D 00
+C a7
+D 00
+C a8
+D 38
+C a9
+D 00
+C aa
+D 05
+C ab
+D 02
+C ac
+D dd
+C ad
+D 00
+C ae
+D 00
+C af
+D 00
+C b0
+D 38
+C b1
+D 00
+C b2
+D 07
+C b3
+D 02
+C b4
+D df
+C b5
+D 00
+C b6
+D 00
+C b7
+D 00
+C b8
+D 38
+C b9
+D 00
+C ba
+D 09
+C bb
+D 02
+C bc
+D e1
+C bd
+D 00
+C be
+D 00
+C bf
+D 00
+C c0
+D 22
+C c1
+D aa
+C c2
+D 65
+C c3
+D 74
+C c4
+D 47
+C c5
+D 56
+C c6
+D 00
+C c7
+D 88
+C c8
+D 99
+C c9
+D 33
+C d0
+D 11
+C d1
+D aa
+C d2
+D 65
+C d3
+D 74
+C d4
+D 47
+C d5
+D 56
+C d6
+D 00
+C d7
+D 88
+C d8
+D 99
+C d9
+D 33
+C f3
+D 01
+C f0
+D 00
+C f0
+D 01
+C f1
+D 01
+C a0
+D 0b
+C a3
+D 2a
+C a5
+D c3
+W 1
+C a3
+D 2b
+C a5
+D c3
+W 1
+C a3
+D 2c
+C a5
+D c3
+W 1
+C a3
+D 2d
+C a5
+D c3
+W 1
+C a3
+D 2e
+C a5
+D c3
+W 1
+C a3
+D 2f
+C a5
+D c3
+W 1
+C a3
+D 30
+C a5
+D c3
+W 1
+C a3
+D 31
+C a5
+D c3
+W 1
+C a3
+D 32
+C a5
+D c3
+W 1
+C a3
+D 33
+C a5
+D c3
+W 1
+C a0
+D 09
+C f1
+D 10
+C f0
+D 00
+C 2a
+D 00 00 01 67
+C 2b
+D 01 68 01 68
+C 4d
+D 00
+C 4e
+D 00
+C 4f
+D 00
+C 4c
+D 01
+W 10
+C 4c
+D 00
+C 2a
+D 00 00 01 67
+C 2b
+D 00 00 01 67
+C 21
+D 00
+C 11
+D 00
+W 120
+S
+C 2a
+D 00 00 01 67
+C 2b
+D 00 00 01 67
+C 2c
+P 2073600 0fef85e861d9fd25
+S
+C 29
+S
+G 1 1
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 20 00 20
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 22 00 27
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 20 00 20
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 22 00 27
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 1f 00 1f
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 21 00 2a
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 1f 00 1f
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+S
+C 2a
+D 00 21 00 2a
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# fill
+S
+C 2a
+D 00 1e 01 85
+C 2b
+D 00 00 01 67
+C 2c
+P 2073600 ae37783adbb11625
+S
+G 1 0
+G 1 1
+## st77916 18 rgb
+M 1 2
+G 1 0
+M 4 2
+G 4 0
+W 10
+G 4 1
+W 120
+C 01
+S
+W 120
+C 36
+D 00
+C 3a
+D 66
+C f0
+D 08
+C f2
+D 08
+C 9b
+D 51
+C 86
+D 53
+C f2
+D 80
+C f0
+D 00
+C f0
+D 01
+C f1
+D 01
+C b0
+D 54
+C b1
+D 3f
+C b2
+D 2a
+C b4
+D 46
+C b5
+D 34
+C b6
+D d5
+C b7
+D 30
+C b8
+D 04
+C ba
+D 00
+C bb
+D 08
+C bc
+D 08
+C bd
+D 00
+C c0
+D 80
+C c1
+D 10
+C c2
+D 37
+C c3
+D 80
+C c4
+D 10
+C c5
+D 37
+C c6
+D a9
+C c7
+D 41
+C c8
+D 51
+C c9
+D a9
+C ca
+D 41
+C cb
+D 51
+C d0
+D 91
+C d1
+D 68
+C d2
+D 69
+C f5
+D 00 a5
+C dd
+D 35
+C de
+D 35
+C f1
+D 10
+C f0
+D 00
+C f0
+D 02
+C e0
+D 70 09 12 0c 0b 27 38 54 4e 19 15 15 2c 2f
+C e1
+D 70 08 11 0c 0b 27 38 43 4c 18 14 14 2b 2d
+C f0
+D 10
+C f3
+D 10
+C e0
+D 0a
+C e1
+D 00
+C e2
+D 0b
+C e3
+D 00
+C e4
+D e0
+C e5
+D 06
+C e6
+D 21
+C e7
+D 00
+C e8
+D 05
+C e9
+D 82
+C ea
+D df
+C eb
+D 89
+C ec
+D 20
+C ed
+D 14
+C ee
+D ff
+C ef
+D 00
+C f8
+D ff
+C f9
+D 00
+C fa
+D 00
+C fb
+D 30
+C fc
+D 00
+C fd
+D 00
+C fe
+D 00
+C ff
+D 00
+C 60
+D 42
+C 61
+D e0
+C 62
+D 40
+C 63
+D 40
+C 64
+D 02
+C 65
+D 00
+C 66
+D 40
+C 67
+D 03
+C 68
+D 00
+C 69
+D 00
+C 6a
+D 00
+C 6b
+D 00
+C 70
+D 42
+C 71
+D e0
+C 72
+D 40
+C 73
+D 40
+C 74
+D 02
+C 75
+D 00
+C 76
+D 40
+C 77
+D 03
+C 78
+D 00
+C 79
+D 00
+C 7a
+D 00
+C 7b
+D 00
+C 80
+D 38
+C 81
+D 00
+C 82
+D 04
+C 83
+D 02
+C 84
+D dc
+C 85
+D 00
+C 86
+D 00
+C 87
+D 00
+C 88
+D 38
+C 89
+D 00
+C 8a
+D 06
+C 8b
+D 02
+C 8c
+D de
+C 8d
+D 00
+C 8e
+D 00
+C 8f
+D 00
+C 90
+D 38
+C 91
+D 00
+C 92
+D 08
+C 93
+D 02
+C 94
+D e0
+C 95
+D 00
+C 96
+D 00
+C 97
+D 00
+C 98
+D 38
+C 99
+D 00
+C 9a
+D 0a
+C 9b
+D 02
+C 9c
+D e2
+C 9d
+D 00
+C 9e
+D 00
+C 9f
+D 00
+C a0
+D 38
+C a1
+D 00
+C a2
+D 03
+C a3
+D 02
+C a4
+D db
+C a5
+D 00
+C a6
+D 00
+C a7
+D 00
+C a8
+D 38
+C a9
+D 00
+C aa
+D 05
+C ab
+D 02
+C ac
+D dd
+C ad
+D 00
+C ae
+D 00
+C af
+D 00
+C b0
+D 38
+C b1
+D 00
+C b2
+D 07
+C b3
+D 02
+C b4
+D df
+C b5
+D 00
+C b6
+D 00
+C b7
+D 00
+C b8
+D 38
+C b9
+D 00
+C ba
+D 09
+C bb
+D 02
+C bc
+D e1
+C bd
+D 00
+C be
+D 00
+C bf
+D 00
+C c0
+D 22
+C c1
+D aa
+C c2
+D 65
+C c3
+D 74
+C c4
+D 47
+C c5
+D 56
+C c6
+D 00
+C c7
+D 88
+C c8
+D 99
+C c9
+D 33
+C d0
+D 11
+C d1
+D aa
+C d2
+D 65
+C d3
+D 74
+C d4
+D 47
+C d5
+D 56
+C d6
+D 00
+C d7
+D 88
+C d8
+D 99
+C d9
+D 33
+C f3
+D 01
+C f0
+D 00
+C f0
+D 01
+C f1
+D 01
+C a0
+D 0b
+C a3
+D 2a
+C a5
+D c3
+W 1
+C a3
+D 2b
+C a5
+D c3
+W 1
+C a3
+D 2c
+C a5
+D c3
+W 1
+C a3
+D 2d
+C a5
+D c3
+W 1
+C a3
+D 2e
+C a5
+D c3
+W 1
+C a3
+D 2f
+C a5
+D c3
+W 1
+C a3
+D 30
+C a5
+D c3
+W 1
+C a3
+D 31
+C a5
+D c3
+W 1
+C a3
+D 32
+C a5
+D c3
+W 1
+C a3
+D 33
+C a5
+D c3
+W 1
+C a0
+D 09
+C f1
+D 10
+C f0
+D 00
+C 2a
+D 00 00 01 67
+C 2b
+D 01 68 01 68
+C 4d
+D 00
+C 4e
+D 00
+C 4f
+D 00
+C 4c
+D 01
+W 10
+C 4c
+D 00
+C 2a
+D 00 00 01 67
+C 2b
+D 00 00 01 67
+C 21
+D 00
+C 11
+D 00
+W 120
+S
+C 2a
+D 00 00 01 67
+C 2b
+D 00 00 01 67
+C 2c
+P 3110400 2831f15794256a25
+S
+C 29
+S
+G 1 1
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 20 00 20
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 22 00 27
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 20 00 20
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 22 00 27
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 1f 00 1f
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 21 00 2a
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 1f 00 1f
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+S
+C 2a
+D 00 21 00 2a
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# fill
+S
+C 2a
+D 00 1e 01 85
+C 2b
+D 00 00 01 67
+C 2c
+P 3110400 18b748f0b003f1e5
+S
+G 1 0
+G 1 1
+## st77916 16 bgr
+M 1 2
+G 1 0
+M 4 2
+G 4 0
+W 10
+G 4 1
+W 120
+C 01
+S
+W 120
+C 36
+D 08
+C 3a
+D 55
+C f0
+D 08
+C f2
+D 08
+C 9b
+D 51
+C 86
+D 53
+C f2
+D 80
+C f0
+D 00
+C f0
+D 01
+C f1
+D 01
+C b0
+D 54
+C b1
+D 3f
+C b2
+D 2a
+C b4
+D 46
+C b5
+D 34
+C b6
+D d5
+C b7
+D 30
+C b8
+D 04
+C ba
+D 00
+C bb
+D 08
+C bc
+D 08
+C bd
+D 00
+C c0
+D 80
+C c1
+D 10
+C c2
+D 37
+C c3
+D 80
+C c4
+D 10
+C c5
+D 37
+C c6
+D a9
+C c7
+D 41
+C c8
+D 51
+C c9
+D a9
+C ca
+D 41
+C cb
+D 51
+C d0
+D 91
+C d1
+D 68
+C d2
+D 69
+C f5
+D 00 a5
+C dd
+D 35
+C de
+D 35
+C f1
+D 10
+C f0
+D 00
+C f0
+D 02
+C e0
+D 70 09 12 0c 0b 27 38 54 4e 19 15 15 2c 2f
+C e1
+D 70 08 11 0c 0b 27 38 43 4c 18 14 14 2b 2d
+C f0
+D 10
+C f3
+D 10
+C e0
+D 0a
+C e1
+D 00
+C e2
+D 0b
+C e3
+D 00
+C e4
+D e0
+C e5
+D 06
+C e6
+D 21
+C e7
+D 00
+C e8
+D 05
+C e9
+D 82
+C ea
+D df
+C eb
+D 89
+C ec
+D 20
+C ed
+D 14
+C ee
+D ff
+C ef
+D 00
+C f8
+D ff
+C f9
+D 00
+C fa
+D 00
+C fb
+D 30
+C fc
+D 00
+C fd
+D 00
+C fe
+D 00
+C ff
+D 00
+C 60
+D 42
+C 61
+D e0
+C 62
+D 40
+C 63
+D 40
+C 64
+D 02
+C 65
+D 00
+C 66
+D 40
+C 67
+D 03
+C 68
+D 00
+C 69
+D 00
+C 6a
+D 00
+C 6b
+D 00
+C 70
+D 42
+C 71
+D e0
+C 72
+D 40
+C 73
+D 40
+C 74
+D 02
+C 75
+D 00
+C 76
+D 40
+C 77
+D 03
+C 78
+D 00
+C 79
+D 00
+C 7a
+D 00
+C 7b
+D 00
+C 80
+D 38
+C 81
+D 00
+C 82
+D 04
+C 83
+D 02
+C 84
+D dc
+C 85
+D 00
+C 86
+D 00
+C 87
+D 00
+C 88
+D 38
+C 89
+D 00
+C 8a
+D 06
+C 8b
+D 02
+C 8c
+D de
+C 8d
+D 00
+C 8e
+D 00
+C 8f
+D 00
+C 90
+D 38
+C 91
+D 00
+C 92
+D 08
+C 93
+D 02
+C 94
+D e0
+C 95
+D 00
+C 96
+D 00
+C 97
+D 00
+C 98
+D 38
+C 99
+D 00
+C 9a
+D 0a
+C 9b
+D 02
+C 9c
+D e2
+C 9d
+D 00
+C 9e
+D 00
+C 9f
+D 00
+C a0
+D 38
+C a1
+D 00
+C a2
+D 03
+C a3
+D 02
+C a4
+D db
+C a5
+D 00
+C a6
+D 00
+C a7
+D 00
+C a8
+D 38
+C a9
+D 00
+C aa
+D 05
+C ab
+D 02
+C ac
+D dd
+C ad
+D 00
+C ae
+D 00
+C af
+D 00
+C b0
+D 38
+C b1
+D 00
+C b2
+D 07
+C b3
+D 02
+C b4
+D df
+C b5
+D 00
+C b6
+D 00
+C b7
+D 00
+C b8
+D 38
+C b9
+D 00
+C ba
+D 09
+C bb
+D 02
+C bc
+D e1
+C bd
+D 00
+C be
+D 00
+C bf
+D 00
+C c0
+D 22
+C c1
+D aa
+C c2
+D 65
+C c3
+D 74
+C c4
+D 47
+C c5
+D 56
+C c6
+D 00
+C c7
+D 88
+C c8
+D 99
+C c9
+D 33
+C d0
+D 11
+C d1
+D aa
+C d2
+D 65
+C d3
+D 74
+C d4
+D 47
+C d5
+D 56
+C d6
+D 00
+C d7
+D 88
+C d8
+D 99
+C d9
+D 33
+C f3
+D 01
+C f0
+D 00
+C f0
+D 01
+C f1
+D 01
+C a0
+D 0b
+C a3
+D 2a
+C a5
+D c3
+W 1
+C a3
+D 2b
+C a5
+D c3
+W 1
+C a3
+D 2c
+C a5
+D c3
+W 1
+C a3
+D 2d
+C a5
+D c3
+W 1
+C a3
+D 2e
+C a5
+D c3
+W 1
+C a3
+D 2f
+C a5
+D c3
+W 1
+C a3
+D 30
+C a5
+D c3
+W 1
+C a3
+D 31
+C a5
+D c3
+W 1
+C a3
+D 32
+C a5
+D c3
+W 1
+C a3
+D 33
+C a5
+D c3
+W 1
+C a0
+D 09
+C f1
+D 10
+C f0
+D 00
+C 2a
+D 00 00 01 67
+C 2b
+D 01 68 01 68
+C 4d
+D 00
+C 4e
+D 00
+C 4f
+D 00
+C 4c
+D 01
+W 10
+C 4c
+D 00
+C 2a
+D 00 00 01 67
+C 2b
+D 00 00 01 67
+C 21
+D 00
+C 11
+D 00
+W 120
+S
+C 2a
+D 00 00 01 67
+C 2b
+D 00 00 01 67
+C 2c
+P 2073600 0fef85e861d9fd25
+S
+C 29
+S
+G 1 1
+# turn lr tb
+C 36
+D 08
+# turn rl tb
+C 36
+D 48
+# turn lr bt
+C 36
+D 88
+# turn rl bt
+C 36
+D c8
+# turn lr tb swap
+C 36
+D 28
+# turn rl tb swap
+C 36
+D 68
+# turn lr bt swap
+C 36
+D a8
+# turn rl bt swap
+C 36
+D e8
+G 1 0
+G 1 1
+## st77916 refused 12 rgb

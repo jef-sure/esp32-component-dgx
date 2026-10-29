@@ -405,7 +405,7 @@ bool dgx_dsi_video_setup(dgx_bus_protocols_t *bus, const dgx_dsi_video_t *video,
 
 /**
  * @brief Start sending the frame buffer to the display, after its commands.
- * @return false on failure.
+ * @return false on failure: what dgx_dsi_video_setup() made is let go, and the bus takes a display again.
  */
 bool dgx_dsi_video_start(dgx_bus_protocols_t *bus);
 

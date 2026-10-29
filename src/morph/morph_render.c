@@ -9,6 +9,7 @@
 #include "dgx_morph_render.h"
 #include "drivers/vscreen.h"
 #include "esp_log.h"
+#include "../vscreen/dgx_halves_priv.h"
 
 static const char TAG[] = "DGX MORPH";
 
@@ -299,9 +300,10 @@ static inline void glow_colors(const dgx_morph_glow_t *g, uint8_t *to, const uin
 /*
  * The frame goes to the screen as colors straight from its brightness, so no
  * frame of colors is kept: a pixel of the glow is a byte of the phosphor and
- * a byte of the frame being collected. A display gets it row by row through
- * the buffer it sends from, a virtual screen right into its pixels. `map` is
- * the brightness to show; NULL is the phosphor blurred on the way.
+ * a byte of the frame being collected. A display behind a bus gets it
+ * through the two halves of the bus buffer, another display row by row
+ * through the buffer it sends from, a virtual screen right into its pixels.
+ * `map` is the brightness to show; NULL is the phosphor blurred on the way.
  */
 static void glow_send(dgx_morph_glow_t *g, dgx_screen_t *scr, int x_dst, int y_dst, const uint8_t *map)
 {
@@ -324,6 +326,23 @@ static void glow_send(dgx_morph_glow_t *g, dgx_screen_t *scr, int x_dst, int y_d
             const uint8_t *row = (map ? map + (size_t)y * g->width : glow_blurred_row(g, y)) + left;
             glow_colors(g, pixels + pixel_bytes * ((size_t)(y_dst + y) * scr->width + x_dst + left), row, width);
         }
+    } else if (dgx_transfer_bus_takes(scr, (uint8_t)pixel_bytes)) {
+        /* a display behind a bus: the colors of the next rows are made while those before them are on the wire */
+        dgx_vscreen_halves_t halves;
+        dgx_vscreen_halves_window(&halves, scr, x_dst + left, y_dst + top, width, bottom - top, (uint32_t)pixel_bytes);
+        for (int y = top; y < bottom; ++y) {
+            const uint8_t *row = (map ? map + (size_t)y * g->width : glow_blurred_row(g, y)) + left;
+            for (int todo = width; todo > 0;) {
+                const int room  = (int)(dgx_vscreen_halves_room(&halves) / pixel_bytes);
+                const int count = todo < room ? todo : room;
+                glow_colors(g, halves.at, row, count);
+                halves.at += (size_t)count * pixel_bytes;
+                row += count;
+                todo -= count;
+                if (count == room) dgx_vscreen_halves_send(&halves);
+            }
+        }
+        dgx_vscreen_halves_end(&halves);
     } else if (scr->set_area && scr->write_area) {
         /* a screen without a buffer of its own gets a scanline for the duration of the call */
         uint8_t *buffer = scr->draw_buffer, *own = NULL;

@@ -1,6 +1,31 @@
 # Changes
 
-## 0.9.2 - 2026-10-29
+## 0.9.3 - 2026-10-30
+
+0.9.2 was not released: everything made for it comes with this version.
+
+New:
+
+- **`dgx_panel_init()` makes a screen of a panel from its description.**
+  `dgx_panel_t` of `include/drivers/dgx_panel.h` holds what a panel of the
+  MIPI display command set has: its glass and where the glass lies in the
+  memory of the controller, the depths with their pixel formats, the access
+  control of the upright picture, the reset, the commands that start it and
+  how it is turned on. ST7735, ST7789, ILI9341, GC9A01 and NV3041A are such
+  descriptions now; their constructors and other functions take the same
+  arguments and send the same bytes as before. Their headers have the
+  descriptions, so a module of another glass or with another table of its
+  maker is a copy of one with what it has otherwise, given to
+  `dgx_panel_init()`. Turned or mirrored, the window follows the glass in
+  the memory, as the ST7789 of 240x240 had done on its own.
+- **ST77916**, the controller of round 360x360 panels, on QSPI as a rule:
+  `dgx_st77916_init()`, `dgx_st77916_orientation()` and
+  `dgx_st77916_backlight()`, `CONFIG_DGX_ENABLE_ST77916`. It has the init
+  table of Espressif's `esp_lcd_st77916`, takes 16 and 18 bits, and keeps
+  the backlight off until the panel is black. Its memory has 390 rows for
+  the 360 of the glass, which is taken as lying in the first of them, in
+  the last ones when the rows go up. Built and run on the host, not yet on
+  a panel.
 
 Changes a program may see:
 
@@ -95,6 +120,14 @@ Changes a program may see:
 
 Fixes in the buses and drivers:
 
+- **SPI and QSPI: a piece of pixels that DMA from PSRAM fell behind on was
+  not always recognised.** Its result was passed to the check in the same
+  call as the function of the driver that fills it in, and C leaves the
+  order of the arguments of a call open. GCC for the ESP32 and the ESP32-S3
+  happened to read the result after the call; GCC on a PC read it before,
+  and then the program stopped on an assertion, or, with assertions off, the
+  garbled rectangle stayed on the panel and pixels from PSRAM kept going in
+  place. The result is now taken first. Found by the new host test below.
 - **ESP-IDF 5.2 to 5.4.** SPI and QSPI used `SPI_TRANS_DMA_USE_PSRAM` and
   `SPI_TRANS_DMA_TX_FAIL`, which the SPI driver has only from IDF 5.5, and
   the build stopped with `CONFIG_DGX_ENABLE_SPI`. Without them, pixels in
@@ -156,6 +189,13 @@ Fixes in the buses and drivers:
 
 Fixes in MIPI-DSI:
 
+- **JD9165 and JD9365: a display whose start failed can be made again on the
+  same bus.** When `esp_lcd_panel_init()` failed, the constructor returned
+  NULL, but the panel with its frame buffers stayed on the bus, and the next
+  call of the constructor was refused with "the bus already has a display".
+  `dgx_dsi_video_start()` now lets go of all that `dgx_dsi_video_setup()`
+  made, as the disposal of the bus does. Not tried on hardware: the start
+  does not fail on the boards here.
 - **Two frame buffers, where frames are counted at the buffer switch**
   (`on_frame_buf_complete`, or `on_refresh_done` below chip revision 3). The
   interrupt counts a frame a moment after the driver has taken the buffer
@@ -224,6 +264,54 @@ Fixes in drawing:
   as the other destroy functions do. The README's pattern of make, draw,
   destroy crashed with a handwritten font, for which make returns NULL.
 
+Faster:
+
+- The glow of the morph renderers goes to a display behind a bus through the
+  two halves of the bus buffer, as virtual screens do, so the colours of the
+  next rows are made while the rows before them are on the wire. On the CYD
+  (ESP32, ILI9341 on SPI at 40 MHz) a glow of 160x120 with the blur goes in
+  8.53 ms instead of 10.90 ms. No memory is added: the halves are the bus
+  buffer.
+
+Inside DGX:
+
+- `dgx_lcd_init()` counted the commands of a table in a byte and so took
+  tables of 255 at most; the one of ST77916 has 219.
+- A color panel given a NULL bus returns NULL, as GC9A01 did; the others
+  went on with it. The log of a depth a panel does not take names the panel.
+- The SPI and the QSPI bus share the code of their device and of their
+  pixels, `dgx_spi_dev_t` in `src/bus/dgx_spi_esp32_priv.h`: the queue of
+  two transfers, the pieces, the fallback when DMA from PSRAM falls behind,
+  adding the device and disposing of it. The two buses differ only in what a
+  transfer of pixels carries before them. The bus of an SPI display takes
+  80 bytes less of DMA-capable memory, 208 instead of 288: seven fields that
+  were written and never read are gone, and so is the configuration of the
+  device kept after the device was added. The code of the two buses is
+  about 0.9 KB smaller.
+- The SPI bus polls its own commands and parameters of 4 bytes at most;
+  `screen_bus.c` no longer has a path of its own for the window of an SPI
+  display. Every short command on the bus is polled now, those of the init
+  table of a driver too. A window goes through the bus like that of any
+  other display and costs about 0.8 us more on the CYD: single pixels, short
+  lines, small rectangles and text are 0.7 to 1 % slower there; fills and
+  whole frames are as fast as before. On the JC4827W543 (ESP32-S3, NV3041A
+  on QSPI at 40 MHz) nothing is slower.
+- The buffer of an SPI or QSPI display is as long as makes the start of its
+  pieces cost 5 % of the time on the wire, not 6 %: at 40 MHz 4736 bytes
+  instead of 4000 on SPI, 736 more of internal memory, and 18992 instead of
+  15632 on QSPI. Fills and whole frames are 0.3 % faster on the CYD and 0.4
+  to 0.7 % on the JC4827W543; small drawing is as before. The glow of
+  160x120 on the JC4827W543 is 2.3 % slower: its colors take the processor
+  longer than the wire takes them, and the last half of the buffer, which
+  goes alone, is longer.
+- Pixels go into the window of a display behind a bus one way, through the
+  halves of `src/vscreen/dgx_halves_priv.h`: virtual screens put on a
+  display, turned or not, the glow, and the two panels of
+  `dgx_vscreen_2h_init()`, which are now fed through the halves of their own
+  buffers, a row to one and a row to the other. The two-panel screen keeps a
+  `dgx_vscreen_t` inside it instead of a copy of its fields, so a field
+  added to `dgx_vscreen_t` can no longer move its own fields.
+
 Examples and tools:
 
 - The examples name `jef-sure/dgx` in `main/idf_component.yml` with an
@@ -287,6 +375,23 @@ Examples and tools:
   a font file is added or removed: the glob has `CONFIGURE_DEPENDS`. The
   mirrored texture of the README recipe spans 64 by 24 pixels, as the
   texture does, not 65 by 25.
+- `test_panel_streams` records what every color driver sends, through a bus
+  that takes it all in order: commands and parameters byte by byte, pixels
+  by their bits and a sum of their bytes, and the levels of its pins and
+  its waits. Each driver is made at every depth it takes, turned to the
+  eight orientations, and draws in each. The record must be
+  `test/host/panel_streams.txt`, made from the drivers before they were
+  moved onto `dgx_panel_init()`; the five send the same bytes since.
+- `test_spi`: DMA from PSRAM falling behind in the middle of a virtual
+  screen sent in place, which must then come out right through the halves
+  and turn sending from PSRAM off; and no transfer of 4 bytes or less queued
+  instead of polled. The SPI tests no longer build `screen_bus.c`
+  themselves.
+- `make -C test/fonts` reads and writes fonts with the code of the font
+  editor when node is installed: a font `font2c` makes comes back from the
+  editor byte for byte, and so does a stream the editor writes of it, which
+  `dgx_fonts.py` must read as the editor does; the editor and `dgx_fonts.py`
+  read the same glyphs from every bitmap font of DGX.
 
 ## 0.9.1 - 2026-10-29
 

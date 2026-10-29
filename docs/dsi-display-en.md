@@ -318,7 +318,7 @@ calls to the bus.
 | Call | When | What for |
 | --- | --- | --- |
 | `dgx_dsi_video_setup()` | before the panel reset | hand over the video timings and the strategy, receive the frame buffers |
-| `dgx_dsi_video_start()` | after the command table | start sending the frame buffer to the display |
+| `dgx_dsi_video_start()` | after the command table | start sending the frame buffer to the display; when that fails, what `dgx_dsi_video_setup()` made is let go, and the bus takes a display again |
 | `dgx_dsi_screen_functions()` | at the end of the constructor | take the drawing functions from the bus, about them below |
 | `dgx_dsi_orientation()` | in the orientation function | the bus performs the orientation; the panel is not given it by a command |
 

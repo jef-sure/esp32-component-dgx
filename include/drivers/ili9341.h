@@ -9,6 +9,7 @@ extern "C"
 #include "bus/dgx_bus_protocols.h"
 #include "dgx_screen.h"
 #include "driver/gpio.h"
+#include "drivers/dgx_panel.h"
 
 /**
  * @brief Create an ILI9341 panel screen on top of a bus (SPI or P8).
@@ -43,6 +44,11 @@ void dgx_ili9341_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_ori
  * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED when the screen was given no backlight GPIO.
  */
 esp_err_t dgx_ili9341_backlight(dgx_screen_t *_scr, bool on);
+
+/**
+ * @brief The panel dgx_ili9341_init() makes its screen of: a copy of it with what a module has otherwise goes to dgx_panel_init().
+ */
+extern const dgx_panel_t dgx_panel_ili9341;
 
 #ifdef __cplusplus
 // @formatter:off

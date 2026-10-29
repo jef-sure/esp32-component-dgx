@@ -898,6 +898,7 @@ wire.
 | ST7789 | color TFT | SPI, P8 | `dgx_st7789_init(bus, rst, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_SPI_ST7789` |
 | ILI9341 | color TFT | SPI, P8 | `dgx_ili9341_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ILI_9341` |
 | NV3041A | color TFT, 480x272 | QSPI | `dgx_nv3041a_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_NV3041A` |
+| ST77916 | round color TFT, 360x360 | QSPI, SPI | `dgx_st77916_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_ST77916` |
 | GC9A01 | round color TFT | SPI, P8 | `dgx_gc9a01_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_GC9A01` |
 | SSD1351 | color OLED | SPI, P8 | `dgx_ssd1351_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SSD1351` |
 | SSD1306 | mono OLED | SPI, I2C | `dgx_ssd1306_init(bus, resolution, is_ext_vcc, rst)` | `CONFIG_DGX_ENABLE_SSD1306` |
@@ -913,12 +914,12 @@ Common parameters:
 - `bus` — a `dgx_bus_protocols_t *` from `dgx_spi_init()`, `dgx_qspi_init()`,
   `dgx_i2c_init()`, `dgx_p8_init()` or `dgx_dsi_init()`.
 - `rst` — reset GPIO, or `GPIO_NUM_NC` if the panel has no reset line.
-- `backlight` (ILI9341 and NV3041A) — backlight GPIO, or `GPIO_NUM_NC` if it is not
+- `backlight` (ILI9341, NV3041A and ST77916) — backlight GPIO, or `GPIO_NUM_NC` if it is not
   under software control; their backlight calls then return
   `ESP_ERR_NOT_SUPPORTED`.
 - `color_bits` — pixel depth; `16` (RGB565) is the usual choice. ST7735,
   ST7789 and GC9A01 take `12`, `16` or `18`; ILI9341 and SSD1351 `16` or
-  `18`; NV3041A `16`; JD9165 and JD9365 `16` or `24`. A driver given a depth
+  `18`; ST77916 `16` or `18`; NV3041A `16`; JD9165 and JD9365 `16` or `24`. A driver given a depth
   it cannot set up logs an error and returns NULL. For `18` see
   [docs/18-bit-pixels-en.md](docs/18-bit-pixels-en.md)
   ([Russian](docs/18-bit-pixels-ru.md)).
@@ -937,7 +938,8 @@ Color panels and ST7920 also expose an orientation setter
 is told its scan direction. An ST7920 has no command for that: its driver
 turns the picture where it sends it to the panel, and with `swap_xy` the
 screen is 64x128. A few drivers add extras: ILI9341 has
-`dgx_ili9341_backlight()`, NV3041A has `dgx_nv3041a_backlight()`, GC9A01 has `dgx_gc9a01_display_off()` /
+`dgx_ili9341_backlight()`, NV3041A and ST77916 have `dgx_nv3041a_backlight()` and `dgx_st77916_backlight()`,
+GC9A01 has `dgx_gc9a01_display_off()` /
 `dgx_gc9a01_display_on()`, SSD1351 has `dgx_ssd1351_brightness()`, SSD1306
 has `dgx_ssd1306_contrast()`, SSD1309 has `dgx_ssd1309_contrast()` and
 `dgx_ssd1309_column_offset()`, and SH1106 the same two under its own name.
@@ -992,6 +994,43 @@ keep them, so send this panel whole frames. A note on the whole panel, from
 how it takes pixels to its TE line, with what was measured and tried:
 [docs/nv3041a-en.md](docs/nv3041a-en.md) ([Russian](docs/nv3041a-ru.md)).
 
+ST77916 is the controller of round 360x360 panels, on QSPI as a rule, with
+the same commands and pixels on that bus as NV3041A. The driver has the init
+table of Espressif's `esp_lcd_st77916` for a 360x360 glass, takes 16 or 18
+bits, and keeps the backlight off until the panel memory is black, as
+NV3041A does. It has not yet been run on a panel. Its controller has 390 rows
+of memory for the 360 of the glass; the driver takes the glass as the first
+of them, the last ones when the rows go up.
+
+### A panel of your own module
+
+ST7735, ST7789, ILI9341, GC9A01, NV3041A and ST77916 are descriptions of
+their panels, `dgx_panel_t` of [include/drivers/dgx_panel.h](include/drivers/dgx_panel.h),
+and their constructors make a screen of one with `dgx_panel_init()`. Their
+headers have them under the names `dgx_panel_st7735`, `dgx_panel_st7789_240x240`,
+`dgx_panel_st7789_240x320`, `dgx_panel_ili9341`, `dgx_panel_gc9a01`,
+`dgx_panel_nv3041a` and `dgx_panel_st77916`. A module of another glass is a
+copy of one with what the module has otherwise: the size of its glass and
+where the glass lies in the memory of the controller, the table of commands
+of its maker. For a glass of 240x280 that lies 20 rows down in the 240x320 of
+an ST7789:
+
+```c
+static dgx_panel_t panel; /* kept by its pointer: it lives as long as the screen */
+panel               = dgx_panel_st7789_240x320;
+panel.height        = 280;
+panel.memory_height = 320;
+panel.y_offset      = 20;
+dgx_screen_t *scr = dgx_panel_init(bus, &panel, rst, GPIO_NUM_NC, 16, DgxScreenRGB);
+```
+
+Turned or mirrored, the window follows the glass: with the rows going up it
+lies 20 rows up from the end of the memory. `dgx_panel_orientation()` and
+`dgx_panel_backlight()` work for every such screen. A table of the maker
+gives MADCTL and COLMOD `dgx_panel_adj_madctl` and `dgx_panel_adj_colmod`
+as their adjust functions, so that they follow the order of colors and the
+depth of the screen.
+
 For SSD1306, pick a geometry from `ssd1306_resolution_t`: `SSD1306_128X32`,
 `SSD1306_128X64`, `SSD1306_96X16`, `SSD1306_64X48` or `SSD1306_72X40`.
 
@@ -1018,7 +1057,7 @@ of the u8g2 driver written for the controller after its datasheet.
 
 ## What's in the box
 
-- Panel drivers for ST7735, ST7789, ILI9341, NV3041A, GC9A01, SSD1351, SSD1306,
+- Panel drivers for ST7735, ST7789, ILI9341, NV3041A, ST77916, GC9A01, SSD1351, SSD1306,
   SSD1309, SH1106, ST7565R, ST7920, JD9165 and JD9365.
 - SPI, QSPI, I2C and 8-bit parallel (I80) transports for ESP32, and MIPI-DSI
   for ESP32-P4.
@@ -1479,17 +1518,17 @@ Both I2C constructors probe the address first and fail when no device
 answers. The ESP-IDF drivers take turns between the devices of a bus; a long
 picture on SPI or QSPI holds the bus for one piece at a time. Every piece
 costs the same time to start, so a fast bus needs long pieces: the buffer of
-a display is as long as the wire takes about 0.8 ms to send at the clock the
+a display is as long as the wire takes about 0.95 ms to send at the clock the
 display has really got, and a virtual screen goes in halves of it. The
 buffer is 4000 bytes at least and 32000 at most, in internal memory that DMA
-reaches on every chip: 4000 bytes on SPI at 40 MHz, about 16000 on QSPI at
-40 MHz. A slower clock takes a smaller buffer. DGX sets up its own hosts for
+reaches on every chip: about 4700 bytes on SPI at 40 MHz, about 19000 on QSPI
+at 40 MHz. A slower clock takes a smaller buffer. DGX sets up its own hosts for
 32000 bytes; on a host of the program the buffer is no longer than its
 `max_transfer_sz`. A program that needs that memory more than the speed sets
 the longest buffer itself:
 
 ```c
-// the QSPI display of the JC4827W543 with a buffer of 8000 bytes instead of about 16000
+// the QSPI display of the JC4827W543 with a buffer of 8000 bytes instead of about 19000
 const dgx_spi_options_t options = {.buffer_max = 8000};
 dgx_bus_protocols_t *bus = dgx_qspi_init_with(SPI2_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_21, GPIO_NUM_48, GPIO_NUM_40, GPIO_NUM_39,
                                               GPIO_NUM_47 /* sclk */, GPIO_NUM_45 /* cs */, 40 * 1000 * 1000, 0, &options);
@@ -1685,9 +1724,9 @@ with its transport: see [Getting started](#getting-started).
 
 | Option | Adds | Notes |
 | --- | --- | --- |
-| `CONFIG_DGX_ENABLE_SPI` | `bus/spi_esp32.c`, `bus/qspi_esp32.c` | SPI and QSPI transports |
+| `CONFIG_DGX_ENABLE_SPI` | `bus/spi_esp32.c`, `bus/qspi_esp32.c`, `drivers/panel.c` | SPI and QSPI transports, and `dgx_panel_init()` |
 | `CONFIG_DGX_ENABLE_I2C` | `bus/i2c_esp32.c` | I2C transport |
-| `CONFIG_DGX_ENABLE_P8` | `bus/p8_esp32.c` | 8-bit parallel (I80) transport |
+| `CONFIG_DGX_ENABLE_P8` | `bus/p8_esp32.c`, `drivers/panel.c` | 8-bit parallel (I80) transport, and `dgx_panel_init()` |
 | `CONFIG_DGX_ENABLE_DSI` | `bus/dsi_esp32.c`, `bus/fb_area.c`, `bus/fb_tiles.c`, `bus/fb_flip.c` | MIPI-DSI transport; chips that have it (ESP32-P4) |
 | `CONFIG_DGX_ENABLE_SPI_ST7735` | `drivers/st7735.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SPI_ST7789` | `drivers/st7789.c` | needs SPI or P8 |
@@ -1695,6 +1734,7 @@ with its transport: see [Getting started](#getting-started).
 | `CONFIG_DGX_ENABLE_SPI_ILI_9341` | `drivers/ili9341.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SSD1351` | `drivers/ssd1351.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_NV3041A` | `drivers/nv3041a.c` | needs SPI (its QSPI bus) |
+| `CONFIG_DGX_ENABLE_ST77916` | `drivers/st77916.c` | needs SPI (its QSPI bus, or SPI for a panel of one data line) |
 | `CONFIG_DGX_ENABLE_SSD1306` | `drivers/ssd1306.c` | needs SPI or I2C; selects `V_BW_SCREEN` |
 | `CONFIG_DGX_ENABLE_SSD1309` | `drivers/ssd1309.c` | needs SPI or I2C; selects `V_BW_SCREEN` |
 | `CONFIG_DGX_ENABLE_SH1106` | `drivers/sh1106.c` | needs SPI or I2C; selects `V_BW_SCREEN` |
@@ -1780,7 +1820,9 @@ are tested there too, each against a model of what is on its wires: the
 with the SPI master driver of IDF under them, the ST7920 and ST7789 drivers
 in all their orientations, the ILI9341 driver with the scroll of its panel,
 and the SSD1309, SH1106 and SSD1351 drivers against models of their
-controllers:
+controllers. What every color driver sends, through a bus that records it,
+is kept in `test/host/panel_streams.txt`, and a driver that sends a byte
+more, less or in another place fails:
 
 ```sh
 make -C test/host
@@ -1810,7 +1852,10 @@ it runs the tool on the needs in that directory, checks the characters and
 the pairs of face and size, compiles the generated C, and checks that a
 program's mistakes are reported properly. It needs what such a program
 needs, FreeType, fontconfig and the DejaVu fonts, and says so when they are
-missing.
+missing. With node installed it also reads and writes fonts with the code of
+the font editor: a font `font2c` makes comes back from the editor byte for
+byte, and the editor and `dgx_fonts.py` read the same glyphs from every
+bitmap font of DGX.
 
 What a host cannot tell, the look of a figure on a panel, the scroll of the
 panel itself and the times on the chip, is seen on a board:

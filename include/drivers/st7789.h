@@ -9,6 +9,7 @@ extern "C" {
 
 #include "dgx_screen.h"
 #include "bus/dgx_bus_protocols.h"
+#include "drivers/dgx_panel.h"
 
 /**
  * The panels of an ST7789. Its memory is 240x320 in every one of them: a
@@ -43,6 +44,13 @@ dgx_screen_t* dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
  *                240x320 panel the screen becomes 320x240 and back.
  */
 void dgx_st7789_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
+
+/**
+ * @brief The panels dgx_st7789_init() makes its screen of: the glass of 240x240 and of 240x320. A copy of one with what a module
+ * has otherwise, such as a glass of another size at an offset in the 240x320 of the memory, goes to dgx_panel_init().
+ */
+extern const dgx_panel_t dgx_panel_st7789_240x240;
+extern const dgx_panel_t dgx_panel_st7789_240x320;
 
 #ifdef __cplusplus
 // @formatter:off

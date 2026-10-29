@@ -13,19 +13,18 @@
  * SPI_TRANS_DMA_USE_PSRAM is counted as sent where it lies, from any byte and
  * of any length, as on an ESP32-S3; test_spi_p4 stands for a P4, whose
  * driver under flash encryption copies one that starts or ends off 16 bytes
- * first. As on an ESP32 whose SPI pins go through the GPIO matrix, a
- * full-duplex device faster than 26.7 MHz that may add dummy cycles to reads
- * is refused.
+ * first; a transfer from PSRAM the DMA falls behind on ends with wrong pixels,
+ * ESP_ERR_INVALID_STATE and SPI_TRANS_DMA_TX_FAIL, as at too fast a clock.
+ * As on an ESP32 whose SPI pins go through the GPIO matrix, a full-duplex
+ * device faster than 26.7 MHz that may add dummy cycles to reads is refused.
  *
  * The SPI display is a controller of the MIPI display command set behind a
  * D/C line, which the callback of the bus sets through the GPIO registers
  * before every transfer. The QSPI display takes opcode 0x02 for a command
  * with its parameters and 0x32 for pixels, the command in the middle byte of
  * the address: 0x2C writes from the start of the window, 0x3C goes on where
- * the pixels before ended.
- *
- * screen_bus.c is built here with the SPI bus in, as on the chip, so the
- * window of an SPI display goes the short way of dgx_spi_area_protocol.h.
+ * the pixels before ended. The commands of a window and their parameters,
+ * four bytes at most, are polled on both buses: none of them is queued.
  */
 #define CONFIG_DGX_ENABLE_SPI 1
 #define CONFIG_SPIRAM         1
@@ -47,11 +46,11 @@
 #define TAG TAG_QSPI
 #include "bus/qspi_esp32.c"
 #undef TAG
-#include "screen/screen_bus.c"
 
 #include "dgx_draw.h"
 #include "dgx_font.h"
 #include "dgx_screen_functions.h"
+#include "dgx_screen_with_bus.h"
 #include "drivers/vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
 
@@ -224,13 +223,16 @@ struct spi_device_t {
     spi_transaction_t            *queue[MODEL_QUEUE];
     spi_transaction_t             queued_as[MODEL_QUEUE]; /* each as it was when it was queued */
     uint64_t                      queued_sum[MODEL_QUEUE]; /* and a sum of the bytes it sends */
+    bool                          queued_late[MODEL_QUEUE]; /* and whether DMA from PSRAM falls behind on it */
     int                           queued;
 };
 
 static long transfers, longest_transfer;
 static long queue_calls, refused_call; /* the queued transfer of that number is refused, as when the driver has no memory to copy it */
+static long queued_short;              /* transfers of 4 bytes at most that were queued, not polled */
 #ifdef SPI_TRANS_DMA_USE_PSRAM
 static long psram_in_place, psram_copied; /* transfers with SPI_TRANS_DMA_USE_PSRAM: sent as they lie, or copied by the driver first */
+static long psram_dma_calls, late_dma_call; /* the transfer with SPI_TRANS_DMA_USE_PSRAM of that number has the DMA fall behind the wire */
 #endif
 
 esp_err_t spi_bus_initialize(spi_host_device_t host_id, const spi_bus_config_t *bus_config, spi_dma_chan_t dma_chan)
@@ -313,11 +315,41 @@ static esp_err_t model_check(spi_device_handle_t dev, const spi_transaction_t *t
     return ESP_OK;
 }
 
-/* the transfer goes out on the wire now, and the display takes it */
-static void model_wire(spi_device_handle_t dev, spi_transaction_t *t)
+/* DMA from PSRAM falls behind the wire on this transfer, the one of late_dma_call */
+static bool model_late(const spi_transaction_t *t)
+{
+#ifdef SPI_TRANS_DMA_USE_PSRAM
+    return (t->flags & SPI_TRANS_DMA_USE_PSRAM) && ++psram_dma_calls == late_dma_call;
+#else
+    (void)t;
+    return false;
+#endif
+}
+
+/* how a transfer DMA from PSRAM fell behind on ends: the driver sets SPI_TRANS_DMA_TX_FAIL in it and tells ESP_ERR_INVALID_STATE */
+static esp_err_t model_result(spi_transaction_t *t, bool late)
+{
+#ifdef SPI_TRANS_DMA_USE_PSRAM
+    if (late) {
+        t->flags |= SPI_TRANS_DMA_TX_FAIL;
+        return ESP_ERR_INVALID_STATE;
+    }
+#endif
+    (void)t, (void)late;
+    return ESP_OK;
+}
+
+/* the transfer goes out on the wire now, and the display takes it; bytes DMA from PSRAM came too late for are wrong ones */
+static void model_wire(spi_device_handle_t dev, spi_transaction_t *t, bool late)
 {
     const uint8_t *bytes = (t->flags & SPI_TRANS_USE_TXDATA) ? t->tx_data : t->tx_buffer;
     const size_t   n     = (t->length + 7u) / 8u;
+    uint8_t       *wrong = NULL;
+    if (late) {
+        wrong = malloc(n);
+        for (size_t i = 0; i < n; ++i) wrong[i] = (uint8_t)~bytes[i];
+        bytes = wrong;
+    }
     ++transfers;
     if ((long)n > longest_transfer) longest_transfer = (long)n;
     if (dev->cfg.command_bits) {
@@ -335,14 +367,15 @@ static void model_wire(spi_device_handle_t dev, spi_transaction_t *t)
             panel_take_command(command);
             panel_take_data(bytes, n);
         }
-        return;
-    }
-    if (dev->cfg.pre_cb) dev->cfg.pre_cb(t);
-    if ((gpio_levels >> dc_pin) & 1u) {
-        panel_take_data(bytes, n);
     } else {
-        for (size_t i = 0; i < n; ++i) panel_take_command(bytes[i]);
+        if (dev->cfg.pre_cb) dev->cfg.pre_cb(t);
+        if ((gpio_levels >> dc_pin) & 1u) {
+            panel_take_data(bytes, n);
+        } else {
+            for (size_t i = 0; i < n; ++i) panel_take_command(bytes[i]);
+        }
     }
+    free(wrong);
 }
 
 esp_err_t spi_device_queue_trans(spi_device_handle_t handle, spi_transaction_t *trans_desc, TickType_t ticks_to_wait)
@@ -354,9 +387,11 @@ esp_err_t spi_device_queue_trans(spi_device_handle_t handle, spi_transaction_t *
     for (int i = 0; i < handle->queued; ++i) CHECK(handle->queue[i] != trans_desc); /* a descriptor queued twice */
     CHECK(handle->queued < handle->cfg.queue_size);
     if (handle->queued == MODEL_QUEUE) return ESP_ERR_INVALID_STATE;
+    if (trans_desc->length <= 32) ++queued_short;
     handle->queue[handle->queued] = trans_desc;
     memcpy(&handle->queued_as[handle->queued], trans_desc, sizeof(*trans_desc));
-    handle->queued_sum[handle->queued] = model_sum(trans_desc);
+    handle->queued_sum[handle->queued]  = model_sum(trans_desc);
+    handle->queued_late[handle->queued] = model_late(trans_desc);
     ++handle->queued;
     return ESP_OK;
 }
@@ -371,13 +406,15 @@ esp_err_t spi_device_get_trans_result(spi_device_handle_t handle, spi_transactio
     spi_transaction_t *t = handle->queue[0];
     CHECK(memcmp(t, &handle->queued_as[0], sizeof(*t)) == 0); /* the descriptor was changed while it was queued */
     CHECK(model_sum(t) == handle->queued_sum[0]);              /* its bytes were written over while on their way */
-    model_wire(handle, t);
+    const bool late = handle->queued_late[0];
+    model_wire(handle, t, late);
     --handle->queued;
     memmove(handle->queue, handle->queue + 1, sizeof(handle->queue[0]) * (size_t)handle->queued);
     memmove(handle->queued_as, handle->queued_as + 1, sizeof(handle->queued_as[0]) * (size_t)handle->queued);
     memmove(handle->queued_sum, handle->queued_sum + 1, sizeof(handle->queued_sum[0]) * (size_t)handle->queued);
+    memmove(handle->queued_late, handle->queued_late + 1, sizeof(handle->queued_late[0]) * (size_t)handle->queued);
     *trans_desc = t;
-    return ESP_OK;
+    return model_result(t, late);
 }
 
 esp_err_t spi_device_polling_transmit(spi_device_handle_t handle, spi_transaction_t *trans_desc)
@@ -385,8 +422,9 @@ esp_err_t spi_device_polling_transmit(spi_device_handle_t handle, spi_transactio
     CHECK(handle->queued == 0); /* the transfers queued before go first */
     esp_err_t rc = model_check(handle, trans_desc);
     if (rc != ESP_OK) return rc;
-    model_wire(handle, trans_desc);
-    return ESP_OK;
+    const bool late = model_late(trans_desc);
+    model_wire(handle, trans_desc, late);
+    return model_result(trans_desc, late);
 }
 
 esp_err_t spi_device_transmit(spi_device_handle_t handle, spi_transaction_t *trans_desc)
@@ -497,13 +535,14 @@ static void test_spi(int bits, size_t buffer_max, int dc)
     dgx_bus_protocols_t *bus = dgx_spi_init_with(SPI2_HOST, SPI_DMA_CH_AUTO, 13, 12, 14, 15, dc, 40 * 1000 * 1000, 0, &options);
     CHECK(bus && bus->bus_type == DGX_BUS_SPI && model_hosts[SPI2_HOST].initialized);
     if (!bus) return;
-    CHECK(bus->buffer_len == (buffer_max ? buffer_max - buffer_max % 16u : 4000u));
+    CHECK(bus->buffer_len == (buffer_max ? buffer_max - buffer_max % 16u : 4736u)); /* 40 MHz: 4750 bytes, in multiples of 16 */
     static dgx_screen_with_bus_t s;
     screen_on(&s, bus, bits);
-    longest_transfer = 0;
+    longest_transfer = queued_short = 0;
     draw_and_compare(&s.scr, bits, 1500);
     CHECK(stray_bytes == 0 && unknown_commands == 0);
     CHECK(longest_transfer <= (long)bus->buffer_len);
+    CHECK(queued_short == 0);
     bus->dispose(bus);
     CHECK(!model_hosts[SPI2_HOST].initialized); /* the host DGX set up goes with its last display */
 }
@@ -518,10 +557,11 @@ static void test_qspi(int bits, size_t buffer_max)
     if (!bus) return;
     static dgx_screen_with_bus_t s;
     screen_on(&s, bus, bits);
-    longest_transfer = 0;
+    longest_transfer = queued_short = 0;
     draw_and_compare(&s.scr, bits, 1500);
     CHECK(stray_bytes == 0 && unknown_commands == 0);
     CHECK(longest_transfer <= (long)bus->buffer_len);
+    CHECK(queued_short == 0);
     bus->dispose(bus);
     CHECK(!model_hosts[SPI2_HOST].initialized);
 }
@@ -623,8 +663,8 @@ static void test_small_host_max(bool qspi)
     const spi_bus_config_t cfg = {.mosi_io_num = 13, .miso_io_num = 12, .sclk_io_num = 14, .quadwp_io_num = 27, .quadhd_io_num = 26, .max_transfer_sz = 2048};
     CHECK(spi_bus_initialize(SPI3_HOST, &cfg, SPI_DMA_CH_AUTO) == ESP_OK);
     dgx_bus_protocols_t *bus = qspi ? dgx_qspi_init_on_bus(SPI3_HOST, 45, 40 * 1000 * 1000, 0) : dgx_spi_init_on_bus(SPI3_HOST, 15, 2, 40 * 1000 * 1000, 0);
-    /* SPI at 40 MHz takes the least, 4000 bytes; QSPI would take 16000, and gets what the host takes, in multiples of 16 */
-    CHECK(bus && bus->buffer_len == (qspi ? 4080u : 4000u));
+    /* SPI at 40 MHz would take 4736 bytes and QSPI 18992: both get what the host takes, in multiples of 16 */
+    CHECK(bus && bus->buffer_len == 4080u);
     if (bus) {
         static dgx_screen_with_bus_t s;
         screen_on(&s, bus, 16);
@@ -708,6 +748,49 @@ static void test_psram_pieces(bool qspi)
         CHECK(psram_copied == 0);
         CHECK(asks && sends[k].offset ? psram_in_place == 0 : psram_in_place >= 6);
     }
+    bus->dispose(bus);
+}
+
+/*
+ * DMA from PSRAM falls behind the wire on a piece of a virtual screen in
+ * PSRAM that goes in place: that piece reaches the panel wrong. The bus then
+ * sends nothing from PSRAM where it lies, the rectangle is sent again through
+ * the halves of the bus buffer and comes out right, and so does the next one,
+ * with no piece from PSRAM in place. The log tells of it once.
+ */
+static void test_psram_late(bool qspi)
+{
+    panel_reset(2);
+    dc_pin                          = 2;
+    const dgx_spi_options_t options = {.buffer_max = 1000};
+    /* QSPI at 26.7 MHz, where DMA from PSRAM is taken to keep up with its four lines */
+    dgx_bus_protocols_t *bus = qspi ? dgx_qspi_init_with(SPI2_HOST, SPI_DMA_CH_AUTO, 21, 48, 40, 39, 47, 45, 26666667, 0, &options)
+                                    : dgx_spi_init_with(SPI2_HOST, SPI_DMA_CH_AUTO, 13, 12, 14, 15, 2, 40 * 1000 * 1000, 0, &options);
+    CHECK(bus != NULL);
+    if (!bus) return;
+    static dgx_screen_with_bus_t s;
+    screen_on(&s, bus, 16);
+    /* the pixels of a virtual screen of the whole width put in PSRAM, so that it goes in place */
+    dgx_screen_t  *picture = dgx_vscreen_init(PW, PH, 16, DgxScreenRGB);
+    dgx_vscreen_t *v       = (dgx_vscreen_t *)picture;
+    uint8_t       *own     = v->v_array;
+    v->v_array             = psram;
+    CHECK(bus->sends_from(bus, psram));
+    for (int round = 0; round < 2; ++round) {
+        for (int y = 0; y < PH; ++y) {
+            for (int x = 0; x < PW; ++x) dgx_set_pixel(picture, x, y, rnd_color(16));
+        }
+        psram_in_place = psram_dma_calls = 0;
+        late_dma_call                    = round ? 0 : 2; /* the second piece from PSRAM of the first rectangle */
+        dgx_vscreen_to_screen(&s.scr, 0, 0, picture, 0);
+        s.scr.wait_buffer(&s.scr);
+        CHECK(round ? psram_in_place == 0 : psram_dma_calls >= 2);
+        CHECK(panel_wrong(picture) == 0);
+        CHECK(!bus->sends_from(bus, psram));
+    }
+    late_dma_call = 0;
+    v->v_array    = own;
+    dgx_screen_destroy(&picture);
     bus->dispose(bus);
 }
 #endif
@@ -820,6 +903,8 @@ int main(void)
 #ifndef TEST_SPI_IDF54
     test_psram_pieces(false);
     test_psram_pieces(true);
+    test_psram_late(false);
+    test_psram_late(true);
 #if SOC_AHB_GDMA_VERSION != 1
     flash_encrypted = true;
     test_psram_pieces(false);

@@ -6,6 +6,7 @@
 #include "dgx_screen_functions.h"
 #include "dgx_spi_area_protocol.h"
 #include "drivers/dgx_lcd_init.h"
+#include "drivers/dgx_panel.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -76,41 +77,16 @@
 #define MADCTL_BGR 0x08 ///< Blue-Green-Red pixel order
 #define MADCTL_MH  0x04 ///< LCD refresh right to left
 
-typedef struct _dgx_ili9341_t
-{
-    dgx_screen_with_bus_t base;
-    gpio_num_t            rst;
-    gpio_num_t            backlight;
-} dgx_ili9341_t;
-
-static const char TAG[] = "DGX ILI9341";
-
-static uint8_t *dgx_ili9341_adj_madctl(dgx_screen_with_bus_t *scr, const struct _dgx_lcd_init_cmd_t *init_cmd)
-{
-    static uint8_t adj_data[1];
-    if (scr->scr.rgb_order == DgxScreenBGR) adj_data[0] = init_cmd->data[0] & ~MADCTL_BGR;
-    else adj_data[0] = init_cmd->data[0] | MADCTL_BGR;
-    return adj_data;
-}
-
-static uint8_t *dgx_ili9341_adj_colmod(dgx_screen_with_bus_t *scr, const struct _dgx_lcd_init_cmd_t *init_cmd)
-{
-    static uint8_t adj_data[1];
-    if (scr->scr.color_bits == 18) adj_data[0] = 0x66;
-    else adj_data[0] = 0x55; // 16 Bits
-    return adj_data;
-}
-
-static const dgx_lcd_init_cmd_t st_init_cmds[] = {
+static const dgx_lcd_init_cmd_t ili9341_init_cmds[] = {
     //
     {ILI9341_SWRESET,  0,                      0,    150, {0}                                                                                       }, // Soft Reset
     {ILI9341_DISPOFF,  0,                      0,    0,   {0}                                                                                       }, // Display Off
-    {ILI9341_PIXFMT,   dgx_ili9341_adj_colmod, 1,    0,   {0x55}                                                                                    }, // Pixel read=565, write=565.
+    {ILI9341_PIXFMT,   dgx_panel_adj_colmod, 1,    0,   {0x55}                                                                                    }, // Pixel read=565, write=565.
     {ILI9341_PWCTR1,   0,                      1,    0,   {0x23}                                                                                    }, //
     {ILI9341_PWCTR2,   0,                      1,    0,   {0x10}                                                                                    }, //
     {ILI9341_VMCTR1,   0,                      2,    0,   {0x3E, 0x28}                                                                              }, //
     {ILI9341_VMCTR2,   0,                      1,    0,   {0x86}                                                                                    }, //
-    {ILI9341_MADCTL,   dgx_ili9341_adj_madctl, 1,    0,   {0}                                                                                       }, //
+    {ILI9341_MADCTL,   dgx_panel_adj_madctl, 1,    0,   {0}                                                                                       }, //
     {ILI9341_FRMCTR1,  0,                      2,    0,   {0x00, 0x18}                                                                              }, //
     {ILI9341_DFUNCTR,  0,                      4,    0,   {0x0A, 0xA2, 0x27, 0x04}                                                                  }, //
     {ILI9341_GAMMASET, 0,                      1,    0,   {0x01}                                                                                    }, //
@@ -142,8 +118,8 @@ static const dgx_lcd_init_cmd_t st_init_cmds_tft[] __attribute__((unused)) = {
     {ILI9341_PWCTR2,   0,                      1,    0,   {0x10}                                                                                    }, //
     {ILI9341_VMCTR1,   0,                      2,    0,   {0x3E, 0x28}                                                                              }, //
     {ILI9341_VMCTR2,   0,                      1,    0,   {0x86}                                                                                    }, //
-    {ILI9341_MADCTL,   dgx_ili9341_adj_madctl, 1,    0,   {0}                                                                                       }, //
-    {ILI9341_PIXFMT,   dgx_ili9341_adj_colmod, 1,    0,   {0x55}                                                                                    }, // Pixel read=565, write=565.
+    {ILI9341_MADCTL,   dgx_panel_adj_madctl, 1,    0,   {0}                                                                                       }, //
+    {ILI9341_PIXFMT,   dgx_panel_adj_colmod, 1,    0,   {0x55}                                                                                    }, // Pixel read=565, write=565.
     {ILI9341_FRMCTR1,  0,                      2,    0,   {0x00, 0x13}                                                                              }, //
     {ILI9341_DFUNCTR,  0,                      4,    0,   {0x0A, 0xA2, 0x27, 0x04}                                                                  }, //
     {0xF2,             0,                      1,    0,   {0x00}                                                                                    }, // Enable 3 gamma
@@ -157,88 +133,38 @@ static const dgx_lcd_init_cmd_t st_init_cmds_tft[] __attribute__((unused)) = {
 */
 // clang-format on
 
+/*
+ * The pixel formats of its serial and parallel interfaces are 16 and 18 bits,
+ * there is no 12. The bit of BGR is set for colors in RGB order: the panels
+ * of this controller take them so. The controller scrolls along the 320 rows
+ * of its memory, the long side of the panel.
+ */
+const dgx_panel_t dgx_panel_ili9341 = {
+    .name             = "ILI 9341",
+    .width            = ILI9341_TFTWIDTH,
+    .height           = ILI9341_TFTHEIGHT,
+    .colmod           = {0, 0x55, 0x66},
+    .madctl           = MADCTL_BGR,
+    .reset_high_ms    = 100,
+    .reset_low_ms     = 100,
+    .scroll_lines     = 320,
+    .scroll_area_cmd  = ILI9341_VSCRDEF,
+    .scroll_start_cmd = ILI9341_VSCRSADD,
+    .init             = ili9341_init_cmds,
+};
+
 // Initialize the display
 dgx_screen_t *dgx_ili9341_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo)
 {
-    /* the pixel formats of its serial and parallel interfaces are 16 and 18 bits, there is no 12 */
-    if (color_bits != 16 && color_bits != 18) {
-        ESP_LOGE(TAG, "%u-bit color is not set up by this driver, only 16 and 18", (unsigned)color_bits);
-        return NULL;
-    }
-    // Attach the LCD to the SPI bus
-    dgx_ili9341_t *scr = (dgx_ili9341_t *)calloc(1, sizeof(dgx_ili9341_t));
-    if (!scr) {
-        ESP_LOGE(TAG, "Screen structure memory allocation failed");
-        return NULL;
-    }
-    scr->rst                      = rst;
-    scr->backlight                = backlight;
-    scr->base.bus                 = bus;
-    scr->base.scr.cg_row_shift    = 0;
-    scr->base.scr.cg_col_shift    = 0;
-    scr->base.scr.width           = 240;
-    scr->base.scr.height          = 320;
-    scr->base.scr.color_bits      = color_bits;
-    scr->base.scr.rgb_order       = cbo;
-    scr->base.scr.screen_name     = "ILI 9341";
-    scr->base.scr.screen_submodel = 0;
-    scr->base.scr.screen_subtype  = DgxPhysicalScreenWithBus;
-    dgx_screen_with_bus_init_area(&scr->base, ILI9341_CASET, ILI9341_PASET, ILI9341_RAMWR, 0, DGX_SCREEN_AREA_PROTO_STD16);
-    /* the controller scrolls along the 320 rows of its memory, the long side of the panel */
-    dgx_screen_with_bus_scroll_init(&scr->base, 320, ILI9341_VSCRDEF, ILI9341_VSCRSADD);
-    // Initialize non-SPI GPIOs
-    if (rst >= 0) {
-        dgx_gpio_set_direction(rst, GPIO_MODE_OUTPUT);
-        // Reset the display
-        dgx_gpio_set_level(rst, 1);
-        dgx_delay(100);
-        dgx_gpio_set_level(rst, 0);
-        dgx_delay(100);
-        dgx_gpio_set_level(rst, 1);
-    }
-    // Send all the commands
-    dgx_lcd_init(&scr->base, st_init_cmds);
-    if (backlight >= 0) {
-        dgx_gpio_set_direction(backlight, GPIO_MODE_OUTPUT);
-        dgx_ili9341_backlight((dgx_screen_t *)scr, true);
-    }
-    dgx_scr_init_slow_bus_optimized_funcs((dgx_screen_t *)scr);
-    return (dgx_screen_t *)scr;
+    return dgx_panel_init(bus, &dgx_panel_ili9341, rst, backlight, color_bits, cbo);
 }
 
-void dgx_ili9341_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+void dgx_ili9341_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
-    uint8_t        cmd     = ILI9341_MADCTL;
-    uint8_t        data[1] = {0};
-    dgx_ili9341_t *scr     = (dgx_ili9341_t *)_scr;
-    _scr->dir_x            = dir_x;
-    _scr->dir_y            = dir_y;
-    _scr->swap_xy          = swap_xy;
-    if (dir_x == DgxScreenRightLeft) data[0] |= MADCTL_MX;
-    if (dir_y == DgxScreenBottomTop) data[0] |= MADCTL_MY;
-    if (swap_xy) {
-        data[0] |= MADCTL_MV;
-        _scr->width  = 320;
-        _scr->height = 240;
-    } else {
-        _scr->width  = 240;
-        _scr->height = 320;
-    }
-    if (scr->base.scr.rgb_order == DgxScreenRGB) data[0] |= MADCTL_BGR;
-    scr->base.bus->write_command(scr->base.bus, cmd);
-    scr->base.bus->write_data(scr->base.bus, data, 8);
-    /*
-     * The rows of memory are the rows of the screen, or its columns when the
-     * axes are swapped; MY turns the addresses along them round whichever
-     * they are.
-     */
-    dgx_screen_with_bus_scroll_way(&scr->base, swap_xy, dir_y == DgxScreenBottomTop);
+    dgx_panel_orientation(scr, dir_x, dir_y, swap_xy);
 }
 
-esp_err_t dgx_ili9341_backlight(dgx_screen_t *_scr, bool on)
+esp_err_t dgx_ili9341_backlight(dgx_screen_t *scr, bool on)
 {
-    dgx_ili9341_t *scr = (dgx_ili9341_t *)_scr;
-    if (scr->backlight < 0) return ESP_ERR_NOT_SUPPORTED;
-    dgx_gpio_set_level(scr->backlight, on ? 1 : 0);
-    return ESP_OK;
+    return dgx_panel_backlight(scr, on);
 }

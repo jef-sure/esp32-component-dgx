@@ -7,6 +7,7 @@ extern "C" {
 
 #include "dgx_screen.h"
 #include "bus/dgx_bus_protocols.h"
+#include "drivers/dgx_panel.h"
 #include "driver/gpio.h"
 
 /**
@@ -29,6 +30,12 @@ dgx_screen_t* dgx_st7735_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
  * @param swap_xy Swap the X and Y axes (landscape <-> portrait).
  */
 void dgx_st7735_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
+
+/**
+ * @brief The panel dgx_st7735_init() makes its screen of: a copy of it with what a module has otherwise, such as a glass at an
+ * offset in the memory of the controller, goes to dgx_panel_init().
+ */
+extern const dgx_panel_t dgx_panel_st7735;
 
 #ifdef __cplusplus
 // @formatter:off

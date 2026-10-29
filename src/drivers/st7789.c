@@ -4,6 +4,7 @@
 #include "dgx_screen_functions.h"
 #include "driver/gpio.h"
 #include "drivers/dgx_lcd_init.h"
+#include "drivers/dgx_panel.h"
 #include "drivers/st7789.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
@@ -92,31 +93,7 @@
 #define ST77XX_MADCTL_RGB 0x00
 #define ST77XX_MADCTL_BGR 0x08
 
-typedef struct _dgx_st7789_t
-{
-    dgx_screen_with_bus_t base;
-    gpio_num_t            rst;
-    st7789_resolution_t   resolution;
-} dgx_st7789_t;
-
 static const char TAG[] = "DGX ST 7789";
-
-static uint8_t *dgx_st7789_adj_madctl(dgx_screen_with_bus_t *scr, const struct _dgx_lcd_init_cmd_t *init_cmd)
-{
-    static uint8_t adj_data[1];
-    if (scr->scr.rgb_order == DgxScreenRGB) adj_data[0] = init_cmd->data[0] & ~0x8;
-    else adj_data[0] = init_cmd->data[0] | 0x08;
-    return adj_data;
-}
-
-static uint8_t *dgx_st7789_adj_colmod(dgx_screen_with_bus_t *scr, const struct _dgx_lcd_init_cmd_t *init_cmd)
-{
-    static uint8_t adj_data[1];
-    if (scr->scr.color_bits == 12) adj_data[0] = 0x33;
-    else if (scr->scr.color_bits == 18) adj_data[0] = 0x66;
-    else adj_data[0] = 0x55; // 16 Bits
-    return adj_data;
-}
 
 static uint8_t *dgx_st7789_adj_raset(dgx_screen_with_bus_t *scr, const struct _dgx_lcd_init_cmd_t *init_cmd)
 {
@@ -131,17 +108,39 @@ static uint8_t *dgx_st7789_adj_raset(dgx_screen_with_bus_t *scr, const struct _d
     return adj_data;
 }
 
-static const dgx_lcd_init_cmd_t st_init_cmds[] = {
+static const dgx_lcd_init_cmd_t st7789_init_cmds[] = {
     {ST7789_SWRESET, 0,                     0,    150, {0}                     }, //
     {ST7789_SLPOUT,  0,                     0,    255, {0}                     }, //
-    {ST7789_COLMOD,  dgx_st7789_adj_colmod, 1,    10,  {0x55}                  }, // Bits per Pixel: 3 - 12, 5 - 16, 6 - 18
-    {ST7789_MADCTL,  dgx_st7789_adj_madctl, 1,    0,   {0x00 | 0x00}           }, // MY=0, MX=0, MV=0, ML=0, MH=0 | 00 - RGB, 08 - BGR
+    {ST7789_COLMOD,  dgx_panel_adj_colmod, 1,    10,  {0x55}                  }, // Bits per Pixel: 3 - 12, 5 - 16, 6 - 18
+    {ST7789_MADCTL,  dgx_panel_adj_madctl, 1,    0,   {0x00 | 0x00}           }, // MY=0, MX=0, MV=0, ML=0, MH=0 | 00 - RGB, 08 - BGR
     {ST7789_CASET,   0,                     4,    0,   {0x00, 0x00, 0x00, 0xEF}}, //
     {ST7789_RASET,   dgx_st7789_adj_raset,  4,    0,   {0x00, 0x00, 0x01, 0x3F}}, //
     {ST7789_INVON,   0,                     0,    10,  {0}                     }, //
     {ST7789_NORON,   0,                     0,    10,  {0}                     }, //
     {ST7789_DISPON,  0,                     0,    255, {0}                     }, //  4: Main screen turn on, no args w/delay
     {0,              0,                     0xff, 0,   {0}                     }  // Stop
+};
+
+const dgx_panel_t dgx_panel_st7789_240x320 = {
+    .name           = "ST 7789",
+    .width          = 240,
+    .height         = 320,
+    .colmod         = {0x33, 0x55, 0x66},
+    .reset_low_ms   = 100,
+    .reset_after_ms = 100,
+    .init           = st7789_init_cmds,
+};
+
+/* the 240 rows of the glass are the first 240 of the 320 of the memory, the last ones when the rows go up */
+const dgx_panel_t dgx_panel_st7789_240x240 = {
+    .name           = "ST 7789",
+    .width          = 240,
+    .height         = 240,
+    .memory_height  = 320,
+    .colmod         = {0x33, 0x55, 0x66},
+    .reset_low_ms   = 100,
+    .reset_after_ms = 100,
+    .init           = st7789_init_cmds,
 };
 
 // Initialize the display
@@ -151,98 +150,18 @@ dgx_screen_t *dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
         ESP_LOGE(TAG, "Unsupported ST7789 resolution %d", (int)resolution);
         return NULL;
     }
-    if (color_bits != 12 && color_bits != 16 && color_bits != 18) {
-        ESP_LOGE(TAG, "%u-bit color is not set up by this driver, only 12, 16 and 18", (unsigned)color_bits);
-        return NULL;
-    }
-    // Attach the LCD to the SPI bus
-    dgx_st7789_t *scr = (dgx_st7789_t *)calloc(1, sizeof(dgx_st7789_t));
-    if (!scr) {
-        ESP_LOGE(TAG, "Screen structure memory allocation failed");
-        return NULL;
-    }
-    scr->rst                   = rst;
-    scr->base.bus              = bus;
-    scr->base.scr.cg_row_shift = 0;
-    scr->base.scr.cg_col_shift = 0;
-    scr->resolution            = resolution;
-    if (resolution == ST7789_RESOLUTION_240x240) {
-        scr->base.scr.width  = 240;
-        scr->base.scr.height = 240;
-    } else {
-        if (resolution == ST7789_RESOLUTION_320x240) {
-            scr->base.scr.width  = 320;
-            scr->base.scr.height = 240;
-        } else {
-            scr->base.scr.width  = 240;
-            scr->base.scr.height = 320;
-        }
-    }
-    scr->base.scr.color_bits      = color_bits;
-    scr->base.scr.rgb_order       = cbo;
-    scr->base.scr.screen_name     = "ST 7789";
-    scr->base.scr.screen_submodel = 0;
-    scr->base.scr.screen_subtype  = DgxPhysicalScreenWithBus;
-    dgx_screen_with_bus_init_area(&scr->base, ST7789_CASET, ST7789_RASET, ST7789_RAMWR, 0, DGX_SCREEN_AREA_PROTO_STD16);
-    // Initialize non-SPI GPIOs
-    if (rst >= 0) {
-        dgx_gpio_set_direction(rst, GPIO_MODE_OUTPUT);
-        // Reset the display
-        dgx_gpio_set_level(rst, 0);
-        dgx_delay(100);
-        dgx_gpio_set_level(rst, 1);
-        dgx_delay(100);
-    }
-    // Send all the commands
-    dgx_lcd_init(&scr->base, st_init_cmds);
-    dgx_scr_init_slow_bus_optimized_funcs((dgx_screen_t *)scr);
+    const dgx_panel_t *panel = resolution == ST7789_RESOLUTION_240x240 ? &dgx_panel_st7789_240x240 : &dgx_panel_st7789_240x320;
+    dgx_screen_t      *scr   = dgx_panel_init(bus, panel, rst, GPIO_NUM_NC, color_bits, cbo);
     /*
      * landscape is a turn, MV with MX: MV alone would mirror the picture. It
      * comes after the functions of the screen, which take the screen as not
      * turned: the screen says how it lies, as the panel is told.
      */
-    if (resolution == ST7789_RESOLUTION_320x240) {
-        dgx_st7789_orientation((dgx_screen_t *)scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
-    }
-    return (dgx_screen_t *)scr;
+    if (scr && resolution == ST7789_RESOLUTION_320x240) dgx_panel_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    return scr;
 }
 
-void dgx_st7789_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+void dgx_st7789_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
-    uint8_t       cmd     = ST7789_MADCTL;
-    uint8_t       data[1] = {0};
-    dgx_st7789_t *scr     = (dgx_st7789_t *)_scr;
-    _scr->dir_x           = dir_x;
-    _scr->dir_y           = dir_y;
-    _scr->swap_xy         = swap_xy;
-    _scr->cg_row_shift    = 0;
-    _scr->cg_col_shift    = 0;
-    if (dir_x == DgxScreenRightLeft) data[0] |= ST77XX_MADCTL_MX;
-    if (dir_y == DgxScreenBottomTop) {
-        data[0] |= ST77XX_MADCTL_MY;
-        if (scr->resolution == ST7789_RESOLUTION_240x240) {
-            /*
-             * The 240 rows of the glass are the last 240 of the 320 of the memory
-             * when the rows go up: the address that runs along them starts at 80,
-             * and with the axes swapped that is the column address.
-             */
-            if (swap_xy) _scr->cg_col_shift = 80;
-            else _scr->cg_row_shift = 80;
-        }
-    }
-    if (swap_xy) {
-        data[0] |= ST77XX_MADCTL_MV;
-        if (scr->resolution != ST7789_RESOLUTION_240x240) {
-            scr->base.scr.width  = 320;
-            scr->base.scr.height = 240;
-        }
-    } else {
-        if (scr->resolution != ST7789_RESOLUTION_240x240) {
-            scr->base.scr.width  = 240;
-            scr->base.scr.height = 320;
-        }
-    }
-    if (scr->base.scr.rgb_order == DgxScreenBGR) data[0] |= ST77XX_MADCTL_BGR;
-    scr->base.bus->write_command(scr->base.bus, cmd);
-    scr->base.bus->write_data(scr->base.bus, data, 8);
+    dgx_panel_orientation(scr, dir_x, dir_y, swap_xy);
 }

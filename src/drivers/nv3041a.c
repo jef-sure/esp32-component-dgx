@@ -15,6 +15,7 @@
 #include "dgx_screen_functions.h"
 #include "dgx_spi_area_protocol.h"
 #include "drivers/dgx_lcd_init.h"
+#include "drivers/dgx_panel.h"
 #include "esp_log.h"
 
 #define NV3041A_WIDTH  480
@@ -39,33 +40,6 @@
 /* the glass lies turned round against the memory of the controller: upright is both directions reversed */
 #define NV3041A_MADCTL_UPRIGHT (MADCTL_MX | MADCTL_MY)
 
-typedef struct _dgx_nv3041a_t
-{
-    dgx_screen_with_bus_t base;
-    gpio_num_t            rst;
-    gpio_num_t            backlight;
-} dgx_nv3041a_t;
-
-static const char TAG[] = "DGX NV3041A";
-
-static uint8_t dgx_nv3041a_madctl(const dgx_screen_t *scr)
-{
-    uint8_t madctl = NV3041A_MADCTL_UPRIGHT;
-    if (scr->dir_x == DgxScreenRightLeft) madctl ^= MADCTL_MX;
-    if (scr->dir_y == DgxScreenBottomTop) madctl ^= MADCTL_MY;
-    if (scr->swap_xy) madctl |= MADCTL_MV;
-    if (scr->rgb_order == DgxScreenBGR) madctl |= MADCTL_BGR;
-    return madctl;
-}
-
-static uint8_t *dgx_nv3041a_adj_madctl(dgx_screen_with_bus_t *scr, const struct _dgx_lcd_init_cmd_t *init_cmd)
-{
-    static uint8_t adj_data[1];
-    (void)init_cmd;
-    adj_data[0] = dgx_nv3041a_madctl(&scr->scr);
-    return adj_data;
-}
-
 /*
  * The table of the maker of the panel, as its demos for the Guition
  * JC4827W543 send it: power, timings of the gates and sources, and gamma, in
@@ -78,7 +52,7 @@ static uint8_t *dgx_nv3041a_adj_madctl(dgx_screen_with_bus_t *scr, const struct 
 static const dgx_lcd_init_cmd_t nv3041a_init_cmds[] = {
     {NV3041A_SWRESET, 0, 0, 120, {0}},
     {NV3041A_PAGE, 0, 1, 0, {0xA5}},
-    {NV3041A_MADCTL, dgx_nv3041a_adj_madctl, 1, 0, {0}},
+    {NV3041A_MADCTL, dgx_panel_adj_madctl, 1, 0, {0}},
     {NV3041A_COLMOD, 0, 1, 0, {0x01}},
     {0x41, 0, 1, 0, {0x03}},
     {0x44, 0, 1, 0, {0x15}},
@@ -173,7 +147,7 @@ static const dgx_lcd_init_cmd_t nv3041a_init_cmds[] = {
      * before it was lost, and the orientation the caller asked for never
      * reached the running panel; the maker's demo writes it again after the
      * whole init. */
-    {NV3041A_MADCTL, dgx_nv3041a_adj_madctl, 1, 0, {0}},
+    {NV3041A_MADCTL, dgx_panel_adj_madctl, 1, 0, {0}},
     /* the glass of this board is IPS: its colors are inverted without INVON, which must
      * come after SLPOUT — the maker's defaults reload into the registers during its 120ms */
     {NV3041A_INVON, 0, 0, 20, {0}}, // display commands take effect from the next frame (7.2.10), ~17ms at 60Hz
@@ -186,70 +160,35 @@ static const dgx_lcd_init_cmd_t nv3041a_on_cmds[] = {
     {0, 0, 0xff, 0, {0}} // Stop
 };
 
+/*
+ * Only RGB565 is set up (COLMOD 0x01 of the table). The panel shows noise
+ * until its memory is written: dark until it is black, then turned on.
+ */
+const dgx_panel_t dgx_panel_nv3041a = {
+    .name           = "NV3041A",
+    .width          = NV3041A_WIDTH,
+    .height         = NV3041A_HEIGHT,
+    .colmod         = {0, 0x01, 0},
+    .madctl         = NV3041A_MADCTL_UPRIGHT,
+    .reset_high_ms  = 10,
+    .reset_low_ms   = 10,
+    .reset_after_ms = 120,
+    .flags          = DGX_PANEL_CLEAR_FIRST,
+    .init           = nv3041a_init_cmds,
+    .on             = nv3041a_on_cmds,
+};
+
 dgx_screen_t *dgx_nv3041a_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo)
 {
-    if (color_bits != 16) {
-        ESP_LOGE(TAG, "%u-bit color is not set up by this driver, only 16", (unsigned)color_bits);
-        return NULL;
-    }
-    dgx_nv3041a_t *scr = (dgx_nv3041a_t *)calloc(1, sizeof(dgx_nv3041a_t));
-    if (!scr) {
-        ESP_LOGE(TAG, "Screen structure memory allocation failed");
-        return NULL;
-    }
-    scr->rst                      = rst;
-    scr->backlight                = backlight;
-    scr->base.bus                 = bus;
-    scr->base.scr.width           = NV3041A_WIDTH;
-    scr->base.scr.height          = NV3041A_HEIGHT;
-    scr->base.scr.dir_x           = DgxScreenLeftRight;
-    scr->base.scr.dir_y           = DgxScreenTopBottom;
-    scr->base.scr.swap_xy         = false;
-    scr->base.scr.color_bits      = color_bits;
-    scr->base.scr.rgb_order       = cbo;
-    scr->base.scr.screen_name     = "NV3041A";
-    scr->base.scr.screen_subtype  = DgxPhysicalScreenWithBus;
-    dgx_screen_with_bus_init_area(&scr->base, NV3041A_CASET, NV3041A_RASET, NV3041A_RAMWR, 0, DGX_SCREEN_AREA_PROTO_STD16);
-    if (backlight >= 0) {
-        /* dark until there is a picture: the panel shows noise while it starts */
-        dgx_gpio_set_direction(backlight, GPIO_MODE_OUTPUT);
-        dgx_nv3041a_backlight((dgx_screen_t *)scr, false);
-    }
-    if (rst >= 0) {
-        dgx_gpio_set_direction(rst, GPIO_MODE_OUTPUT);
-        dgx_gpio_set_level(rst, 1);
-        dgx_delay(10);
-        dgx_gpio_set_level(rst, 0);
-        dgx_delay(10);
-        dgx_gpio_set_level(rst, 1);
-        dgx_delay(120);
-    }
-    dgx_lcd_init(&scr->base, nv3041a_init_cmds);
-    dgx_scr_init_slow_bus_optimized_funcs((dgx_screen_t *)scr);
-    dgx_fill_rectangle((dgx_screen_t *)scr, 0, 0, NV3041A_WIDTH, NV3041A_HEIGHT, 0);
-    scr->base.scr.wait_buffer((dgx_screen_t *)scr);
-    dgx_lcd_init(&scr->base, nv3041a_on_cmds);
-    if (backlight >= 0) dgx_nv3041a_backlight((dgx_screen_t *)scr, true);
-    return (dgx_screen_t *)scr;
+    return dgx_panel_init(bus, &dgx_panel_nv3041a, rst, backlight, color_bits, cbo);
 }
 
-void dgx_nv3041a_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+void dgx_nv3041a_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
-    dgx_nv3041a_t *scr = (dgx_nv3041a_t *)_scr;
-    _scr->dir_x        = dir_x;
-    _scr->dir_y        = dir_y;
-    _scr->swap_xy      = swap_xy;
-    _scr->width        = swap_xy ? NV3041A_HEIGHT : NV3041A_WIDTH;
-    _scr->height       = swap_xy ? NV3041A_WIDTH : NV3041A_HEIGHT;
-    uint8_t data[1]    = {dgx_nv3041a_madctl(_scr)};
-    scr->base.bus->write_command(scr->base.bus, NV3041A_MADCTL);
-    scr->base.bus->write_data(scr->base.bus, data, 8);
+    dgx_panel_orientation(scr, dir_x, dir_y, swap_xy);
 }
 
-esp_err_t dgx_nv3041a_backlight(dgx_screen_t *_scr, bool on)
+esp_err_t dgx_nv3041a_backlight(dgx_screen_t *scr, bool on)
 {
-    dgx_nv3041a_t *scr = (dgx_nv3041a_t *)_scr;
-    if (scr->backlight < 0) return ESP_ERR_NOT_SUPPORTED;
-    dgx_gpio_set_level(scr->backlight, on ? 1 : 0);
-    return ESP_OK;
+    return dgx_panel_backlight(scr, on);
 }
