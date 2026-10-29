@@ -82,8 +82,9 @@ editing goes on from them and the patch saved keeps them, whether or not the
 .c was made with it. Each part goes to the font of the file it names; a
 patch of one font that names none goes to the font chosen. Fonts of the
 patch the file has not, and glyphs a font has not (a font made at build time
-has only the characters asked for), are told and kept in the patch saved. A
-patch of one font that names another font or size is refused.
+has only the characters asked for), are told and kept in the patch saved,
+also when another patch is read after it: what that one has goes over them.
+A patch of one font that names another font or size is refused.
 
 ## Notes
 

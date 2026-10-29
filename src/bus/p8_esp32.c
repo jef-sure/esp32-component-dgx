@@ -26,6 +26,15 @@
 #include "bus/dgx_p8_esp32.h"
 #include "dgx_p8_esp32_priv.h"
 
+/* the chips whose I80 bus is the LCD_CAM peripheral; IDF 5.2 tells them only by SOC_LCDCAM_SUPPORTED */
+#if defined(SOC_LCDCAM_I80_LCD_SUPPORTED)
+#define DGX_P8_LCDCAM SOC_LCDCAM_I80_LCD_SUPPORTED
+#elif defined(SOC_LCDCAM_SUPPORTED)
+#define DGX_P8_LCDCAM SOC_LCDCAM_SUPPORTED
+#else
+#define DGX_P8_LCDCAM 0
+#endif
+
 static const char TAG[] = "DGX P8 BUS";
 
 static bool dgx_p8_on_color_trans_done(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx) {
@@ -78,7 +87,7 @@ static bool dgx_p8_take_command(dgx_p8_bus_t *bus, int *command) {
         *command = bus->command;
         return true;
     }
-#if SOC_LCDCAM_I80_LCD_SUPPORTED
+#if DGX_P8_LCDCAM
     *command = -1;
     return true;
 #else
@@ -151,32 +160,36 @@ static uint32_t dgx_p8_read_data(struct _dgx_bus_protocols_t *_bus, uint8_t *dat
 }
 
 /*
- * The I80 buses DGX creates, shared by the DGX displays on the same data, WR
- * and DC pins, each with its own CS, and deleted with the last of them. A bus
- * the program created and gave to dgx_p8_init_on_bus() is the program's.
+ * The I80 buses DGX creates, one display on each, deleted with it. The I80
+ * driver of IDF does not keep the transfers of two panels on one bus apart:
+ * esp_lcd_panel_io_tx_param() waits only for the pixels of its own panel and
+ * then sends at once, and so does the command that starts every
+ * esp_lcd_panel_io_tx_color() on an ESP32 and an ESP32-S2. Pixels of another
+ * panel still on their way are cut off, their end is never told, and that
+ * display waits for it for ever. A bus the program created and gave to
+ * dgx_p8_init_on_bus() is the program's.
  */
-#define DGX_P8_SHARED_BUSES 2
+#define DGX_P8_BUSES 2 /* an ESP32 has two I80 buses, the other chips one */
 
 typedef struct {
     esp_lcd_i80_bus_handle_t handle;
-    uint16_t                 users;
     gpio_num_t               pins[10]; /* d0..d7, wr, dc */
-} dgx_p8_shared_t;
+} dgx_p8_made_t;
 
-static dgx_p8_shared_t dgx_p8_shared[DGX_P8_SHARED_BUSES];
+static dgx_p8_made_t dgx_p8_made[DGX_P8_BUSES];
 
-static dgx_p8_shared_t *dgx_p8_find_shared(esp_lcd_i80_bus_handle_t handle)
+static dgx_p8_made_t *dgx_p8_find_made(esp_lcd_i80_bus_handle_t handle)
 {
-    for (int i = 0; i < DGX_P8_SHARED_BUSES; ++i) {
-        if (handle && dgx_p8_shared[i].handle == handle) return &dgx_p8_shared[i];
+    for (int i = 0; i < DGX_P8_BUSES; ++i) {
+        if (handle && dgx_p8_made[i].handle == handle) return &dgx_p8_made[i];
     }
     return NULL;
 }
 
-/* a bus deleted when no DGX display uses it; kept when the program has added panels of its own to it */
-static void dgx_p8_release_shared(dgx_p8_shared_t *s)
+/* a bus deleted with its display; kept when the program has added panels of its own to it */
+static void dgx_p8_release_made(dgx_p8_made_t *s)
 {
-    if (!s || s->users || !s->handle) return;
+    if (!s || !s->handle) return;
     esp_err_t rc = esp_lcd_del_i80_bus(s->handle);
     if (rc != ESP_OK) {
         ESP_LOGW(TAG, "I80 bus kept, other devices are on it (%s)", esp_err_to_name(rc));
@@ -190,11 +203,7 @@ static void dgx_p8_dispose_bus_func(struct _dgx_bus_protocols_t *_bus) {
     if (bus->io) dgx_p8_flush_command(bus);
     dgx_p8_wait_pending(bus);
     if (bus->io) esp_lcd_panel_io_del(bus->io);
-    if (bus->owns_i80_bus) {
-        dgx_p8_shared_t *s = dgx_p8_find_shared(bus->i80_bus);
-        if (s && s->users) --s->users;
-        dgx_p8_release_shared(s);
-    }
+    if (bus->owns_i80_bus) dgx_p8_release_made(dgx_p8_find_made(bus->i80_bus));
     if (bus->transfer_done_sem) vSemaphoreDelete(bus->transfer_done_sem);
     free(bus->protocols.buffer);
     free(bus);
@@ -204,23 +213,19 @@ static uint8_t *dgx_p8_memory_allocator(uint32_t len) {
     return (uint8_t *)heap_caps_malloc(len, MALLOC_CAP_DMA);
 }
 
-static esp_err_t dgx_p8_take_bus(const gpio_num_t pins[10], esp_lcd_i80_bus_handle_t *out, dgx_p8_shared_t **shared)
+static esp_err_t dgx_p8_take_bus(const gpio_num_t pins[10], esp_lcd_i80_bus_handle_t *out, dgx_p8_made_t **made)
 {
-    dgx_p8_shared_t *free_slot = NULL;
-    for (int i = 0; i < DGX_P8_SHARED_BUSES; ++i) {
-        dgx_p8_shared_t *s = &dgx_p8_shared[i];
+    dgx_p8_made_t *free_slot = NULL;
+    for (int i = 0; i < DGX_P8_BUSES; ++i) {
+        dgx_p8_made_t *s = &dgx_p8_made[i];
         if (!s->handle) {
             if (!free_slot) free_slot = s;
             continue;
         }
-        if (!memcmp(s->pins, pins, sizeof(s->pins))) {
-            *out = s->handle, *shared = s;
-            return ESP_OK;
-        }
         for (int a = 0; a < 10; ++a) {
             for (int b = 0; b < 10; ++b) {
                 if (pins[a] >= 0 && pins[a] == s->pins[b]) {
-                    ESP_LOGE(TAG, "GPIO %d is a pin of another I80 bus of DGX; displays on one bus share its data, WR and DC pins", (int)pins[a]);
+                    ESP_LOGE(TAG, "GPIO %d is a pin of the I80 bus of another display; a display needs a bus of its own", (int)pins[a]);
                     return ESP_ERR_INVALID_ARG;
                 }
             }
@@ -251,8 +256,7 @@ static esp_err_t dgx_p8_take_bus(const gpio_num_t pins[10], esp_lcd_i80_bus_hand
         return ret;
     }
     memcpy(free_slot->pins, pins, sizeof(free_slot->pins));
-    free_slot->users = 0;
-    *out = free_slot->handle, *shared = free_slot;
+    *out = free_slot->handle, *made = free_slot;
     return ESP_OK;
 }
 
@@ -334,14 +338,10 @@ dgx_bus_protocols_t *dgx_p8_init(gpio_num_t lcd_d0, gpio_num_t lcd_d1, gpio_num_
 {
     const gpio_num_t         pins[10] = {lcd_d0, lcd_d1, lcd_d2, lcd_d3, lcd_d4, lcd_d5, lcd_d6, lcd_d7, lcd_wr, dc};
     esp_lcd_i80_bus_handle_t i80_bus;
-    dgx_p8_shared_t         *shared;
-    if (dgx_p8_take_bus(pins, &i80_bus, &shared) != ESP_OK) return NULL;
+    dgx_p8_made_t           *made;
+    if (dgx_p8_take_bus(pins, &i80_bus, &made) != ESP_OK) return NULL;
     dgx_bus_protocols_t *bus = dgx_p8_attach(i80_bus, true, lcd_rd, cs, pclk_hz);
-    if (!bus) {
-        dgx_p8_release_shared(shared);
-        return NULL;
-    }
-    ++shared->users;
+    if (!bus) dgx_p8_release_made(made);
     return bus;
 }
 

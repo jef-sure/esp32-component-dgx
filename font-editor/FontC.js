@@ -44,6 +44,29 @@ var FontC = (() => {
 
     function bytesOf(rows) { return encodeRows(rows); }
 
+    /* rows of '#' and '.' as one stream of bits, MSB first, a row right after the one before it: DGX_FONT_BITMAP_STREAM */
+    function encodeStream(rows) {
+        const w = rows.length ? rows[0].length : 0;
+        const out = new Array((w * rows.length + 7) >> 3).fill(0);
+        rows.forEach((row, y) => {
+            for (let x = 0; x < w; ++x)
+                if (row[x] === '#') out[(y * w + x) >> 3] |= 0x80 >> ((y * w + x) & 7);
+        });
+        return out;
+    }
+
+    /*
+     * x with six decimals as %f of C writes it: the nearest, and a tie to the even last digit. toFixed() takes the
+     * larger of the two at a tie, and font2c's average width of 128 glyphs 701 pixels wide in all, 5.4765625, came out
+     * 5.476563 here and 5.476562 there. A tie is told by the exact value of x, which toFixed() writes out in full.
+     */
+    function fixed6(x) {
+        const exact = x.toFixed(60), dot = exact.indexOf('.');
+        if (!/^50*$/.test(exact.slice(dot + 7))) return x.toFixed(6);
+        const down = exact.slice(0, dot + 7);
+        return +down[down.length - 1] % 2 ? x.toFixed(6) : down;
+    }
+
     /* the ranges a sorted list of code points makes, as font2c makes them */
     function rangesOf(points) {
         const ranges = [];
@@ -189,7 +212,7 @@ var FontC = (() => {
             take('xRightMax', g.xOffset + g.w, false);
             sum += g.w;
         });
-        if (cps.length) r.xWidthAverage = (sum / cps.length).toFixed(6);
+        if (cps.length) r.xWidthAverage = fixed6(sum / cps.length);
         return r;
     }
 
@@ -206,12 +229,14 @@ var FontC = (() => {
         const ranges = rangesOf(cps);
         const m = measures(font, cps);
         const hex = (v, n) => v.toString(16).toUpperCase().padStart(n, '0');
+        /* the bits of a font of DGX_FONT_BITMAP_STREAM go on from row to row, as they were read */
+        const stream = font.f_type === 'DGX_FONT_BITMAP_STREAM';
         out.push(`static const uint8_t ${p}bitmaps[] = {\n  `);
         let at = 0;
         const glyphRows = {};
         for (const cp of cps) {
             const g = font.glyphs[cp];
-            const bytes = bytesOf(g.rows);
+            const bytes = stream ? encodeStream(g.rows) : bytesOf(g.rows);
             const name = font.names && font.names[cp];
             out.push(`/* ${hex(cp, 4)}${name ? ' - ' + name : ''} */`);
             for (const row of g.rows) out.push('\n/* ' + row.replace(/\./g, ' ') + ' */');

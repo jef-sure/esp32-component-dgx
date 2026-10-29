@@ -305,6 +305,22 @@ static bool dgx_vscreen_rows_to_bus(dgx_screen_t *_scr_dst, int x_dst, int y_dst
 }
 
 /*
+ * Does the bus send the `len` bytes at `from` where they lie? It answers for
+ * an address, and all of them have to lie where its DMA reaches: it is asked
+ * for the first one and for the 16 bytes that hold the last one, by the
+ * address they start at, as a bus takes an address only from an alignment of
+ * its own: a word of internal memory, 16 bytes of PSRAM where its DMA asks
+ * them (a P4 under flash encryption). Memory changes what reaches it at 16
+ * bytes at least, so the two answers hold for every byte between them.
+ */
+static bool dgx_vscreen_bus_sends(dgx_bus_protocols_t *bus, const uint8_t *from, uint32_t len)
+{
+    const uint8_t *last = (const uint8_t *)((uintptr_t)(from + len - 1u) & ~(uintptr_t)15u);
+    if (last < from) last = from;
+    return bus->sends_from && bus->sends_from(bus, from) && bus->sends_from(bus, last);
+}
+
+/*
  * A rectangle whose rows lie one after another in the virtual screen, its
  * whole rows or a single row, handed in one write to a display whose bus
  * sends from there by DMA as the pixels lie: no copy into the bus buffer,
@@ -312,6 +328,11 @@ static bool dgx_vscreen_rows_to_bus(dgx_screen_t *_scr_dst, int x_dst, int y_dst
  * sides, a virtual screen keeps the byte order of the wire, and the picture
  * is not turned, so the rows go as they are. All of them have gone when this
  * returns, as through the halves.
+ *
+ * DMA from PSRAM can fall behind the wire. The bus then loses the pixels of
+ * that transfer, and from then on it sends nothing from PSRAM: it refuses
+ * the same bytes when it is asked again. A rectangle refused after it has
+ * gone is put again by the caller through the halves, and false is returned.
  */
 static bool dgx_vscreen_in_place_to_bus(dgx_screen_t *dst, int x_dst, int y_dst, dgx_vscreen_t *scr_src, int x_src, int y_src, int width, int height,
                                         uint8_t bytes)
@@ -321,12 +342,13 @@ static bool dgx_vscreen_in_place_to_bus(dgx_screen_t *dst, int x_dst, int y_dst,
     if (!dst->set_area || !dst->write_area || !dst->wait_buffer) return false;
     dgx_bus_protocols_t *bus  = ((dgx_screen_with_bus_t *)dst)->bus;
     uint8_t             *from = DGX_VSCR_PTR(scr_src, DGX_VSCR_OFFSET(scr_src, x_src, y_src));
-    if (!bus->sends_from || !bus->sends_from(bus, from)) return false;
+    const uint32_t       len  = (uint32_t)width * (uint32_t)height * bytes;
+    if (!dgx_vscreen_bus_sends(bus, from, len)) return false;
     dst->wait_buffer(dst);
     dst->set_area(dst, (uint16_t)x_dst, (uint16_t)(x_dst + width - 1), (uint16_t)y_dst, (uint16_t)(y_dst + height - 1));
-    dst->write_area(dst, from, (uint32_t)width * (uint32_t)height * bytes * 8u);
+    dst->write_area(dst, from, len * 8u);
     dst->wait_buffer(dst);
-    return true;
+    return dgx_vscreen_bus_sends(bus, from, len);
 }
 
 /*
@@ -417,6 +439,7 @@ static bool dgx_transfer_as_it_is(dgx_screen_t *dst, const dgx_transfer_place_t 
         return true;
     }
     if (!transparent && !over && rows && dgx_vscreen_in_place_to_bus(dst, p->x, p->y, scr_src, sx, sy, p->w, p->h, bytes)) return true;
+    /* through the halves: also a rectangle the bus has lost on its way from PSRAM, which is sent again so */
     if (rows && !transparent && dgx_transfer_bus_takes(dst, bytes)) {
         dgx_vscreen_halves_t halves;
         dgx_vscreen_halves_window(&halves, dst, p->x, p->y, p->w, p->h, bytes);

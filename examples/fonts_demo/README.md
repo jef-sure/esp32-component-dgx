@@ -49,9 +49,9 @@ python3 ../../font2c/dgx_fonts.py pick fonts.rules 14 --mono
 
 ## Wiring
 
-The pins of the CYD: MOSI 23, MISO 19, SCLK 18, CS 5, DC 16, RST 17,
-backlight 21. Change the constants at the top of `main/main.c` for another
-board.
+The pins of the CYD, on `SPI2_HOST`: MOSI 13, MISO 12, SCLK 14, CS 15,
+DC 2, backlight 21; the panel has no reset line of its own. Change the
+constants at the top of `main/main.c` for another board.
 
 ## Build and flash
 

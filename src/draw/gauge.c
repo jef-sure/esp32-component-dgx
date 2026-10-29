@@ -15,17 +15,25 @@ static dgx_point_2d_t dgx_gauge_point(int center_x, int center_y, int radius, fl
     return point;
 }
 
+/* a step is a degree of the sweep, whichever way the sweep goes */
+static int dgx_gauge_steps(const dgx_gauge_t *gauge)
+{
+    return gauge->sweep_degrees < 0 ? -gauge->sweep_degrees : gauge->sweep_degrees;
+}
+
 static void dgx_gauge_step_quad(const dgx_gauge_t *gauge, int step, uint32_t color)
 {
     float prev_angle;
     float angle;
 
-    if (step < 1 || step > gauge->sweep_degrees) {
+    if (step < 1 || step > dgx_gauge_steps(gauge)) {
         return;
     }
 
-    prev_angle                = gauge->start_angle - (float)(step - 1);
-    angle                     = gauge->start_angle - (float)step;
+    /* the steps go with the clock from the start angle, and against it when the sweep is negative */
+    const float way           = gauge->sweep_degrees < 0 ? 1.0f : -1.0f;
+    prev_angle                = gauge->start_angle + way * (float)(step - 1);
+    angle                     = gauge->start_angle + way * (float)step;
     dgx_point_2d_t prev_inner = dgx_gauge_point(gauge->center_x, gauge->center_y, gauge->inner_radius, prev_angle);
     dgx_point_2d_t prev_outer = dgx_gauge_point(gauge->center_x, gauge->center_y, gauge->inner_radius + gauge->width, prev_angle);
     dgx_point_2d_t inner      = dgx_gauge_point(gauge->center_x, gauge->center_y, gauge->inner_radius, angle);
@@ -57,18 +65,19 @@ void dgx_gauge_init(dgx_gauge_t *gauge, dgx_screen_t *scr, int center_x, int cen
 static int dgx_gauge_value_for_step(const dgx_gauge_t *gauge, int step)
 {
     int range = gauge->max_value - gauge->min_value;
+    int steps = dgx_gauge_steps(gauge);
 
-    if (range <= 0 || gauge->sweep_degrees <= 0) {
+    if (range <= 0 || steps <= 0) {
         return gauge->min_value;
     }
     if (step < 0) {
         step = 0;
     }
-    if (step > gauge->sweep_degrees) {
-        step = gauge->sweep_degrees;
+    if (step > steps) {
+        step = steps;
     }
 
-    return gauge->min_value + (int)lroundf((float)step * (float)range / (float)gauge->sweep_degrees);
+    return gauge->min_value + (int)lroundf((float)step * (float)range / (float)steps);
 }
 
 void dgx_gauge_set_value(dgx_gauge_t *gauge, int value)
@@ -83,7 +92,8 @@ void dgx_gauge_set_value(dgx_gauge_t *gauge, int value)
     }
     int range = gauge->max_value - gauge->min_value;
     if (range <= 0) return;
-    int next_active_steps = ((next_value - gauge->min_value) * gauge->sweep_degrees) / range;
+    /* in 64 bits: a range of millions, as of bytes, times the degrees of the sweep is more than an int holds */
+    int next_active_steps = (int)((int64_t)(next_value - gauge->min_value) * dgx_gauge_steps(gauge) / range);
 
     /* the steps that change are one picture: shown together where a screen shows by batches */
     dgx_screen_progress_up(gauge->scr);
@@ -112,7 +122,7 @@ void dgx_gauge_redraw(dgx_gauge_t *gauge)
         uint32_t color = gauge->color_fn ? gauge->color_fn(step_value) : gauge->background_color;
         dgx_gauge_step_quad(gauge, step, color);
     }
-    for (int step = gauge->active_steps + 1; step <= gauge->sweep_degrees; ++step) {
+    for (int step = gauge->active_steps + 1; step <= dgx_gauge_steps(gauge); ++step) {
         dgx_gauge_step_quad(gauge, step, gauge->background_color);
     }
     dgx_screen_progress_down(gauge->scr);

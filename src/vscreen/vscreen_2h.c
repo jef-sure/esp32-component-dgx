@@ -36,8 +36,15 @@ static void dgx_vscreen_2h_update_area(dgx_screen_t *_scr, int left, int right, 
     int rr = DGX_MIN(scr->left_screen->width + scr->right_screen->width - 1, right);
     int lw = lr - ll + 1;
     int rw = rr - rl + 1;
+    /*
+     * Whole rows of both panels go side by side through their buses, the same
+     * rows to each: only when the panels are of one height, or the shorter one
+     * would be sent rows its window has no room for, and the window would take
+     * them from its top again.
+     */
     if (scr->left_screen->screen_subtype == DgxPhysicalScreenWithBus && scr->right_screen->screen_subtype == DgxPhysicalScreenWithBus &&
-        scr->left_screen->color_bits == 16 && lw == rw && lw == scr->left_screen->width && rw == scr->right_screen->width) {
+        scr->left_screen->color_bits == 16 && lw == rw && lw == scr->left_screen->width && rw == scr->right_screen->width &&
+        scr->left_screen->height == scr->right_screen->height) {
         dgx_bus_protocols_t *lbus = ((dgx_screen_with_bus_t *)scr->left_screen)->bus;
         dgx_bus_protocols_t *rbus = ((dgx_screen_with_bus_t *)scr->right_screen)->bus;
         size_t draw_buffer_len = DGX_MIN(lbus->buffer_len, rbus->buffer_len) / 2;

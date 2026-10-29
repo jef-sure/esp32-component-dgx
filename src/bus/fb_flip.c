@@ -30,11 +30,14 @@ static void dgx_fb_flip_tell(dgx_fb_flip_t *flip)
      * The display takes the frame buffer where a frame ends. Where that
      * is counted, the next one counted is it; one counted while the display
      * was being told makes it wait a frame more than needed, which does no
-     * harm. Where frames are counted later, the display told just before
-     * that may have started the next frame from the old frame buffer
-     * already: then it is the frame after the next.
+     * harm. But the count comes a moment after the display has taken the
+     * frame buffer, and told in that moment it may have started the next
+     * frame from the old one: told that close to where a frame is to end,
+     * or when the times are not known, it is the frame after the next.
+     * Where frames are counted later, the same holds as far before as they
+     * may be counted late.
      */
-    const bool late = !flip->at_switch && (!timed || since + flip->guard_us > period);
+    const bool late = !timed || since + (flip->at_switch ? DGX_FB_FLIP_SWITCH_US : flip->guard_us) > period;
     flip->flip_at   = ended + (late ? 2u : 1u);
     flip->told_at   = ended;
     flip->told      = true;

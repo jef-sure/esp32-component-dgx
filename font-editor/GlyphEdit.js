@@ -66,11 +66,11 @@ const GlyphEdit = {
                     <h6>Metrics</h6>
                     <div class="ge-fields">
                         <label for="ge-adv">advance</label>
-                        <input id="ge-adv" type="number" class="form-control form-control-sm" v-model.number="glyph.xAdvance" @focus="store.pushUndo()" @change="store.gapFromAdvance(); store.markEdited()">
+                        <input id="ge-adv" type="number" step="1" class="form-control form-control-sm" :value="glyph.xAdvance" @focus="store.pushUndo()" @input="metric('xAdvance', $event)" @change="metric('xAdvance', $event, true)">
                         <label for="ge-xo">x offset</label>
-                        <input id="ge-xo" type="number" class="form-control form-control-sm" v-model.number="glyph.xOffset" @focus="store.pushUndo()" @change="store.markEdited()">
+                        <input id="ge-xo" type="number" step="1" class="form-control form-control-sm" :value="glyph.xOffset" @focus="store.pushUndo()" @input="metric('xOffset', $event)" @change="metric('xOffset', $event, true)">
                         <label for="ge-yo">y offset</label>
-                        <input id="ge-yo" type="number" class="form-control form-control-sm" v-model.number="glyph.yOffset" @focus="store.pushUndo()" @change="store.markEdited()">
+                        <input id="ge-yo" type="number" step="1" class="form-control form-control-sm" :value="glyph.yOffset" @focus="store.pushUndo()" @input="metric('yOffset', $event)" @change="metric('yOffset', $event, true)">
                         <label for="ge-w">width</label>
                         <input id="ge-w" type="number" class="form-control form-control-sm" v-model.number="w" @focus="store.pushUndo()" @change="resize()">
                         <label for="ge-h">height</label>
@@ -361,6 +361,18 @@ const GlyphEdit = {
             },
             resize() {
                 if (store.glyph && state.w > 0 && state.h > 0) store.resize(state.w, state.h);
+            },
+            /* a metric typed in: a whole number goes to the glyph as it is typed. Anything else, an empty field
+             * too, is not taken, and the field shows the glyph's number again when it is left: an empty metric
+             * made a .c that did not compile */
+            metric(key, ev, done) {
+                const g = store.glyph, text = ev.target.value.trim(), v = Number(text);
+                if (!g) return;
+                if (text !== '' && Number.isInteger(v)) g[key] = v;
+                else if (done) ev.target.value = g[key];
+                if (!done) return;
+                if (key === 'xAdvance') store.gapFromAdvance();
+                store.markEdited();
             },
         };
     },

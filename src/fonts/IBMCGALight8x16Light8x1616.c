@@ -1,6 +1,8 @@
 /*
  * IBM CGA Light 8x16 of the IBM fonts of farsil: icl8x16u.bdf of
- * https://github.com/farsil/ibmfonts, "BDF conversion (c) 2016 farsil".
+ * https://github.com/farsil/ibmfonts, "BDF conversion (c) 2016 farsil",
+ * made after the PxPlus fonts of VileR, The Ultimate Oldschool PC Font Pack,
+ * https://int10h.org/oldschool-pc-fonts/.
  * Licensed under Creative Commons Attribution-ShareAlike 4.0 International,
  * https://creativecommons.org/licenses/by-sa/4.0/
  * Changed: turned into a TTF by bdf2ttf and into this C file by font2c of

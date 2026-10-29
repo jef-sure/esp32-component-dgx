@@ -151,6 +151,10 @@ dgx_screen_t *dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
         ESP_LOGE(TAG, "Unsupported ST7789 resolution %d", (int)resolution);
         return NULL;
     }
+    if (color_bits != 12 && color_bits != 16 && color_bits != 18) {
+        ESP_LOGE(TAG, "%u-bit color is not set up by this driver, only 12, 16 and 18", (unsigned)color_bits);
+        return NULL;
+    }
     // Attach the LCD to the SPI bus
     dgx_st7789_t *scr = (dgx_st7789_t *)calloc(1, sizeof(dgx_st7789_t));
     if (!scr) {
@@ -191,11 +195,15 @@ dgx_screen_t *dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
     }
     // Send all the commands
     dgx_lcd_init(&scr->base, st_init_cmds);
-    /* landscape is a turn, MV with MX: MV alone would mirror the picture */
+    dgx_scr_init_slow_bus_optimized_funcs((dgx_screen_t *)scr);
+    /*
+     * landscape is a turn, MV with MX: MV alone would mirror the picture. It
+     * comes after the functions of the screen, which take the screen as not
+     * turned: the screen says how it lies, as the panel is told.
+     */
     if (resolution == ST7789_RESOLUTION_320x240) {
         dgx_st7789_orientation((dgx_screen_t *)scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
     }
-    dgx_scr_init_slow_bus_optimized_funcs((dgx_screen_t *)scr);
     return (dgx_screen_t *)scr;
 }
 

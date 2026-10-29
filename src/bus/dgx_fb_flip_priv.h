@@ -68,6 +68,17 @@ typedef struct _dgx_fb_flip_display_t {
 /* a batch that took longer than this counts as this long */
 #define DGX_FB_FLIP_BATCH_US_MOST 100000u
 
+/*
+ * Where frames are counted where the display takes the frame buffer, the
+ * interrupt that counts a frame looks which frame buffer to take a moment
+ * before it counts it: a driver sets the next frame going in between. A
+ * word given in that moment from another core is too late for the frame,
+ * though the count has not changed yet. So a word given this close to where
+ * a frame is to end is not relied on there either: the moment is some
+ * microseconds, the rest is room for an interrupt that comes late.
+ */
+#define DGX_FB_FLIP_SWITCH_US 300u
+
 typedef struct _dgx_fb_flip_t {
     const dgx_fb_flip_display_t *display;
     void                        *context;
@@ -93,8 +104,8 @@ typedef struct _dgx_fb_flip_t {
 
 /**
  * @brief Start: the display reads the frame buffer that is not `drawn`, and has been told nothing.
- * @param at_switch Frames are counted where the display takes the frame buffer for the next one.
- *                  false when they are counted later, up to `guard_us` later.
+ * @param at_switch Frames are counted where the display takes the frame buffer for the next one, a moment
+ *                  later at most, see DGX_FB_FLIP_SWITCH_US. false when they are counted later, up to `guard_us` later.
  * @param guard_us  How close to the end of a frame a word to the display is not relied on.
  */
 void dgx_fb_flip_init(dgx_fb_flip_t *flip, const dgx_fb_flip_display_t *display, void *context, uint8_t drawn, bool at_switch, uint32_t guard_us);

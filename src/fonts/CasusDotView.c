@@ -1,3 +1,8 @@
+/*
+ * Casus, a font of dots drawn for DGX by Anton Petrusevich.
+ * Copyright (c) 2021-2026 Anton Petrusevich.
+ * Licensed under the MIT License, as DGX: LICENSE at the top of DGX.
+ */
 #include "dgx_font.h"
 
 static const dgx_font_dot_t dots[] = {

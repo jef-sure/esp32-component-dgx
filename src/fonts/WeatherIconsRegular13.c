@@ -1,3 +1,14 @@
+/*
+ * Weather Icons Regular 1.100, weathericons-regular-webfont.ttf of Erik
+ * Flowers, https://github.com/erikflowers/weather-icons, whose icons Lukas
+ * Bischoff designed first.
+ * The font file names no holder of its copyright; its copyright field
+ * says: Weather Icons licensed under SIL OFL 1.1 — Code licensed under
+ * MIT License — Documentation licensed under CC BY 3.0
+ * Licensed under the SIL Open Font License, Version 1.1: licenses/OFL-1.1.txt
+ * beside this file.
+ * Changed: made into the dots of this C file at 13 px.
+ */
 #include "dgx_font.h"
 
 // points

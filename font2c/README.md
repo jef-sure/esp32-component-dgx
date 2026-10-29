@@ -27,7 +27,9 @@ cc font2c/font2c.c -o font2c/font2c $(pkg-config --cflags --libs freetype2)
 ## Bitmap fonts
 
 Give it a font file, a pixel size, and the characters to include: inclusive
-Unicode ranges, a UTF-8 text file with the characters (`-f`), or both.
+Unicode ranges, a UTF-8 text file with the characters (`-f`), or both. A
+font of bitmaps alone, a BDF say, has the sizes it was drawn at and no
+other; asked for another, `font2c` stops and names the sizes it has.
 
 ```sh
 ./font2c path/to/YourFont.ttf 16 0x20 0x7e 0x410 0x44f
@@ -41,10 +43,9 @@ arrays (`name_bitmaps` and so on) then take that name, so that several fonts
 made this way can share one C file. To use the generated font:
 
 1. Move the `.c` file into `src/fonts/` and the `.h` file into
-   `include/fonts/`.
-2. Rerun CMake configure once. Fonts are added through `file(GLOB ...)`, so
-   the build system has to notice the new file.
-3. Include the generated header and pass its accessor to the text API, like
+   `include/fonts/`. The next build picks the new file up by itself: the
+   `file(GLOB ...)` that adds the fonts is a configure dependency.
+2. Include the generated header and pass its accessor to the text API, like
    a bundled font.
 
 ### Glyphs fixed by hand
@@ -98,10 +99,11 @@ size produce one font with the characters of both, and each `-n` name of
 theirs becomes a function of it; a line without `-n` gets a name from the
 family, style and size, prefixed with the output name
 (`my_fonts_DejaVuSansBook30`). The static arrays are named after the font,
-so nothing collides. `-x`, `-i`, `-n`, `-f`, `-g`, `-t` and `-p` belong to
-the lines of a list, not to the command line of a `-jo` run. `-P` may go on
-both: on the command line it applies to every font of the lists, after the
-`-P` of the font's own lines.
+so nothing collides. `-n`, `-f`, `-g` and `-p` belong to the lines of a
+list, not to the command line of a `-jo` run. `-P` may go on both: on the
+command line it applies to every font of the lists, after the `-P` of the
+font's own lines. `-x`, `-i` and `-t`, which change the file of a
+handwritten font, go on neither: a list does not change its fonts.
 
 [FontCreator](https://github.com/Llerr/FontCreator) is an alternative with a
 GUI: it generates embedded C font data and lets you edit glyphs. Use its

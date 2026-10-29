@@ -160,6 +160,11 @@ static const dgx_lcd_init_cmd_t st_init_cmds_tft[] __attribute__((unused)) = {
 // Initialize the display
 dgx_screen_t *dgx_ili9341_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo)
 {
+    /* the pixel formats of its serial and parallel interfaces are 16 and 18 bits, there is no 12 */
+    if (color_bits != 16 && color_bits != 18) {
+        ESP_LOGE(TAG, "%u-bit color is not set up by this driver, only 16 and 18", (unsigned)color_bits);
+        return NULL;
+    }
     // Attach the LCD to the SPI bus
     dgx_ili9341_t *scr = (dgx_ili9341_t *)calloc(1, sizeof(dgx_ili9341_t));
     if (!scr) {
@@ -233,6 +238,7 @@ void dgx_ili9341_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_or
 esp_err_t dgx_ili9341_backlight(dgx_screen_t *_scr, bool on)
 {
     dgx_ili9341_t *scr = (dgx_ili9341_t *)_scr;
+    if (scr->backlight < 0) return ESP_ERR_NOT_SUPPORTED;
     dgx_gpio_set_level(scr->backlight, on ? 1 : 0);
     return ESP_OK;
 }

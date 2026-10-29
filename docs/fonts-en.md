@@ -111,7 +111,7 @@ The keywords of a need:
 | `MONO` | Only a monospaced face. |
 | `FAMILY "<pattern>"` | Only this family; a pattern with `*`, as in the rules. |
 | `POSTSCRIPT <name>` | Exactly this face, by its PostScript name (`DejaVuSans`, `DejaVuSans-Bold`); no rules needed. |
-| `SOURCE <file>` | A font from this file: a TTF or OTF with a `SIZE`, or the JSON of a handwritten font from the hw-fonts editor, which has no size. |
+| `SOURCE <file>` | A font from this file: any font file `font2c` reads, a TTF, an OTF or a BDF, with a `SIZE` (a font of bitmaps only at a size it has), or the JSON of a handwritten font from the hw-fonts editor, which has no size. |
 | `DGX <name>` | One of DGX's own fonts, used as is: `font0ss`, `TerminusTTFMedium12` and the others in `src/fonts/`. |
 | `FILE <file.c>` | A font the program already has as a `.c` file, used as is; the program compiles it itself, DGX only checks its characters and declares the function. |
 | `PATCH <file>` | The glyphs fixed by hand for this font in the font editor (see [Glyphs fixed by hand](#glyphs-fixed-by-hand)); without it a patch is looked up by the name of the font. |
@@ -598,7 +598,8 @@ build` on the same file.
 
 A list is the second way, beside needs, for a component or a program that
 knows its font files and characters itself: a text file with the arguments
-of one ordinary `font2c` run per line, paths relative to the list,
+of one ordinary `font2c` run per line, for any font file `font2c` reads, a
+BDF among them (a font of bitmaps at a size it has), paths relative to the list,
 `#` for comments:
 
 ```
@@ -679,7 +680,12 @@ For the curious, and for whoever has to fix it.
    same for the same needs, so files that include it are left alone. If a
    file is merely touched, the rule runs, rewrites nothing and recompiles
    nothing. A new need in a CMakeLists reconfigures the project by itself,
-   as any edit of a CMakeLists does.
+   as any edit of a CMakeLists does, and so does an edit of a list given to
+   `dgx_font_list`. The faces that fontconfig and the rules found are named
+   in a depfile (CMake 3.20 or later), so a changed face makes the fonts
+   again too. A face installed anew, or put into a directory the rules take
+   faces from, is not seen until one of those files changes: touch the
+   rules to make the fonts again.
 
 Verified with ESP-IDF 5.5 and 6.0 (CMake 3.30 and 4.0): needs from a
 component and from `main` in one rule, one file recompiled when a text

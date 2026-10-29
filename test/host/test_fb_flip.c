@@ -661,6 +661,15 @@ int main(void)
     test_any_timing(300, 0, true, 0, 0);
     test_any_timing(300, 0, true, 50, 30000);
     test_any_timing(0, 0, true, 5, 3000);
+    /*
+     * and there, but counted a moment after the display has taken it: the
+     * interrupt looks which frame buffer to take, sets the next frame
+     * going, and counts last, while a task on the other core tells the
+     * display of a picture
+     */
+    test_any_timing(0, 20, true, 0, 0);
+    test_any_timing(30, 100, true, 0, 0);
+    test_any_timing(30, 100, true, 5, 3000);
     /* and 12 rows of the display later, as on a chip of revision 3 and later with the older driver */
     test_any_timing(0, 310, false, 0, 0);
     test_any_timing(300, 310, false, 0, 0);

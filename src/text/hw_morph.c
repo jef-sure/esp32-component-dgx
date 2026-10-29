@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "dgx_hw_font.h"
+#include "dgx_hw_font_priv.h"
 
 /* the strokes of a text as cubic curves, with the symbols they are of */
 typedef struct {
@@ -45,17 +46,7 @@ static bool dgx_hw_way_of(dgx_hw_way_t *way, dgx_font_t *font, const char *text,
         memcpy(c->x, s.x, sizeof(float) * s.type);
         memcpy(c->y, s.y, sizeof(float) * s.type);
         /* any stroke as a cubic curve drawing the same */
-        if (s.type == DGX_HW_CURVE3P) {
-            c->x[3] = c->x[2], c->y[3] = c->y[2];
-            c->x[2] = c->x[3] + (c->x[1] - c->x[3]) * 2 / 3, c->y[2] = c->y[3] + (c->y[1] - c->y[3]) * 2 / 3;
-            c->x[1] = c->x[0] + (c->x[1] - c->x[0]) * 2 / 3, c->y[1] = c->y[0] + (c->y[1] - c->y[0]) * 2 / 3;
-        } else if (s.type == DGX_HW_LINE) {
-            c->x[3] = c->x[1], c->y[3] = c->y[1];
-            c->x[1] = c->x[0] + (c->x[3] - c->x[0]) / 3, c->y[1] = c->y[0] + (c->y[3] - c->y[0]) / 3;
-            c->x[2] = c->x[0] + (c->x[3] - c->x[0]) * 2 / 3, c->y[2] = c->y[0] + (c->y[3] - c->y[0]) * 2 / 3;
-        } else if (s.type == DGX_HW_DOT) {
-            c->x[1] = c->x[2] = c->x[3] = c->x[0], c->y[1] = c->y[2] = c->y[3] = c->y[0];
-        }
+        dgx_hw_cubic(s.type, c->x, c->y);
         way->symbols[i] = s.symbol;
     }
     return true;

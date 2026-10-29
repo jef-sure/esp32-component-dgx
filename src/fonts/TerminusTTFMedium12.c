@@ -1,3 +1,12 @@
+/*
+ * Terminus (TTF) Medium 4.47 of Tilman Blumenbach,
+ * https://files.ax86.net/terminus-ttf/, the TrueType version of Terminus
+ * Font of Dimitar Toshkov Zhekov, https://terminus-font.sourceforge.net/.
+ * Copyright Dimitar Toshkov Zhekov and Tilman Blumenbach.
+ * Licensed under the SIL Open Font License, Version 1.1: licenses/OFL-1.1.txt
+ * beside this file.
+ * Changed: made into this C file by font2c of DGX at 12 px.
+ */
 #include "dgx_font.h"
 /* font2c: TerminusTTFMedium12, "Terminus (TTF)" "Medium" at 12 px */
 static const uint8_t bitmaps[] = {

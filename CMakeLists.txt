@@ -118,9 +118,11 @@ if(IDF_VERSION_MAJOR GREATER 5 OR (IDF_VERSION_MAJOR EQUAL 5 AND IDF_VERSION_MIN
 else()
 	set(dgx_requires driver)
 endif()
+# include/bus/dgx_p8_esp32.h includes the headers of esp_lcd, so a component that includes it needs them too
+list(APPEND dgx_requires esp_lcd)
 
 # the 2D DMA that copies between the frame buffers of a DSI display has its own component since IDF 6
-set(dgx_priv_requires esp_lcd esp_mm esp_timer)
+set(dgx_priv_requires esp_mm esp_timer)
 if(IDF_VERSION_MAJOR GREATER 5)
 	list(APPEND dgx_priv_requires esp_driver_dma)
 endif()

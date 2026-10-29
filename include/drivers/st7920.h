@@ -16,11 +16,12 @@ extern "C" {
  *
  * The controller is driven by its serial protocol, a sync byte and two
  * nibbles for every byte, so the bus is an SPI one. Its chip select is active
- * high and is held for a whole transfer: the driver drives @p cs itself.
+ * high and is held for a whole transfer: the driver drives @p cs itself. A
+ * panel with its CS tied high, alone on its lines, takes every transfer.
  *
  * @param bus Bus backend returned by dgx_spi_init().
  * @param rst Reset GPIO (use GPIO_NUM_NC if the panel has no reset line).
- * @param cs  Chip-select GPIO, driven by the driver: high for a transfer.
+ * @param cs  Chip-select GPIO, driven by the driver: high for a transfer (use GPIO_NUM_NC if CS is tied high).
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */
 dgx_screen_t* dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t cs);

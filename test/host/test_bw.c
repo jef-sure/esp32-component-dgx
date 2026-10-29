@@ -190,6 +190,9 @@ static int reference_char(dgx_screen_t *scr, int x, int y, uint32_t cp, dgx_outp
         right   = bottom;
         bottom  = t;
     }
+    /* a flipped axis turns the glyph around the pen: its box goes to the other side of it */
+    if (xdir == DgxScreenRightLeft) x_shift = -x_shift - (right + 1) * scale;
+    if (ydir == DgxScreenBottomTop) y_shift = -y_shift - (bottom + 1) * scale;
     dgx_point_2d_t p = ref_area_first_pixel(0, right, 0, bottom, xdir, ydir);
     for (int by = 0; by < g->height; ++by) {
         for (int bx = 0; bx < g->width; ++bx) {
@@ -375,6 +378,21 @@ static void test_region_crop(void)
     dgx_screen_destroy(&src);
 }
 
+/* a page screen of more than 256 pages, 2048 rows: a pixel, a column and a rectangle land in the page of their row */
+static void test_tall_pages(void)
+{
+    dgx_screen_t  *s      = dgx_bw_init(16, 4096);
+    const uint8_t *memory = ((dgx_bw_vscreen_t *)s)->v_array;
+    dgx_set_pixel(s, 5, 3000, 1);
+    CHECK(s->get_pixel(s, 5, 3000) == 1 && s->get_pixel(s, 5, 3000 - 2048) == 0 && (memory[(3000 >> 3) * 16 + 5] & 1u << (3000 & 7)));
+    dgx_fill_rectangle(s, 7, 3000, 2, 2, 1);
+    CHECK(s->get_pixel(s, 7, 3000) == 1 && s->get_pixel(s, 8, 3001) == 1 && s->get_pixel(s, 7, 3000 - 2048) == 0);
+    dgx_bw_fast_vline(s, 9, 2990, 20, 1);
+    CHECK(s->get_pixel(s, 9, 2990) == 1 && s->get_pixel(s, 9, 3009) == 1 && s->get_pixel(s, 9, 2990 - 2048) == 0);
+    CHECK(count_set(s) == 1 + 4 + 20);
+    dgx_screen_destroy(&s);
+}
+
 int main(void)
 {
     test_bw_screen();
@@ -386,5 +404,6 @@ int main(void)
     test_packed_depths();
     test_font_morph();
     test_region_crop();
+    test_tall_pages();
     CHECK_DONE();
 }

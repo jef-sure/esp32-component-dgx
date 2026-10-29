@@ -12,6 +12,7 @@
 
 #include "dgx_bits.h"
 #include "dgx_draw.h"
+#include "dgx_draw_priv.h"
 
 /* the squares of larger radii do not fit the 64 bits they are compared in */
 #define DGX_ELLIPSE_RADIUS INT16_MAX
@@ -22,20 +23,6 @@ static const float DGX_QUARTER = 1.57079632679489661923f; /* of a turn, radians 
 #ifndef DGX_ARC_WITHIN_SOFT
 #define DGX_ARC_WITHIN_SOFT 0.125f
 #endif
-
-/* a row of pixels from xa to xb, xa <= xb; one pixel is not worth a rectangle */
-static inline void dgx_ellipse_run(dgx_screen_t *scr, int xa, int xb, int y, uint32_t color)
-{
-    if (xa == xb) scr->set_pixel(scr, xa, y, color);
-    else scr->fill_rectangle(scr, xa, y, xb - xa + 1, 1, color);
-}
-
-/* a column of pixels from ya to yb, ya <= yb */
-static inline void dgx_ellipse_column(dgx_screen_t *scr, int x, int ya, int yb, uint32_t color)
-{
-    if (ya == yb) scr->set_pixel(scr, x, ya, color);
-    else scr->fill_rectangle(scr, x, ya, 1, yb - ya + 1, color);
-}
 
 /*
  * The rows of an ellipse, from the top one to the middle one.
@@ -235,15 +222,15 @@ static void dgx_ellipse_columns(dgx_screen_t *scr, int x, int y, int column, int
     if (column < 0) return;
     if (bottom == 0) {
         /* down to the middle row: what is above it and what is below it are one column */
-        dgx_ellipse_column(scr, x + column, y - top, y + top, color);
-        if (column) dgx_ellipse_column(scr, x - column, y - top, y + top, color);
+        dgx_draw_column_run(scr, x + column, y - top, y + top, color);
+        if (column) dgx_draw_column_run(scr, x - column, y - top, y + top, color);
         return;
     }
-    dgx_ellipse_column(scr, x + column, y - top, y - bottom, color);
-    dgx_ellipse_column(scr, x + column, y + bottom, y + top, color);
+    dgx_draw_column_run(scr, x + column, y - top, y - bottom, color);
+    dgx_draw_column_run(scr, x + column, y + bottom, y + top, color);
     if (column) {
-        dgx_ellipse_column(scr, x - column, y - top, y - bottom, color);
-        dgx_ellipse_column(scr, x - column, y + bottom, y + top, color);
+        dgx_draw_column_run(scr, x - column, y - top, y - bottom, color);
+        dgx_draw_column_run(scr, x - column, y + bottom, y + top, color);
     }
 }
 
@@ -272,15 +259,15 @@ void dgx_draw_ellipse(dgx_screen_t *scr, int x, int y, int rx, int ry, uint32_t 
             continue;
         }
         if (from == 0) {
-            dgx_ellipse_run(scr, x - reach, x + reach, y - row, color);
-            if (row) dgx_ellipse_run(scr, x - reach, x + reach, y + row, color);
+            dgx_draw_row_run(scr, x - reach, x + reach, y - row, color);
+            if (row) dgx_draw_row_run(scr, x - reach, x + reach, y + row, color);
             continue;
         }
-        dgx_ellipse_run(scr, x + from, x + reach, y - row, color);
-        dgx_ellipse_run(scr, x - reach, x - from, y - row, color);
+        dgx_draw_row_run(scr, x + from, x + reach, y - row, color);
+        dgx_draw_row_run(scr, x - reach, x - from, y - row, color);
         if (row) {
-            dgx_ellipse_run(scr, x - reach, x - from, y + row, color);
-            dgx_ellipse_run(scr, x + from, x + reach, y + row, color);
+            dgx_draw_row_run(scr, x - reach, x - from, y + row, color);
+            dgx_draw_row_run(scr, x + from, x + reach, y + row, color);
         }
     }
     dgx_ellipse_columns(scr, x, y, column, top, bottom, color);
@@ -294,7 +281,7 @@ typedef struct {
 
 static void dgx_ellipse_stack_send(dgx_ellipse_stack_t *stack, dgx_screen_t *scr, uint32_t color)
 {
-    if (stack->top <= stack->bottom) dgx_ellipse_column(scr, stack->x, stack->top, stack->bottom, color);
+    if (stack->top <= stack->bottom) dgx_draw_column_run(scr, stack->x, stack->top, stack->bottom, color);
     stack->top = 1, stack->bottom = 0;
 }
 
@@ -321,7 +308,7 @@ static void dgx_ellipse_arc_run(dgx_screen_t *scr, const dgx_wedge_t *w, int x, 
         return;
     }
     dgx_ellipse_stack_send(stack, scr, color);
-    for (int i = 0; i < runs; ++i) dgx_ellipse_run(scr, x + out[2 * i], x + out[2 * i + 1], y + dy, color);
+    for (int i = 0; i < runs; ++i) dgx_draw_row_run(scr, x + out[2 * i], x + out[2 * i + 1], y + dy, color);
 }
 
 /* an arc a pixel wide: the pixels of the outline that lie between the rays */
@@ -423,9 +410,14 @@ void dgx_solid_sector(dgx_screen_t *scr, int x, int y, int rx, int ry, float fro
  */
 static float dgx_arc_quarters(float degrees, int rx, int ry)
 {
-    const float turns = floorf(degrees / 360.0f);
-    float       rest = degrees - turns * 360.0f;
-    if (!(rest >= 0 && rest < 360.0f)) rest = 0;
+    float turns = floorf(degrees / 360.0f);
+    float rest = degrees - turns * 360.0f;
+    /*
+     * What is left of a turn may be rounded up to a whole one: an angle a hair below 0 leaves 360. That is
+     * the ray that goes right in the next turn; taken as 0 of the turn below, the arc would be a turn longer.
+     */
+    if (rest >= 360.0f) rest = 0, turns += 1;
+    else if (!(rest >= 0)) rest = 0;
     float quarters = rest / 90.0f;
     if (rx != ry && rx && ry && quarters != floorf(quarters)) {
         const float angle = rest * (DGX_QUARTER / 90.0f);

@@ -116,7 +116,11 @@ int main(void)
         for (int x = 0; x < 64; ++x) set += dgx_get_pixel(s, x, y) != 0;
     }
     CHECK(set == 0);
-    CHECK(dgx_font_make_morph_struct(&font, 0x31, 0x37, 0, 0, 0, 0, 1) == NULL);
+    dgx_font_symbol_morph_t *morph = dgx_font_make_morph_struct(&font, 0x31, 0x37, 0, 0, 0, 0, 1);
+    CHECK(morph == NULL);
+    /* what it gives back is destroyed as any morph is */
+    dgx_font_make_morph_struct_destroy(&morph);
+    dgx_font_make_morph_struct_destroy(NULL);
     CHECK(dgx_morph_glyph_matrix(&font, 0x31) == NULL);
     dgx_screen_destroy(&s);
     CHECK_DONE();

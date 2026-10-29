@@ -177,7 +177,7 @@ const useFontStore = Pinia.defineStore('font', {
          * names it while the font chosen does not tell which it is, goes to
          * the font chosen; one that names another font is refused. Parts and
          * glyphs for what this file has not are kept for the patch saved,
-         * and told.
+         * with those of the patches read before, and told.
          */
         loadPatch(text, name) {
             const told = name || 'the patch';
@@ -243,14 +243,22 @@ const useFontStore = Pinia.defineStore('font', {
                     if (typeof pg.rightGap === 'number') gaps[cp] = pg.rightGap;
                     edited[cp] = true;
                 }
-                this.patches[t] = part.glyphs;
+                /* the glyphs of a patch read before for this font stay, those of this one go over them */
+                this.patches[t] = Object.assign({}, this.patches[t], part.glyphs);
             });
-            this.patchOthers = parts.filter((_, i) => targets[i] < 0);
+            /* the parts for fonts this file has not stay too, those of the patches read before as well: one part a
+             * font, the glyphs of this one over theirs */
+            const otherParts = parts.filter((_, i) => targets[i] < 0);
+            for (const part of otherParts) {
+                const same = this.patchOthers.find(o => o.font === part.font && o.size === part.size);
+                if (same) same.glyphs = Object.assign({}, same.glyphs, part.glyphs);
+                else this.patchOthers.push(part);
+            }
             this.patchName = name || '';
             this.undoStack = [];
             const notes = [];
             if (absent.length) notes.push(`${absent.length} of its glyphs are not in this file (${absent.slice(0, 8).join(' ')}${absent.length > 8 ? ' ...' : ''})`);
-            const others = this.patchOthers.map(part => fontText(part.font, part.size));
+            const others = otherParts.map(part => fontText(part.font, part.size));
             if (others.length === 1) notes.push(`its font ${others[0]} is not in this file`);
             else if (others.length) notes.push(`its fonts ${others.join(', ')} are not in this file`);
             const one = absent.length + others.length === 1;

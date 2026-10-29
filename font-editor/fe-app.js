@@ -13,9 +13,9 @@ var app = VueDemi.createApp({
                 :title="fitTitle" @click="fitChanged()">Fit changed glyphs: {{ unfittedCount }}</button>
             <div class="btn-group btn-group-sm">
                 <a class="btn btn-primary" :class="{ disabled: !store.font }" :download="patchDownloadName" :href="patchDownloadUrl"
-                    title="the changes, for font2c -p: the source of the fixes">Save patch</a>
+                    title="the changes, for font2c -p: the source of the fixes" @click="follow($event, 'patch')">Save patch</a>
                 <a class="btn btn-outline-primary" :class="{ disabled: !store.font }" :download="downloadName" :href="downloadUrl"
-                    title="the .c as font2c makes it with the patch">Save .c</a>
+                    title="the .c as font2c makes it with the patch" @click="follow($event, 'c')">Save .c</a>
             </div>
             <input type="file" ref="fontInput" class="d-none" accept=".c,.h" @change="upload">
             <input type="file" ref="patchInput" class="d-none" accept=".json" @change="uploadPatch">
@@ -92,6 +92,16 @@ var app = VueDemi.createApp({
         return {
             store, download, fontInput, patchInput,
             pick(input) { if (input) input.click(); },
+            /* a link to save followed, by the pointer or from the keyboard, which gives no pointerup: the file is made
+             * now, with what the editor has, and the link takes it before the browser follows it */
+            follow(ev, what) {
+                if (!store.font) {
+                    ev.preventDefault();
+                    return;
+                }
+                save();
+                ev.currentTarget.href = what === 'c' ? state.url : state.patchUrl;
+            },
             unfittedCount: VueDemi.computed(() => unfitted.value.reduce((n, cps) => n + cps.length, 0)),
             fitTitle: VueDemi.computed(() => {
                 const per = store.fonts.length > 1 ? ' (' + store.fonts.map((f, i) => `${f.name} ${unfitted.value[i].length}`).join(', ') + ')' : '';

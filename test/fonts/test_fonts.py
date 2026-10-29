@@ -237,6 +237,48 @@ def test_lists(work):
         check("dgx_font_t *widgets_title(void);" in h and "dgx_font_t *alone_DejaVuSansBook30(void);" in h, "the functions of the list alone")
 
 
+def bdf_font(path, px):
+    """A bitmap font of BDF, of its one size px: the letters A and B, frames of 10 x px pixels."""
+    rows = "".join("FFC0\n" if y in (0, px - 1) else "8040\n" for y in range(px))
+    chars = "".join(f"STARTCHAR {c}\nENCODING {ord(c)}\nSWIDTH 500 0\nDWIDTH 11 0\nBBX 10 {px} 0 -4\nBITMAP\n{rows}ENDCHAR\n" for c in "AB")
+    with open(path, "w", encoding="ascii") as f:
+        f.write(f"STARTFONT 2.1\nFONT -test-Testbdf-Medium-R-Normal--{px}-{px * 10}-75-75-C-100-ISO10646-1\nSIZE {px} 75 75\n"
+                f"FONTBOUNDINGBOX 10 {px} 0 -4\nSTARTPROPERTIES 7\nFAMILY_NAME \"Testbdf\"\nPIXEL_SIZE {px}\nFONT_ASCENT {px - 4}\n"
+                f"FONT_DESCENT 4\nCHARSET_REGISTRY \"ISO10646\"\nCHARSET_ENCODING \"1\"\nCOPYRIGHT \"Copyright (c) 2026 the test\"\n"
+                f"ENDPROPERTIES\nCHARS 2\n{chars}ENDFONT\n")
+
+
+def test_bitmap_font_in_a_list(work):
+    """A list may name any font file font2c reads, a bitmap font of BDF at its own size too, with what it says of its
+    copyright in fonts-used.txt; at a size it has not, font2c says which it has."""
+    bdf_font(os.path.join(work, "test20.bdf"), 20)
+    with open(os.path.join(work, "bdf.list"), "w", encoding="utf-8") as f:
+        f.write("-n bitmap_font test20.bdf 20 0x41 0x42\n")
+    with open(os.path.join(work, "bdf.needs"), "w", encoding="utf-8") as f:
+        f.write(f"component {DGX}\nlist bdf.list\n")
+    out = os.path.join(work, "out-bdf")
+    code, told, err = tool("build", os.path.join(work, "bdf.needs"), out)
+    check(code == 0, f"a BDF in a list: {err.strip()}")
+    if code == 0:
+        h = open(os.path.join(out, "dgx_fonts.h"), encoding="utf-8").read()
+        used = open(os.path.join(out, "fonts-used.txt"), encoding="utf-8").read()
+        check("dgx_font_t *bitmap_font(void);" in h and glyphs_of(os.path.join(out, "dgx_fonts.c"), "bitmap_font") == {"A", "B"},
+              "the function of the BDF is declared and has its two letters")
+        check("copyright: Copyright (c) 2026 the test" in used, f"fonts-used.txt has the COPYRIGHT of the BDF: {used}")
+    # a size the bitmaps have not: font2c names the sizes they have, where it made the font of their own size under the
+    # name of the size asked for
+    with open(os.path.join(work, "bdf.list"), "w", encoding="utf-8") as f:
+        f.write("-n bitmap_font test20.bdf 12 0x41 0x42\n")
+    code, told, err = tool("build", os.path.join(work, "bdf.needs"), out)
+    check(code == 1 and "a font of bitmaps, with no 12 px; its size: 20 px" in err, f"a BDF at a size it has not: exit {code}, {err.strip()}")
+    alone = os.path.join(work, "bdf-alone")
+    os.makedirs(alone, exist_ok=True)
+    run = subprocess.run([os.path.join(out, "font2c"), os.path.join(work, "test20.bdf"), "12", "0x41", "0x42"], capture_output=True, text=True,
+                         cwd=alone)
+    check(run.returncode == 1 and "its size: 20 px" in run.stderr and not os.listdir(alone),
+          f"font2c alone, a BDF at a size it has not: exit {run.returncode}, {run.stderr.strip()}, files {os.listdir(alone)}")
+
+
 def test_json_of_a_bundled_font():
     code, text, err = tool("json", os.path.join(DGX, "src", "fonts", "TerminusTTFMedium12.c"))
     check(code == 0, f"json of a bundled font: {err.strip()}")
@@ -390,6 +432,21 @@ def test_font2c_lines(work):
           f"a line without -n keeps its function beside the -n name: {run.stderr.strip()}")
 
 
+def test_font2c_long_paths(work):
+    """A list and the output in a directory of a path over 1000 characters long: the paths of the list are taken from
+    its directory, and the C and the header have their whole names."""
+    font2c = os.path.join(work, "out", "font2c")
+    deep = os.path.join(work, *(c * 200 for c in "lmnop"))
+    os.makedirs(deep, exist_ok=True)
+    shutil.copy(dejavu_file(), os.path.join(deep, "Sans.ttf"))
+    with open(os.path.join(deep, "deep.list"), "w", encoding="utf-8") as f:
+        f.write("-n deep_font Sans.ttf 12 0x41 0x42\n")
+    run = subprocess.run([font2c, "-jo", os.path.join(deep, "deep.list"), "-o", os.path.join(deep, "deep")], capture_output=True, text=True)
+    made = sorted(os.listdir(deep))
+    check(run.returncode == 0 and made == ["Sans.ttf", "deep.c", "deep.h", "deep.list"] and
+          glyphs_of(os.path.join(deep, "deep.c"), "deep_font") == {"A", "B"}, f"a list and an output deep down: {run.stderr.strip()} {made}")
+
+
 def test_patches(work):
     """The fixes of the font editor: a patch found by the name of the font beside the needs, one named by a need, one
     of another size refused, a glyph of the patch of another size than the rendered one, rows of unequal length, a
@@ -506,7 +563,8 @@ def test_patches(work):
 
 def test_cmake(work):
     """project_include.cmake on the host, with the two ESP-IDF functions it uses as stubs: a configure and a build with
-    needs from a CMakeLists, a needs file and a list, and the mistakes a CMakeLists can make."""
+    needs from a CMakeLists, a needs file and a list, a list edited and a face the rules found changed, and the
+    mistakes a CMakeLists can make."""
     cm = os.path.join(work, "cmake")
     os.makedirs(cm, exist_ok=True)
     sans = dejavu_file()
@@ -526,6 +584,13 @@ def test_cmake(work):
     with open(os.path.join(cm, "DejaVuSansBook12.patch.json"), "w", encoding="utf-8") as f:
         json.dump({"format": "dgx-font-patch", "formatVersion": 2, "font": "DejaVuSansBook12", "size": 12,
                    "glyphs": {"0074": {"rows": ["#.#", ".#.", "#.#"], "xAdvance": 5, "xOffset": 1, "yOffset": -3}}}, f)
+    # rules that take their faces from a list of files, a copy of DejaVu Sans here: what the build picks by them
+    os.makedirs(os.path.join(cm, "faces"), exist_ok=True)
+    shutil.copy(sans, os.path.join(cm, "faces", "Sans.ttf"))
+    with open(os.path.join(cm, "faces.txt"), "w", encoding="utf-8") as f:
+        f.write("faces/Sans.ttf\n")
+    with open(os.path.join(cm, "faces.rules"), "w", encoding="utf-8") as f:
+        f.write('source list faces.txt\nallow "DejaVu Sans" 1..\n')
     with open(os.path.join(cm, "CMakeLists.txt"), "w", encoding="utf-8") as f:
         f.write(f"""cmake_minimum_required(VERSION 3.19)
 project(dgx_fonts_on_the_host C)
@@ -542,11 +607,17 @@ target_include_directories(dgx PRIVATE "{DGX}/include" "{STUBS}")
 target_compile_options(dgx PRIVATE -include "{STUBS}/esp_log.h")
 include("{DGX}/project_include.cmake")
 dgx_fonts_board(PIXELS 320 240 MM 57.6 43.2)
-dgx_fonts_rules(fonts.rules)
+if(CASE STREQUAL "faces")
+    dgx_fonts_rules(faces.rules)
+else()
+    dgx_fonts_rules(fonts.rules)
+endif()
 if(CASE STREQUAL "good")
     dgx_font_need(brackets SIZE 12px LETTERS "[a;b]" TEXTS t.txt)
     dgx_font_needs_file(x.needs)
     dgx_font_list(own.list)
+elseif(CASE STREQUAL "faces")
+    dgx_font_need(picked SIZE 12px TEXTS t.txt)
 elseif(CASE STREQUAL "missing")
     dgx_font_need(b SIZE 12px POSTSCRIPT DejaVuSans TEXTS none.txt)
 elseif(CASE STREQUAL "twice")
@@ -581,6 +652,28 @@ endif()
             check(set("[{]; tqxyz") <= (glyphs_of(c, "dgx_font_fromfile") or set()), "the characters of the needs file, the space too, are in the font")
             check("widget: from a list, 12 glyphs" in run.stdout, f"a list's font that shares a need's font is counted: {run.stdout.strip()[-200:]}")
             check("patched by" in run.stdout, f"the font of the needs takes the patch beside the CMakeLists: {run.stdout.strip()[-300:]}")
+            # a file a list names anew is an input of the rule: the list configures the project again
+            with open(os.path.join(cm, "more.letters"), "w", encoding="utf-8") as f:
+                f.write("w")
+            with open(os.path.join(cm, "own.list"), "a", encoding="utf-8") as f:
+                f.write(f"-n widget2 {sans} 12 -f more.letters\n")
+            run = subprocess.run(["cmake", "--build", build_dir], capture_output=True, text=True)
+            ninja = open(os.path.join(build_dir, "build.ninja"), encoding="utf-8").read()
+            check(run.returncode == 0 and "more.letters" in ninja, f"a list edited configures the project again: {run.stdout.strip()[-300:]}")
+    # the face the rules found is a dependency of the rule, by the depfile the script writes
+    build_dir, run = configure("faces")
+    check(run.returncode == 0, f"configure with rules of a list of faces: {run.stderr.strip()[-600:]}")
+    if run.returncode == 0:
+        run = subprocess.run(["cmake", "--build", build_dir], capture_output=True, text=True)
+        depfile = os.path.join(build_dir, "dgx_fonts", "dgx_fonts.d")
+        named = open(depfile, encoding="utf-8").read() if os.path.exists(depfile) else ""
+        check(run.returncode == 0 and os.path.join(cm, "faces", "Sans.ttf") in named and os.path.join(cm, "faces.txt") in named,
+              f"the depfile names the face the rules picked and their list of faces: {run.stdout.strip()[-300:]} {named}")
+        run = subprocess.run(["cmake", "--build", build_dir], capture_output=True, text=True)
+        check("no work to do" in run.stdout, f"nothing changed, nothing made: {run.stdout.strip()[-300:]}")
+        os.utime(os.path.join(cm, "faces", "Sans.ttf"))
+        run = subprocess.run(["cmake", "--build", build_dir], capture_output=True, text=True)
+        check("DGX: the fonts of the program by its needs" in run.stdout, f"the face changed, the fonts made again: {run.stdout.strip()[-300:]}")
     for case, expected in (("missing", "none.txt does not exist"), ("twice", "SIZE given twice")):
         build_dir, run = configure(case)
         said = " ".join(run.stderr.split())  # CMake wraps its messages
@@ -675,6 +768,7 @@ def main():
         test_needs_file(work)
         test_twice(work)
         test_lists(work)
+        test_bitmap_font_in_a_list(work)
         test_json_of_a_bundled_font()
         test_style_order()
         test_merged_declarations(work)
@@ -682,6 +776,7 @@ def main():
         test_half_pixels(work)
         test_characters_as_written(work)
         test_font2c_lines(work)
+        test_font2c_long_paths(work)
         test_patches(work)
         test_cmake(work)
         test_licenses(work)

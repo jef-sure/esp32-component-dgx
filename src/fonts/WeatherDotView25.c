@@ -1,3 +1,14 @@
+/*
+ * Weather symbols of 25 px for the clock of Anton Petrusevich, made after
+ * Weather Icons of Erik Flowers, weathericons-regular-webfont.ttf,
+ * https://github.com/erikflowers/weather-icons, whose icons Lukas Bischoff
+ * designed first.
+ * The font file names no holder of its copyright; its copyright field
+ * says: Weather Icons licensed under SIL OFL 1.1 — Code licensed under
+ * MIT License — Documentation licensed under CC BY 3.0
+ * Licensed under the SIL Open Font License, Version 1.1, as a Modified
+ * Version of Weather Icons: licenses/OFL-1.1.txt beside this file.
+ */
 
 
 #include "dgx_font.h"

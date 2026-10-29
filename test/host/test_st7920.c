@@ -10,6 +10,32 @@
 
 #include "check.h"
 
+#include "driver/gpio.h"
+
+/*
+ * The pins the driver drives, as the test sees them: the chip select, when
+ * it is wired, is high for every transfer, and a pin that is not wired is
+ * never touched.
+ */
+static int cs_pin = GPIO_NUM_NC, cs_level, unwired_calls;
+
+static esp_err_t pin_set_level(gpio_num_t pin, uint32_t level)
+{
+    if (pin < 0) ++unwired_calls;
+    else if (pin == cs_pin) cs_level = (int)level;
+    return ESP_OK;
+}
+
+static esp_err_t pin_set_direction(gpio_num_t pin, gpio_mode_t mode)
+{
+    (void)mode;
+    if (pin < 0) ++unwired_calls;
+    return ESP_OK;
+}
+
+#define dgx_gpio_set_level(pin, level)    pin_set_level(pin, level)
+#define dgx_gpio_set_direction(pin, mode) pin_set_direction(pin, mode)
+
 #include "drivers/st7920.c"
 
 #include "dgx_draw.h"
@@ -59,6 +85,7 @@ static void line_write_data(struct _dgx_bus_protocols_t *bus, const uint8_t *dat
     (void)bus;
     const uint32_t bytes = len / 8;
     ++transfers;
+    CHECK(cs_pin < 0 || cs_level == 1);
     CHECK(len % 8 == 0 && bytes >= 3 && (bytes & 1));
     CHECK(data[0] == 0xf8 || data[0] == 0xfa);
     for (uint32_t i = 1; i + 1 < bytes; i += 2) {
@@ -102,7 +129,8 @@ int main(void)
 {
     dgx_bus_protocols_t bus = {.bus_type = DGX_BUS_SPI, .write_data = line_write_data};
     memset(panel, 1, sizeof(panel)); /* what the memory of the controller holds at power-up is not known */
-    dgx_screen_t *scr = dgx_st7920_init(&bus, GPIO_NUM_NC, 5);
+    cs_pin            = 5;
+    dgx_screen_t *scr = dgx_st7920_init(&bus, GPIO_NUM_NC, cs_pin);
     CHECK(scr && scr->width == PW && scr->height == PH);
     if (!scr) CHECK_DONE();
 
@@ -171,5 +199,20 @@ int main(void)
         CHECK(data_bytes - before == 2 && transfers - sent == 3);
     }
     dgx_screen_destroy(&scr);
+    /* the reset pin is not wired: nothing is done with it */
+    CHECK(unwired_calls == 0);
+
+    /* nor is the chip select, tied high: the panel takes every transfer as before */
+    cs_pin = GPIO_NUM_NC;
+    scr    = dgx_st7920_init(&bus, GPIO_NUM_NC, cs_pin);
+    CHECK(scr != NULL);
+    if (scr) {
+        dgx_fill_rectangle(scr, 0, 0, scr->width, scr->height, 0);
+        dgx_font_string_utf8_screen(scr, 3, 20, "ST7920", 1, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+        dgx_st7920_orientation(scr, DgxScreenRightLeft, DgxScreenBottomTop, false);
+        CHECK(mismatches(scr) == 0);
+        dgx_screen_destroy(&scr);
+    }
+    CHECK(unwired_calls == 0);
     CHECK_DONE();
 }

@@ -43,6 +43,16 @@
 #define SSD1351_CMD_STOPSCROLL 0x9E      ///< Not currently used
 #define SSD1351_CMD_STARTSCROLL 0x9F     ///< Not currently used
 
+/*
+ * The remap of the upright picture: 64K colors (bits 7:6 01b), the COM lines
+ * split odd and even (bit 5) and scanned from the last one (bit 4), the
+ * colors C, B, A (bit 2). Adafruit_SSD1351 starts its modules so, with the
+ * start line at 128, and the demo of the Waveshare module sends the same
+ * remap: the top row of their glass is on the last COM line. The rows of the
+ * screen going up scan from the first one.
+ */
+#define SSD1351_REMAP_UPRIGHT 0b01110100
+
 typedef struct _dgx_ssd1351_t {
     dgx_screen_with_bus_t base;
     gpio_num_t rst;
@@ -120,36 +130,19 @@ static const dgx_lcd_init_cmd_t st_init_cmds[] = {
     {SSD1351_CMD_SETVSL, 0, 3, 0, {0xA0, 0xB5, 0x55}},                   //
     {SSD1351_CMD_PRECHARGE2, 0, 1, 0, {0x01}},                           //
     {SSD1351_CMD_DISPLAYON, 0, 0, 255, {0x00}},                          // Main screen turn on
-    {SSD1351_CMD_SETREMAP, dgx_ssd1351_adj_madctl, 1, 0, {0b01100100}},  // 64K, enable split, CBA (RGB)
-    {SSD1351_CMD_STARTLINE, 0, 1, 0, {0x00}},                            //
+    {SSD1351_CMD_SETREMAP, dgx_ssd1351_adj_madctl, 1, 0, {SSD1351_REMAP_UPRIGHT}},  // 64K, enable split, scan from COM127, CBA (RGB)
+    {SSD1351_CMD_STARTLINE, 0, 1, 0, {0x80}},                                       // as Adafruit_SSD1351 has it with that scan
     {0, 0, 0xff, 0, {0}}                                                 // Stop
 };
 
 // END OF COMMAND LIST
 
-/*
- * swap_xy turns on the vertical increment of the address, by which the
- * SSD1351 fills a column of the panel before the next one. Its window stays
- * of panel columns and panel rows, unlike that of a controller of the display
- * command set, which swaps it with the axes: a window of a turned screen goes
- * with its columns and its rows swapped.
- */
-static void dgx_ssd1351_set_area(dgx_screen_t *_scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
-{
-    dgx_screen_with_bus_t *scr = (dgx_screen_with_bus_t *)_scr;
-    if (left > right) DGX_INT_SWAP(left, right);
-    if (top > bottom) DGX_INT_SWAP(top, bottom);
-    /* a window off the screen is no window: what is sent into it must not land in the one before */
-    scr->area_void = left >= _scr->width || top >= _scr->height;
-    if (scr->area_void) return;
-    if (right > _scr->width - 1) right = _scr->width - 1;
-    if (bottom > _scr->height - 1) bottom = _scr->height - 1;
-    if (_scr->swap_xy) dgx_screen_with_bus_set_area_window(scr, top, bottom, left, right);
-    else dgx_screen_with_bus_set_area_window(scr, left, right, top, bottom);
-}
-
 // Initialize the display
 dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo) {
+    if (color_bits != 16 && color_bits != 18) {
+        ESP_LOGE(TAG, "%u-bit color is not set up by this driver, only 16 and 18", (unsigned)color_bits);
+        return NULL;
+    }
     // Attach the LCD to the SPI bus
     dgx_ssd1351_t *scr = (dgx_ssd1351_t *)calloc(1, sizeof(dgx_ssd1351_t));
     if (!scr) {
@@ -191,7 +184,6 @@ dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t
     // Send all the commands
     dgx_lcd_init(&scr->base, st_init_cmds);
     dgx_scr_init_slow_bus_optimized_funcs((dgx_screen_t *)scr);
-    scr->base.scr.set_area = dgx_ssd1351_set_area;
     if (scr->wire) {
         scr->send                = scr->base.scr.write_area;
         scr->destroy             = scr->base.scr.destroy;
@@ -205,7 +197,7 @@ void dgx_ssd1351_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_or
     dgx_ssd1351_t *scr = (dgx_ssd1351_t *)_scr;
     uint8_t cmd = SSD1351_CMD_SETREMAP;
     uint8_t adj_data[1] = {
-        0b01100100  // 64K, enable split, CBA (RGB)
+        SSD1351_REMAP_UPRIGHT  // 64K, enable split, scan from COM127, CBA (RGB)
     };
     _scr->dir_x = dir_x;
     _scr->dir_y = dir_y;
@@ -221,7 +213,7 @@ void dgx_ssd1351_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_or
         adj_data[0] |= 0x02;
     }
     if (dir_y == DgxScreenBottomTop) {
-        adj_data[0] |= 0x10;
+        adj_data[0] ^= 0x10;
     }
     if (swap_xy) {
         adj_data[0] |= 0x01;
@@ -229,13 +221,28 @@ void dgx_ssd1351_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_or
     scr->base.bus->write_command(scr->base.bus, cmd);
     scr->base.bus->write_data(scr->base.bus, adj_data, 8);
     cmd = SSD1351_CMD_STARTLINE;
+    /* the start line goes with the scan, as Adafruit_SSD1351 sets it: 128 from the last COM line, 0 from the first */
     if (dir_y == DgxScreenBottomTop) {
-        adj_data[0] = 0x80;
-    } else {
         adj_data[0] = 0x00;
+    } else {
+        adj_data[0] = 0x80;
     }
     scr->base.bus->write_command(scr->base.bus, cmd);
     scr->base.bus->write_data(scr->base.bus, adj_data, 8);
+    /*
+     * With the axes swapped the SSD1351 writes its window a column of the
+     * panel first, by the vertical increment of the address, and the window
+     * stays one of panel columns and panel rows. A column of the panel is a
+     * row of the screen then: the window is kept in the coordinates of the
+     * screen, where the pixels come row after row, and goes to the panel
+     * with its x bounds in the command of the rows and its y bounds in that
+     * of the columns. So a window sent in pieces, as on P8, goes on where the
+     * controller goes on. The bounds the controller holds belong to the
+     * other command now, and none is taken as sent.
+     */
+    scr->base.xcmd_set = swap_xy ? SSD1351_CMD_SETROW : SSD1351_CMD_SETCOLUMN;
+    scr->base.ycmd_set = swap_xy ? SSD1351_CMD_SETCOLUMN : SSD1351_CMD_SETROW;
+    scr->base.cached_area.left = scr->base.cached_area.right = scr->base.cached_area.top = scr->base.cached_area.bottom = 0xffff;
 }
 
 void dgx_ssd1351_brightness(dgx_screen_t *_scr, uint8_t brightness) {

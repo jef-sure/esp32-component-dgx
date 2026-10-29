@@ -21,8 +21,11 @@
 # At the end of the configure step one build rule is created for all the needs: font2c/dgx_fonts.py of DGX generates
 # dgx_fonts.c and dgx_fonts.h in the build directory, one font per face and size with the characters of every need
 # that uses it, and a function dgx_font_<need>() for each need; the files are compiled into the DGX library and the
-# header is on its include path. They are regenerated only when a need's texts, its fonts, the rules or the tool
-# change, and rewritten only when they differ. A project with no needs generates nothing and requires nothing of the
+# header is on its include path. They are regenerated only when a need's texts, its fonts, the rules, a list or the
+# tool change, and rewritten only when they differ. The fonts include the faces that fontconfig and the rules found:
+# the script names the files it took in a depfile, which CMake 3.20 and later read. A face installed anew, or put into
+# a directory the rules take faces from, is not seen until one of those files changes: touch the rules to make the
+# fonts again. A project with no needs generates nothing and requires nothing of the
 # host; one with needs builds font2c from its source on the host (FreeType) and finds faces with fontconfig. Paths
 # are resolved from the CMakeLists that gives them. Beside the two files, fonts-used.txt lists every font the program
 # uses, with what its file says of its license; a deny in the rules keeps a font out however it is asked for.
@@ -40,6 +43,12 @@ set(DGX_FONTS_COMPONENT_NAME "${COMPONENT_NAME}")
 # without needs is not affected.
 if(CMAKE_VERSION VERSION_LESS 3.19)
     set(DGX_FONTS_TOO_OLD "the fonts made at build time need CMake 3.19 or later, and this is CMake ${CMAKE_VERSION}")
+endif()
+
+# The depfile of the rule names files by their absolute paths, which Ninja takes when CMake rewrites the depfile for it
+# (CMP0116). The policy holds for this file and its functions only: include() gives the file a policy scope of its own.
+if(POLICY CMP0116)
+    cmake_policy(SET CMP0116 NEW)
 endif()
 
 # A record of a need waits in a CMake list until it is written: the brackets and semicolons among its characters are
@@ -301,6 +310,8 @@ function(dgx_font_list path)
     if(NOT EXISTS "${abs}")
         message(FATAL_ERROR "dgx_font_list: ${abs} does not exist")
     endif()
+    # the files of the list are read here: a file it names anew is an input once the project is configured again
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${abs}")
     get_filename_component(dir "${abs}" DIRECTORY)
     set(inputs "${abs}")
     file(STRINGS "${abs}" lines ENCODING UTF-8)
@@ -361,9 +372,18 @@ function(_dgx_fonts_finish)
     endif()
     idf_build_get_property(python PYTHON)
     set(tool "${DGX_FONTS_COMPONENT_DIR}/font2c/dgx_fonts.py")
+    # the files the fonts were made of that are known only when they are made, the faces fontconfig and the rules
+    # found: the script names them in a depfile, which CMake takes from 3.20 on, with every generator
+    set(depfile_args "")
+    set(depfile_option "")
+    if(NOT CMAKE_VERSION VERSION_LESS 3.20)
+        set(depfile_args --depfile "${out}/dgx_fonts.d")
+        set(depfile_option DEPFILE "${out}/dgx_fonts.d")
+    endif()
     add_custom_command(OUTPUT "${out}/dgx_fonts.c" "${out}/dgx_fonts.h" "${out}/fonts-used.txt"
-        COMMAND ${python} "${tool}" build "${needs_file}" "${out}"
+        COMMAND ${python} "${tool}" build "${needs_file}" "${out}" ${depfile_args}
         DEPENDS "${tool}" "${DGX_FONTS_COMPONENT_DIR}/font2c/font2c.c" "${needs_file}" ${inputs}
+        ${depfile_option}
         COMMENT "DGX: the fonts of the program by its needs"
         VERBATIM)
     add_custom_target(dgx_fonts_made DEPENDS "${out}/dgx_fonts.c" "${out}/dgx_fonts.h")

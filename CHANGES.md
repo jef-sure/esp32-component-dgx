@@ -1,5 +1,293 @@
 # Changes
 
+## 0.9.2 - 2026-10-29
+
+Changes a program may see:
+
+- **Thick lines are as wide as asked at every angle.** `dgx_draw_line_thick()`
+  now draws the rectangle of the given width around the line, cut square at
+  the end points, and a pixel belongs to the line when its centre lies
+  inside. Before, each corner was rounded to a whole pixel on its own, and
+  slanted lines came out narrower: at 45° widths 3, 4 and 5 all looked the
+  same, and a 9-pixel line at 30° was 7.8 pixels wide. So slanted lines are
+  now wider than in 0.9.1, by about 10 % at 25–30° and up to 1.4 times at
+  45°.
+  - The even-width rule is kept: the extra pixel goes to the right of the
+    direction of travel. A slanted line of width 1 is now exactly
+    `dgx_draw_line()`.
+  - Gentle lines are filled row by row and steep ones column by column, and
+    equal neighbouring runs go as one rectangle. On the CYD (ESP32, ILI9341
+    on SPI at 40 MHz), averaged over 10–80°: 12-pixel segments, as in
+    curves, are 19–34 % faster on the display and 13–24 % faster on a
+    16-bit virtual screen; 200-pixel lines are 1–4 % faster on the display
+    and 3–19 % on a virtual screen, except at exactly 45° on a virtual
+    screen, which is 16–24 % slower.
+  - A line whose ends lie far off the screen no longer overflows: a line of
+    width 3 from (-32900, -32900) to (33100, 33100) came out 17 pixels wide.
+    Only the rows on the screen are walked now.
+
+- **`dgx_fill_rectangle()` with a negative width or height** draws to the
+  left of `x` or above `y` on every screen, as displays behind a bus and DSI
+  displays already did. Virtual screens and 1-bit page screens drew nothing,
+  so a picture drawn in a virtual screen and the same picture drawn on the
+  display could differ.
+
+- **The SSD1351 starts upright.** The driver now sets the remap 0x74 and the
+  start line 128, as Adafruit_SSD1351 and the demo of the Waveshare 1.5"
+  module do. 0.9.1 set 0x64 and 0, which shows the picture flipped
+  vertically on those modules, so every turn of the screen came out as a
+  mirror of the turn its arguments named. To get exactly the picture of
+  0.9.1, pass the other `dir_y` to `dgx_ssd1351_orientation()`: a program
+  that used `(DgxScreenLeftRight, DgxScreenTopBottom, true)` because it
+  looked right now wants `(DgxScreenLeftRight, DgxScreenBottomTop, true)`,
+  which is `DgxOutputRotate90CCW`.
+
+- **One display per 8-bit parallel bus.** The I80 driver of ESP-IDF does not
+  keep two panels on one bus apart: a command for one panel cuts off the
+  pixels still on their way to the other, and two DGX displays on one bus
+  hung at their first update. `dgx_p8_init()` now refuses a display on any
+  pin of a bus it has already set up, and a bus lives and dies with its one
+  display. On a bus of the program, `dgx_p8_init_on_bus()` takes one DGX
+  display, and the program sends to its own panels there only after
+  `scr->wait_buffer(scr)`.
+
+- **Turned text is the upright text turned around the pixel `x`, `y`.** In
+  the six orientations that flip an axis (the two mirrors, 180°, both turns
+  by 90° and `DgxOutputTransverse`), `dgx_font_char_to_screen()` and
+  `dgx_font_string_utf8_screen()` flipped each bitmap glyph inside its own
+  box but left the box where it stands upright, so glyphs of different boxes
+  drifted apart: the `t` of "text" turned 90° clockwise stood 2 pixels off
+  the baseline, and in a mirrored "mi" the `i` stood 8 pixels off the `m`. A
+  glyph of a dot font was not flipped at all. Text in these orientations now
+  lands on the other side of `x`, `y`, by about the height of the font; a
+  program that placed turned text by eye has to move it back.
+  `examples/screen_demo` moves its three turned labels by 7 pixels and looks
+  as before.
+
+- **Colour drivers refuse a depth they cannot set up.** ST7735, ST7789 and
+  GC9A01 take 12, 16 or 18 bits, ILI9341 and SSD1351 16 or 18. Any other
+  depth logs an error and returns NULL before anything is allocated or sent.
+  Before, the panel ran at 16 bits while the screen packed its pixels at the
+  depth it was given, and the picture was noise; only NV3041A refused.
+
+- `dgx_ili9341_backlight()` returns `ESP_ERR_NOT_SUPPORTED` for a screen
+  made without a backlight pin, as `dgx_nv3041a_backlight()` does. It used
+  to set pin -1, which ESP-IDF logs as an error, and return `ESP_OK`.
+
+- `dgx_rol_nbits()` keeps the value to its `bits` bits, as `dgx_ror_nbits()`
+  does: `dgx_rol_nbits(0x81, 8, 1)` gave 0x103 instead of 0x03. It now
+  exactly undoes `dgx_ror_nbits()`. `dgx_rol_bits()` and `dgx_ror_bits()`
+  are the same rotations by one step; below 32 bits they left a bit above
+  the pattern (`dgx_ror_bits(0x03, 8)` gave 0x181). All four are documented
+  in `dgx_bits.h`.
+
+- `dgx_hw_writer_t` no longer has `has_joint`, a field that was set and
+  never read.
+
+- **The fonts of DGX carry their notices and licences.** Every `.c` in
+  `src/fonts/` now begins with the font it was made from, the copyright
+  notice of its authors, its licence and what DGX changed, and
+  `src/fonts/licenses/` holds the texts of the SIL Open Font License 1.1,
+  the Apache License 2.0, the DejaVu fonts licence and the MIT licence of
+  Cozette; the package includes them. Before, only the IBM CGA font named
+  its source, and the package carried no licence text except DGX's own.
+  The Terminus TTF notice is not checked against the font file.
+
+Fixes in the buses and drivers:
+
+- **ESP-IDF 5.2 to 5.4.** SPI and QSPI used `SPI_TRANS_DMA_USE_PSRAM` and
+  `SPI_TRANS_DMA_TX_FAIL`, which the SPI driver has only from IDF 5.5, and
+  the build stopped with `CONFIG_DGX_ENABLE_SPI`. Without them, pixels in
+  PSRAM go through the bus buffer. The P8 bus builds with IDF 5.2, which has
+  no `esp_lcd_io_i80.h`. And on an ESP32-S3 with IDF 5.2 to 5.3.1, which
+  lack `SOC_LCDCAM_I80_LCD_SUPPORTED`, the P8 bus no longer drops pixels that
+  come without a command, which cut short every fill or virtual screen
+  longer than the bus buffer. Checked against the headers of IDF 5.3.1 and
+  5.4.1; not built with those versions.
+- `esp_lcd` is a public requirement of the component: a component that
+  named DGX in its `REQUIRES` and included `bus/dgx_p8_esp32.h` did not
+  build.
+- SSD1351 on P8 with the axes swapped: every piece of pixels after the first
+  landed in the wrong place, and a fill of the whole screen left most of it
+  as it was. SPI was not affected.
+- ST7920 with its CS tied high: `cs` may be `GPIO_NUM_NC`. Before, the
+  driver set up pad -1 through the ROM and logged two GPIO errors per
+  transfer, 384 lines per update of the whole panel.
+- **`dgx_spi_init()` on an ESP32 above 26.7 MHz on GPIO-matrix pins.** The
+  device was full duplex with the driver's dummy cycles allowed, and the
+  ESP32 refuses such a device ("The clock_speed_hz should less than ..."):
+  at 40 MHz on pins that are not the IOMUX pins of the host, as in the
+  README's minimal example, `dgx_spi_init()` returned NULL. The device now
+  has `SPI_DEVICE_NO_DUMMY`. Writes are unchanged; `read_data()` at such a
+  clock may read wrong bits. Not tried on hardware.
+- A `buffer_max` below 12 bytes gave pieces of 0 bytes, so pixels longer
+  than the buffer went out as one transfer longer than the host takes, and
+  the bus stopped on an assert. Such a buffer now sends 12-byte pieces.
+- With assertions disabled (`CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_DISABLE`),
+  a piece of pixels the SPI driver refused, for example for lack of memory
+  to copy it, was counted as queued, and the next wait hung for good. Now
+  only that piece is lost: its descriptor is free again, a 0x2C it carried
+  on QSPI is held again, and the pieces before it are waited for, so a
+  caller that fills the two halves of the buffer in turn never writes into
+  one still in flight. With assertions enabled the bus stops as before.
+- On a P4, C5 or C61 under flash encryption, or with PSRAM ECC from ESP-IDF
+  6, DMA from PSRAM needs 16-byte alignment, and the SPI driver copied most
+  pieces sent from PSRAM into a buffer of its own, because they started or
+  ended off 16 bytes. There, pieces from PSRAM are now multiples of 48
+  bytes, pixels that start off 16 bytes go through the bus buffer, and a
+  last piece off 16 bytes goes without `SPI_TRANS_DMA_USE_PSRAM`, for the
+  driver to copy into internal memory. The ESP32-S2 and S3 need no
+  alignment and are unchanged. Not tried on hardware.
+- A virtual screen sent in place from PSRAM while DMA from PSRAM fell
+  behind the wire stayed garbled on the panel until it was drawn again. The
+  bus then stops sending from PSRAM, and the rectangle is now sent again
+  through the bus buffer. A rectangle also goes in place only when the bus
+  takes its last bytes as well as its first.
+- QSPI: `sync_write()`, which `wait_buffer()` calls, now keeps a held memory
+  write 0x2C for the pixels that follow instead of sending it alone, so a
+  window that is set and then waited for still starts with its pixels. Any
+  other held command is still sent at once.
+- ST7789 with `ST7789_RESOLUTION_320x240`: the panel was turned to
+  landscape, but the screen reported `dir_x`, `dir_y` and `swap_xy` as
+  upright. Nothing in DGX reads those fields.
+- SSD1306: the init loop sends as many parameters as each command of its
+  table has; it sent one for any command. Every command has one today, so
+  the panel gets the same bytes.
+
+Fixes in MIPI-DSI:
+
+- **Two frame buffers, where frames are counted at the buffer switch**
+  (`on_frame_buf_complete`, or `on_refresh_done` below chip revision 3). The
+  interrupt counts a frame a moment after the driver has taken the buffer
+  for the next one. A batch finished in that moment by a task on the other
+  core was taken as shown from the next frame while the display still read
+  the old buffer, and the batch after it was drawn into the buffer on the
+  screen; the picture could be lost. A batch finished within 0.3 ms of the
+  end of a frame (`DGX_FB_FLIP_SWITCH_US`) now waits one more frame, and the
+  bus counts the frame first thing in its interrupt. Found with the host
+  model. On the Guition JC1060P470 (rev 1.3, IDF 5.5.4) and JC8012P4A1C
+  (rev 3.2, IDF 6.1) pictures per second and frames shown are the same with
+  and without it, paced, unpaced and at random times.
+- A wait for the scan could end at once: when the end of a frame was due
+  but not yet counted, the wait was measured from a frame earlier. A window
+  written by the processor, a put by the 2D DMA or a fill by the PPA could
+  then run into the rows the display was reading.
+- The configuration given to `dma2d_enqueue()` lived on the stack. When
+  other users of the 2D DMA, a JPEG decoder or the program's PPA, held the
+  channels, the transfer started later from an interrupt through a stale
+  pointer. It is kept in the bus now.
+- With `CONFIG_LCD_DSI_ISR_CACHE_SAFE` or `CONFIG_DMA2D_ISR_IRAM_SAFE` but
+  without `CONFIG_DMA2D_OPERATION_FUNC_IN_IRAM`, the interrupts started the
+  2D DMA through functions in flash and crashed the chip during a flash
+  write. The copy after the swap is off in that configuration, as at 24
+  bits.
+- A piece is left for the copy after the swap only when its rows start and
+  end on cache lines. Otherwise a cache line shared with a neighbouring tile
+  could be read before the copy and written back over it later: with the
+  128-byte lines of a 512 KB L2 cache, narrower tiles, or rows such as 720
+  pixels. Nothing changes for 32-pixel tiles at 16 bits with 64-byte lines.
+- The interrupt that finishes a late piece reads the number of pieces before
+  it marks its piece done, so it cannot start a piece of the next picture
+  early.
+- The bands of an 8-bit screen through a colour table are allocated with
+  `MALLOC_CAP_DMA`. Under memory pressure, plain internal memory could come
+  from the TCM or the LP RAM, which the 2D DMA cannot read.
+- The docs and the header of `DgxDsiOneFrameAfterScan` said that every
+  virtual screen put to the display is free of tearing. That holds for what
+  the 2D DMA puts and for large PPA fills; a large window the processor
+  writes, as on a rotated screen (the 10.1-inch panel in landscape), at 24
+  bits or under an overlay layer, may tear.
+
+Fixes in drawing:
+
+- 1-bit page screens taller than 2048 rows: `dgx_set_pixel()`,
+  `dgx_get_pixel()` and vertical lines put the pixel 2048 rows up.
+- An arc from or to an angle a hair below 0°, as a float stepped down to 0
+  (45 - 50 × 0.9) or `atan2f()` just under the axis gives, lost a whole
+  turn: the arc became the whole ellipse and a quarter more, or nothing.
+- Gauges: a range in the millions, such as bytes of PSRAM, overflowed, and a
+  nearly full gauge showed empty. A negative sweep drew nothing; it now goes
+  counter-clockwise. The header says that the steps go clockwise from the
+  start angle.
+- Texture quads on a 12-bit display behind a bus: a row of an odd number of
+  pixels ended in the middle of a byte, and every row after the first of a
+  window was shifted by half a byte.
+- The two-panel screen with panels of one width and different heights: a
+  band reaching below the shorter panel was sent to it whole, and its window
+  wrapped the extra rows back over its top. Rows go to both panels side by
+  side now only when the panels are the same size.
+- `dgx_font_make_morph_struct()` with a bitmap glyph of 128 pixels or more,
+  which `font2c` makes at large sizes: the dots were kept in 8 bits and
+  flew to wrong places. When there is no memory for the dots it now returns
+  NULL instead of morphing to or from an empty glyph.
+- `dgx_font_make_morph_struct_destroy()` accepts NULL and a pointer to NULL,
+  as the other destroy functions do. The README's pattern of make, draw,
+  destroy crashed with a handwritten font, for which make returns NULL.
+
+Examples and tools:
+
+- The examples name `jef-sure/dgx` in `main/idf_component.yml` with an
+  `override_path` to the repository, instead of `EXTRA_COMPONENT_DIRS`. A
+  project made from an example in the ESP Component Registry had no DGX at
+  all; now it takes DGX from the Registry. ESP-IDF 6 warns that the component
+  name differs from the directory unless the checkout is called `dgx`.
+- `arduino_demo` and `fonts_demo` use the pins of the CYD: SPI2, MOSI 13,
+  MISO 12, SCLK 14, CS 15, DC 2, backlight 21, no reset line. They had a
+  generic wiring whose pins go to the SD card slot of a CYD: the backlight
+  came on and the screen stayed dark.
+- Font editor: Save .c is again byte for byte what `font2c` makes (the
+  average width is rounded as `%f` rounds it); a font of
+  `DGX_FONT_BITMAP_STREAM` is saved as a stream, where every glyph came out
+  garbled; a metric field takes whole numbers only, where an empty one gave
+  a .c that did not compile; a second patch read keeps what the first had
+  for fonts and glyphs the file lacks; Save from the keyboard saves the
+  current state.
+- Fonts made at build time: a font file that a need names with `SOURCE`, or
+  that a line of a list names, may be any font FreeType reads, a BDF at a
+  size it has. `dgx_fonts.py` accepted only TTF, OTF and TTC files and
+  stopped the build. `fonts-used.txt` gives the COPYRIGHT, FONT_VERSION and
+  NOTICE properties of a BDF.
+- `font2c` stops when a bitmap-only font lacks the requested size and lists
+  the sizes it has. It used to make the font at its own size under the name
+  of the requested one: a 20 px BDF asked for at 12 came out as
+  `TestbdfRegular12.c` with 20 px glyphs.
+- The fonts are made again when a list given to `dgx_font_list()` changes,
+  which is now a configure dependency, and, with CMake 3.20 or later, when a
+  face found by fontconfig or the rules changes: `dgx_fonts.py build
+  --depfile` lists every file the fonts were made from. A newly installed
+  face is picked up once the rules file is touched.
+- `font2c -jo` handles paths of any length. An output path over 297
+  characters gave the C file and the header the same truncated name, so the
+  header overwrote the C file; a list in a directory with a path over 1024
+  characters read its relative paths from the current directory. It also no
+  longer calls `memcpy()` with a null source for a list without `-P`.
+- `font2c` on Windows accepts drive paths and backslashes, as `dgx_fonts.py`
+  passes them there; `-o C:\...\dgx_fonts` was refused, so no font could be
+  made at build time on Windows. Checked with and without `_WIN32` on Linux,
+  not on Windows.
+- `src/fontscan.py` and `src/fonts/fonts.txt` are removed; nothing read
+  them.
+- Host tests: `test_spi` runs the SPI and QSPI buses against a model of the
+  ESP-IDF SPI master driver, with variants for assertions off
+  (`test_spi_ndebug`) and for a P4 under flash encryption (`test_spi_p4`);
+  `test_st7789` checks the MADCTL of every orientation, and
+  `test_vscreen_2h` the two-panel screen. `test/host` builds with gcc unless
+  `CC` is given; `CC ?= gcc` had no effect, since make defines `CC` itself.
+- README: measurements moved out to CHANGES and the docs; how evenly
+  pictures arrive with the two ways of drawing from several tasks is now in
+  `docs/dsi-usage-en.md`.
+- README: the minimal example uses `SPI3_HOST`, which owns pins 23, 19, 18
+  and 5. On `SPI2_HOST` they went through the GPIO matrix, where an ESP32
+  refuses a full-duplex device above 26.67 MHz, so `dgx_spi_init()` returned
+  NULL at the 40 MHz of the example.
+- README: three places said that a driver pulls in its transport. It does
+  not, it depends on one: in `sdkconfig.defaults` a driver option without its
+  transport is silently dropped, and the link fails.
+- README and `font2c/README.md` no longer ask to rerun CMake configure after
+  a font file is added or removed: the glob has `CONFIGURE_DEPENDS`. The
+  mirrored texture of the README recipe spans 64 by 24 pixels, as the
+  texture does, not 65 by 25.
+
 ## 0.9.1 - 2026-10-29
 
 - A QSPI display is back on the chip select of the SPI hardware, as in

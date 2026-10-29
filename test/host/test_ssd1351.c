@@ -5,7 +5,9 @@
  * pixel is two bytes, or at 262k colors (bits 7:6 of the remap 10b) three
  * bytes with six bits low in each, D5..D0 (Table 8-8 of the datasheet). What
  * the memory holds has to be the screen, turned or not: a pixel (x, y) of a
- * turned screen in panel row x and panel column y.
+ * turned screen in panel row x and panel column y. On P8 the window goes
+ * with every piece of pixels, from where the piece begins: the pieces of a
+ * turned screen have to begin where the controller, a column first, goes on.
  */
 #include <stdbool.h>
 #include <stdint.h>
@@ -28,7 +30,7 @@
 
 static uint32_t gddram[SIDE][SIDE]; /* [row][column] */
 static int      col_start, col_end, row_start, row_end, col, row;
-static uint8_t  last_cmd, remap, args[4], arg_count, part[3], parts;
+static uint8_t  last_cmd, remap, start_line, args[4], arg_count, part[3], parts;
 
 static void bus_write_command(struct _dgx_bus_protocols_t *bus, uint8_t cmd)
 {
@@ -77,6 +79,7 @@ static void bus_write_data(struct _dgx_bus_protocols_t *bus, const uint8_t *data
         if (last_cmd == 0x15 && arg_count == 2) col_start = args[0], col_end = args[1], col = col_start;
         if (last_cmd == 0x75 && arg_count == 2) row_start = args[0], row_end = args[1], row = row_start;
         if (last_cmd == 0xA0 && arg_count == 1) remap = args[0];
+        if (last_cmd == 0xA1 && arg_count == 1) start_line = args[0];
     }
 }
 
@@ -142,10 +145,10 @@ static uint32_t held(uint32_t value, uint8_t bits)
 }
 
 /* a bus buffer of `buffer_len` bytes: more than the 768 the driver sends at a time at 18 bits makes it send in pieces */
-static void run(uint8_t bits, bool swap_xy, size_t buffer_len)
+static void run(enum dgx_bus_type type, uint8_t bits, bool swap_xy, size_t buffer_len)
 {
     static uint8_t      buffer[2048];
-    dgx_bus_protocols_t bus = {.bus_type         = DGX_BUS_SPI,
+    dgx_bus_protocols_t bus = {.bus_type         = type,
                                .write_command    = bus_write_command,
                                .write_commands   = bus_write_commands,
                                .write_data       = bus_write_data,
@@ -153,7 +156,7 @@ static void run(uint8_t bits, bool swap_xy, size_t buffer_len)
                                .sync_write       = bus_sync,
                                .buffer           = buffer,
                                .buffer_len       = buffer_len};
-    memset(gddram, 0, sizeof(gddram));
+    memset(gddram, 0xa5, sizeof(gddram)); /* what the memory holds at power-up is not known: the first fill has to reach all of it */
     remap = 0;
     dgx_screen_t *scr = dgx_ssd1351_init(&bus, GPIO_NUM_NC, bits, DgxScreenRGB);
     dgx_ssd1351_orientation(scr, DgxScreenLeftRight, DgxScreenTopBottom, swap_xy);
@@ -173,7 +176,7 @@ static void run(uint8_t bits, bool swap_xy, size_t buffer_len)
                 wrong += (swap_xy ? gddram[x][y] : gddram[y][x]) != held(dgx_get_pixel(ref, x, y), bits);
         }
         if (wrong) {
-            fprintf(stderr, "%d bits, swap %d, round %d: %d pixels wrong\n", bits, swap_xy, round, wrong);
+            fprintf(stderr, "%s, %d bits, swap %d, round %d: %d pixels wrong\n", type == DGX_BUS_P8 ? "P8" : "SPI", bits, swap_xy, round, wrong);
             ++check_failures;
             break;
         }
@@ -183,11 +186,54 @@ static void run(uint8_t bits, bool swap_xy, size_t buffer_len)
     dgx_screen_destroy(&scr);
 }
 
+/*
+ * The four turns setRotation() of Adafruit_SSD1351 gives its modules, the
+ * remap and the start line, the first of them upright: a screen starts as
+ * the first and turns as the others, never mirrored.
+ */
+static void adafruit_turns(void)
+{
+    static uint8_t      buffer[512];
+    dgx_bus_protocols_t bus = {.bus_type         = DGX_BUS_SPI,
+                               .write_command    = bus_write_command,
+                               .write_commands   = bus_write_commands,
+                               .write_data       = bus_write_data,
+                               .write_data_async = bus_write_data_async,
+                               .sync_write       = bus_sync,
+                               .buffer           = buffer,
+                               .buffer_len       = sizeof(buffer)};
+    static const struct {
+        dgx_output_orientation_t turn;
+        uint8_t                  remap, start_line;
+    } rotations[] = {
+        {DgxOutputNormal,      0x74, 128}, /* setRotation(0): the COM lines scanned from the last */
+        {DgxOutputRotate90CW,  0x77, 128}, /* 1: so, the columns from the right, a column first */
+        {DgxOutputRotate180,   0x66, 0  }, /* 2: the columns from the right */
+        {DgxOutputRotate90CCW, 0x65, 0  }, /* 3: a column first */
+    };
+    dgx_screen_t *scr = dgx_ssd1351_init(&bus, GPIO_NUM_NC, 16, DgxScreenRGB);
+    CHECK(remap == rotations[0].remap && start_line == rotations[0].start_line);
+    for (size_t i = 0; i < sizeof(rotations) / sizeof(rotations[0]); ++i) {
+        const dgx_output_orientation_t turn = rotations[i].turn;
+        dgx_ssd1351_orientation(scr, dgx_output_orientation_xdir(turn), dgx_output_orientation_ydir(turn), dgx_output_orientation_swap_xy(turn));
+        CHECK(remap == rotations[i].remap && start_line == rotations[i].start_line);
+    }
+    dgx_screen_destroy(&scr);
+}
+
 int main(void)
 {
-    run(16, false, 512);
-    run(16, true, 2048);
-    run(18, false, 512);
-    run(18, true, 2048);
+    adafruit_turns();
+    /* a depth the controller is not set up for gives no screen, and nothing is sent */
+    dgx_bus_protocols_t untouched = {.bus_type = DGX_BUS_SPI, .write_command = bus_write_command, .write_data = bus_write_data};
+    last_cmd                      = 0;
+    CHECK(dgx_ssd1351_init(&untouched, GPIO_NUM_NC, 12, DgxScreenRGB) == NULL && last_cmd == 0);
+    const enum dgx_bus_type types[] = {DGX_BUS_SPI, DGX_BUS_P8};
+    for (int t = 0; t < 2; ++t) {
+        run(types[t], 16, false, 512);
+        run(types[t], 16, true, 2048);
+        run(types[t], 18, false, 512);
+        run(types[t], 18, true, 2048);
+    }
     CHECK_DONE();
 }

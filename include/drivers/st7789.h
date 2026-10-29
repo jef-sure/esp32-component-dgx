@@ -26,10 +26,10 @@ typedef enum {
  *
  * @param bus        Bus backend returned by dgx_spi_init() or dgx_p8_init().
  * @param rst        Reset GPIO (use GPIO_NUM_NC if the panel has no reset line).
- * @param color_bits Pixel depth in bits (typically 16 for RGB565).
+ * @param color_bits Pixel depth in bits: 16 for RGB565, the usual one, 12 or 18.
  * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR).
  * @param resolution The panel (see st7789_resolution_t).
- * @return Newly allocated screen, or NULL on failure or an unknown resolution. Free with dgx_screen_destroy().
+ * @return Newly allocated screen, or NULL on failure, an unknown resolution or another depth. Free with dgx_screen_destroy().
  */
 dgx_screen_t* dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo, st7789_resolution_t resolution);
 

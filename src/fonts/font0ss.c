@@ -1,3 +1,9 @@
+/*
+ * font0-ss, the handwritten font of DGX, drawn by Anton Petrusevich in the
+ * hw-fonts editor, https://github.com/jef-sure/hw-fonts.
+ * Copyright (c) 2021-2026 Anton Petrusevich.
+ * Licensed under the MIT License, as DGX: LICENSE at the top of DGX.
+ */
 #include "dgx_hw_font.h"
 /* font0-ss: made by font2c from a file of format hw-font, version 1 */
 static const dgx_hw_element_t elements[] = {

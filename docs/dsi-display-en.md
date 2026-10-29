@@ -556,7 +556,7 @@ dgx_screen_t *scr = dgx_jd9165_init(bus, rst, 16, DgxScreenRGB, DgxDsiTwoFrames)
 | --- | --- | --- | --- |
 | `DgxDsiOneFrame`, one buffer | 1 | possible | none |
 | `DgxDsiTwoFrames`, two buffers | 2 | none | one more buffer in PSRAM |
-| `DgxDsiOneFrameAfterScan`, behind the scan | 1 | none for a virtual screen put to the display and for a large fill | a wait of up to one frame for each such put and fill |
+| `DgxDsiOneFrameAfterScan`, behind the scan | 1 | none for a large fill and for a virtual screen put by the 2D DMA; a large one the processor sends may tear, see "Behind the scan" | a wait of up to one frame for each such put and fill |
 
 ### One buffer
 
@@ -599,13 +599,20 @@ The tile maps change places not at the end of a batch but when the buffers
 change roles. At the end of a batch the hidden buffer only receives what it
 lacks.
 
-The safety pause. Where the end of frame is reported at the moment the
-buffer is chosen (`on_frame_buf_complete` on any chip, `on_refresh_done` on
-chips below revision 3), a batch finished in the last 2 ms of a frame is
-shown from the next frame with no reservations. Where the end of frame is
-reported after the buffer is chosen (`on_refresh_done` on revision 3 and
-above), such a batch waits one more frame in case the driver has already
-chosen the old buffer.
+The safety pause. Where the end of frame is reported after the buffer is
+chosen (`on_refresh_done` on revision 3 and above), a batch finished in the
+last 2 ms of a frame waits one more frame in case the driver has already
+chosen the old buffer. Where it is reported at the moment the buffer is
+chosen (`on_frame_buf_complete` on any chip, `on_refresh_done` on chips below
+revision 3), the report still comes a moment after the choice, from the same
+interrupt: the driver chooses the buffer, sets the next frame going and only
+then calls the bus. A batch finished in that moment by a task on the other
+core would be taken as shown from the next frame while the display shows the
+old buffer, and the batch after it would be drawn into the buffer being
+scanned. So there a batch finished in the last 0.3 ms of a frame waits one
+more frame too (`DGX_FB_FLIP_SWITCH_US`), and the bus counts the frame first
+thing in its handler. This is checked by the model of the display on the
+host, `test/host/test_fb_flip.c`, not on a board.
 
 #### Batches of several tasks in one frame
 
@@ -763,6 +770,15 @@ Details.
 - **The cache.** The DMA writes to memory past the cache, so before the
   report to the driver the bus brings out and drops the lines under the
   pieces. This costs 8–19 µs a piece at any size.
+- **Cache lines.** While a piece is copied, the processor reads the buffer
+  the piece goes into, for the tiles the other buffer lacks. A cache line
+  holding part of such a tile and part of the piece would be read before the
+  copy is there and later written back over it. So a piece stays for later
+  only when its rows begin and end on cache lines. They always do with tiles
+  32 pixels wide at 16 bits, lines of 64 bytes and a row a whole number of
+  lines; otherwise the piece is copied at the end of the batch. With 128-byte
+  lines of the L2 cache (always so at 512 KB of it), narrower tiles, or rows
+  of, for one, 720 pixels, more is copied there. Not checked on a board.
 - **Reading.** A pixel read from the finished picture where a piece is not
   yet copied brings in its tile by the processor, like any missing one.
 - **Which piece will make it.** A piece starts when the pieces above it are
@@ -774,6 +790,14 @@ Details.
   Pieces fell behind the scan even with the check: 1 to 5 in 300 batches. So
   at 24 bits the copy after the swap is off, and everything is copied at the
   end of the batch.
+- **Interrupts with the cache off.** The end-of-frame interrupt and the
+  copy-done handler start the 2D DMA. With `CONFIG_LCD_DSI_ISR_CACHE_SAFE` or
+  `CONFIG_DMA2D_ISR_IRAM_SAFE` they run also while the flash is written and
+  its cache is off, and the functions of the 2D DMA are in IRAM only with
+  `CONFIG_DMA2D_OPERATION_FUNC_IN_IRAM`. Without that option the copy after
+  the swap is off, as at 24 bits. `CONFIG_DMA2D_ISR_IRAM_SAFE` wants that
+  option for a put by the DMA as well: a put that waits for the channels of
+  other users is started from the copy-done handler.
 - **A safeguard.** A piece not copied within a quarter of a second is copied
   by the task, and a warning stays in the log. It never fired on the bench.
 - **Memory.** The list of pieces, their descriptors and transfers take
@@ -1077,7 +1101,8 @@ scene 12 jerks slightly. Where this comes from, see "Evenness".
 Correctness check. A model of the display on the host,
 `test/host/test_fb_flip.c`: the display there takes at the end of a frame the
 buffer it was asked for last, tasks draw batches in turn, every call takes a
-random time, and the end of frame may fall on any of them. It is checked that
+random time, and the end of frame may fall on any of them and be counted a
+moment after the buffer is taken. It is checked that
 a frame never starts with the buffer being drawn into, that with one task
 without pauses every frame shows something new, and that with three tasks
 batches of each get into every frame. Tile maps with pieces left for later
@@ -1088,13 +1113,15 @@ against a reference, drawn by three tasks in turn, see "How it was checked".
 
 `DgxDsiOneFrameAfterScan`. One buffer, no memory beyond it. The idea is to
 write when the scan is not in the way. It is a compromise: a picture that
-comes from a virtual screen is shown without tearing, while drawing right
-on the display is protected only in part.
+comes from a virtual screen by the 2D DMA is shown without tearing, one the
+processor sends through a window only when it is small, and drawing right on
+the display is protected only in part.
 
 It works in three ways, depending on what does the writing.
 
 **A put by the 2D DMA.** This is how an area of a virtual screen of 16 KB and
-more goes on an unrotated screen, see "The 2D DMA and the PPA". The DMA
+more goes on a screen neither mirrored nor rotated, with no overlay layer
+over it and no transparency, see "The 2D DMA and the PPA". The DMA
 writes at 150 KB/ms, the scan reads at 77 KB/ms: writing is twice as fast as
 the scan. So it is enough to start when the scan is outside the rows of the
 area. If it is above the area, it enters later than the write and does not
@@ -1106,6 +1133,13 @@ area, then starts it. For the whole screen "outside the area" is the 35 rows
 of blanking, 0.9 ms a frame: the bus waits for them and puts the whole screen
 in 7.9 ms, staying ahead of the scan. So an area of any size, the whole
 screen included, goes without tearing on one buffer.
+
+An 8-bit screen through a table of colours goes by the 2D DMA too, in any
+orientation, but in bands the processor makes one after another, see "An
+8-bit screen through a colour table". Every band is started the same way.
+The picture is whole as long as the processor makes the bands faster than
+the scan reads them; a picture smoothed at a large scale can be slower, and
+then the scan of the next frame catches up with the bands still to come.
 
 **A fill by the accelerator.** A large rectangle is filled by the PPA
 accelerator, four times faster than the scan. The rule is the same: the bus
@@ -1126,9 +1160,11 @@ is no tearing at that. What must appear at once has to be drawn in a virtual
 screen and put in one piece, or two buffers taken.
 
 **Writing by the processor through a window.** This is how areas under
-16 KB, text, textures, 24 bits and any put on a mirrored or rotated screen
-go. The processor writes slower than the scan, so the rule here is
-different. Before writing pixels into a window the bus takes four steps.
+16 KB, text, textures, 24 bits, a put under an overlay layer or with
+transparency, any put on a mirrored or rotated screen, and every put when
+`CONFIG_DGX_DSI_PRIVATE_DMA2D` is off go. The processor writes slower than
+the scan, so the rule here is different. Before writing pixels into a
+window the bus takes four steps.
 
 1. It works out how long the write will take: the bytes of the window
    divided by the writing speed.
@@ -1566,7 +1602,7 @@ The third mode is arranged like `DgxDsiTwoFrames`. A frame goes like this.
 | If there are too many marks | the list is replaced by one rectangle of the whole screen | nothing to overflow |
 | What is not copied | what will be redrawn in this frame: known in advance | what a fill or a window covered: found out as it goes |
 | Who copies | the processor, row by row | the processor, and large pieces the 2D DMA |
-| No tearing on one buffer | no way | the "behind the scan" strategy, for a virtual screen put to the display |
+| No tearing on one buffer | no way | the "behind the scan" strategy, for a virtual screen put by the 2D DMA |
 
 - The number 32 is `LV_INV_BUF_SIZE`; it can be changed when building LVGL.
 - LVGL knows in advance what it will redraw because it first collects the
@@ -2420,7 +2456,9 @@ With the current code scenes 1–6 with two buffers give 42.3, 60.9, 34.8,
   by the catch-up copy and the shift; the 2D DMA is not used for the shift.
 - **The copy after the swap** works only through the 2D DMA. Without it, and
   with `CONFIG_DGX_DSI_PRIVATE_DMA2D` off, the hidden buffer receives
-  everything at the end of the first batch of a frame. At 24 bits it is off.
+  everything at the end of the first batch of a frame. At 24 bits it is off,
+  and with interrupts that run with the cache off unless the functions of the
+  2D DMA are in IRAM, see "The copy after the swap".
 - **The bus's numbers** were taken on the JD9165 (7"). For another board
   `dgx_dsi_bench()` takes them, but the bus neither runs it nor keeps the
   result itself: the program does. Four numbers it does not measure.

@@ -108,15 +108,21 @@ static const struct
 
 // END OF COMMAND LIST
 
+/* the chip select around a transfer, when it is wired: a panel with its CS tied high takes every transfer */
+static void dgx_st7920_select(const dgx_st7920_t *scr, uint32_t level)
+{
+    if (scr->cs >= 0) dgx_gpio_set_level(scr->cs, level);
+}
+
 static void dgx_st7920_send_byte(dgx_st7920_t *scr, uint8_t data, uint8_t rs)
 {
     uint8_t command[3];
     command[0] = 0xf8 | (rs ? 0x02 : 0x00); // RS = 1 for data, 0 for command
     command[1] = data & 0xf0;               // upper nibble
     command[2] = (data << 4) & 0xf0;        // lower nibble
-    dgx_gpio_set_level(scr->cs, 1);
+    dgx_st7920_select(scr, 1);
     scr->bus->write_data(scr->bus, command, 3 * 8);
-    dgx_gpio_set_level(scr->cs, 0);
+    dgx_st7920_select(scr, 0);
 }
 
 static void dgx_st7920_send_command(dgx_st7920_t *scr, uint8_t cmd)
@@ -128,6 +134,12 @@ static void dgx_st7920_send_command(dgx_st7920_t *scr, uint8_t cmd)
 // pixels) Note: Address setting uses RS=0 (command mode), but data writes use RS=1 (data mode)
 static void dgx_st7920_set_gdram_address(dgx_st7920_t *scr, uint8_t y, uint8_t x)
 {
+    /*
+     * A 128x64 panel is driven as two halves of 128x32 side by side in the
+     * GDRAM: its rows 32 to 63 are rows 0 to 31, eight addresses (128
+     * pixels) to the right. The datasheet does not say so; it was found on
+     * the panel.
+     */
     if (y >= 32) {
         y -= 32;
         x += 8;
@@ -149,57 +161,6 @@ static void dgx_st7920_destroy(dgx_screen_t **_pscr)
         *_pscr = NULL;
     }
 }
-/*
-
-You are correct that the official ST7920 datasheet is notoriously vague and confusing regarding the exact GDRAM memory
-mapping for 128x64 mode. The documentation mentions a graphic display area of 64x256 dots and provides a table (Table 7
-in some versions) that outlines the general address ranges, but it doesn't clearly explain the non-linear structure for
-128x64 displays.
-
-The behavior you observed is a well-known "undocumented feature" or eccentricity of the controller that
-has been discovered and verified by the embedded systems community and library developers through experimentation:
-
-* Community Consensus: Discussions on forums like Arduino and EmbeddedRelated show engineers and hobbyists independently
-confirming this exact mapping behavior after struggling with the official documentation. Library authors, such as those
-for the popular U8g2 library, have fixed their drivers specifically to handle this non-linear mapping.
-
-* Split Architecture: The physical reality of the 128x64 display is two 128x32 segments. The controller seems to handle
-these as two distinct memory banks in its addressing scheme.
-
-* Empirical Evidence: The fact that your code only works with the y >= 32 check and coordinate shift is strong empirical
-evidence that this specific logic is required to align with the controller's internal addressing scheme, despite the
-lack of clear documentation.
-
-In summary, the reason you didn't find it in the official documentation is that the documentation is insufficient in
-this area. The required logic is a practical necessity derived from reverse engineering the chip's actual behavior.
-
-
-How does it handle 256x64 then?
-
-The ST7920 controller does not inherently drive a 256x64 resolution display on its own. The controller chip itself is
-designed with 32 common drivers and 64 segment drivers.
-
-To achieve a 256x64 resolution, an external extension segment driver (ST7921) must be used in conjunction with the
-ST7920. The ST7920 acts as the main controller/common driver, while the ST7921 provides the additional segment
-(horizontal) drivers needed for the wider screen.
-
-Memory Handling for 256x64
-
-When the ST7920 is configured to work with the extension chip for a 256x64 display, the memory mapping becomes more
-linear and utilizes the full 64x256 dot graphic display area (GDRAM) that the datasheet mentions.
-
-The memory is accessed in the following logical structure:
-
-* Vertical Address (Y): This directly corresponds to the display lines from 0 to 63. There is no y >= 32 check needed,
-as the entire Y range maps continuously.
-
-* Horizontal Address (X): The X address is still managed in 16-bit blocks (2 bytes per address). For a 256-pixel width,
-you have 16 horizontal addresses (0 to 15), since 16 blocks * 16 pixels = 256 pixels.
-
-In a 256x64 setup, the odd addressing behavior of the 128x64 display (where the X address jumps for the lower half) is
-eliminated. The memory is treated as one continuous 64-line buffer, where each line holds 16 words (16-bit data chunks).
-
-*/
 
 /*
  * How the screen lies on the panel is carried out here, where the panel is
@@ -279,9 +240,9 @@ static void dgx_st7920_update_screen(dgx_screen_t *_scr, int left, int right, in
             row_bytes[idx_buf++] = (pair[1] << 4) & 0xf0; //
         }
         // Send the row data
-        dgx_gpio_set_level(scr->cs, 1);
+        dgx_st7920_select(scr, 1);
         scr->bus->write_data(scr->bus, row_bytes, idx_buf * 8);
-        dgx_gpio_set_level(scr->cs, 0);
+        dgx_st7920_select(scr, 0);
     }
 }
 
@@ -312,8 +273,10 @@ dgx_screen_t *dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
     scr->base.base.screen_subtype = DgxVirtualBackScreen;
     scr->base.base.screen_name    = "ST7920";
     // Setup GPIO
-    dgx_gpio_set_direction(cs, GPIO_MODE_OUTPUT);
-    dgx_gpio_set_level(cs, 0);
+    if (cs >= 0) {
+        dgx_gpio_set_direction(cs, GPIO_MODE_OUTPUT);
+        dgx_gpio_set_level(cs, 0);
+    }
 
     // Reset the display
     if (rst >= 0) {

@@ -277,7 +277,7 @@ dgx_screen_t *dgx_ssd1306_init(dgx_bus_protocols_t *bus, ssd1306_resolution_t re
             }
         }
         if (lcd_init_cmds[cidx].databytes != 0) {
-            bus->write_commands(scr->bus, data, 8);
+            bus->write_commands(scr->bus, data, lcd_init_cmds[cidx].databytes * 8u);
         }
         if (lcd_init_cmds[cidx].delay) {
             int ms = lcd_init_cmds[cidx].delay == 255 ? 500 : lcd_init_cmds[cidx].delay;

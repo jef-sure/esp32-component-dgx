@@ -26,10 +26,11 @@ extern "C" {
 /**
  * @brief Initialize an 8-bit parallel (Intel 8080 / I80) bus backend, on a bus DGX creates.
  *
- * Displays on the same data, WR and DC pins share one bus, each with its own CS;
- * DGX creates it with the first of them and deletes it with the last, unless the
- * program has added panels of its own to it. To put a display on a bus the
- * program created itself, call dgx_p8_init_on_bus().
+ * DGX creates the bus with the display and deletes it on dispose. A display
+ * needs a bus of its own: a second one on any of the same data, WR and DC pins
+ * is refused. The I80 driver of IDF does not keep two panels on one bus apart,
+ * a command for one cuts off the pixels of the other that are on their way. To
+ * put a display on a bus the program created itself, call dgx_p8_init_on_bus().
  *
  * @param lcd_d0..lcd_d7 The eight parallel data GPIOs.
  * @param lcd_wr         Write strobe GPIO.
@@ -49,6 +50,10 @@ dgx_bus_protocols_t *dgx_p8_init(gpio_num_t lcd_d0, gpio_num_t lcd_d1, gpio_num_
  * pin and a max_transfer_bytes of at least 4096. DGX adds its panel IO with its
  * own CS and removes it when the backend is disposed; the bus stays the
  * program's to delete, after the backend.
+ *
+ * Put one DGX display on such a bus. A panel the program drives on it through
+ * esp_lcd is sent to only after the DGX screen has sent its pixels, its
+ * wait_buffer(), or a command for one panel cuts off the pixels of the other.
  *
  * @param i80_bus  I80 bus made by the program.
  * @param lcd_rd   Read strobe GPIO (GPIO_NUM_NC if unused).

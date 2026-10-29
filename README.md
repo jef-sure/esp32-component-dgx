@@ -83,7 +83,9 @@ dependencies:
 ```
 
 Then enable the drivers you need in `menuconfig`, under the **DGX** menu. A
-driver pulls in the transport it requires. To work on DGX itself, check the
+driver is offered only once a transport it works on is enabled, so enable both;
+in `sdkconfig.defaults` a driver option without its transport is silently
+dropped, and the link fails later. To work on DGX itself, check the
 repository out under `components/` instead; a git submodule at
 `components/dgx` works well.
 
@@ -102,7 +104,7 @@ Here's a complete setup for an ST7789 panel over SPI:
 
 // 1. create a bus
 dgx_bus_protocols_t *bus =
-  dgx_spi_init(SPI2_HOST, SPI_DMA_CH_AUTO,
+  dgx_spi_init(SPI3_HOST, SPI_DMA_CH_AUTO,
                GPIO_NUM_23, GPIO_NUM_19,
                GPIO_NUM_18, GPIO_NUM_5,
                GPIO_NUM_27, 40 * 1000 * 1000, 0);
@@ -212,8 +214,8 @@ cc font2c/font2c.c -o font2c/font2c $(pkg-config --cflags --libs freetype2)
 ```
 
 Move the `.c` file into `src/fonts/` and the `.h` file into
-`include/fonts/`, rerun CMake configure once, and use the font like a
-bundled one:
+`include/fonts/`, and use the font like a bundled one; the next build picks
+the new file up by itself:
 
 ```c
 #include "fonts/YourFontRegular16.h"
@@ -253,8 +255,9 @@ dgx_font_need(clock DGX DejaVuSansBook32 LETTERS "0123456789:")             # on
 dgx_font_string_utf8_screen(scr, 10, 40, "Привет", ink, DgxOutputNormal, 1, dgx_font_body(), NULL, NULL);
 ```
 
-A font is rendered by `font2c` from a TTF or OTF on the build machine, with
-the characters of the need's texts and no others; an existing font must
+A font is rendered by `font2c` on the build machine from a TTF or OTF, or
+from any font file a need names, a BDF at a size it has, with the
+characters of the need's texts and no others; an existing font must
 already have them, or the build stops. The build machine needs a C compiler
 with FreeType, and fontconfig; a project without needs requires nothing
 extra. Needs, sizes, characters, the rules, needs from a component and what
@@ -286,7 +289,7 @@ dgx_gauge_t gauge;
 dgx_gauge_init(&gauge, scr,
                scr->width / 2, scr->height / 2, // center
                40, 12,                          // inner radius, ring width
-               135.0f, 270,                     // start angle in degrees, sweep
+               135.0f, 270,                     // start angle in degrees, sweep clockwise
                0, 100,                          // value range
                DGX_DARKGREY(dgx_rgb_to_16),     // color of the inactive steps
                gauge_color);                    // draws the empty ring
@@ -341,11 +344,10 @@ display is scrolled in its frame buffer. The call is the same; it returns
 dgx_scroll(lcd, 0, 24, lcd->width, lcd->height - 24, 0, -line_height, paper);
 ```
 
-On an ILI9341 the cost of such a move is the fill of the strip that leaves,
-about 100 us a column of 240 rows at 40 MHz; the commands of the panel take
-about 150 us. When the new line or column is drawn right after the move
-anyway, use `dgx_scroll_no_fill()`: the same move without the fill, and on
-the panel it is the commands alone.
+On an ILI9341 such a move costs the commands of the panel and the fill of
+the strip that leaves. When the new line or column is drawn right after the
+move anyway, use `dgx_scroll_no_fill()`: the same move without the fill, and
+on the panel it is the commands alone.
 
 In that case a virtual screen always works: scroll the virtual screen as
 above and send it to the display. It can be sent in any
@@ -380,7 +382,7 @@ const dgx_point_2d_t card[4] = {{40, 110}, {200, 100}, {220, 170}, {20, 180}};
 dgx_draw_texture_quad(scr, card, tex, 0, 0, tex->width, tex->height);
 
 // mirrored: swap the left and the right corners
-const dgx_point_2d_t mirrored[4] = {{238, 10}, {174, 10}, {174, 34}, {238, 34}};
+const dgx_point_2d_t mirrored[4] = {{237, 10}, {174, 10}, {174, 33}, {237, 33}};
 dgx_draw_texture_quad(scr, mirrored, tex, 0, 0, tex->width, tex->height);
 ```
 
@@ -469,8 +471,8 @@ The picture is mirrored and rotated around its origin, so a sprite that
 turns round stays where it stands. A 1-bit picture is drawn in `color`; an
 8-bit one uses its values as indices, or a map of 255. Unlike
 `dgx_vscreen_to_screen()`, the source is constant data rather than a
-screen, it is clipped, and it can be recolored. On a CYD a 40x60 sprite of
-4 bits from flash takes about 0.1 ms, mirrored or not.
+screen, it is clipped, and it can be recolored; mirrored or not, it costs
+the same.
 Example: [examples/sprite_palette_demo](examples/sprite_palette_demo).
 
 ### A palette, a fade and a flash
@@ -774,7 +776,9 @@ CONFIG_DGX_ENABLE_SPI_ILI_9341=y
 The sketch is `main/main.cpp`, listed in `main/CMakeLists.txt` as
 `idf_component_register(SRCS "main.cpp")`. The DGX headers are C++-ready
 and are included as they are. C++ does not convert an `int` to an enum
-implicitly, so pins are given as `GPIO_NUM_23`, not `23`:
+implicitly, so pins are given as `GPIO_NUM_13`, not `13`. The display of a
+CYD is on `SPI2_HOST`; Arduino's `SPI` keeps `SPI3_HOST`, where the CYD has
+its SD card:
 
 ```cpp
 #include <Arduino.h>
@@ -790,9 +794,9 @@ static dgx_screen_t *screen;
 
 void setup()
 {
-    dgx_bus_protocols_t *bus = dgx_spi_init(SPI3_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_23, GPIO_NUM_19,
-                                            GPIO_NUM_18, GPIO_NUM_5, GPIO_NUM_16, 40 * 1000 * 1000, 0);
-    screen = dgx_ili9341_init(bus, GPIO_NUM_17, GPIO_NUM_21, 16, DgxScreenRGB);
+    dgx_bus_protocols_t *bus = dgx_spi_init(SPI2_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_13, GPIO_NUM_12,
+                                            GPIO_NUM_14, GPIO_NUM_15, GPIO_NUM_2, 40 * 1000 * 1000, 0);
+    screen = dgx_ili9341_init(bus, GPIO_NUM_NC, GPIO_NUM_21, 16, DgxScreenRGB);
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, DGX_BLACK(dgx_rgb_to_16));
 }
 
@@ -847,8 +851,12 @@ Example: [examples/arduino_demo](examples/arduino_demo).
 
 ## Examples
 
-Each example is an ESP-IDF project with its own README. They take DGX from
-the repository they sit in, so build them from a checkout:
+Each example is an ESP-IDF project with its own README. Each names
+`jef-sure/dgx` in `main/idf_component.yml` with an `override_path` to the
+repository it sits in, so built from a checkout it takes that DGX; ESP-IDF 6
+warns that the name differs unless the checkout is a directory called
+`dgx`. A copy of an example elsewhere, without the `override_path` line,
+takes DGX from the ESP Component Registry. From a checkout:
 
 ```sh
 cd examples/screen_demo
@@ -886,7 +894,7 @@ wire.
 
 | Controller | Type | Buses | Constructor | Kconfig option |
 | --- | --- | --- | --- | --- |
-| ST7735 | color TFT | SPI, P8 | `dgx_st7735_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ST7735` |
+| ST7735 | color TFT, 128x160 with no memory offset | SPI, P8 | `dgx_st7735_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ST7735` |
 | ST7789 | color TFT | SPI, P8 | `dgx_st7789_init(bus, rst, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_SPI_ST7789` |
 | ILI9341 | color TFT | SPI, P8 | `dgx_ili9341_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ILI_9341` |
 | NV3041A | color TFT, 480x272 | QSPI | `dgx_nv3041a_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_NV3041A` |
@@ -906,12 +914,14 @@ Common parameters:
   `dgx_i2c_init()`, `dgx_p8_init()` or `dgx_dsi_init()`.
 - `rst` — reset GPIO, or `GPIO_NUM_NC` if the panel has no reset line.
 - `backlight` (ILI9341 and NV3041A) — backlight GPIO, or `GPIO_NUM_NC` if it is not
-  under software control.
-- `color_bits` — pixel depth; `16` (RGB565) is the usual choice. The SPI and
-  P8 color panels also take `18`: see
+  under software control; their backlight calls then return
+  `ESP_ERR_NOT_SUPPORTED`.
+- `color_bits` — pixel depth; `16` (RGB565) is the usual choice. ST7735,
+  ST7789 and GC9A01 take `12`, `16` or `18`; ILI9341 and SSD1351 `16` or
+  `18`; NV3041A `16`; JD9165 and JD9365 `16` or `24`. A driver given a depth
+  it cannot set up logs an error and returns NULL. For `18` see
   [docs/18-bit-pixels-en.md](docs/18-bit-pixels-en.md)
-  ([Russian](docs/18-bit-pixels-ru.md)). JD9165 and JD9365 take `16` or
-  `24`.
+  ([Russian](docs/18-bit-pixels-ru.md)).
 - `cbo` — channel order, `DgxScreenRGB` or `DgxScreenBGR`: the order colors
   come out in on the usual modules of the controller. The usual ILI9341
   modules show red as red with the BGR bit of the controller set, so there
@@ -1081,14 +1091,14 @@ Declared in [include/dgx_draw.h](include/dgx_draw.h):
 | `dgx_get_pixel(scr, x, y)` | Read one pixel: virtual screens, panels drawn through a virtual back screen and a DSI display only; see [Known gaps](#known-gaps). |
 | `dgx_screen_is_readable(scr)` | `true` when the screen gives back the pixels drawn on it, `false` for a display that keeps them in the panel behind a bus. |
 | `dgx_draw_line(scr, x1, y1, x2, y2, color)` | Single-pixel line by Bresenham's algorithm; the same pixels whichever end it is given from. |
-| `dgx_draw_line_thick(scr, x1, y1, x2, y2, width, color)` | Thick line with caps. |
+| `dgx_draw_line_thick(scr, x1, y1, x2, y2, width, color)` | Thick line: the rectangle of `width` around the way, its ends cut square; as wide at every angle, and of width 1 the line of `dgx_draw_line()`. |
 | `dgx_draw_bezier3(scr, points, pieces, width, color)` | Thick quadratic Bezier curve by three `dgx_point_2d_t` points, drawn by `pieces` straight pieces; 0 finds their number from the points, within half a pixel of the curve. `DGX_PEN_SOFT | width` gives it a soft edge. |
 | `dgx_draw_bezier4(scr, points, pieces, width, color)` | Thick cubic Bezier curve by four points. |
 | `dgx_bezier3_begin(b, scr, points, pieces, width, color)`, `dgx_bezier4_begin(...)` | Prepare the same curves in a `dgx_bezier_t` for drawing part by part, to animate writing. |
 | `dgx_bezier_draw_to(b, t)` | Draw a prepared curve on until it is `t` complete, 0 .. 1 by the way of the pen, and flush what was added; returns `true` when the curve is finished. |
 | `dgx_bezier_length(b)` | Length of a prepared curve in pixels, to share time between curves. |
 | `dgx_draw_line_mask(scr, x1, y1, x2, y2, color, bg, mask, mask_bits)` | Dashed/dotted line; returns the rotated mask to continue the pattern. |
-| `dgx_fill_rectangle(scr, x, y, w, h, color)` | Filled rectangle. |
+| `dgx_fill_rectangle(scr, x, y, w, h, color)` | Filled rectangle; a negative `w` or `h` takes it to the left of `x` or up from `y`, on every screen. |
 | `dgx_draw_circle(scr, x, y, r, color)` | Circle outline by the midpoint algorithm. |
 | `dgx_solid_circle(scr, x, y, r, color)` | Filled circle, the same outline filled by rows. |
 | `dgx_draw_ellipse(scr, x, y, rx, ry, color)` | Ellipse outline, a pixel wide, by the rule of the midpoint algorithm: with equal radii it is `dgx_draw_circle()` pixel for pixel. |
@@ -1152,10 +1162,8 @@ the place where the rows turn round goes in pieces: two when the screen is
 upright, two for every row of it when the screen lies. The panel has one
 such area at a time: a rectangle that has been moved is filled, by a move as
 large as it, before another is moved. Before the move the strip that leaves
-is filled with the color, and that fill is what the move costs: on a CYD at
-40 MHz a scroll of 240 rows by 1 column takes 247 us, by 8 columns 933 us, by
-32 columns 3361 us, while the commands of the panel take about 150 us.
-`dgx_scroll_no_fill()` skips the fill for a caller that draws the strip that
+is filled with the color, and that fill is what the move costs besides the
+commands of the panel. `dgx_scroll_no_fill()` skips the fill for a caller that draws the strip that
 comes in anyway; the strip then arrives holding what has just left at the
 other edge. Any other move, across the long side
 or aslant, returns `ESP_ERR_NOT_SUPPORTED` and draws nothing; a text that
@@ -1168,12 +1176,6 @@ dgx_scroll(page, 0, 0, page->width, page->height, 0, -line_height, paper);
 /* ... draw the new line at the bottom of `page` ... */
 dgx_vscreen_to_screen(lcd, 0, 0, page, 0);
 ```
-
-On a CYD, an ESP32 at 240 MHz with an ILI9341 on SPI at 40 MHz, a line of 14
-rows scrolled by the panel upright takes 1.5 ms, the time of filling the
-strip of 240 x 14; a band of 320 x 112 moved in memory and sent takes 2.4 ms
-and 15 ms. On a JC1060P470, an ESP32-P4 with a JD9165 of 1024x600 on DSI,
-the whole screen moved in the frame buffer takes 24 ms.
 
 How a Bezier curve is split into straight pieces and how a curve is drawn on
 by `t` is described in
@@ -1438,10 +1440,9 @@ Declared under [include/bus/](include/bus):
 | `dgx_p8_init_on_bus(i80_bus, rd, cs, pclk_hz)` | A display on an I80 bus the program owns. |
 | `dgx_dsi_init(bus_id, data_lanes, lane_bit_rate_mbps, phy_ldo_chan, phy_ldo_mv)` | MIPI-DSI bus of ESP32-P4. `phy_ldo_chan` and `phy_ldo_mv` name the regulator of the chip that powers the DSI PHY, 3 and 2500 on the usual boards; -1 when it is powered otherwise. |
 
-Each returns a `dgx_bus_protocols_t *` to hand to a driver constructor. A
-driver pulls in only the transports it needs; enable them in `menuconfig`.
-The program disposes of a backend with `bus->dispose(bus)` after the screens
-on it are destroyed.
+Each returns a `dgx_bus_protocols_t *` to hand to a driver constructor. The
+program disposes of a backend with `bus->dispose(bus)` after the screens on
+it are destroyed.
 
 A display often shares its bus with other devices: a touch controller or a
 clock chip on I2C, an SD card or a touch controller on SPI. Who owns the bus
@@ -1449,15 +1450,17 @@ depends on the constructor:
 
 - `dgx_spi_init()`, `dgx_qspi_init()`, `dgx_i2c_init()` and `dgx_p8_init()`
   put the display on a bus DGX sets up: the SPI host, the I2C master bus of the port, the I80
-  bus of those pins. Further displays on the same host, port or pins share
-  it, and must name the same pins. DGX releases the bus with the last of its
-  displays, unless the program has put devices of its own on it.
+  bus of those pins. Further displays on the same host or port share it, and
+  must name the same pins; an I80 bus takes one display. DGX releases the bus
+  with the last of its displays, unless the program has put devices of its own
+  on it.
 - `dgx_spi_init_on_bus()`, `dgx_qspi_init_on_bus()`, `dgx_i2c_init_on_bus()`
   and `dgx_p8_init_on_bus()` put the display on a bus the program has set up and owns. DGX adds its
   device and removes it on dispose; the program releases the bus afterwards.
   An SPI host must have DMA and a `max_transfer_sz` of 0 or at least 4092
   bytes; DGX sends pieces as long as the host takes, see below. An I80 bus must be 8 bits wide with a `max_transfer_bytes` of at
-  least 4096.
+  least 4096; the program sends to its own panels on it only after
+  `scr->wait_buffer(scr)`.
 
 ```c
 // an SSD1306 and a touch controller on one I2C bus the program owns
@@ -1477,15 +1480,13 @@ answers. The ESP-IDF drivers take turns between the devices of a bus; a long
 picture on SPI or QSPI holds the bus for one piece at a time. Every piece
 costs the same time to start, so a fast bus needs long pieces: the buffer of
 a display is as long as the wire takes about 0.8 ms to send at the clock the
-display has really got, and a virtual screen goes in halves of it, so that
-starting the pieces costs about 6 % of the time. The buffer is 4000 bytes at
-least and 32000 at most, in internal memory that DMA reaches: 4000 bytes on
-SPI at 40 MHz, as before, about 16000 on QSPI at 40 MHz. A slower clock
-takes a smaller buffer. DGX sets up its own
-hosts for 32000 bytes; on a host of the program the buffer is no longer
-than its `max_transfer_sz`. The buffer is internal memory on every chip,
-and a program that needs that memory more than the speed sets the longest
-buffer itself:
+display has really got, and a virtual screen goes in halves of it. The
+buffer is 4000 bytes at least and 32000 at most, in internal memory that DMA
+reaches on every chip: 4000 bytes on SPI at 40 MHz, about 16000 on QSPI at
+40 MHz. A slower clock takes a smaller buffer. DGX sets up its own hosts for
+32000 bytes; on a host of the program the buffer is no longer than its
+`max_transfer_sz`. A program that needs that memory more than the speed sets
+the longest buffer itself:
 
 ```c
 // the QSPI display of the JC4827W543 with a buffer of 8000 bytes instead of about 16000
@@ -1497,13 +1498,17 @@ dgx_bus_protocols_t *bus = dgx_qspi_init_with(SPI2_HOST, SPI_DMA_CH_AUTO, GPIO_N
 A shorter buffer sends pixels in more pieces. The buffer is never longer
 than the limit, which may go below the 4000 bytes DGX takes at least; DGX
 cuts it down to a multiple of 16 bytes.
+
 A virtual screen of the depth of the display, sent unturned with no overlay
 layer, whose rows lie one after another in memory (its whole width, or a
 single row), goes to an SPI or QSPI display straight from where it lies, by
 DMA in pieces of the buffer, with nothing copied: from internal memory DMA
-reaches, or from PSRAM on an ESP32-S2, S3 or P4 when DMA from PSRAM keeps up
-with the wire, up to 26.7 MHz on four lines. Anything else goes through the
-halves of the buffer.
+reaches, or from PSRAM on an ESP32-S2, S3 or P4 with ESP-IDF 5.5 or later
+when DMA from PSRAM keeps up with the wire, up to 26.7 MHz on four lines. A
+P4 under flash encryption, or with PSRAM ECC from ESP-IDF 6, takes pixels
+from PSRAM so only from an address on 16 bytes. Anything else goes through
+the halves of the buffer.
+
 The bus tables of DGX and the init tables of the panel drivers are not
 locked: create and dispose of backends and screens from one task.
 
@@ -1632,17 +1637,6 @@ own.
   while it holds the lock keeps all the others waiting; a mutex of FreeRTOS
   raises its priority meanwhile, a semaphore does not.
 
-The two ways measured on an ESP32-P4 with a MIPI-DSI display and two frame
-buffers, three sources, 10 seconds. The cells tell how many times the next
-picture of a source came after one, two and three frames of the display:
-all in one column is even motion.
-
-| Three sources | Each draws itself under a mutex | Messages to one task that draws |
-| --- | --- | --- |
-| A part of 320x100 each, a picture a frame | 609, 0, 0 | 607, 0, 0 |
-| A band of 1024x168 each, little redrawn, a picture a frame | 608, 0 to 1, 0 | 604 to 606, 0 to 1, 0 |
-| A band of 1024x168 each, redrawn whole, a picture every second frame | 1 to 53, 198 to 302, 1 to 53 | 1, 302, 0 |
-
 In either way no drawing call may be made from an interrupt handler: they
 wait for transfers.
 
@@ -1655,8 +1649,9 @@ What a drawing call may wait for, with the lock held if there is one:
 | MIPI-DSI, two frame buffers | the same, and the display: the first drawing after a finished picture may wait until the display has taken it, up to a frame, 16 ms on the JD9165 panel |
 | MIPI-DSI, behind the scan | the same as with one frame buffer, and the scan of the display to leave the rows, up to a frame |
 
-What the DSI bus does for several tasks with two frame buffers, and where
-DGX uses interrupts, is in
+What the DSI bus does for several tasks with two frame buffers, how evenly
+pictures come by the two ways, as measured, and where DGX uses interrupts,
+is in
 [docs/dsi-usage-en.md](docs/dsi-usage-en.md#several-tasks).
 
 ## Coordinates and orientation
@@ -1672,7 +1667,9 @@ Hardware panel drivers have their own orientation setters
 (`dgx_st7789_orientation()`, `dgx_gc9a01_orientation()` and so on) that
 reprogram the controller's scan direction. Text rendering takes an explicit
 `dgx_output_orientation_t`, which means you can draw rotated or mirrored text
-on any screen without touching the framebuffer layout. Handwritten text is
+on any screen without touching the framebuffer layout. Turned text is the
+upright text turned around the top left corner of the pixel `x`, `y` it is
+drawn at, so its letters keep their places along the line. Handwritten text is
 the exception: it has no orientation parameter and is always written left to
 right, see [Known gaps](#known-gaps).
 
@@ -1683,8 +1680,8 @@ their canonical layout.
 
 ## Build options
 
-Everything is wired through Kconfig. Toggle only what you need; drivers pull
-in the transports they require.
+Everything is wired through Kconfig. Toggle only what you need, a driver
+with its transport: see [Getting started](#getting-started).
 
 | Option | Adds | Notes |
 | --- | --- | --- |
@@ -1717,8 +1714,7 @@ in the transports they require.
 The two `IN_IRAM` options are for a handwritten text on an ESP32. There code
 and the tables of a font are read from flash through one cache of two ways,
 and the time of the same text changes from build to build with where the
-linker has put the font: going through its strokes takes up to twice as
-long, drawing it up to a third longer. With the code in IRAM it does not.
+linker has put the font. With the code in IRAM it does not.
 IRAM of an ESP32 is no part of the heap, but there are 128 KB of it and a
 program with Wi-Fi leaves a few; see
 [docs/pen-en.md](docs/pen-en.md#the-flash-cache).
@@ -1726,8 +1722,8 @@ program with Wi-Fi leaves a few; see
 `dgx_lcd_init.c`, the drawing and font code, handwritten fonts included, and
 everything in `src/fonts/` are always compiled. Fonts are picked up via a `file(GLOB)` on
 `src/fonts/*.c`, so the linker keeps only the font objects your application
-actually references. If you add or remove a font file, rerun CMake configure
-once.
+actually references. The glob is a configure dependency, so a font file added
+or removed is picked up by the next build.
 
 ## Known gaps
 
@@ -1780,9 +1776,11 @@ and smoothing against the shaders it comes from, Bezier curves, handwritten font
 morphing, the arc gauge) has host tests built with gcc against small ESP-IDF
 stubs and run under ASan/UBSan. A few pieces that do depend on the platform
 are tested there too, each against a model of what is on its wires: the
-8-bit parallel bus with both drivers of IDF under it, the ST7920 driver in
-all its orientations, the ILI9341 driver with the scroll of its panel, and
-the SSD1309, SH1106 and SSD1351 drivers against models of their controllers:
+8-bit parallel bus with both drivers of IDF under it, the SPI and QSPI buses
+with the SPI master driver of IDF under them, the ST7920 and ST7789 drivers
+in all their orientations, the ILI9341 driver with the scroll of its panel,
+and the SSD1309, SH1106 and SSD1351 drivers against models of their
+controllers:
 
 ```sh
 make -C test/host
@@ -1824,7 +1822,7 @@ display and on a virtual screen and compares the two pixel by pixel.
 
 ```
 include/                 public headers
-  bus/                   transport interfaces (SPI, I2C, P8, DSI)
+  bus/                   transport interfaces (SPI, QSPI, I2C, P8, DSI)
   drivers/               panel drivers + virtual screens
   fonts/                 generated font headers
 src/                     implementations, by topic
@@ -1839,7 +1837,8 @@ src/                     implementations, by topic
   morph/                 the dot morphing framework and its renderers
   bus/                   ESP32 bus backends and the frame buffer of a DSI display
   drivers/               panel drivers
-  fonts/                 generated font sources (glob-built)
+  fonts/                 generated font sources (glob-built), each with the notice of the font it was made from;
+                         licenses/ holds the texts of their licenses
 font2c/                  offline TTF/BDF -> C font generator, and dgx_fonts.py, which makes a program's fonts from its needs
 font-editor/             the editor of the glyphs of a font2c font, in the browser; its fixes are patches for font2c
 project_include.cmake    dgx_font_need() and the other font functions for a program's CMakeLists
@@ -1860,3 +1859,7 @@ See [CHANGES.md](CHANGES.md) for the release history.
 ## License
 
 Copyright (c) 2021-2026 Anton Petrusevich. See [LICENSE](LICENSE).
+
+The fonts in `src/fonts/` are under the licenses of the fonts they were made
+from: [src/fonts/README.md](src/fonts/README.md) names each, and
+[src/fonts/licenses](src/fonts/licenses) holds their texts.

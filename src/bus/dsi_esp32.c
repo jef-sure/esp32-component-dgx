@@ -65,6 +65,23 @@
 #endif
 
 /*
+ * What a finished picture lacks may be copied after the display has taken
+ * it, started from two interrupts: the one where a frame ends and that of
+ * the 2D DMA. With CONFIG_LCD_DSI_ISR_CACHE_SAFE or
+ * CONFIG_DMA2D_ISR_IRAM_SAFE they run while the cache of the flash is off,
+ * as it is while the flash is written, and the functions of the 2D DMA are
+ * in IRAM only with CONFIG_DMA2D_OPERATION_FUNC_IN_IRAM. Without it nothing
+ * is left for those interrupts: a picture is given all it lacks when it is
+ * finished, as at 24 bits.
+ */
+#if (defined(CONFIG_LCD_DSI_ISR_CACHE_SAFE) || defined(CONFIG_LCD_DSI_ISR_IRAM_SAFE) || defined(CONFIG_DMA2D_ISR_IRAM_SAFE)) && \
+    !defined(CONFIG_DMA2D_OPERATION_FUNC_IN_IRAM)
+#define DGX_DSI_LATE_FROM_ISR 0
+#else
+#define DGX_DSI_LATE_FROM_ISR 1
+#endif
+
+/*
  * The pixel processing accelerator of the chip fills a rectangle of a
  * picture with a color past the processor and its cache, four times as fast.
  * This one has a public interface.
@@ -116,6 +133,17 @@
 #define DGX_DSI_SHOW_WEIGHT (CONFIG_CACHE_L2_CACHE_SIZE / 4)
 #else
 #define DGX_DSI_SHOW_WEIGHT (32 * 1024)
+#endif
+
+/*
+ * The cache takes the frame buffer in lines of this many bytes, the longer
+ * of its two levels: on the ESP32-P4 the L2 cache has lines of 64 or 128
+ * bytes, the L1 cache of 64.
+ */
+#ifdef CONFIG_CACHE_L2_CACHE_LINE_SIZE
+#define DGX_DSI_CACHE_LINE CONFIG_CACHE_L2_CACHE_LINE_SIZE
+#else
+#define DGX_DSI_CACHE_LINE 64u
 #endif
 
 typedef struct _dgx_dsi_bus_t dgx_dsi_bus_t;
@@ -221,8 +249,7 @@ struct _dgx_dsi_bus_t {
     esp_ldo_channel_handle_t  phy_power;
     dgx_fb_area_t             area; /* the frame buffer drawing goes into; fb is NULL until dgx_dsi_video_setup() */
     uint8_t                   data_lanes;
-    uint16_t                  lane_mbps;       /* the bit rate of a lane */
-    uint32_t                  pixel_clock_khz; /* the pixel clock the display was set up with, 0 before */
+    uint16_t                  lane_mbps; /* the bit rate of a lane */
     /*
      * With two frame buffers drawing goes into the one the display is not
      * reading. A batch of drawing ends with the display told to read that
@@ -253,6 +280,13 @@ struct _dgx_dsi_bus_t {
     bool                dma_undisturbed;
     uint32_t            dma_bytes;
     uint32_t            dma_started_us;
+    /*
+     * What the transfer under way asks of the 2D DMA. The driver keeps the
+     * address and reads it when it starts the transfer, which is later, in
+     * an interrupt, when other users of the 2D DMA hold the channels: so it
+     * is kept here, as that of a piece left for later is.
+     */
+    dma2d_trans_config_t dma_config;
 #endif
 #if DGX_DSI_PPA_FILL
     /* the accelerator that fills rectangles; NULL when there is none: the processor fills then */
@@ -396,17 +430,13 @@ static IRAM_ATTR bool dgx_dsi_on_refresh(esp_lcd_panel_handle_t panel, esp_lcd_d
     dgx_dsi_bus_t *bus   = (dgx_dsi_bus_t *)user_ctx;
     uint32_t       now   = (uint32_t)esp_timer_get_time();
     BaseType_t     woken = pdFALSE;
-#if DGX_DSI_DMA2D
     /*
-     * The display has taken the frame buffer it was told: what the picture
-     * lacks goes into it ahead of its scan. Before the frame is counted: a
-     * task that sees the count finds the pieces taken.
-     */
-    if (bus->late) dgx_dsi_late_frame_end(bus, now);
-#endif
-    /*
-     * The count first: a task that reads the time and then the count, and
-     * finds the count as it was, has the time of that frame.
+     * The count first, as soon as can be: the display has taken the frame
+     * buffer for the next frame already, and a task on the other core that
+     * tells it of a picture meanwhile goes by the count, see
+     * DGX_FB_FLIP_SWITCH_US. And the count before the time: a task that
+     * reads the time and then the count, and finds the count as it was, has
+     * the time of that frame.
      */
     const uint32_t count   = ++bus->refreshes;
     bus->refresh_period_us = now - bus->refresh_us;
@@ -432,6 +462,15 @@ static IRAM_ATTR bool dgx_dsi_on_refresh(esp_lcd_panel_handle_t panel, esp_lcd_d
         bus->frames_from_us = now;
     }
     bus->refresh_us        = now;
+#if DGX_DSI_DMA2D
+    /*
+     * The display has taken the frame buffer it was told: what the picture
+     * lacks goes into it ahead of its scan. A task that sees the count
+     * before the pieces are taken here takes them itself, see
+     * dgx_dsi_late_moved().
+     */
+    if (bus->late) dgx_dsi_late_frame_end(bus, now);
+#endif
     xSemaphoreGiveFromISR(bus->refreshed, &woken);
     return woken == pdTRUE;
 }
@@ -748,16 +787,19 @@ static bool dgx_dsi_dma_start(dgx_dsi_bus_t *bus, const uint8_t *from, uint32_t 
         const uint32_t first_row = (uint32_t)((size_t)(to - bus->area.fb) / to_pitch);
         dgx_dsi_wait_scan_outside(bus, first_row, first_row + rows - 1u);
     }
-    static const dma2d_trans_config_t transfer = {.tx_channel_num = 1, .rx_channel_num = 1, .on_job_picked = dgx_dsi_dma_picked};
-    dma2d_trans_config_t              config   = transfer;
-    config.channel_flags = DMA2D_CHANNEL_FUNCTION_FLAG_SIBLING | (exchange ? DMA2D_CHANNEL_FUNCTION_FLAG_TX_CSC : 0u);
-    config.user_config   = bus;
+    bus->dma_config = (dma2d_trans_config_t){
+        .tx_channel_num = 1,
+        .rx_channel_num = 1,
+        .channel_flags  = DMA2D_CHANNEL_FUNCTION_FLAG_SIBLING | (exchange ? DMA2D_CHANNEL_FUNCTION_FLAG_TX_CSC : 0u),
+        .on_job_picked  = dgx_dsi_dma_picked,
+        .user_config    = bus,
+    };
     xSemaphoreTake(bus->dma_done, 0); /* nothing is left over from a transfer that was given up */
     /* a transfer with no piece being copied meanwhile tells how fast the 2D DMA is here */
     bus->dma_undisturbed = bus->late && !bus->late->left;
     bus->dma_bytes       = width * rows * bytes;
     bus->dma_started_us  = (uint32_t)esp_timer_get_time();
-    return dma2d_enqueue(bus->dma_pool, &config, bus->dma_trans) == ESP_OK;
+    return dma2d_enqueue(bus->dma_pool, &bus->dma_config, bus->dma_trans) == ESP_OK;
 }
 
 /* wait until what dgx_dsi_dma_start() has started is there */
@@ -848,6 +890,7 @@ static void dgx_dsi_dma_init(dgx_dsi_bus_t *bus)
 typedef struct {
     uint32_t period_us; /* how long a frame takes */
     uint32_t since_us;  /* the time since the end of the last frame, less than a period */
+    uint32_t now_us;    /* when the scan was looked at: `since_us` runs to it, and a wait counts from it */
     uint32_t enter_us;  /* when, counted from that end, the scan comes to the rows asked about */
     uint32_t leave_us;  /* and when it has read the last of them */
 } dgx_dsi_scan_t;
@@ -855,14 +898,16 @@ typedef struct {
 /* false when no frames are counted: the one-buffer way without the scan, or no display yet */
 static bool dgx_dsi_scan_rows(const dgx_dsi_bus_t *bus, uint32_t first, uint32_t last, dgx_dsi_scan_t *scan)
 {
+    const uint32_t now    = (uint32_t)esp_timer_get_time();
     const uint32_t period = bus->refresh_period_us;
-    uint32_t       since  = (uint32_t)esp_timer_get_time() - bus->refresh_us;
+    uint32_t       since  = now - bus->refresh_us;
     if (period < 1000u || period > 100000u || since > 2u * period) return false;
     if (since >= period) since -= period; /* the end of a frame is being counted right now */
     const uint64_t row_us_65536 = ((uint64_t)period << 16) / bus->lines_total; /* a row in 1/65536 us */
     const uint32_t first_row    = bus->lines_before + first;
     scan->period_us             = period;
     scan->since_us              = since;
+    scan->now_us                = now;
     scan->enter_us = first < bus->tuning.scan_lead ? 0u : (uint32_t)(((first_row - bus->tuning.scan_lead) * row_us_65536) >> 16);
     scan->leave_us = (uint32_t)(((bus->lines_before + last + 1u) * row_us_65536) >> 16);
     return true;
@@ -899,7 +944,7 @@ static bool dgx_dsi_wait_scan(dgx_dsi_bus_t *bus, uint32_t first, uint32_t last,
      * them, in this frame or in the next.
      */
     const uint32_t until = since < leave ? leave : leave + period;
-    dgx_dsi_wait_us(bus, bus->refresh_us + since, until - since);
+    dgx_dsi_wait_us(bus, scan.now_us, until - since);
     return true;
 }
 
@@ -950,7 +995,7 @@ static bool dgx_dsi_wait_scan_outside(dgx_dsi_bus_t *bus, uint32_t first, uint32
     /* the DMA or the accelerator takes a moment to start: the scan must not come to the rows within it */
     const uint32_t enter = scan.enter_us > bus->tuning.dma_start_us ? scan.enter_us - bus->tuning.dma_start_us : 0u;
     if (scan.since_us < enter || scan.since_us >= scan.leave_us) return true;
-    dgx_dsi_wait_us(bus, bus->refresh_us + scan.since_us, scan.leave_us - scan.since_us);
+    dgx_dsi_wait_us(bus, scan.now_us, scan.leave_us - scan.since_us);
     return true;
 }
 #endif
@@ -1005,8 +1050,15 @@ static IRAM_ATTR bool dgx_dsi_late_done(dma2d_channel_handle_t channel, dma2d_ev
     const uint32_t since_us  = now - bus->late->from_us;
     const uint32_t past_row  = bus->lines_before + part->top + part->rows - bus->tuning.scan_lead;
     if (period_us >= 1000u && (uint64_t)since_us * bus->lines_total >= (uint64_t)past_row * period_us) ++bus->late->behind;
+    /*
+     * The count first: once the last piece is marked copied, a task that
+     * waits for it finishes the next picture and sets new pieces, and the
+     * count read after that would start one of them before its time.
+     */
+    const uint32_t count = bus->late->count;
+    atomic_thread_fence(memory_order_seq_cst);
     bus->late->left = (uint8_t)(bus->late->left & ~(1u << piece));
-    if (piece + 1u < bus->late->count) dgx_dsi_late_start(bus, piece + 1u);
+    if (piece + 1u < count) dgx_dsi_late_start(bus, piece + 1u);
     BaseType_t woken = pdFALSE;
     xSemaphoreGiveFromISR(bus->late->step, &woken);
     return woken == pdTRUE;
@@ -1184,7 +1236,7 @@ static void dgx_dsi_late_now(dgx_dsi_bus_t *bus)
 static void dgx_dsi_late_moved(dgx_dsi_bus_t *bus)
 {
     if (!bus->late || !bus->late->count || !atomic_exchange(&bus->late->armed, 0u)) return;
-    /* no interrupt has taken them, as when no frames are sent */
+    /* no interrupt has taken them: no frames are sent, or the interrupt has counted the frame and not come to them yet */
     bus->late->left = 0;
     dgx_dsi_late_by_hand(bus, (1u << bus->late->count) - 1u);
     bus->late->count = 0;
@@ -1199,6 +1251,21 @@ static uint32_t dgx_dsi_late_take(void *context, uint32_t left, uint32_t top, ui
 {
     dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)context;
     if (bus->late->count == DGX_DSI_LATE_PIECES) return rows;
+    /*
+     * While a piece is copied, the processor reads the frame buffer it goes
+     * into for the tiles the other one lacks, and a tile beside the piece
+     * may share a line of the cache with it. Read before the copy is there,
+     * the line holds what was there before, and written back later, when
+     * something is drawn beside the piece, it brings that back over the
+     * copy. So a piece is left for later only when its rows begin and end
+     * on lines of the cache: always so with tiles 32 pixels wide at 16 bits,
+     * lines of 64 bytes and rows of a whole number of lines. Otherwise it
+     * is copied now.
+     */
+    const uint32_t  bytes = bus->area.pixel_bytes;
+    const uintptr_t edges = (uintptr_t)bus->frame[0] | (uintptr_t)bus->frame[1] | (uintptr_t)bus->area.fb_width * bytes | left * bytes |
+                            (left + width) * bytes;
+    if (edges % DGX_DSI_CACHE_LINE) return rows;
     /*
      * The display reads the first rows of a frame as soon as the frame
      * before has ended: nothing is ahead of it there, so those rows are
@@ -1421,10 +1488,12 @@ static bool dgx_dsi_write_rows(struct _dgx_bus_protocols_t *_bus, uint16_t left,
 /*
  * Two bands of internal RAM for `rows` rows of `row_bytes` each, as large
  * as DGX_DSI_INDEXED_BAND_BYTES, else half and a quarter of it; only when
- * none of them fits, wherever the allocator of the bus finds room, which is
- * slower. Returns the rows of a band, 0 with no memory at all.
+ * none of them fits, in the PSRAM, which is slower. The 2D DMA reads them:
+ * internal RAM it reaches, not the TCM or the RAM of the low-power part,
+ * which an allocation of internal memory may give when the rest is full.
+ * Returns the rows of a band, 0 with no memory at all.
  */
-static uint32_t dgx_dsi_indexed_bands(dgx_dsi_bus_t *bus, uint32_t row_bytes, uint32_t rows, uint8_t *band[2])
+static uint32_t dgx_dsi_indexed_bands(uint32_t row_bytes, uint32_t rows, uint8_t *band[2])
 {
     for (uint32_t bytes = DGX_DSI_INDEXED_BAND_BYTES;; bytes /= 2u) {
         const bool last      = bytes < DGX_DSI_INDEXED_BAND_BYTES / 4u + 1u;
@@ -1433,11 +1502,11 @@ static uint32_t dgx_dsi_indexed_bands(dgx_dsi_bus_t *bus, uint32_t row_bytes, ui
         if (band_rows > rows) band_rows = rows;
         const size_t size = (size_t)band_rows * row_bytes;
         if (!last) {
-            band[0] = (uint8_t *)heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-            band[1] = band[0] ? (uint8_t *)heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) : NULL;
+            band[0] = (uint8_t *)heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+            band[1] = band[0] ? (uint8_t *)heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA) : NULL;
         } else {
-            band[0] = bus->protocols.memory_allocator((uint32_t)size);
-            band[1] = band[0] ? bus->protocols.memory_allocator((uint32_t)size) : NULL;
+            band[0] = (uint8_t *)heap_caps_malloc_prefer(size, 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA, MALLOC_CAP_SPIRAM);
+            band[1] = band[0] ? (uint8_t *)heap_caps_malloc_prefer(size, 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA, MALLOC_CAP_SPIRAM) : NULL;
         }
         if (band[0] && band[1]) return band_rows;
         free(band[0]);
@@ -1475,7 +1544,7 @@ static bool dgx_dsi_write_indexed(struct _dgx_bus_protocols_t *_bus, uint16_t le
      * make and to move.
      */
     uint8_t       *band[2];
-    const uint32_t band_rows = dgx_dsi_indexed_bands(bus, row_bytes, rows, band);
+    const uint32_t band_rows = dgx_dsi_indexed_bands(row_bytes, rows, band);
     if (!band_rows) return false;
     const size_t band_bytes = (size_t)band_rows * row_bytes;
     uint8_t     *scratch    = bus->protocols.memory_allocator((uint32_t)dgx_fb_area_indexed_scratch(picture, columns));
@@ -1488,7 +1557,7 @@ static bool dgx_dsi_write_indexed(struct _dgx_bus_protocols_t *_bus, uint16_t le
     if (!told && (!esp_ptr_internal(band[0]) || !esp_ptr_internal(band[1]))) {
         told = true;
         ESP_LOGW(TAG, "no %u bytes of internal memory for a band of indices, the largest block is %u: the band is in the PSRAM, which is slower",
-                 (unsigned)band_bytes, (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+                 (unsigned)band_bytes, (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA));
     }
     if (bus->frames == 2) {
         dgx_dsi_draw_ready(bus);
@@ -1865,8 +1934,7 @@ bool dgx_dsi_video_setup(dgx_bus_protocols_t *_bus, const dgx_dsi_video_t *video
     bus->tuning.height      = video->height;
     bus->tuning.pixel_bytes = (uint8_t)(color_bits / 8u);
     if (two) bus->tile_shift_x = bus->tiles.shift_x; /* as wide as the panel made it */
-    bus->lines_total     = (uint16_t)(video->height + video->vsync_front_porch + video->vsync_pulse_width + video->vsync_back_porch);
-    bus->pixel_clock_khz = video->pixel_clock_khz;
+    bus->lines_total = (uint16_t)(video->height + video->vsync_front_porch + video->vsync_pulse_width + video->vsync_back_porch);
     {
         /* how much of what the lanes carry the pixels take, for dgx_dsi_tuning_text() */
         const uint64_t lanes_kbps = (uint64_t)bus->data_lanes * bus->lane_mbps * 1000u;
@@ -1900,9 +1968,10 @@ bool dgx_dsi_video_setup(dgx_bus_protocols_t *_bus, const dgx_dsi_video_t *video
              * display reads half as fast again, while the 2D DMA copies as
              * it does: the pieces fell behind the scan now and then. So
              * there everything a picture lacks is copied when it is
-             * finished.
+             * finished, and so it is where the interrupts may not start the
+             * 2D DMA, see DGX_DSI_LATE_FROM_ISR.
              */
-            if (color_bits == 16) dgx_dsi_late_init(bus);
+            if (color_bits == 16 && DGX_DSI_LATE_FROM_ISR) dgx_dsi_late_init(bus);
         }
     }
 #endif

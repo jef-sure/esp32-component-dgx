@@ -136,7 +136,9 @@ const glyph_t *dgx_font_find_glyph(uint32_t codePoint, dgx_font_t *font, int16_t
  * @param x,y         Baseline origin of the glyph.
  * @param codePoint   Unicode code point to draw.
  * @param color       Foreground color.
- * @param orientation Text orientation (see dgx_output_orientation_t).
+ * @param orientation Text orientation (see dgx_output_orientation_t): the
+ *                    upright glyph turned around the top left corner of
+ *                    pixel x, y.
  * @param scale       Integer scale factor (1 = native size).
  * @param font        Font accessor.
  * @param draw_func   Optional custom per-glyph draw callback (NULL for default).
@@ -172,7 +174,9 @@ int dgx_font_string_bounds(const char *str, dgx_font_t *font, int16_t *ycorner, 
  * @param x,y         Baseline origin of the first glyph.
  * @param str         UTF-8 string to draw.
  * @param color       Foreground color.
- * @param orientation Text orientation (see dgx_output_orientation_t).
+ * @param orientation Text orientation (see dgx_output_orientation_t): the
+ *                    upright text turned around the top left corner of
+ *                    pixel x, y.
  * @param scale       Integer scale factor (1 = native size).
  * @param font        Font accessor.
  * @param draw_func   Optional custom per-glyph draw callback (NULL for default).
@@ -229,7 +233,9 @@ dgx_font_symbol_morph_t *dgx_font_make_morph_struct(  //
 
 /**
  * @brief Destroy a morph descriptor created by dgx_font_make_morph_struct().
- * @param ms In/out pointer to the descriptor; set to NULL on return.
+ * @param ms In/out pointer to the descriptor; set to NULL on return. NULL
+ *           and a pointer to NULL are valid, as when the descriptor was not
+ *           made.
  */
 void dgx_font_make_morph_struct_destroy(dgx_font_symbol_morph_t **ms);
 

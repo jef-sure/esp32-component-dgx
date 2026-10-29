@@ -64,7 +64,7 @@ static void demo_splash(dgx_screen_t *screen)
     dgx_font_string_utf8_screen(screen, 14, 42, "DGX", ink, DgxOutputNormal, 1, DejaVuSansBook32(), NULL, NULL);
     dgx_font_string_utf8_screen(screen, 138, 40, "ILI9341", gold, DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
     dgx_font_string_utf8_screen(screen, 138, 64, "ESP32 SPI demo", ink, DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 304, 170, "graphics", cyan, DgxOutputRotate90CCW, 1, LiberationSansRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 304, 177, "graphics", cyan, DgxOutputRotate90CCW, 1, LiberationSansRegular12(), NULL, NULL);
 
     for (int x = 18; x < screen->width - 18; x += 32) {
         uint32_t color = (x / 32) % 3 == 0 ? cyan : ((x / 32) % 3 == 1 ? gold : rose);
@@ -87,8 +87,8 @@ static void demo_text(dgx_screen_t *screen)
     dgx_font_string_utf8_screen(screen, 12, 126, "RED", DGX_RED(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
     dgx_font_string_utf8_screen(screen, 62, 126, "GREEN", DGX_GREEN(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
     dgx_font_string_utf8_screen(screen, 132, 126, "BLUE", DGX_BLUE(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 12, 176, "rotated", demo_rgb(255, 128, 32), DgxOutputRotate90CCW, 1, LiberationSansRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 292, 176, "text", demo_rgb(255, 128, 32), DgxOutputRotate90CW, 1, LiberationSansRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 12, 183, "rotated", demo_rgb(255, 128, 32), DgxOutputRotate90CCW, 1, LiberationSansRegular12(), NULL, NULL);
+    dgx_font_string_utf8_screen(screen, 285, 176, "text", demo_rgb(255, 128, 32), DgxOutputRotate90CW, 1, LiberationSansRegular12(), NULL, NULL);
     demo_draw_footer(screen, "Text, colors, and font orientation");
 }
 

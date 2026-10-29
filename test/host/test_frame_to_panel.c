@@ -53,11 +53,19 @@ static bool  window_begun;   /* RAMWR has gone with pixels, and no command since
 static const uint8_t *in_place_from, *in_place_to; /* the pixels of the source: pieces from there came in place */
 static int   in_place;       /* pieces that came straight from the source, not through the bus buffer */
 
-/* the model's DMA reaches everything */
+/*
+ * The model's DMA reaches the memory below `dma_reach`, or all of it when that is NULL. It falls behind
+ * the wire on the next piece sent in place when `dma_falls_behind` is set, as DMA from PSRAM may: the
+ * panel gets something else than its pixels, and the DMA sends nothing in place from then on.
+ */
+static const uint8_t *dma_reach;
+static bool           dma_falls_behind, dma_late;
+static uint8_t        lost[DW * DH * 2];
+
 static bool bus_sends_from(struct _dgx_bus_protocols_t *bus, const void *pixels)
 {
-    (void)bus, (void)pixels;
-    return true;
+    (void)bus;
+    return !dma_late && (!dma_reach || (const uint8_t *)pixels < dma_reach);
 }
 static uint8_t pending_command;
 
@@ -91,7 +99,14 @@ static void bus_write_data(struct _dgx_bus_protocols_t *bus, const uint8_t *data
 
 static void bus_write_data_async(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t lenbits)
 {
-    if (data >= in_place_from && data < in_place_to) ++in_place;
+    if (data >= in_place_from && data < in_place_to) {
+        ++in_place;
+        if (dma_falls_behind) {
+            for (uint32_t i = 0; i < lenbits / 8u && i < sizeof(lost); ++i) lost[i] = (uint8_t)~data[i];
+            data             = lost;
+            dma_falls_behind = false, dma_late = true;
+        }
+    }
     /* pixels: with RAMWR held back they begin at the window, with no command they go on */
     if (pending_command == RAMWR) {
         bus_write_data(bus, data, lenbits);
@@ -115,6 +130,47 @@ static void bus_sync_write(struct _dgx_bus_protocols_t *bus)
 }
 
 static dgx_bus_protocols_t bus;
+
+/* a 16-bit virtual screen of the size of the panel, of pixels of any color */
+static dgx_screen_t *frame_made(void)
+{
+    dgx_screen_t *src = dgx_vscreen_init(DW, DH, 16, DgxScreenRGB);
+    for (int y = 0; y < DH; ++y)
+        for (int x = 0; x < DW; ++x) dgx_set_pixel(src, x, y, (uint32_t)rnd(0, 0xffff));
+    return src;
+}
+
+/* the panel behind a bus that sends pixels from where they lie, `src` the virtual screen they come from; free() it */
+static dgx_screen_t *in_place_panel(dgx_screen_t *src, uint8_t *buffer, size_t buffer_len)
+{
+    memset(&bus, 0, sizeof(bus));
+    bus.bus_type = DGX_BUS_QSPI;
+    bus.buffer = buffer, bus.buffer_len = buffer_len;
+    bus.write_command = bus_write_command;
+    bus.write_data = bus_write_data;
+    bus.write_data_async = bus_write_data_async;
+    bus.sync_write = bus_sync_write;
+    bus.sends_from = bus_sends_from;
+    window_begun = false;
+    in_place_from = ((dgx_vscreen_t *)src)->v_array, in_place_to = in_place_from + DW * DH * 2;
+    dgx_screen_with_bus_t *sbus = (dgx_screen_with_bus_t *)calloc(1, sizeof(dgx_screen_with_bus_t));
+    sbus->bus = &bus;
+    dgx_screen_t *lcd = &sbus->scr;
+    lcd->width = DW, lcd->height = DH, lcd->color_bits = 16, lcd->screen_subtype = DgxPhysicalScreenWithBus;
+    dgx_scr_init_slow_bus_optimized_funcs(lcd);
+    dgx_screen_with_bus_init_area(sbus, CASET, RASET, RAMWR, 0, DGX_SCREEN_AREA_PROTO_STD16);
+    for (int i = 0; i < DW * DH; ++i) panel[i] = MARK;
+    return lcd;
+}
+
+/* the pixels of the panel that are not those of the source */
+static int panel_wrong(dgx_screen_t *src)
+{
+    int wrong = 0;
+    for (int y = 0; y < DH; ++y)
+        for (int x = 0; x < DW; ++x) wrong += panel[x + y * DW] != dgx_get_pixel(src, x, y);
+    return wrong;
+}
 
 static dgx_screen_t *layer_made(void)
 {
@@ -220,26 +276,8 @@ int main(void)
     long in_place_wrong = 0, in_place_rounds = 0;
     int  in_place_expected = 0;
     for (int round = 0; round < 5000; ++round) {
-        dgx_screen_t *src = dgx_vscreen_init(DW, DH, 16, DgxScreenRGB);
-        for (int y = 0; y < DH; ++y)
-            for (int x = 0; x < DW; ++x) dgx_set_pixel(src, x, y, (uint32_t)rnd(0, 0xffff));
-        memset(&bus, 0, sizeof(bus));
-        bus.bus_type = DGX_BUS_QSPI;
-        bus.buffer = bus_buffer, bus.buffer_len = sizeof(bus_buffer);
-        bus.write_command = bus_write_command;
-        bus.write_data = bus_write_data;
-        bus.write_data_async = bus_write_data_async;
-        bus.sync_write = bus_sync_write;
-        bus.sends_from = bus_sends_from;
-        window_begun = false;
-        in_place_from = ((dgx_vscreen_t *)src)->v_array, in_place_to = in_place_from + DW * DH * 2;
-        dgx_screen_with_bus_t *sbus = (dgx_screen_with_bus_t *)calloc(1, sizeof(dgx_screen_with_bus_t));
-        sbus->bus = &bus;
-        dgx_screen_t *lcd = &sbus->scr;
-        lcd->width = DW, lcd->height = DH, lcd->color_bits = 16, lcd->screen_subtype = DgxPhysicalScreenWithBus;
-        dgx_scr_init_slow_bus_optimized_funcs(lcd);
-        dgx_screen_with_bus_init_area(sbus, CASET, RASET, RAMWR, 0, DGX_SCREEN_AREA_PROTO_STD16);
-        for (int i = 0; i < DW * DH; ++i) panel[i] = MARK;
+        dgx_screen_t *src = frame_made();
+        dgx_screen_t *lcd = in_place_panel(src, bus_buffer, sizeof(bus_buffer));
         /* the whole frame, then parts: whole rows, a single row, and any rectangle */
         dgx_vscreen_to_screen(lcd, 0, 0, src, 0u);
         ++in_place_expected;
@@ -252,16 +290,75 @@ int main(void)
             dgx_vscreen_region_to_screen(lcd, px, py, src, px, py, pw, ph, 0u);
             if (kind != 2 || pw == DW || ph == 1) ++in_place_expected;
         }
-        int wrong = 0;
-        for (int y = 0; y < DH; ++y)
-            for (int x = 0; x < DW; ++x) wrong += panel[x + y * DW] != dgx_get_pixel(src, x, y);
+        const int wrong = panel_wrong(src);
         if (wrong) {
             printf("in place: round %d: %d pixels wrong\n", round, wrong);
             ++in_place_wrong;
         }
         ++in_place_rounds;
         dgx_screen_destroy(&src);
-        free(sbus);
+        free(lcd);
+    }
+    /*
+     * A bus whose DMA reaches only a part of memory, here the first half of the
+     * source: a rectangle goes in place only when all of its bytes lie there,
+     * and through the halves when the last ones lie beyond.
+     */
+    for (int round = 0; round < 2000; ++round) {
+        dgx_screen_t *src = frame_made();
+        dgx_screen_t *lcd = in_place_panel(src, bus_buffer, sizeof(bus_buffer));
+        dgx_vscreen_to_screen(lcd, 0, 0, src, 0u);
+        ++in_place_expected;
+        dma_reach = in_place_from + DW * DH;
+        for (int part = 0; part < 6; ++part) {
+            const int kind = part % 2;
+            const int py = rnd(0, DH - 1), ph = kind ? 1 : rnd(1, DH - py);
+            const int px = kind ? rnd(0, DW - 1) : 0, pw = kind ? rnd(1, DW - px) : DW;
+            for (int y = py; y < py + ph; ++y)
+                for (int x = px; x < px + pw; ++x) panel[x + y * DW] = MARK;
+            dgx_vscreen_region_to_screen(lcd, px, py, src, px, py, pw, ph, 0u);
+            if (in_place_from + 2 * (py * DW + px + pw * ph) <= dma_reach) ++in_place_expected;
+        }
+        const int wrong = panel_wrong(src);
+        if (wrong) {
+            printf("in place, the DMA reaching half of it: round %d: %d pixels wrong\n", round, wrong);
+            ++in_place_wrong;
+        }
+        ++in_place_rounds;
+        dma_reach = NULL;
+        dgx_screen_destroy(&src);
+        free(lcd);
+    }
+    /*
+     * A bus whose DMA falls behind the wire on a rectangle sent in place, the
+     * whole frame or rows of it, and sends nothing in place after that: the
+     * rectangle is sent again through the copy, and so are those after it.
+     */
+    for (int round = 0; round < 2000; ++round) {
+        dgx_screen_t *src = frame_made();
+        dgx_screen_t *lcd = in_place_panel(src, bus_buffer, sizeof(bus_buffer));
+        dma_late          = false;
+        dma_falls_behind  = round % 2 == 0;
+        dgx_vscreen_to_screen(lcd, 0, 0, src, 0u);
+        ++in_place_expected;
+        dma_falls_behind = !dma_late;
+        for (int part = 0; part < 4; ++part) {
+            const int py = rnd(0, DH - 1), ph = rnd(1, DH - py);
+            for (int y = py; y < py + ph; ++y)
+                for (int x = 0; x < DW; ++x) panel[x + y * DW] = MARK;
+            const bool reached = !dma_late;
+            dgx_vscreen_region_to_screen(lcd, 0, py, src, 0, py, DW, ph, 0u);
+            in_place_expected += reached;
+        }
+        const int wrong = panel_wrong(src);
+        if (wrong || !dma_late) {
+            printf("in place, the DMA falling behind: round %d: %d pixels wrong%s\n", round, wrong, dma_late ? "" : ", it never fell behind");
+            ++in_place_wrong;
+        }
+        ++in_place_rounds;
+        dma_late = dma_falls_behind = false;
+        dgx_screen_destroy(&src);
+        free(lcd);
     }
     in_place_from = in_place_to = NULL;
     if (in_place != in_place_expected) printf("in place: %d pieces came from the source, %d rectangles were to come so\n", in_place, in_place_expected);

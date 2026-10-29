@@ -1,3 +1,12 @@
+/*
+ * Droid Sans Regular 1.00, DroidSans.ttf of Google, made for Android.
+ * Digitized data copyright (c) 2007, Google Corporation.
+ * Licensed under the Apache License, Version 2.0: licenses/Apache-2.0.txt
+ * beside this file.
+ * Changed by DGX: made into this C file by font2c at 9 px, with 75 glyphs
+ * redrawn by hand in the font editor of DGX and their advances fitted, as
+ * DroidSansRegular9.patch.json beside this file has them.
+ */
 #include "dgx_font.h"
 /* font2c: DroidSansRegular9, "Droid Sans" "Regular" at 9 px */
 static const uint8_t bitmaps[] = {

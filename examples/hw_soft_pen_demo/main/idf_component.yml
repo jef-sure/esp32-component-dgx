@@ -1,0 +1,10 @@
+dependencies:
+  # DGX of the repository this example lies in. A copy of the example outside
+  # the repository has nothing at override_path: without that line, jef-sure/dgx
+  # comes from the ESP Component Registry. "require: no": main requires every
+  # component anyway, and a checkout of DGX keeps working whatever the name of
+  # its directory, which IDF makes the name of the component.
+  jef-sure/dgx:
+    version: "*"
+    override_path: "../../../"
+    require: no

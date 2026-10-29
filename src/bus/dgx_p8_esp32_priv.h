@@ -3,14 +3,17 @@
 #include <stdbool.h>
 #include "bus/dgx_p8_esp32.h"
 #include "esp_lcd_panel_io.h"
+/* from IDF 5.3 the i80 bus has a header of its own; in IDF 5.2 its handle is in esp_lcd_panel_io.h */
+#if __has_include("esp_lcd_io_i80.h")
 #include "esp_lcd_io_i80.h"
+#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
 typedef struct _dgx_p8_bus_t {
     dgx_bus_protocols_t       protocols;
     esp_lcd_i80_bus_handle_t  i80_bus;
-    bool                      owns_i80_bus; /* the bus was created by DGX, shared by its displays on it */
+    bool                      owns_i80_bus; /* the bus was created by DGX for this display */
     esp_lcd_panel_io_handle_t io;
     SemaphoreHandle_t         transfer_done_sem;
     bool                      transfer_pending;

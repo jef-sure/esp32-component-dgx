@@ -117,10 +117,11 @@ void dgx_bw_set_pixel(dgx_screen_t *scr_, int x, int y, uint32_t color)
 {
     dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)scr_;
     if (x < 0 || y < 0 || x >= scr->base.width || y >= scr->base.height) return;
-    uint8_t  page = (uint16_t)y >> 3;
-    uint8_t  bit  = y & 7;
-    uint8_t  mask = 1 << bit;
-    uint8_t *pb   = scr->v_array + page * scr->base.width + x;
+    /* the page in an int: a screen of more than 256 pages, 2048 rows, has them too */
+    const int page = y >> 3;
+    uint8_t   bit  = y & 7;
+    uint8_t   mask = 1 << bit;
+    uint8_t  *pb   = scr->v_array + (size_t)page * (size_t)scr->base.width + (size_t)x;
     if (color) *pb |= mask;
     else *pb &= ~mask;
     dgx_screen_touch(scr_, x, x, y, y);
@@ -130,10 +131,10 @@ uint32_t dgx_bw_get_pixel(dgx_screen_t *scr_, int x, int y)
 {
     dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)scr_;
     if (x < 0 || y < 0 || x >= scr->base.width || y >= scr->base.height) return 0;
-    uint8_t  page = (uint16_t)y >> 3;
-    uint8_t  bit  = y & 7;
-    uint8_t  mask = 1 << bit;
-    uint8_t *pb   = scr->v_array + page * scr->base.width + x;
+    const int page = y >> 3;
+    uint8_t   bit  = y & 7;
+    uint8_t   mask = 1 << bit;
+    uint8_t  *pb   = scr->v_array + (size_t)page * (size_t)scr->base.width + (size_t)x;
     return !!(*pb & mask);
 }
 
@@ -196,9 +197,9 @@ void dgx_bw_fast_vline(dgx_screen_t *scr_, int x, int y, int h, uint32_t color)
     }
     if (y + h > scr->base.height) h = scr->base.height - y;
     if (h <= 0) return;
-    int      y2   = y + h - 1;
-    uint8_t  page = (uint16_t)y >> 3;
-    uint8_t *pb   = scr->v_array + page * scr->base.width + x;
+    int       y2   = y + h - 1;
+    const int page = y >> 3;
+    uint8_t  *pb   = scr->v_array + (size_t)page * (size_t)scr->base.width + (size_t)x;
     for (int yl = y; yl <= y2; yl += 8 - (yl & 7), pb += scr->base.width) {
         uint8_t mask = 0xff << (yl & 7);
         if ((yl & ~7) == (y2 & ~7)) mask &= 0xff >> (7 - (y2 & 7));
@@ -211,6 +212,9 @@ void dgx_bw_fast_vline(dgx_screen_t *scr_, int x, int y, int h, uint32_t color)
 void dgx_bw_fill_rectangle(dgx_screen_t *scr_, int x, int y, int w, int h, uint32_t color)
 {
     dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)scr_;
+    /* a negative width or height goes to the left of x or up from y, as on a display behind a bus */
+    if (w < 0) x += w, w = -w;
+    if (h < 0) y += h, h = -h;
     /* a column and a row first: lines and circles are made of them, and each has a shorter way than a rectangle */
     if (w == 1) {
         dgx_bw_fast_vline(scr_, x, y, h, color);
@@ -234,7 +238,7 @@ void dgx_bw_fill_rectangle(dgx_screen_t *scr_, int x, int y, int w, int h, uint3
         dgx_screen_touch(scr_, x, x + w - 1, y, y);
         return;
     }
-    if (w < 0 || x + w < 0 || x >= scr->base.width || h < 0 || y + h < 0 || y >= scr->base.height) return;
+    if (x + w < 0 || x >= scr->base.width || y + h < 0 || y >= scr->base.height) return;
     if (x < 0) {
         w = x + w;
         x = 0;

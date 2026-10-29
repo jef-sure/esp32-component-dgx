@@ -59,21 +59,27 @@ typedef enum {
     /**
      * One frame buffer and no memory beyond it; what is put to the display
      * waits for the scan of the display to be out of the way. A compromise:
-     * a picture that comes from a virtual screen is seen whole, drawing on
-     * the display itself only in part.
+     * a picture that comes from a virtual screen by the 2D DMA is seen
+     * whole, one the processor sends only when it is small, drawing on the
+     * display itself only in part.
      *
      * A part of a virtual screen that goes by the 2D DMA and a large
      * rectangle filled by the accelerator are started when the scan is not
      * in their rows. Both write faster than the display reads and stay
      * ahead of the scan, so the part or the rectangle is seen whole, the
-     * whole screen as well.
+     * whole screen as well. A 16-bit part goes so when it is 16 KB or more,
+     * the screen is neither mirrored nor turned, and no overlay layer lies
+     * over it; an 8-bit one through a table of colors goes in bands the
+     * processor makes, and is whole as long as it makes them faster than
+     * the display reads.
      *
      * Pixels the processor sends through the window (small parts, a turned
-     * screen, 24-bit color, text) wait until the scan has left the rows of
-     * the window, when they can be written before it is back. That holds
-     * for about 160 rows of 1024 pixels; a larger window goes as it comes,
-     * as with DgxDsiOneFrame. What a batch has left in the cache of the
-     * chip is brought out the same way at its end.
+     * screen, 24-bit color, a part under an overlay layer, text, every part
+     * without CONFIG_DGX_DSI_PRIVATE_DMA2D) wait until the scan has left
+     * the rows of the window, when they can be written before it is back.
+     * That holds for about 160 rows of 1024 pixels; a larger window goes as
+     * it comes and may tear, as with DgxDsiOneFrame. What a batch has left
+     * in the cache of the chip is brought out the same way at its end.
      *
      * Single pixels, lines and small rectangles drawn on the display itself
      * are not held back. And a batch is not shown as one: of many tall

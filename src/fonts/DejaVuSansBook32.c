@@ -1,3 +1,15 @@
+/*
+ * DejaVu Sans Book 2.37, DejaVuSans.ttf of the DejaVu fonts,
+ * https://dejavu-fonts.github.io/.
+ * Copyright (c) 2003 by Bitstream, Inc. All Rights Reserved.
+ * Copyright (c) 2006 by Tavmjong Bah. All Rights Reserved.
+ * DejaVu changes are in public domain.
+ * Bitstream Vera is a trademark of Bitstream, Inc.
+ * Licensed under the license of the DejaVu fonts, the Bitstream Vera and
+ * Arev licenses: licenses/DejaVu-LICENSE.txt beside this file.
+ * Changed: made into this C file by font2c of DGX at 32 px, the characters
+ * U+0020 to U+007E.
+ */
 #include "dgx_font.h"
 /* font2c: DejaVuSansBook32, "DejaVu Sans" "Book" at 32 px */
 static const uint8_t bitmaps[] = {

@@ -548,6 +548,31 @@ int main(void)
     }
     CHECK(differ == 0);
     pen_arc(ink, 80, 50, 0, 360, 1, true);
+    /*
+     * An angle a hair below 0, as a float stepped down to 0 or atan2f() of a point just under the axis
+     * gives: the ray that goes right. The arc from it is the arc from 0, not the whole ellipse and a
+     * quarter more, and the arc to it is the arc to 0, not nothing.
+     */
+    dgx_screen_t     *hair_screen = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
+    static const float hairs[]    = {-1e-5f, -5.7e-6f, -1e-9f};
+    for (unsigned i = 0; i < sizeof(hairs) / sizeof(hairs[0]); ++i) {
+        for (int soft = 0; soft < 2; ++soft) {
+            const int pen = soft ? DGX_PEN_SOFT | 3 : 3;
+            dgx_fill_rectangle(ink, 0, 0, W, H, 0);
+            dgx_fill_rectangle(hair_screen, 0, 0, W, H, 0);
+            dgx_draw_arc(ink, CX, CY, 60, 40, 0, 90, pen, 255);
+            dgx_draw_arc(hair_screen, CX, CY, 60, 40, hairs[i], 90, pen, 255);
+            CHECK(dgx_get_pixel(ink, CX + 60, CY - 1) == 255);
+            CHECK(memcmp(((dgx_vscreen_t *)ink)->v_array, ((dgx_vscreen_t *)hair_screen)->v_array, W * H) == 0);
+            dgx_fill_rectangle(ink, 0, 0, W, H, 0);
+            dgx_fill_rectangle(hair_screen, 0, 0, W, H, 0);
+            dgx_draw_arc(ink, CX, CY, 60, 40, -90, 0, pen, 255);
+            dgx_draw_arc(hair_screen, CX, CY, 60, 40, -90, hairs[i], pen, 255);
+            CHECK(dgx_get_pixel(ink, CX + 60, CY + 1) == 255);
+            CHECK(memcmp(((dgx_vscreen_t *)ink)->v_array, ((dgx_vscreen_t *)hair_screen)->v_array, W * H) == 0);
+        }
+    }
+    dgx_screen_destroy(&hair_screen);
     free(arc_points);
     dgx_screen_destroy(&ink);
     dgx_screen_destroy(&colors);

@@ -162,8 +162,20 @@ static void dgx_texture_span(dgx_texture_ctx_t *ctx, int y, const dgx_texture_ed
         ctx->win_x0 = x0;
         ctx->win_x1 = x1;
     }
-    ctx->win_y = y + 1;
-    dst->write_area(dst, ctx->row, (uint32_t)count * ctx->pixel_bits);
+    /*
+     * Pixels that share bytes may end a row inside a byte, and the next row cannot go on from there: it opens
+     * a window of its own. A display behind a bus takes whole bytes, and 12-bit pixels go to one: an odd count
+     * of them goes with the rest of its last byte, half a pixel that is never finished, or a bus that sends the
+     * bits as they are counted cuts the last pixel short. A screen in memory takes no pixel of that half.
+     */
+    uint32_t lenbits = (uint32_t)count * ctx->pixel_bits;
+    if (lenbits % 8u) {
+        if (ctx->pixel_bits == 12u) lenbits += 4u;
+        ctx->win_y = INT32_MIN;
+    } else {
+        ctx->win_y = y + 1;
+    }
+    dst->write_area(dst, ctx->row, lenbits);
 }
 
 void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_screen_t *texture, int tx, int ty, int tw, int th)

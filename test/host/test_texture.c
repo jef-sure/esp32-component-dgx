@@ -5,6 +5,8 @@
 #include "dgx_bits.h"
 #include "dgx_bw_screen.h"
 #include "dgx_draw.h"
+#include "dgx_screen_functions.h"
+#include "dgx_screen_with_bus.h"
 #include "drivers/vscreen.h"
 
 #define TEX_W 8
@@ -255,9 +257,97 @@ static void test_far(void)
     dgx_screen_destroy(&tex), dgx_screen_destroy(&scr);
 }
 
+/*
+ * A display of 12 bits a pixel behind a bus, as an ST7789 can be. A window
+ * starts the bytes the panel takes its pixels from, one after another, and
+ * only whole bytes reach it: an SPI panel drops a byte the chip select cuts
+ * short. What it shows has to be what a virtual screen of 12 bits gets,
+ * rows of an odd count of pixels among them.
+ */
+#define PANEL_W 40
+#define PANEL_H 30
+
+static uint8_t  panel_bytes[PANEL_W * PANEL_H * 2];
+static uint32_t panel_got;
+static int      panel_left, panel_right, panel_top, panel_bottom;
+static uint32_t panel[PANEL_H][PANEL_W];
+
+/* the pixels of the bytes taken since the window, put where the window has them; past its end it begins again */
+static void panel_take(void)
+{
+    const int width = panel_right - panel_left + 1, height = panel_bottom - panel_top + 1;
+    const int n     = (int)(panel_got * 8u / 12u);
+    for (int i = 0; i < n; ++i) {
+        uint8_t *lp = panel_bytes + i / 2 * 3 + (i & 1); /* an odd pixel starts in the middle byte of its pair */
+        panel[panel_top + i / width % height][panel_left + i % width] = dgx_read_buf_value(12, &lp, i & 1);
+    }
+    panel_got = 0;
+}
+
+static void panel_set_area(dgx_screen_t *scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
+{
+    (void)scr;
+    panel_take();
+    panel_left = left, panel_right = right, panel_top = top, panel_bottom = bottom;
+}
+
+static void panel_write_area(dgx_screen_t *scr, uint8_t *data, uint32_t lenbits)
+{
+    (void)scr;
+    const uint32_t bytes = lenbits / 8u;
+    CHECK(panel_got + bytes <= sizeof(panel_bytes));
+    if (panel_got + bytes > sizeof(panel_bytes)) return;
+    memcpy(panel_bytes + panel_got, data, bytes);
+    panel_got += bytes;
+}
+
+static void panel_wait(dgx_screen_t *scr)
+{
+    (void)scr;
+}
+
+static void test_panel_12(void)
+{
+    dgx_screen_t *tex = dgx_vscreen_init(TEX_W, TEX_H, 12, DgxScreenRGB);
+    for (int y = 0; y < TEX_H; ++y)
+        for (int x = 0; x < TEX_W; ++x) dgx_set_pixel(tex, x, y, texel(x, y) << 4); /* a 12-bit color is the upper 12 bits of 16 */
+    static uint8_t        buffer[256];
+    dgx_bus_protocols_t   bus  = {.buffer = buffer, .buffer_len = sizeof(buffer)};
+    dgx_screen_with_bus_t sbus = {.bus = &bus};
+    dgx_screen_t         *lcd  = &sbus.scr;
+    lcd->width = PANEL_W, lcd->height = PANEL_H, lcd->color_bits = 12, lcd->screen_subtype = DgxPhysicalScreenWithBus;
+    dgx_scr_init_slow_bus_optimized_funcs(lcd);
+    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait_buffer = panel_wait;
+    dgx_screen_t *ref = dgx_vscreen_init(PANEL_W, PANEL_H, 12, DgxScreenRGB);
+    /* rectangles of an odd and of an even width, a trapezoid, a diamond and a quad over the edges */
+    static const dgx_point_2d_t quads[][4] = {
+        {{5, 5}, {9, 5}, {9, 7}, {5, 7}},
+        {{3, 4}, {10, 4}, {10, 12}, {3, 12}},
+        {{4, 5}, {35, 5}, {25, 24}, {14, 24}},
+        {{20, 2}, {32, 14}, {20, 26}, {8, 14}},
+        {{-4, -3}, {35, 1}, {30, 26}, {2, 20}},
+    };
+    for (size_t q = 0; q < sizeof(quads) / sizeof(quads[0]); ++q) {
+        memset(panel, 0, sizeof(panel));
+        panel_got = 0, panel_left = panel_right = panel_top = panel_bottom = 0;
+        dgx_fill_rectangle(ref, 0, 0, PANEL_W, PANEL_H, 0);
+        dgx_draw_texture_quad(lcd, quads[q], tex, 0, 0, TEX_W, TEX_H);
+        dgx_draw_texture_quad(ref, quads[q], tex, 0, 0, TEX_W, TEX_H);
+        panel_take();
+        int wrong = 0;
+        for (int y = 0; y < PANEL_H; ++y)
+            for (int x = 0; x < PANEL_W; ++x) wrong += panel[y][x] != ref->get_pixel(ref, x, y);
+        if (wrong) fprintf(stderr, "quad %u on a 12-bit panel: %d pixels wrong\n", (unsigned)q, wrong);
+        CHECK(wrong == 0);
+    }
+    dgx_screen_destroy(&ref);
+    dgx_screen_destroy(&tex);
+}
+
 int main(void)
 {
     test_far();
+    test_panel_12();
     test_copy_and_scale(8);
     test_copy_and_scale(16);
     test_copy_and_scale(18); /* three bytes a pixel, as 24 */

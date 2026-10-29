@@ -110,18 +110,19 @@ static lit_box_t lit_box(dgx_screen_t *scr)
  * Text turned by the font code is the same text drawn upright and turned by
  * a transfer, wherever it lies: with DgxOutputRotate90CW the left column of
  * a letter is its top row, and the text goes down. Two equal letters show
- * the way it goes on, which a letter alone does not.
+ * the way it goes on, which a letter alone does not; two letters of other
+ * boxes show that each is turned around the pen, not inside its own box.
  */
-static void check_turns(const char *name, dgx_font_t *font, const char *text)
+static void check_turns(const char *name, dgx_font_t *font, const char *text, int scale)
 {
     dgx_screen_t *upright = dgx_vscreen_init(SIDE, SIDE, 16, DgxScreenRGB);
     dgx_screen_t *drawn   = dgx_vscreen_init(SIDE, SIDE, 16, DgxScreenRGB);
     dgx_screen_t *moved   = dgx_vscreen_init(SIDE, SIDE, 16, DgxScreenRGB);
     dgx_fill_rectangle(upright, 0, 0, SIDE, SIDE, 0);
-    dgx_font_string_utf8_screen(upright, SIDE / 2, SIDE / 2, text, 0xffff, DgxOutputNormal, 1, font, NULL, NULL);
+    dgx_font_string_utf8_screen(upright, SIDE / 2, SIDE / 2, text, 0xffff, DgxOutputNormal, scale, font, NULL, NULL);
     for (int o = DgxOutputNormal; o <= DgxOutputTransverse; ++o) {
         dgx_fill_rectangle(drawn, 0, 0, SIDE, SIDE, 0), dgx_fill_rectangle(moved, 0, 0, SIDE, SIDE, 0);
-        dgx_font_string_utf8_screen(drawn, SIDE / 2, SIDE / 2, text, 0xffff, (dgx_output_orientation_t)o, 1, font, NULL, NULL);
+        dgx_font_string_utf8_screen(drawn, SIDE / 2, SIDE / 2, text, 0xffff, (dgx_output_orientation_t)o, scale, font, NULL, NULL);
         dgx_vscreen_to_screen(moved, 0, 0, upright, DGX_VSCREEN_ORIENTED(o));
         const lit_box_t a = lit_box(drawn), b = lit_box(moved);
         int             wrong = a.width != b.width || a.height != b.height || a.width <= 0;
@@ -130,7 +131,7 @@ static void check_turns(const char *name, dgx_font_t *font, const char *text)
                 wrong += dgx_get_pixel(drawn, a.left + x, a.top + y) != dgx_get_pixel(moved, b.left + x, b.top + y);
         }
         if (wrong) {
-            fprintf(stderr, "%s, \"%s\" turned %d: not the upright text turned so\n", name, text, o);
+            fprintf(stderr, "%s, \"%s\" at scale %d turned %d: not the upright text turned so\n", name, text, scale, o);
             ++check_failures;
         }
     }
@@ -165,10 +166,19 @@ int main(void)
     check_advance("font0ss", font0ss(), "a\U0010FFFFb");
 
     /* fonts of rows of bits and of a stream of them, a letter with a descender */
-    check_turns("LiberationSansRegular12", LiberationSansRegular12(), "FF");
-    check_turns("LiberationSansRegular12", LiberationSansRegular12(), "gg");
-    check_turns("NotoMonoRegular28", NotoMonoRegular28(), "FF");
-    check_turns("NotoMonoRegular28", NotoMonoRegular28(), "gg");
+    check_turns("LiberationSansRegular12", LiberationSansRegular12(), "FF", 1);
+    check_turns("LiberationSansRegular12", LiberationSansRegular12(), "gg", 1);
+    check_turns("NotoMonoRegular28", NotoMonoRegular28(), "FF", 1);
+    check_turns("NotoMonoRegular28", NotoMonoRegular28(), "gg", 1);
+    /* letters of other boxes: a capital and a descender, a wide letter and a narrow one, a dot on the base line */
+    check_turns("LiberationSansRegular12", LiberationSansRegular12(), "Fg", 1);
+    check_turns("LiberationSansRegular12", LiberationSansRegular12(), "Fg", 2);
+    check_turns("LiberationSansRegular12", LiberationSansRegular12(), "mi", 1);
+    check_turns("NotoMonoRegular28", NotoMonoRegular28(), "F.", 1);
+    /* a font of dots is turned as a font of bitmaps is */
+    check_turns("CasusDotView", CasusDotView(), "11", 1);
+    check_turns("CasusDotView", CasusDotView(), "12", 1);
+    check_turns("CasusDotView", CasusDotView(), "12", 3);
 
     /* the advance is not always wanted */
     CHECK(dgx_font_find_glyph('A', TerminusTTFMedium12(), NULL) != NULL);

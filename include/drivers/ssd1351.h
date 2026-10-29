@@ -17,12 +17,16 @@ extern "C" {
  * @param color_bits Pixel depth in bits: 16 for RGB565, or 18 for 262k colors, sent through a buffer of
  *                   768 bytes the driver allocates.
  * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR).
- * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
+ * @return Newly allocated screen, or NULL on failure or another depth. Free with dgx_screen_destroy().
  */
 dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo);
 
 /**
  * @brief Reprogram the controller scan direction (rotation/mirroring).
+ *
+ * (DgxScreenLeftRight, DgxScreenTopBottom, false) is the upright picture the
+ * panel starts in, as Adafruit_SSD1351 and the Waveshare demo start theirs.
+ *
  * @param _scr    Screen created by dgx_ssd1351_init().
  * @param dir_x   DgxScreenLeftRight or DgxScreenRightLeft.
  * @param dir_y   DgxScreenTopBottom or DgxScreenBottomTop.

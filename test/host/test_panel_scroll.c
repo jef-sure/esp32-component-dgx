@@ -174,9 +174,13 @@ int main(void)
                                .sync_write       = bus_sync,
                                .buffer           = bus_buffer,
                                .buffer_len       = sizeof(bus_buffer)};
+    /* the controller has no 12-bit pixels: no screen, and nothing is sent */
+    CHECK(dgx_ili9341_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 12, DgxScreenRGB) == NULL && commands_sent == 0);
     dgx_screen_t *scr = dgx_ili9341_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 16, DgxScreenRGB);
     CHECK(scr != NULL);
     if (!scr) CHECK_DONE();
+    /* there is no backlight pin to switch */
+    CHECK(dgx_ili9341_backlight(scr, true) == ESP_ERR_NOT_SUPPORTED);
     CHECK(!dgx_screen_is_readable(scr));
     dgx_screen_t *picture = dgx_vscreen_init(97, 61, 16, DgxScreenRGB);
     for (int y = 0; y < picture->height; ++y) {

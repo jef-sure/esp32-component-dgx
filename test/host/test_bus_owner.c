@@ -3,11 +3,12 @@
  * src/bus/i2c_esp32.c and src/bus/p8_esp32.c, against drivers of IDF that
  * count what is made and deleted.
  *
- * A display made by dgx_i2c_init() or dgx_p8_init() is on a bus DGX makes:
- * two displays on one port, or on the same pins, share it, and it is deleted
- * with the last of them, unless the program has put a device of its own on
- * it. A display made by ..._init_on_bus() is on the program's bus, which DGX
- * never deletes.
+ * A display made by dgx_i2c_init() or dgx_p8_init() is on a bus DGX makes.
+ * Two displays on one I2C port share it, and it is deleted with the last of
+ * them, unless the program has put a device of its own on it. An I80 bus
+ * takes one display and is deleted with it: the driver of IDF does not keep
+ * two panels on one bus apart. A display made by ..._init_on_bus() is on the
+ * program's bus, which DGX never deletes.
  */
 #include <stdbool.h>
 #include <stdint.h>
@@ -194,17 +195,24 @@ static void test_i2c(void)
 
 static void test_p8(void)
 {
-    /* two displays on the same data, WR and DC pins with their own CS: one bus, deleted with the second */
+    /* a display on a bus DGX creates for it */
     dgx_bus_protocols_t *a = dgx_p8_init(1, 2, 3, 4, 5, 6, 7, 8, 9, GPIO_NUM_NC, 10, 11, 10000000);
-    dgx_bus_protocols_t *b = dgx_p8_init(1, 2, 3, 4, 5, 6, 7, 8, 9, GPIO_NUM_NC, 12, 11, 10000000);
-    CHECK(a && b && i80_buses_made == 1);
-    CHECK(((dgx_p8_bus_t *)a)->i80_bus == ((dgx_p8_bus_t *)b)->i80_bus);
-    /* a pin of that bus used otherwise is refused */
+    CHECK(a && i80_buses_made == 1);
+    /* a second display on the same pins with a CS of its own is refused, as is a pin of that bus used otherwise */
+    CHECK(dgx_p8_init(1, 2, 3, 4, 5, 6, 7, 8, 9, GPIO_NUM_NC, 12, 11, 10000000) == NULL);
     CHECK(dgx_p8_init(1, 2, 3, 4, 5, 6, 7, 8, 13, GPIO_NUM_NC, 14, 11, 10000000) == NULL && i80_buses_made == 1);
+    /* on pins of its own it gets a bus of its own */
+    dgx_bus_protocols_t *b = dgx_p8_init(21, 22, 23, 24, 25, 26, 27, 28, 29, GPIO_NUM_NC, 30, 31, 10000000);
+    CHECK(b && i80_buses_made == 2 && ((dgx_p8_bus_t *)a)->i80_bus != ((dgx_p8_bus_t *)b)->i80_bus);
+    /* each bus is deleted with its display, and its pins are free again */
     a->dispose(a);
-    CHECK(i80_buses_deleted == 0);
-    b->dispose(b);
     CHECK(i80_buses_deleted == 1);
+    b->dispose(b);
+    CHECK(i80_buses_deleted == 2);
+    a = dgx_p8_init(1, 2, 3, 4, 5, 6, 7, 8, 9, GPIO_NUM_NC, 12, 11, 10000000);
+    CHECK(a && i80_buses_made == 3);
+    a->dispose(a);
+    CHECK(i80_buses_deleted == 3);
 
     /* the program's bus is never deleted by DGX */
     esp_lcd_i80_bus_handle_t own;
@@ -213,7 +221,7 @@ static void test_p8(void)
     a = dgx_p8_init_on_bus(own, GPIO_NUM_NC, 10, 10000000);
     CHECK(a && own->ios == 1);
     a->dispose(a);
-    CHECK(own->ios == 0 && i80_buses_deleted == 1);
+    CHECK(own->ios == 0 && i80_buses_deleted == 3);
     CHECK(esp_lcd_del_i80_bus(own) == ESP_OK);
 }
 

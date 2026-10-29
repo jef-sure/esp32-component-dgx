@@ -218,6 +218,13 @@ int dgx_font_char_to_screen(            //
                 bottom  = t;
             }
             /*
+             * A flipped axis turns the glyph around the pen, not inside its own
+             * box: the box goes to the other side of the pen, or glyphs of other
+             * boxes would not stand on one line.
+             */
+            if (xdir == DgxScreenRightLeft) x_shift = -x_shift - (right + 1) * scale;
+            if (ydir == DgxScreenBottomTop) y_shift = -y_shift - (bottom + 1) * scale;
+            /*
              * Fast path: stamp a non-stream glyph into a 1-bpp linear virtual
              * screen via packed OR-blit. ~5-8x fewer writes than the per-pixel
              * loop. Conditions are kept narrow to preserve exact semantics of
@@ -303,6 +310,9 @@ int dgx_font_char_to_screen(            //
                         px    = py;
                         py    = t;
                     }
+                    /* a flipped axis puts the dot on the other side of the pen, as it does a bitmap */
+                    if (xdir == DgxScreenRightLeft) px = -px - scale;
+                    if (ydir == DgxScreenBottomTop) py = -py - scale;
                     vParams->dot_func(scr, x + px, y + py, vParams);
                 }
             } else {
@@ -314,6 +324,8 @@ int dgx_font_char_to_screen(            //
                         px    = py;
                         py    = t;
                     }
+                    if (xdir == DgxScreenRightLeft) px = -px - scale;
+                    if (ydir == DgxScreenBottomTop) py = -py - scale;
                     dgx_fill_rectangle(scr, x + px, y + py, scale, scale, color);
                 }
             }

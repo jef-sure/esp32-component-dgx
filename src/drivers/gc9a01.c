@@ -156,6 +156,10 @@ dgx_screen_t *dgx_gc9a01_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
         ESP_LOGE(TAG, "Display bus is not initialized");
         return NULL;
     }
+    if (color_bits != 12 && color_bits != 16 && color_bits != 18) {
+        ESP_LOGE(TAG, "%u-bit color is not set up by this driver, only 12, 16 and 18", (unsigned)color_bits);
+        return NULL;
+    }
 
     dgx_gc9a01_t *scr = (dgx_gc9a01_t *)calloc(1, sizeof(dgx_gc9a01_t));
 

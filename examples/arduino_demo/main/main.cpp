@@ -9,16 +9,17 @@
 #include "fonts/DejaVuSansBook32.h"
 #include "fonts/LiberationSansRegular12.h"
 
-// The display of a CYD. Arduino's own SPI object drives SPI3_HOST on an
-// ESP32 too: if the sketch needs it (an SD card, a touch controller), give
-// it the other host, SPIClass(HSPI).
-static const spi_host_device_t LCD_HOST = SPI3_HOST;
-static const gpio_num_t PIN_MOSI      = GPIO_NUM_23;
-static const gpio_num_t PIN_MISO      = GPIO_NUM_19;
-static const gpio_num_t PIN_CLK       = GPIO_NUM_18;
-static const gpio_num_t PIN_CS        = GPIO_NUM_5;
-static const gpio_num_t PIN_DC        = GPIO_NUM_16;
-static const gpio_num_t PIN_RST       = GPIO_NUM_17;
+// The display of a CYD, on SPI2_HOST; its panel has no reset line of its
+// own. Arduino's own SPI object drives SPI3_HOST on an ESP32, the host the
+// SD card slot of the CYD is wired to: the sketch may use it for the card,
+// the display keeps to the other host.
+static const spi_host_device_t LCD_HOST = SPI2_HOST;
+static const gpio_num_t PIN_MOSI      = GPIO_NUM_13;
+static const gpio_num_t PIN_MISO      = GPIO_NUM_12;
+static const gpio_num_t PIN_CLK       = GPIO_NUM_14;
+static const gpio_num_t PIN_CS        = GPIO_NUM_15;
+static const gpio_num_t PIN_DC        = GPIO_NUM_2;
+static const gpio_num_t PIN_RST       = GPIO_NUM_NC;
 static const gpio_num_t PIN_BACKLIGHT = GPIO_NUM_21;
 
 static dgx_screen_t *screen;

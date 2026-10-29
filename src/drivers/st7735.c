@@ -118,6 +118,10 @@ static const dgx_lcd_init_cmd_t st_init_cmds[] = {
 
 //Initialize the display
 dgx_screen_t* dgx_st7735_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo) {
+    if (color_bits != 12 && color_bits != 16 && color_bits != 18) {
+        ESP_LOGE(TAG, "%u-bit color is not set up by this driver, only 12, 16 and 18", (unsigned)color_bits);
+        return NULL;
+    }
     dgx_st7735_t *scr = (dgx_st7735_t*) calloc(1, sizeof(dgx_st7735_t));
     if (!scr) {
         ESP_LOGE(TAG, "Screen structure memory allocation failed");

@@ -7,10 +7,10 @@ drawing from DGX.
 
 The project is an ESP-IDF project with Arduino as a component:
 
-- `main/idf_component.yml` pulls in `espressif/arduino-esp32`; DGX comes from
-  the repository the example sits in (`EXTRA_COMPONENT_DIRS` in
-  `CMakeLists.txt`). In a project of your own, add `jef-sure/dgx` to the
-  same file instead.
+- `main/idf_component.yml` pulls in `espressif/arduino-esp32` and
+  `jef-sure/dgx`, DGX from the repository the example sits in by its
+  `override_path`. In a project of your own, name `jef-sure/dgx` there
+  without `override_path`.
 - `sdkconfig.defaults` sets the 1 ms tick Arduino needs and
   `CONFIG_AUTOSTART_ARDUINO`, so Arduino's `app_main()` calls `setup()` and
   `loop()`, and enables the DGX SPI bus and the ILI9341 driver.
@@ -18,11 +18,11 @@ The project is an ESP-IDF project with Arduino as a component:
 
 ## Wiring
 
-The pins of the CYD: MOSI 23, MISO 19, SCLK 18, CS 5, DC 16, RST 17,
-backlight 21, on `SPI3_HOST`. Change the constants at the top of
-`main/main.cpp` for another board. Arduino's global `SPI` object uses
-`SPI3_HOST` on an ESP32 as well: if the sketch needs it for an SD card or a
-touch controller, give it the other host with `SPIClass(HSPI)`.
+The pins of the CYD: MOSI 13, MISO 12, SCLK 14, CS 15, DC 2, backlight 21,
+on `SPI2_HOST`; the panel has no reset line of its own. Change the
+constants at the top of `main/main.cpp` for another board. Arduino's global
+`SPI` object uses `SPI3_HOST` on an ESP32, the host the SD card slot of the
+CYD is wired to: the sketch may use it for the card, beside the display.
 
 ## Build and flash
 

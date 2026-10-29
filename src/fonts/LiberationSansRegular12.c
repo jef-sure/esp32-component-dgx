@@ -1,3 +1,16 @@
+/*
+ * Liberation Sans Regular 2.1.5, LiberationSans-Regular.ttf of the
+ * Liberation fonts, https://github.com/liberationfonts/liberation-fonts.
+ * Digitized data copyright (c) 2010 Google Corporation
+ * with Reserved Font Arimo, Tinos and Cousine.
+ * Copyright (c) 2012 Red Hat, Inc.
+ * with Reserved Font Name Liberation.
+ * Licensed under the SIL Open Font License, Version 1.1: licenses/OFL-1.1.txt
+ * beside this file.
+ * Changed: made into this C file by font2c of DGX at 12 px, with 85 glyphs
+ * redrawn by hand in the font editor of DGX, as
+ * LiberationSansRegular12.patch.json beside this file has them.
+ */
 #include "dgx_font.h"
 /* font2c: LiberationSansRegular12, "Liberation Sans" "Regular" at 12 px */
 static const uint8_t bitmaps[] = {

@@ -1,3 +1,11 @@
+/*
+ * Noto Mono Regular 1.00, NotoMono-Regular.ttf of the Noto fonts of Google,
+ * https://github.com/notofonts/noto-fonts.
+ * Copyright 2007 Google Inc. All Rights Reserved.
+ * Licensed under the SIL Open Font License, Version 1.1: licenses/OFL-1.1.txt
+ * beside this file.
+ * Changed: made into this C file by font2c of DGX at 28 px.
+ */
 #include "dgx_font.h"
 /* font2c: NotoMonoRegular28, "Noto Mono" "Regular" at 28 px */
 static const uint8_t bitmaps[] = {

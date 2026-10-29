@@ -32,6 +32,7 @@ static const char TAG[] = "DGX QSPI BUS";
  */
 #define DGX_QSPI_OP_COMMAND 0x02u
 #define DGX_QSPI_OP_PIXELS  0x32u
+#define DGX_QSPI_RAMWR      0x2Cu
 #define DGX_QSPI_RAMWRC     0x3Cu
 
 /* transfers the device may hold at once, as on the SPI bus: two of pixels are queued at most */
@@ -142,7 +143,10 @@ static spi_transaction_t *dgx_qspi_data_trans(dgx_qspi_bus_t *bus, const uint8_t
     } else {
         trans->flags     = SPI_TRANS_MODE_QIO;
         trans->tx_buffer = data;
-        if (!bus->psram_late && esp_ptr_external_ram(data) && dgx_spi_dma_reaches(bus->host_id, data)) trans->flags |= SPI_TRANS_DMA_USE_PSRAM;
+#if DGX_SPI_DMA_PSRAM
+        if (!bus->psram_late && esp_ptr_external_ram(data) && dgx_spi_dma_reaches(bus->host_id, data) && len % (8u * dgx_spi_psram_align()) == 0)
+            trans->flags |= SPI_TRANS_DMA_USE_PSRAM;
+#endif
     }
     trans->cmd           = DGX_QSPI_OP_PIXELS;
     trans->addr          = (uint32_t)(bus->command_pending ? bus->command : DGX_QSPI_RAMWRC) << 8;
@@ -152,18 +156,30 @@ static spi_transaction_t *dgx_qspi_data_trans(dgx_qspi_bus_t *bus, const uint8_t
 }
 
 /* as on the SPI bus: queued right behind the pixels under way, then those waited for; a short piece is polled */
-static void dgx_qspi_send_piece(dgx_qspi_bus_t *bus, const uint8_t *data, uint32_t len)
+static void dgx_qspi_send_piece(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
 {
+    dgx_qspi_bus_t *bus = (dgx_qspi_bus_t *)_bus;
     if (len <= 2048) {
         dgx_qspi_wait_pending(bus);
         spi_transaction_t *trans = dgx_qspi_data_trans(bus, data, len);
         dgx_spi_check_result(spi_device_polling_transmit(bus->spi, trans), trans, &bus->psram_late, "spi_device_polling_transmit/dgx_qspi_send_data_async");
         return;
     }
-    esp_err_t rc = spi_device_queue_trans(bus->spi, dgx_qspi_data_trans(bus, data, len), portMAX_DELAY);
+    spi_transaction_t *trans = dgx_qspi_data_trans(bus, data, len);
+    esp_err_t          rc    = spi_device_queue_trans(bus->spi, trans, portMAX_DELAY);
     if (rc != ESP_OK) {
-        ESP_LOGE(TAG, "spi_device_queue_trans/dgx_qspi_send_data_async failed");
+        ESP_LOGE(TAG, "spi_device_queue_trans/dgx_qspi_send_data_async failed: %s", esp_err_to_name(rc));
         assert(0);
+        /*
+         * As on the SPI bus: the pixels are lost, no result is waited for, the
+         * descriptor is free again, and the pieces before it are waited for. A
+         * command the piece took along is held again, so that the pieces after
+         * it start the window and do not go on where the one before ended.
+         */
+        bus->data_slot ^= 1u;
+        bus->command_pending = (uint8_t)(trans->addr >> 8) != DGX_QSPI_RAMWRC;
+        dgx_qspi_wait_pending(bus);
+        return;
     }
     for (++bus->data_queued; bus->data_queued > 1; --bus->data_queued) {
         spi_transaction_t *rtrans = NULL;
@@ -172,39 +188,26 @@ static void dgx_qspi_send_piece(dgx_qspi_bus_t *bus, const uint8_t *data, uint32
     }
 }
 
-/*
- * Pixels, in pieces no longer than the buffer of the bus: the host takes no
- * transfer longer than that, and a caller of write_area may hand a whole
- * frame. A piece is a multiple of 12 bytes, whole pixels of 2, 3 and 4
- * bytes and whole words for the DMA, and the pieces after the first go on
- * with 0x3C.
- */
+/* pixels, in pieces no longer than the buffer of the bus, see dgx_spi_send_pieces(); the pieces after the first go on with 0x3C */
 static void dgx_qspi_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
 {
-    dgx_qspi_bus_t *bus = (dgx_qspi_bus_t *)_bus;
     if (len == 0) {
         ESP_LOGE(TAG, "dgx_qspi_send_data_async len == 0!");
         return;
     }
-    const uint32_t most = (uint32_t)(bus->protocols.buffer_len - bus->protocols.buffer_len % 12u) * 8u;
-    /* a piece no longer than the buffer goes whole, the buffer itself above all */
-    if (len <= bus->protocols.buffer_len * 8u) {
-        dgx_qspi_send_piece(bus, data, len);
-        return;
-    }
-    while (most && len > most) {
-        dgx_qspi_send_piece(bus, data, most);
-        data += most / 8u;
-        len -= most;
-    }
-    dgx_qspi_send_piece(bus, data, len);
+    dgx_spi_send_pieces(_bus, data, len, dgx_qspi_send_piece);
 }
 
-/* the pixels on their way are out; a command held back goes now, bare: a window set and then waited for sends its 0x2C alone */
+/*
+ * The pixels on their way are out, and a command held back goes now, bare,
+ * but for the memory write 0x2C: it stays held for the pixels that come, so
+ * that a window set and then waited for still sends them with it, not as
+ * 0x3C after a 0x2C alone. Another command sends it bare, as before.
+ */
 static void dgx_qspi_sync_write(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_qspi_bus_t *bus = (dgx_qspi_bus_t *)_bus;
-    dgx_qspi_flush_command(bus);
+    if (bus->command != DGX_QSPI_RAMWR) dgx_qspi_flush_command(bus);
     dgx_qspi_wait_pending(bus);
 }
 

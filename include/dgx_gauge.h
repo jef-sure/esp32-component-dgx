@@ -40,8 +40,9 @@ typedef struct {
  * @param center_y         Arc center Y in pixels.
  * @param inner_radius     Inner radius of the ring in pixels.
  * @param width            Ring thickness in pixels.
- * @param start_angle      Angle of the first step, in degrees (counter-clockwise from +X).
- * @param sweep_degrees    Total angular span of the gauge, in degrees.
+ * @param start_angle      Angle the first step begins at, in degrees (counter-clockwise from +X).
+ * @param sweep_degrees    Total angular span of the gauge, in degrees, a step a degree: the steps go
+ *                         clockwise from @p start_angle, counter-clockwise when it is negative.
  * @param min_value        Value mapped to the first step.
  * @param max_value        Value mapped to the last step.
  * @param background_color Color of inactive steps / background.

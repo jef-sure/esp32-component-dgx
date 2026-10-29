@@ -7,11 +7,13 @@ either a face and a size to render with font2c, or an existing font. Needs are d
 dgx_font_need() from DGX's project_include.cmake; at the end of the configure step they arrive here in one file:
 
     dgx_fonts.py build NEEDS OUTDIR [--scale N] [--pixels W H] [--mm W H] [--rules FILE] [--component DIR]
+                       [--depfile FILE]
         NEEDS is the file CMake wrote, or one written by hand in the same format (below): a program that is also
         built on the host, as a game engine is, keeps its needs in such a file, declares
         dgx_font_needs_file(fonts.needs) in its CMakeLists, and the host build runs this command with the board
         given as options. OUTDIR receives dgx_fonts.c and dgx_fonts.h, rewritten only when they change, font2c
-        built from its source, and font2c's working files
+        built from its source, and font2c's working files. --depfile writes every file the fonts were made of, the
+        faces fontconfig and the rules found among them, as a depfile of Make for the build
     dgx_fonts.py pick RULES SIZE [--mono] [--family PATTERN] [--letters TEXT]
     dgx_fonts.py list RULES SIZE [--mono] [--family PATTERN] [--letters TEXT]
         the face the rules pick for SIZE pixels, or every face they allow, in order of preference
@@ -43,9 +45,10 @@ is an error):
     dgx font0ss                          one of DGX's own fonts, used as is
     file /abs/main/fonts/PxCgaThin8.c    a font of the program, used as is (the program compiles it)
     source /abs/font.ttf                 a font file to render at the size; or a handwritten font's JSON, which
-                                         has no size
+                                         has no size. Any font file font2c reads: a bitmap font such as a BDF
+                                         only at a size it has
     list /abs/fonts.list                 a list of fonts for font2c -jo, passed through: its fonts go into the
-                                         same output file
+                                         same output file; a line may name any font file font2c reads
     patch /abs/fixes.patch.json          the fixes of the font editor for the font of this need (font2c -p); without
                                          it a patch with a part for the font is looked for (below)
 
@@ -309,12 +312,14 @@ def fc(command):
     return run.stdout
 
 
-def read_fc(text, order0=0, every_face=False):
-    """Faces as fontconfig lists them; the first face of a file only, which font2c makes, unless every_face."""
+def read_fc(text, order0=0, every_face=False, any_file=False):
+    """Faces as fontconfig lists them; the first face of a file only, which font2c makes, unless every_face. The faces
+    the rules pick from are TrueType and OpenType files, which render at any size; with any_file, for a file the
+    program names, any font fontconfig knows, which font2c reads too: a BDF or a PCF, for one."""
     fonts = []
     for line in text.splitlines():
         parts = line.split("|")
-        if len(parts) != 7 or not parts[0].lower().endswith(FONT_FILES):
+        if len(parts) != 7 or not (any_file or parts[0].lower().endswith(FONT_FILES)):
             continue
         if parts[1] != "0" and not every_face:
             continue
@@ -322,11 +327,11 @@ def read_fc(text, order0=0, every_face=False):
     return fonts
 
 
-def scan(files, order0):
+def scan(files, order0, any_file=False):
     """The faces of font files by fontconfig."""
     fonts = []
     for k in range(0, len(files), 200):
-        fonts += read_fc(fc(["fc-scan", "--format", FC_FORMAT] + files[k:k + 200]), order0 + len(fonts))
+        fonts += read_fc(fc(["fc-scan", "--format", FC_FORMAT] + files[k:k + 200]), order0 + len(fonts), any_file=any_file)
     return fonts
 
 
@@ -368,22 +373,30 @@ def face_by_postscript(name, where):
 
 
 def face_of_file(path, where):
-    """The first face of a font file."""
-    found = scan([path], 0)
+    """The first face of a font file the program names (SOURCE, a line of a list): any font file font2c reads."""
+    found = scan([path], 0, any_file=True)
     if not found:
         raise FontsError(f"{where}: fontconfig does not recognize {path} as a font")
     return found[0]
 
 
 NAME_IDS = {0: "copyright", 5: "version", 13: "license", 14: "license URL"}
+BDF_PROPERTIES = {b"COPYRIGHT": "copyright", b"FONT_VERSION": "version", b"NOTICE": "license"}
 
 
 def name_table(path):
     """What a font file says of itself in its name table: {copyright, version, license, license URL}, those it has, in
-    English when it has several languages; empty for a file that is not a TrueType or OpenType font."""
+    English when it has several languages; of a BDF, its properties COPYRIGHT, FONT_VERSION and NOTICE; empty for a
+    file that is none of these."""
     try:
         with open(path, "rb") as f:
             data = f.read()
+        if data.startswith(b"STARTFONT"):
+            head = data.split(b"ENDPROPERTIES", 1)[0]
+            found = {}
+            for key, value in re.findall(rb'^(COPYRIGHT|FONT_VERSION|NOTICE)[ \t]+"(.*)"[ \t]*\r?$', head, re.M):
+                found[BDF_PROPERTIES[key]] = " ".join(value.decode("utf-8", "replace").replace('""', '"').split())
+            return {k: v for k, v in found.items() if v}
         start = struct.unpack_from(">I", data, 12)[0] if data[:4] == b"ttcf" else 0  # a collection: its first face
         for k in range(struct.unpack_from(">H", data, start + 4)[0]):
             tag, _, offset, _ = struct.unpack_from(">4sIII", data, start + 12 + 16 * k)
@@ -627,6 +640,14 @@ def write_if_changed(path, text):
         f.write(text)
     os.replace(aside, path)  # whole or not at all, should the build be stopped halfway
     return True
+
+
+def depfile_text(target, files):
+    """A depfile as Make and Ninja read it: the target and the files it was made of, by absolute paths, with the spaces,
+    '#' and '$' in them escaped, and the backslashes of Windows as slashes."""
+    def word(path):
+        return os.path.abspath(path).replace("\\", "/").replace("$", "$$").replace(" ", "\\ ").replace("#", "\\#")
+    return word(target) + ":" + "".join(f" \\\n  {word(f)}" for f in sorted(files)) + "\n"
 
 
 def font2c_binary(dgx, outdir):
@@ -1075,8 +1096,10 @@ def fonts_used(resolved, listed, dgx, cache):
     return "\n".join(out)
 
 
-def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, component=None):
-    """The fonts of a needs file into outdir; the board and the rules may come as arguments, for a host build, and win."""
+def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, component=None, depfile=None):
+    """The fonts of a needs file into outdir; the board and the rules may come as arguments, for a host build, and win.
+    With depfile, the files the fonts were made of are written there for the build, the faces fontconfig and the
+    rules found among them."""
     outdir = os.path.abspath(outdir)
     try:
         text = open(needs_path, encoding="utf-8-sig").read()
@@ -1232,6 +1255,18 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
     told.append(f"the fonts used and their licenses: {report}; make sure you may use every one of them")
     changed = write_if_changed(os.path.join(outdir, "dgx_fonts.h"), "\n".join(h))
     changed = write_if_changed(os.path.join(outdir, "dgx_fonts.c"), "\n".join(c)) or changed
+    if depfile:
+        # every file read: the needs, the rules and the lists of faces they name, the texts, the font files the needs
+        # name or the rules and fontconfig found, the lists and their fonts, the patches font2c took
+        made_of = {needs_path, *lists, *(file for _, file, _ in listed), *patched.values()}
+        if program_rules:
+            made_of |= {program_rules.path} | {path for kind, path in program_rules.sources if kind == "list"}
+        for n in needs:
+            made_of |= {value for key, value, _ in n.words if key in ("text", "file", "source", "patch")}
+        for w in resolved:
+            made_of.add(w.face.file if isinstance(w, Made) else w.source if isinstance(w, Hand) else w.path)
+        with open(depfile, "w", encoding="utf-8", newline="\n") as f:
+            f.write(depfile_text(os.path.join(outdir, "dgx_fonts.c"), made_of))
     return told, changed
 
 
@@ -1306,12 +1341,13 @@ def main(argv=None):
     ap.add_argument("--mm", nargs=2, type=float, metavar=("W", "H"), help="build: the display in millimetres")
     ap.add_argument("--rules", help="build: the rules faces are picked by")
     ap.add_argument("--component", help="build: the DGX component, when not the one this script is in")
+    ap.add_argument("--depfile", help="build: write the files the fonts were made of there, as a depfile for the build")
     a = ap.parse_args(argv)
     try:
         if a.what == "build":
             if len(a.args) != 2:
                 raise FontsError("build NEEDS OUTDIR")
-            told, changed = build(a.args[0], a.args[1], a.scale, a.pixels, a.mm, a.rules, a.component)
+            told, changed = build(a.args[0], a.args[1], a.scale, a.pixels, a.mm, a.rules, a.component, a.depfile)
             for line in told:
                 print(line)
             print("dgx_fonts.c and dgx_fonts.h " + ("written" if changed else "as they were"))

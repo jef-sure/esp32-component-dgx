@@ -4,6 +4,18 @@
 #include <stdint.h>
 #include "bus/dgx_spi_esp32.h"
 
+/*
+ * The flags of the SPI driver for DMA straight from PSRAM,
+ * SPI_TRANS_DMA_USE_PSRAM and SPI_TRANS_DMA_TX_FAIL, came with IDF 5.5.
+ * Before it nothing is sent from PSRAM where it lies: the driver copies such
+ * pixels into internal memory itself, as it does without the flag.
+ */
+#if defined(SPI_TRANS_DMA_USE_PSRAM) && defined(SPI_TRANS_DMA_TX_FAIL)
+#define DGX_SPI_DMA_PSRAM 1
+#else
+#define DGX_SPI_DMA_PSRAM 0
+#endif
+
 typedef struct _dgx_spi_bus_t
 {
     dgx_bus_protocols_t           protocols;
@@ -28,12 +40,12 @@ typedef struct _dgx_spi_bus_t
 
 static inline void *set_dc_pin(gpio_num_t dc, uint8_t val)
 {
-    return (void *)(dc >= 0 ? ((val & 1u) | ((uint32_t)dc << 1)) : 0);
+    return (void *)(uintptr_t)(dc >= 0 ? ((val & 1u) | ((uint32_t)dc << 1)) : 0);
 }
 
 static inline gpio_num_t get_dc_pin(void *user_ptr)
 {
-    uint32_t dc = (uint32_t)user_ptr;
+    uint32_t dc = (uint32_t)(uintptr_t)user_ptr;
     return dc;
 }
 
@@ -57,16 +69,35 @@ void dgx_spi_host_leave(spi_host_device_t host_id);
  * The length of the buffer of a display on a host, once its device is on it:
  * half of it takes about 390 us on the wire at the clock the device has got
  * over `data_lines`, it is 4000 bytes at least, 32000 at most and no more
- * than the host takes in one transfer. `most`, when it is not 0, is the
- * program's limit: no longer than it, in whole words, and 64 bytes at least.
+ * than the host takes in one transfer. A host with DMA takes 4092 bytes at
+ * least: the driver rounds max_transfer_sz up to whole DMA descriptors of
+ * 4092 bytes. `most`, when it is not 0, is the program's limit: no longer
+ * than it, in whole words, and 4 bytes at least.
  */
 size_t dgx_spi_buffer_len(spi_host_device_t host_id, spi_device_handle_t dev, unsigned data_lines, size_t most);
 
 /*
+ * What DMA from PSRAM asks of where a transfer starts and of its length, in
+ * bytes: DGX_SPI_PSRAM_ALIGN on a chip whose GDMA does not align by itself
+ * (AHB GDMA from version 2: P4, C5, C61) under flash encryption, or with
+ * PSRAM ECC from IDF 6.0, and 1 on any other: an ESP32-S2 and an ESP32-S3
+ * send from any byte and of any length (gdma_config_transfer() of IDF). The
+ * driver copies a transfer from PSRAM that is off it into PSRAM of its own
+ * first, so DGX sends from PSRAM where it lies only from that alignment and
+ * in pieces of a multiple of it; a piece of another length goes without
+ * SPI_TRANS_DMA_USE_PSRAM, for the driver to copy into internal memory. The
+ * weighted arbitration of GDMA, experimental in IDF 6, asks more and is not
+ * counted.
+ */
+#define DGX_SPI_PSRAM_ALIGN 16u
+unsigned dgx_spi_psram_align(void);
+
+/*
  * The DMA of the host takes pixels from there as they lie: internal memory it
  * reaches, from a whole word, or PSRAM on a chip whose DMA reaches PSRAM (not
- * from SPI3 of an ESP32-S2). Pixels in PSRAM go with SPI_TRANS_DMA_USE_PSRAM,
- * or the driver copies them into internal memory first.
+ * from SPI3 of an ESP32-S2), from dgx_spi_psram_align(), with an IDF that has
+ * SPI_TRANS_DMA_USE_PSRAM. Pixels in PSRAM go with that flag, or the driver
+ * copies them into internal memory first.
  */
 bool dgx_spi_dma_reaches(spi_host_device_t host_id, const void *pixels);
 
@@ -76,7 +107,9 @@ bool dgx_spi_dma_reaches(spi_host_device_t host_id, const void *pixels);
  * SPI_TRANS_DMA_TX_FAIL): PSRAM does not keep up with the bus at its clock,
  * so *psram_late is set and pixels in PSRAM go through internal memory from
  * then on, as the driver copies them without SPI_TRANS_DMA_USE_PSRAM. The
- * log tells of it once. Any other failure stops the program, as before.
+ * log tells of it once. Any other failure stops the program, as before. An
+ * IDF without those flags sends nothing from PSRAM by DMA, and has no such
+ * failure.
  */
 void dgx_spi_check_result(esp_err_t rc, const spi_transaction_t *trans, bool *psram_late, const char *what);
 
@@ -91,3 +124,19 @@ void dgx_spi_check_result(esp_err_t rc, const spi_transaction_t *trans, bool *ps
 
 /* the wire of the device is faster than DMA from PSRAM keeps up with */
 bool dgx_spi_psram_too_slow(spi_device_handle_t dev, unsigned data_lines);
+
+/*
+ * Pixels sent by `send_piece` in pieces no longer than the buffer of the bus:
+ * the host takes no transfer longer than that, and a caller of write_area
+ * may hand a whole frame. A piece is a multiple of 12 bytes, whole pixels of
+ * 2, 3 and 4 bytes and whole words for the DMA; the panel goes on writing
+ * its memory from one to the next, as it does between the pieces of a fill.
+ * From PSRAM whose DMA asks DGX_SPI_PSRAM_ALIGN, a piece is a multiple of 48
+ * bytes where the buffer is that long, so that the pieces stay on it from a
+ * first one that starts there. A buffer shorter than 12 bytes gets pieces of
+ * 12. Pixels no
+ * longer than the buffer go whole, the buffer itself above all. The SPI and
+ * QSPI buses each send a piece their own way.
+ */
+typedef void (*dgx_spi_piece_func)(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t len);
+void dgx_spi_send_pieces(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t len, dgx_spi_piece_func send_piece);

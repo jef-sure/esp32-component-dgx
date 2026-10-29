@@ -554,11 +554,23 @@ static int name_option(const char *name)
 
 static const char *hwWhere = "the font"; /* for messages */
 
-static char hwUnfinished[320]; /* the file being written, till it is whole */
+static char *hwUnfinished; /* the file being written, till it is whole: its name with .tmp after it */
 
 static void hw_drop_unfinished(void)
 {
-    if (hwUnfinished[0]) remove(hwUnfinished);
+    if (hwUnfinished) remove(hwUnfinished);
+}
+
+/* the name `path` is written under till it is whole, as long as the path is; 0 when nothing is being written any more */
+static const char *unfinished(const char *path)
+{
+    free(hwUnfinished);
+    hwUnfinished = 0;
+    if (path) {
+        hwUnfinished = malloc(strlen(path) + sizeof(".tmp"));
+        sprintf(hwUnfinished, "%s.tmp", path);
+    }
+    return hwUnfinished;
 }
 
 /* a whole number from min to max; without one the font is not what this program can use */
@@ -1288,11 +1300,10 @@ static int write_single_header(const char *funcname, int hw)
     char fontname[260];
     snprintf(fontname, sizeof(fontname), "%s.h", funcname);
     /* written aside and put in place when complete, as the .c is */
-    snprintf(hwUnfinished, sizeof(hwUnfinished), "%s.tmp", fontname);
-    FILE *out = fopen(hwUnfinished, "w");
+    FILE *out = fopen(unfinished(fontname), "w");
     if (!out) {
         fprintf(stderr, "Error opening font header file %s for writing: %s\n", hwUnfinished, strerror(errno));
-        hwUnfinished[0] = 0;
+        unfinished(0);
         return 1;
     }
     fprintf(out, "#pragma once\n");
@@ -1304,7 +1315,7 @@ static int write_single_header(const char *funcname, int hw)
         fprintf(stderr, "Error writing font header file %s: %s\n", fontname, strerror(errno));
         return 1;
     }
-    hwUnfinished[0] = 0;
+    unfinished(0);
     return 0;
 }
 
@@ -1327,11 +1338,10 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
 
     /* written aside and put in place when all of it is there: a font that fails halfway leaves the old file */
     snprintf(fontname, sizeof(fontname), "%s.c", funcname);
-    snprintf(hwUnfinished, sizeof(hwUnfinished), "%s.tmp", fontname);
-    FILE *out = fopen(hwUnfinished, "w");
+    FILE *out = fopen(unfinished(fontname), "w");
     if (!out) {
         fprintf(stderr, "Error opening font file %s for writing: %s\n", hwUnfinished, strerror(errno));
-        hwUnfinished[0] = 0;
+        unfinished(0);
         return 1;
     }
     if (hw_font_write(out, fontFile, font, name, codePoints, funcname, arrayPrefix, 0, 0, 1, 1, 0) < 0) return 1;
@@ -1339,7 +1349,7 @@ static int hw_font(const char *fontFile, char **ranges, int numRanges, const cha
         fprintf(stderr, "Error writing font file %s: %s\n", fontname, strerror(errno));
         return 1;
     }
-    hwUnfinished[0] = 0;
+    unfinished(0);
     return write_single_header(funcname, 1);
 }
 
@@ -1645,7 +1655,20 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
      // << 6 because '26dot6' fixed-point format
      FT_Set_Char_Size(face, size << 6, 0, DPI, 0);
      */
-    FT_Set_Pixel_Sizes(face, size, 0);
+    /* A face of bitmaps alone, a BDF say, has the sizes of its bitmaps and no other: asked for another, FreeType keeps
+     * the size it had, and the font would come out at that size under the name of this one. */
+    if ((err = FT_Set_Pixel_Sizes(face, size, 0))) {
+        if (!FT_IS_SCALABLE(face) && face->num_fixed_sizes > 0) {
+            fprintf(stderr, "%s: a font of bitmaps, with no %d px; its size%s:", fontFile, size, face->num_fixed_sizes > 1 ? "s" : "");
+            for (int k = 0; k < face->num_fixed_sizes; ++k) fprintf(stderr, " %d px", (int)((face->available_sizes[k].y_ppem + 32) >> 6));
+            fprintf(stderr, "\n");
+        } else {
+            fprintf(stderr, "%s: FreeType error %d setting the size of %d px\n", fontFile, err, size);
+        }
+        free(glyphs);
+        FT_Done_Face(face);
+        return -1;
+    }
 
     /* the patch of the font: the one named, or the one of the first directory that has a part for it */
     char generated[256];
@@ -1847,11 +1870,10 @@ static int bitmap_font(FT_Library library, const char *fontFile, int size, const
     strcpy(fontname, funcname);
     strncat(fontname, ".c", 255);
     /* written aside and put in place when all of it is there: a font that fails halfway leaves the old file */
-    snprintf(hwUnfinished, sizeof(hwUnfinished), "%s.tmp", fontname);
-    FILE *fontOut = fopen(hwUnfinished, "w");
+    FILE *fontOut = fopen(unfinished(fontname), "w");
     if (!fontOut) {
         fprintf(stderr, "Error opening font file %s for writing: %s\n", hwUnfinished, strerror(errno));
-        hwUnfinished[0] = 0;
+        unfinished(0);
         return -1;
     }
     if (bitmap_font_write(fontOut, library, fontFile, size, funcname, arrayPrefix, 0, 0, 1, 0, patchFile, PatchDirs, nPatchDirs) < 0) return 1;
@@ -1859,7 +1881,7 @@ static int bitmap_font(FT_Library library, const char *fontFile, int size, const
         fprintf(stderr, "Error writing font file %s: %s\n", fontname, strerror(errno));
         return 1;
     }
-    hwUnfinished[0] = 0;
+    unfinished(0);
     return write_single_header(funcname, 0);
 }
 
@@ -1920,10 +1942,34 @@ static int jo_split(char *line, char **argv, int most)
     return argc;
 }
 
+/*
+ * A path as Windows has it too: a backslash divides it as a slash does, and a path that begins with a drive, C:/ or C:\,
+ * or with a backslash is not relative, as os.path.isabs() of Python takes it in dgx_fonts.py, which gives font2c such
+ * paths.
+ */
+static int path_absolute(const char *path)
+{
+#ifdef _WIN32
+    if (path[0] == '\\' || (isalpha((unsigned char)path[0]) && path[1] == ':' && (path[2] == '/' || path[2] == '\\'))) return 1;
+#endif
+    return path[0] == '/';
+}
+
+/* the name of the file of a path, after its directory */
+static const char *path_name(const char *path)
+{
+    const char *slash = strrchr(path, '/');
+#ifdef _WIN32
+    const char *back = strrchr(path, '\\');
+    if (back && (!slash || back > slash)) slash = back;
+#endif
+    return slash ? slash + 1 : path;
+}
+
 /* a path of a line as it is, or from the directory of the list when relative */
 static char *jo_path(const char *listDir, const char *path)
 {
-    if (path[0] == '/' || !listDir[0]) return strdup(path);
+    if (path_absolute(path) || !listDir[0]) return strdup(path);
     char *out = malloc(strlen(listDir) + strlen(path) + 2);
     sprintf(out, "%s/%s", listDir, path);
     return out;
@@ -2071,9 +2117,10 @@ static int jo_read(const char *listPath, FT_Library library)
 {
     FILE *in = fopen(listPath, "r");
     if (!in) return fprintf(stderr, "%s: %s\n", listPath, strerror(errno)), 1;
-    char  dir[1024] = "";
-    const char *slash = strrchr(listPath, '/');
-    if (slash && slash - listPath < (long)sizeof(dir) - 1) snprintf(dir, sizeof(dir), "%.*s", (int)(slash - listPath), listPath);
+    /* the directory of the list, which the paths of its lines are taken from, however long */
+    const char *name = path_name(listPath);
+    char       *dir  = strdup(listPath);
+    dir[name > listPath ? name - listPath - 1 : 0] = 0;
     char line[4096];
     for (int lineNo = 1; fgets(line, sizeof(line), in); ++lineNo) {
         char *argv[160];
@@ -2083,6 +2130,7 @@ static int jo_read(const char *listPath, FT_Library library)
         if (jo_line(listPath, lineNo, dir, argv, argc, library)) return 1;
     }
     fclose(in);
+    free(dir);
     return 0;
 }
 
@@ -2091,18 +2139,17 @@ static int jo_write(const char *outName, FT_Library library)
 {
     if (!joCount) return fprintf(stderr, "the lists name no font\n"), 1;
     /* the functions of fonts without a name of their own begin with the name of the output, without its directory */
-    const char *slash = strrchr(outName, '/');
-    const char *base  = slash ? slash + 1 : outName;
-    int         hw    = 0;
+    const char *base = path_name(outName);
+    int         hw   = 0;
     for (int i = 0; i < joCount; ++i) hw |= joFonts[i].hw;
-    char cname[300], hname[300];
-    snprintf(cname, sizeof(cname), "%s.c", outName);
-    snprintf(hname, sizeof(hname), "%s.h", outName);
-    snprintf(hwUnfinished, sizeof(hwUnfinished), "%s.tmp", cname);
-    FILE *out = fopen(hwUnfinished, "w");
+    /* the output wherever it is, by its whole name */
+    char *cname = malloc(strlen(outName) + 3), *hname = malloc(strlen(outName) + 3);
+    sprintf(cname, "%s.c", outName);
+    sprintf(hname, "%s.h", outName);
+    FILE *out = fopen(unfinished(cname), "w");
     if (!out) {
         fprintf(stderr, "Error opening font file %s for writing: %s\n", hwUnfinished, strerror(errno));
-        hwUnfinished[0] = 0;
+        unfinished(0);
         return 1;
     }
     fprintf(out, "/* The fonts of the lists given to font2c -jo, every one once: made, not edited. */\n");
@@ -2139,8 +2186,8 @@ static int jo_write(const char *outName, FT_Library library)
         } else {
             /* the directories of its lines first, then those of the command line */
             char **dirs = malloc((f->nPatchDirs + nPatchDirs + 1) * sizeof(char *));
-            memcpy(dirs, f->patchDirs, f->nPatchDirs * sizeof(char *));
-            memcpy(dirs + f->nPatchDirs, PatchDirs, nPatchDirs * sizeof(char *));
+            if (f->nPatchDirs) memcpy(dirs, f->patchDirs, f->nPatchDirs * sizeof(char *));
+            if (nPatchDirs) memcpy(dirs + f->nPatchDirs, PatchDirs, nPatchDirs * sizeof(char *));
             made = bitmap_font_write(out, library, f->file, f->size, funcname, prefix, aliases, nAliases, 0, 1, f->patch, dirs, f->nPatchDirs + nPatchDirs);
             free(dirs);
         }
@@ -2154,11 +2201,10 @@ static int jo_write(const char *outName, FT_Library library)
         fprintf(stderr, "Error writing font file %s: %s\n", cname, strerror(errno));
         return 1;
     }
-    snprintf(hwUnfinished, sizeof(hwUnfinished), "%s.tmp", hname);
-    FILE *h = fopen(hwUnfinished, "w");
+    FILE *h = fopen(unfinished(hname), "w");
     if (!h) {
         fprintf(stderr, "Error opening font header file %s for writing: %s\n", hwUnfinished, strerror(errno));
-        hwUnfinished[0] = 0;
+        unfinished(0);
         return 1;
     }
     fprintf(h, "#pragma once\n/* The fonts of the lists given to font2c -jo: made, not edited. */\n#include \"dgx_font.h\"\n");
@@ -2177,7 +2223,8 @@ static int jo_write(const char *outName, FT_Library library)
         fprintf(stderr, "Error writing font header file %s: %s\n", hname, strerror(errno));
         return 1;
     }
-    hwUnfinished[0] = 0;
+    unfinished(0);
+    free(cname), free(hname);
     return 0;
 }
 
@@ -2242,8 +2289,7 @@ int main(int argc, char *argv[])
             return 1;
         }
         if (!outName) outName = "fonts";
-        const char *base = strrchr(outName, '/');
-        if (!name_valid(base ? base + 1 : outName, "-o")) return 1;
+        if (!name_valid(path_name(outName), "-o")) return 1;
         FT_Library library;
         if ((err = FT_Init_FreeType(&library))) {
             fprintf(stderr, "FreeType init error: %d", err);

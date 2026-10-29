@@ -11,8 +11,9 @@
  * A rectangle filled by a virtual screen has to be what the same pixels
  * set one by one are: every depth, rows and columns of one pixel (they go a
  * short way of their own), rectangles cut by the edges or off the screen,
- * sizes of zero and below. And the area reported as changed is the part of
- * the rectangle that is on the screen.
+ * sizes of zero, and sizes below zero, which take the rectangle to the left
+ * or up as a display behind a bus does. And the area reported as changed is
+ * the part of the rectangle that is on the screen.
  */
 
 #define W 37
@@ -44,6 +45,9 @@ static void one(dgx_screen_t *filled, dgx_screen_t *model, int x, int y, int w, 
 {
     calls = 0;
     dgx_fill_rectangle(filled, x, y, w, h, color);
+    /* a width or height below zero is the rectangle on the other side of x or y */
+    if (w < 0) x += w, w = -w;
+    if (h < 0) y += h, h = -h;
     int l = x < 0 ? 0 : x, t = y < 0 ? 0 : y, r = x + w - 1 >= W ? W - 1 : x + w - 1, b = y + h - 1 >= H ? H - 1 : y + h - 1;
     bool on_screen = w > 0 && h > 0 && l <= r && t <= b;
     if (on_screen) {
@@ -77,6 +81,14 @@ static void screen(dgx_screen_t *filled, dgx_screen_t *model)
         int      x = rnd(-6, W + 4), y = rnd(-6, H + 4);
         int      w = kind == 0 ? 1 : rnd(-2, W + 8), h = kind == 1 ? 1 : rnd(-2, H + 8);
         if (kind == 2) w = 1, h = 1;
+        one(filled, model, x, y, w, h, color);
+    }
+    /* a width or a height below zero, or both, rows and columns of one pixel among them */
+    for (int round = 0; round < 600; ++round) {
+        uint32_t color = ((uint32_t)rnd(0, 0xffff) << 8 | (uint32_t)rnd(0, 0xff)) & mask;
+        int      x = rnd(-6, W + 6), y = rnd(-6, H + 6);
+        int      w = round % 3 == 0 ? -1 : rnd(-W - 6, W + 6), h = round % 3 == 1 ? -1 : rnd(-H - 6, H + 6);
+        if (w >= 0 && h >= 0) w = -w - 1;
         one(filled, model, x, y, w, h, color);
     }
     /* the whole screen, and the whole screen cleared */

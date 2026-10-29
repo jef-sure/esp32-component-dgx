@@ -7,18 +7,24 @@
 static const char TAG[] = "DGX FONT MORPH";
 
 typedef struct {
-    dgx_font_dot_t *dots;
+    dgx_point_2d_t *dots;
     int             count;
 } _dgx_dots_collect_ctx_t;
 
 static bool _dgx_dots_collect(void *user_data, int x, int y)
 {
     _dgx_dots_collect_ctx_t *ctx = user_data;
-    ctx->dots[ctx->count++] = dgx_font_dot_new((int8_t)x, (int8_t)y);
+    ctx->dots[ctx->count++] = (dgx_point_2d_t){ .x = (int16_t)x, .y = (int16_t)y };
     return true;
 }
 
-static dgx_font_dot_t *_dgx_dots_from_bitmap(const glyph_t *g, bool is_stream, int *number_of_dots)
+/*
+ * The set pixels of a bitmap glyph as its dots. They are kept in 16 bits, as
+ * the glyph itself is: a glyph of 128 pixels and more does not fit the 8 bits
+ * of dgx_font_dot_t of a dot font. NULL with no dots for no glyph or one
+ * without set pixels; NULL with the dots counted when there is no memory.
+ */
+static dgx_point_2d_t *_dgx_dots_from_bitmap(const glyph_t *g, bool is_stream, int *number_of_dots)
 {
     if (!g) {
         *number_of_dots = 0;
@@ -28,15 +34,21 @@ static dgx_font_dot_t *_dgx_dots_from_bitmap(const glyph_t *g, bool is_stream, i
     int             count = dgx_bw_bitmap_foreach_set(&bmap, NULL, NULL);
     *number_of_dots       = count;
     if (count == 0) return NULL;
-    dgx_font_dot_t *ret   = calloc((size_t)count, sizeof(dgx_font_dot_t));
+    dgx_point_2d_t *ret   = calloc((size_t)count, sizeof(dgx_point_2d_t));
     if (!ret) {
-        ESP_LOGE(TAG, "Memory allocation for temporary dgx_font_dot_t array failed");
-        *number_of_dots = 0;
+        ESP_LOGE(TAG, "Memory allocation for temporary dots array failed");
         return NULL;
     }
     _dgx_dots_collect_ctx_t ctx = { ret, 0 };
     dgx_bw_bitmap_foreach_set(&bmap, _dgx_dots_collect, &ctx);
     return ret;
+}
+
+/* dot i of a glyph: of the font itself for a dot font, else taken from its bitmap */
+static inline dgx_point_2d_t _dgx_dot_at(const dgx_font_dot_t *dots, const dgx_point_2d_t *from_bitmap, int i)
+{
+    if (from_bitmap) return from_bitmap[i];
+    return (dgx_point_2d_t){ .x = dots[i].x, .y = dots[i].y };
 }
 
 static dgx_point_2d_t _dgx_empty_glyph_anchor(int x, int y, int x_shift, int y_shift, const glyph_t *g, int scale)
@@ -84,10 +96,10 @@ dgx_font_symbol_morph_t *dgx_font_make_morph_struct( //
     const glyph_t        *gTo   = dgx_font_find_glyph(toCP, font, &xAdvance);
     int                   from_number_of_dots;
     int                   to_number_of_dots;
-    const dgx_font_dot_t *from_dots;
-    const dgx_font_dot_t *to_dots;
-    dgx_font_dot_t       *from_dots_tmp = NULL;
-    dgx_font_dot_t       *to_dots_tmp   = NULL;
+    const dgx_font_dot_t *from_dots     = NULL;
+    const dgx_font_dot_t *to_dots       = NULL;
+    dgx_point_2d_t       *from_dots_tmp = NULL;
+    dgx_point_2d_t       *to_dots_tmp   = NULL;
     int                   max_sym_height;
     int                   max_sym_width;
     int                   x_shift_from = gFrom ? gFrom->xOffset * scale : 0;
@@ -106,9 +118,15 @@ dgx_font_symbol_morph_t *dgx_font_make_morph_struct( //
         to_dots             = gTo ? gTo->dots : NULL;
         to_number_of_dots   = gTo ? gTo->number_of_dots : 0;
     } else {
-        from_dots = from_dots_tmp =
-            _dgx_dots_from_bitmap(gFrom, font->f_type == DGX_FONT_BITMAP_STREAM, &from_number_of_dots);
-        to_dots = to_dots_tmp = _dgx_dots_from_bitmap(gTo, font->f_type == DGX_FONT_BITMAP_STREAM, &to_number_of_dots);
+        from_dots_tmp = _dgx_dots_from_bitmap(gFrom, font->f_type == DGX_FONT_BITMAP_STREAM, &from_number_of_dots);
+        to_dots_tmp   = _dgx_dots_from_bitmap(gTo, font->f_type == DGX_FONT_BITMAP_STREAM, &to_number_of_dots);
+        if ((from_number_of_dots && !from_dots_tmp) || (to_number_of_dots && !to_dots_tmp)) {
+            /* a glyph without its dots would morph as an empty one: no morph is given instead */
+            free(from_dots_tmp);
+            free(to_dots_tmp);
+            free(ret);
+            return NULL;
+        }
     }
     if ((from_number_of_dots == 0 && to_number_of_dots == 0) || max_sym_height == 0 || max_sym_width == 0) {
         free(from_dots_tmp);
@@ -130,15 +148,17 @@ dgx_font_symbol_morph_t *dgx_font_make_morph_struct( //
     ret->m_end = ret->m_start + maxp;
     for (int i = 0; i < maxp; i++) {
         if (i < from_number_of_dots) {
-            ret->m_start[i].x = from_x + x_shift_from + from_dots[i].x * scale;
-            ret->m_start[i].y = from_y + y_shift_from + from_dots[i].y * scale;
+            dgx_point_2d_t dot = _dgx_dot_at(from_dots, from_dots_tmp, i);
+            ret->m_start[i].x  = from_x + x_shift_from + dot.x * scale;
+            ret->m_start[i].y  = from_y + y_shift_from + dot.y * scale;
         } else if (from_number_of_dots != 0) {
             ret->m_start[i].x = ret->m_start[from_number_of_dots - 1].x;
             ret->m_start[i].y = ret->m_start[from_number_of_dots - 1].y;
         }
         if (i < to_number_of_dots) {
-            ret->m_end[i].x = to_x + x_shift_to + to_dots[i].x * scale;
-            ret->m_end[i].y = to_y + y_shift_to + to_dots[i].y * scale;
+            dgx_point_2d_t dot = _dgx_dot_at(to_dots, to_dots_tmp, i);
+            ret->m_end[i].x    = to_x + x_shift_to + dot.x * scale;
+            ret->m_end[i].y    = to_y + y_shift_to + dot.y * scale;
         } else if (to_number_of_dots != 0) {
             ret->m_end[i].x = ret->m_end[to_number_of_dots - 1].x;
             ret->m_end[i].y = ret->m_end[to_number_of_dots - 1].y;
@@ -158,15 +178,15 @@ dgx_font_symbol_morph_t *dgx_font_make_morph_struct( //
             ret->m_end[i] = anchor;
         }
     }
-    if (font->f_type != DGX_FONT_DOTS) {
-        free(from_dots_tmp);
-        free(to_dots_tmp);
-    }
+    free(from_dots_tmp);
+    free(to_dots_tmp);
     return ret;
 }
 
 void dgx_font_make_morph_struct_destroy(dgx_font_symbol_morph_t **ms)
 {
+    /* the NULL dgx_font_make_morph_struct() gives is destroyed as it is */
+    if (!ms || !*ms) return;
     free((*ms)->m_start);
     (*ms)->m_start = 0;
     free(*ms);

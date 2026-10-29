@@ -57,7 +57,7 @@ constructor takes the choice in its last argument:
 | --- | --- | --- | --- |
 | `DgxDsiOneFrame` | 1 | possible | none: drawing shows at once |
 | `DgxDsiTwoFrames` | 2 | none | one more frame of PSRAM, 1.2 MB for 1024x600 at 16 bits |
-| `DgxDsiOneFrameAfterScan` | 1 | none for a virtual screen sent to the display and for a large filled rectangle | a wait of up to one frame for each of them |
+| `DgxDsiOneFrameAfterScan` | 1 | none for a large filled rectangle and for a virtual screen the 2D DMA puts; a large one the processor sends may tear, see [below](#one-buffer-after-the-scan) | a wait of up to one frame for each of them |
 
 ## Two frame buffers
 
@@ -100,6 +100,13 @@ started from the end-of-frame interrupt. If another task draws over the
 piece before that, it is not copied at all. Three tasks with a 1024x168 band
 each, redrawing a small part of it, show 61 pictures a second each, and less
 than 1 MB is copied in 10 seconds instead of 411 MB.
+
+With `CONFIG_LCD_DSI_ISR_CACHE_SAFE` or `CONFIG_DMA2D_ISR_IRAM_SAFE` the
+interrupts that start this copy run while the flash is written and its
+cache is off. They can start the 2D DMA only when
+`CONFIG_DMA2D_OPERATION_FUNC_IN_IRAM` puts its functions in IRAM; without
+that option the whole remainder is copied when the picture is finished, as
+at 24 bits.
 
 ## Large pieces bypass the processor
 
@@ -242,9 +249,32 @@ display has left the rows they are going to write. They stay ahead of the
 scan, and the part or the rectangle is seen whole with a single frame
 buffer, even when it is the whole screen.
 
+What is seen whole this way:
+
+- a large rectangle filled by the PPA, in any orientation and color depth;
+- a part of a 16-bit virtual screen the 2D DMA puts: 16 KB or more, on a
+  screen neither mirrored nor rotated, with no overlay layer over it, put
+  without transparency, and with `CONFIG_DGX_DSI_PRIVATE_DMA2D` on, as it is
+  by default;
+- a part of an 8-bit virtual screen through a table of colors, 16 KB or
+  more, put without transparency, in any orientation, with the same option
+  on: the 2D DMA puts it in bands, each when the scan is out of its rows,
+  and it is whole as long as the processor makes the rows faster than the
+  display reads them, which a picture smoothed at a large scale may not.
+
+Anything else from a virtual screen is sent through the window by the
+processor, which writes slower than the display reads: a 16-bit screen on a
+mirrored or rotated display (the 10.1-inch JD9365 in landscape, for one),
+24-bit color, a part under an overlay layer or under 16 KB. Such a window
+waits for the scan only when it can be written before the scan is back,
+about 160 rows of 1024 pixels; a larger one goes at once and may tear, as
+with `DgxDsiOneFrame`. Where such a picture must not tear, take
+`DgxDsiTwoFrames`.
+
 This mode is a compromise:
 
-- a picture that comes from a virtual screen does not tear;
+- a picture the 2D DMA puts from a virtual screen does not tear, one the
+  processor sends only when it is small;
 - drawing directly on the display is held back only for large rectangles,
   and a batch is not shown as one: of many tall rectangles some appear one
   frame later than the others;
@@ -262,6 +292,18 @@ they draw within one frame time is shown by one swap of the buffers. The bus
 does not know which task draws and does not care. Which task draws when, how
 often and how evenly is up to the program; `dgx_dsi_frame_us()` and
 `dgx_dsi_frame_ended()` give it what it needs to know about the display.
+
+The two ways of the README, every task drawing under a mutex and messages to
+one task that draws, measured on a JC1060P470 (ESP32-P4, JD9165 of
+1024x600) with two frame buffers: three sources, 10 seconds. A cell tells how
+many times the next picture of a source came after one, two and three frames
+of the display; all of it in one column is even motion.
+
+| Three sources | Each draws itself under a mutex | Messages to one task that draws |
+| --- | --- | --- |
+| A part of 320x100 each, a picture a frame | 609, 0, 0 | 607, 0, 0 |
+| A band of 1024x168 each, little redrawn, a picture a frame | 608, 0 to 1, 0 | 604 to 606, 0 to 1, 0 |
+| A band of 1024x168 each, redrawn whole, a picture every second frame | 1 to 53, 198 to 302, 1 to 53 | 1, 302, 0 |
 
 The DSI bus is the only place where DGX uses interrupts. At the end of a
 frame it counts the frame and starts the copy a picture still lacks, and it

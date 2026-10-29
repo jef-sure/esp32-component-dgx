@@ -175,8 +175,9 @@ typedef bool (*dgx_bus_move_func)(struct _dgx_bus_protocols_t *bus, uint16_t lef
  * - write_data_async() sends the held command with the data as pixels, and
  *   with no command held the data are always pixels that go on where the
  *   ones before ended (on QSPI, with 0x3C, the memory write continue);
- * - sync_write() sends a held command alone, with no data: a window set and
- *   then waited for sends its memory write bare, ahead of the pixels;
+ * - sync_write() sends a held command alone, with no data, but for the memory
+ *   write 0x2C on QSPI, which stays held for the pixels that come: a window
+ *   set and then waited for still sends them with its 0x2C;
  * - write_commands() on QSPI sends every byte as a command of its own, so a
  *   panel that takes its window as commands with the bounds in them
  *   (DGX_SCREEN_AREA_PROTO_CMD8) cannot be on that bus.

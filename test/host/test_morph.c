@@ -1084,6 +1084,25 @@ static void test_symbol_draw(void)
     dgx_font_make_morph_struct_destroy(&m);
 }
 
+/* a bitmap glyph larger than the 8 bits a dot of a dot font has: its dots keep their places */
+static void test_symbol_large(void)
+{
+    enum { SIDE = 150, PITCH = (SIDE + 7) / 8 };
+    static uint8_t diagonal[SIDE * PITCH];
+    for (int i = 0; i < SIDE; ++i) diagonal[i * PITCH + i / 8] |= (uint8_t)(0x80u >> (i % 8));
+    const glyph_t            glyph[] = { { { .bitmap = diagonal }, SIDE, SIDE, SIDE + 2, 1, 1 - SIDE } };
+    const glyph_array_t      ranges[] = { { '\\', 1, glyph }, { 0, 0, 0 } };
+    dgx_font_t               font = { .glyph_ranges = ranges, .yAdvance = SIDE + 4, .f_type = DGX_FONT_BITMAP_LINES };
+    dgx_font_symbol_morph_t *m = dgx_font_make_morph_struct(&font, '\\', '\\', 20, 400, 30, 410, 2);
+    bool                     placed = m && m->number_of_dots == SIDE;
+    for (int i = 0; placed && i < SIDE; ++i) {
+        placed = m->m_start[i].x == 20 + (1 + i) * 2 && m->m_start[i].y == 400 + (1 - SIDE + i) * 2 &&
+                 m->m_end[i].x == 30 + (1 + i) * 2 && m->m_end[i].y == 410 + (1 - SIDE + i) * 2;
+    }
+    CHECK(placed);
+    dgx_font_make_morph_struct_destroy(&m);
+}
+
 int main(void)
 {
     test_classification();
@@ -1112,5 +1131,6 @@ int main(void)
     test_merge_draw();
     test_merge_to_empty();
     test_symbol_draw();
+    test_symbol_large();
     CHECK_DONE();
 }

@@ -10,7 +10,7 @@
 #include <string.h>
 
 #include "bus/dgx_spi_esp32.h"
-#include "dgx_arch_esp32.h"
+#include "dgx_arch.h"
 #include "dgx_spi_esp32_priv.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -19,6 +19,17 @@
 #include "sdkconfig.h"
 #include "soc/soc_caps.h"
 #include "soc/gpio_reg.h"
+
+/* a chip whose GDMA may ask DGX_SPI_PSRAM_ALIGN of PSRAM, see dgx_spi_psram_align() */
+#if CONFIG_SPIRAM && SOC_PSRAM_DMA_CAPABLE && DGX_SPI_DMA_PSRAM && defined(SOC_AHB_GDMA_VERSION) && SOC_AHB_GDMA_VERSION != 1
+#define DGX_SPI_PSRAM_MAY_ALIGN 1
+#include "hal/efuse_hal.h"
+#if CONFIG_SPIRAM_ECC_ENABLE
+#include "esp_idf_version.h"
+#endif
+#else
+#define DGX_SPI_PSRAM_MAY_ALIGN 0
+#endif
 
 static const char TAG[] = "DGX SPI BUS";
 
@@ -189,7 +200,10 @@ static spi_transaction_t *dgx_spi_data_trans(dgx_spi_bus_t *bus, const uint8_t *
         memcpy(trans->tx_data, data, (len + 7u) / 8u);
     } else {
         trans->tx_buffer = data;
-        if (!bus->psram_late && esp_ptr_external_ram(data) && dgx_spi_dma_reaches(bus->host_id, data)) trans->flags = SPI_TRANS_DMA_USE_PSRAM;
+#if DGX_SPI_DMA_PSRAM
+        if (!bus->psram_late && esp_ptr_external_ram(data) && dgx_spi_dma_reaches(bus->host_id, data) && len % (8u * dgx_spi_psram_align()) == 0)
+            trans->flags = SPI_TRANS_DMA_USE_PSRAM;
+#endif
     }
     trans->length = len;
     trans->user   = set_dc_pin(bus->dcio, 1);
@@ -202,8 +216,9 @@ static spi_transaction_t *dgx_spi_data_trans(dgx_spi_bus_t *bus, const uint8_t *
  * processor to queue it, and only this one is on its way when it returns, as
  * before. A short one is polled, after all the others.
  */
-static void dgx_spi_send_piece(dgx_spi_bus_t *bus, const uint8_t *data, uint32_t len)
+static void dgx_spi_send_piece(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
 {
+    dgx_spi_bus_t *bus = (dgx_spi_bus_t *)_bus;
     if (len <= 2048) {
         if (bus->data_queued) dgx_spi_wait_pending(&bus->protocols);
         spi_transaction_t *trans = dgx_spi_data_trans(bus, data, len);
@@ -212,8 +227,17 @@ static void dgx_spi_send_piece(dgx_spi_bus_t *bus, const uint8_t *data, uint32_t
     }
     esp_err_t rc = spi_device_queue_trans(bus->spi, dgx_spi_data_trans(bus, data, len), portMAX_DELAY);
     if (rc != ESP_OK) {
-        ESP_LOGE(TAG, "spi_device_queue_trans/dgx_spi_send_data_async failed");
+        ESP_LOGE(TAG, "spi_device_queue_trans/dgx_spi_send_data_async failed: %s", esp_err_to_name(rc));
         assert(0);
+        /*
+         * With assertions off these pixels are lost: nothing was queued, so no
+         * result is waited for, and its descriptor is free again. The pieces
+         * before it are waited for, as when it goes: a caller that fills two
+         * halves of a buffer in turn writes the other half next.
+         */
+        bus->data_slot ^= 1u;
+        dgx_spi_wait_pending(&bus->protocols);
+        return;
     }
     /* results come in the order the transfers were queued: the first ones are those before this one */
     for (++bus->data_queued; bus->data_queued > 1; --bus->data_queued) {
@@ -223,32 +247,33 @@ static void dgx_spi_send_piece(dgx_spi_bus_t *bus, const uint8_t *data, uint32_t
     }
 }
 
-/*
- * Pixels, in pieces no longer than the buffer of the bus: the host takes no
- * transfer longer than that, and a caller of write_area may hand a whole
- * frame. A piece is a multiple of 12 bytes, whole pixels of 2, 3 and 4 bytes
- * and whole words for the DMA; the panel goes on writing its memory from one
- * to the next, as it does between the pieces of a fill.
- */
+void dgx_spi_send_pieces(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t len, dgx_spi_piece_func send_piece)
+{
+    /* a piece no longer than the buffer goes whole, the buffer itself above all */
+    if (len <= bus->buffer_len * 8u) {
+        send_piece(bus, data, len);
+        return;
+    }
+    /* from PSRAM whose DMA asks 16 bytes, in multiples of 48 where the buffer is that long: every piece then starts and ends on 16 bytes if the first starts there */
+    const uint32_t step  = bus->buffer_len >= 48u && esp_ptr_external_ram(data) && dgx_spi_psram_align() > 1u ? 48u : 12u;
+    uint32_t       piece = (uint32_t)(bus->buffer_len - bus->buffer_len % step);
+    if (!piece) piece = 12u; /* a buffer shorter than 12 bytes still sends pieces, of 12 bytes, which any host takes */
+    while (len > piece * 8u) {
+        send_piece(bus, data, piece * 8u);
+        data += piece;
+        len -= piece * 8u;
+    }
+    send_piece(bus, data, len);
+}
+
+/* pixels, in pieces no longer than the buffer of the bus, see dgx_spi_send_pieces() */
 static void dgx_spi_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
 {
-    dgx_spi_bus_t *bus = (dgx_spi_bus_t *)_bus;
     if (len == 0) {
         ESP_LOGE(TAG, "dgx_spi_send_data_async len == 0!");
         return;
     }
-    const uint32_t most = (uint32_t)(bus->protocols.buffer_len - bus->protocols.buffer_len % 12u) * 8u;
-    /* a piece no longer than the buffer goes whole, the buffer itself above all */
-    if (len <= bus->protocols.buffer_len * 8u) {
-        dgx_spi_send_piece(bus, data, len);
-        return;
-    }
-    while (most && len > most) {
-        dgx_spi_send_piece(bus, data, most);
-        data += most / 8u;
-        len -= most;
-    }
-    dgx_spi_send_piece(bus, data, len);
+    dgx_spi_send_pieces(_bus, data, len, dgx_spi_send_piece);
 }
 
 /*
@@ -345,11 +370,15 @@ size_t dgx_spi_buffer_len(spi_host_device_t host_id, spi_device_handle_t dev, un
 void dgx_spi_check_result(esp_err_t rc, const spi_transaction_t *trans, bool *psram_late, const char *what)
 {
     if (rc == ESP_OK) return;
+#if DGX_SPI_DMA_PSRAM
     if (rc == ESP_ERR_INVALID_STATE && trans && (trans->flags & SPI_TRANS_DMA_TX_FAIL)) {
         if (!*psram_late) ESP_LOGE(TAG, "pixels from PSRAM came too late for the DMA at this clock; they go through internal memory from now on");
         *psram_late = true;
         return;
     }
+#else
+    (void)trans, (void)psram_late;
+#endif
     ESP_LOGE(TAG, "%s failed: %s", what, esp_err_to_name(rc));
     assert(0);
 }
@@ -365,16 +394,27 @@ bool dgx_spi_dma_reaches(spi_host_device_t host_id, const void *pixels)
 {
     (void)host_id;
     if (esp_ptr_external_ram(pixels)) {
-#if CONFIG_SPIRAM && SOC_PSRAM_DMA_CAPABLE
+#if CONFIG_SPIRAM && SOC_PSRAM_DMA_CAPABLE && DGX_SPI_DMA_PSRAM
 #if CONFIG_IDF_TARGET_ESP32S2
         if (host_id == SPI3_HOST) return false;
 #endif
-        return esp_ptr_dma_ext_capable(pixels);
+        return esp_ptr_dma_ext_capable(pixels) && (uintptr_t)pixels % dgx_spi_psram_align() == 0;
 #else
         return false;
 #endif
     }
     return esp_ptr_dma_capable(pixels) && ((uintptr_t)pixels & 3u) == 0;
+}
+
+unsigned dgx_spi_psram_align(void)
+{
+#if DGX_SPI_PSRAM_MAY_ALIGN && CONFIG_SPIRAM_ECC_ENABLE && ESP_IDF_VERSION_MAJOR >= 6
+    return DGX_SPI_PSRAM_ALIGN;
+#elif DGX_SPI_PSRAM_MAY_ALIGN
+    return efuse_hal_flash_encryption_enabled() ? DGX_SPI_PSRAM_ALIGN : 1u;
+#else
+    return 1u;
+#endif
 }
 
 static bool dgx_spi_sends_from(struct _dgx_bus_protocols_t *_bus, const void *pixels)
@@ -445,6 +485,14 @@ static dgx_bus_protocols_t *dgx_spi_attach(spi_host_device_t host_id, bool owns_
     bus->devcfg.clock_speed_hz = clock_speed_hz;
     bus->devcfg.spics_io_num   = cs;
     bus->devcfg.queue_size     = DGX_SPI_QUEUE_SIZE;
+    /*
+     * No dummy cycles to make up for the delay of MISO through the GPIO
+     * matrix: DGX does not read the display back, and an ESP32 refuses a
+     * full-duplex device that would need them, one faster than 26.7 MHz on
+     * pins of the GPIO matrix (spi_hal_cal_clock_conf() of IDF). read_data()
+     * at such a clock may take wrong bits.
+     */
+    bus->devcfg.flags = SPI_DEVICE_NO_DUMMY;
     if (dc >= 0) {
         dgx_gpio_set_direction(dc, GPIO_MODE_OUTPUT);
         if (dc > 31) {

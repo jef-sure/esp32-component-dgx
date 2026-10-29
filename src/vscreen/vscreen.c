@@ -131,6 +131,9 @@ static void dgx_vscreen_screen_destroy(dgx_screen_t **_pscr)
 static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, int h, uint32_t color)
 {
     dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
+    /* a negative width or height goes to the left of x or up from y, as on a display behind a bus */
+    if (w < 0) x += w, w = -w;
+    if (h < 0) y += h, h = -h;
     /*
      * A row and a column first. Lines and circles are made of them, and for
      * one of a few pixels the checks a rectangle needs cost more than the
@@ -188,7 +191,7 @@ static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, 
         dgx_screen_touch(_scr, x, x, y, y + h - 1);
         return;
     }
-    if (w < 0 || x + w < 0 || x >= _scr->width || h < 0 || y + h < 0 || y >= _scr->height) return;
+    if (x + w < 0 || x >= _scr->width || y + h < 0 || y >= _scr->height) return;
     if (x < 0) {
         w = x + w;
         x = 0;

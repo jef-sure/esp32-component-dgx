@@ -234,7 +234,6 @@ typedef struct {
     bool           joined_next;
     const glyph_t *prev;         /* the symbol right before it in the line */
     float          jx[4], jy[4]; /* the last element of the end connection of prev, waiting to be joined */
-    bool           has_joint;
     /* the run of joined symbols whose postponed strokes wait */
     bool          run;
     uint16_t      run_number;

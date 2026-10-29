@@ -26,16 +26,17 @@
 
 static const char *TAG = "fonts_demo";
 
-#define LCD_HOST SPI3_HOST
+/* the display of the CYD: SPI2, and no reset line of its own */
+#define LCD_HOST SPI2_HOST
 
 enum
 {
-    PIN_MOSI      = 23,
-    PIN_MISO      = 19,
-    PIN_CLK       = 18,
-    PIN_CS        = 5,
-    PIN_DC        = 16,
-    PIN_RST       = 17,
+    PIN_MOSI      = 13,
+    PIN_MISO      = 12,
+    PIN_CLK       = 14,
+    PIN_CS        = 15,
+    PIN_DC        = 2,
+    PIN_RST       = GPIO_NUM_NC,
     PIN_BACKLIGHT = 21,
     SPI_CLOCK_MHZ = 40,
 };

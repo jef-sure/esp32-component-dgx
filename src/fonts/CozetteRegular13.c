@@ -1,3 +1,13 @@
+/*
+ * Cozette 1.30.0 of Ines, https://github.com/the-moonwitch/Cozette: the
+ * bitmap font cozette.bdf, drawn at 13 px.
+ * Copyright (c) 2020, Ines <ines@moonwit.ch>
+ * Licensed under the MIT License: licenses/Cozette-LICENSE.txt beside this
+ * file.
+ * Changed: made into this C file by font2c of DGX at its own size, with
+ * ASCII, Latin-1, Cyrillic U+0400 to U+045F, dashes, quotes, the ellipsis,
+ * the euro and the numero sign; the Nerd Font icons left out.
+ */
 #include "dgx_font.h"
 /* font2c: CozetteRegular13, "Cozette" "Regular" at 13 px */
 static const uint8_t bitmaps[] = {

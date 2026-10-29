@@ -21,11 +21,14 @@ extern "C" {
 /**
  * @brief Draws a filled rectangle on the screen.
  *
+ * A negative width or height takes the rectangle to the left of x or up
+ * from y: (x, y, -w, h) is (x - w, y, w, h). Every screen draws it so.
+ *
  * @param scr The screen to draw on.
  * @param x The x coordinate of the top-left corner of the rectangle.
  * @param y The y coordinate of the top-left corner of the rectangle.
- * @param w The width of the rectangle.
- * @param h The height of the rectangle.
+ * @param w The width of the rectangle, or less than 0 for one to the left of x.
+ * @param h The height of the rectangle, or less than 0 for one above y.
  * @param color The color of the rectangle.
 */
 void dgx_fill_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t color);
@@ -283,9 +286,11 @@ void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
                              uint32_t color);
 
 /**
- * @brief Draws a thick line on the screen as a parallelogram of the given width,
- * with rounded/triangular caps at the endpoints.
+ * @brief Draws a thick line on the screen: the rectangle of the given width
+ * around the way from (x1, y1) to (x2, y2), cut square at the end points.
  *
+ * A pixel is of the line when its centre lies in the rectangle, so the line
+ * is as wide at every angle; a line of width 1 is that of dgx_draw_line().
  * An even width has no middle pixel: the spare one goes to the right of the
  * way from (x1, y1) to (x2, y2), so the same line drawn the other way lies a
  * pixel aside. Draw the lines of one figure in one direction. An odd width

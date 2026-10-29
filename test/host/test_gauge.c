@@ -86,6 +86,35 @@ int main(void)
     CHECK(again > half - 15 && again < half + 15);
     CHECK(pixels_of(scr, BACK) + again == ring);
 
+    /* a range of millions, as of the bytes of PSRAM: a value times the degrees of the sweep is more than an int holds */
+    dgx_fill_rectangle(scr, 0, 0, W, H, 0);
+    dgx_gauge_init(&gauge, scr, W / 2, H / 2, 30, 10, 225.0f, 270, 0, 8388608, BACK, gauge_color);
+    CHECK(pixels_of(scr, BACK) == ring);
+    dgx_gauge_set_value(&gauge, 8000000);
+    CHECK(gauge.active_steps == 257);
+    CHECK(pixels_of(scr, HIGH) > ring * 9 / 10 && pixels_of(scr, BACK) > 0);
+    dgx_gauge_set_value(&gauge, 8388608);
+    CHECK(gauge.active_steps == 270 && pixels_of(scr, HIGH) == ring && pixels_of(scr, BACK) == 0);
+
+    /* the steps go with the clock, and against it for a negative sweep: from the top over the right side, or over the left one */
+    for (int sweep = -180; sweep <= 180; sweep += 360) {
+        dgx_fill_rectangle(scr, 0, 0, W, H, 0);
+        dgx_gauge_init(&gauge, scr, W / 2, H / 2, 30, 10, 90.0f, sweep, 0, 100, BACK, gauge_color);
+        const int empty = pixels_of(scr, BACK);
+        CHECK(empty > 900);
+        dgx_gauge_set_value(&gauge, 100);
+        CHECK(gauge.active_steps == 180 && pixels_of(scr, BACK) == 0 && pixels_of(scr, LOW) + pixels_of(scr, HIGH) == empty);
+        int left = 0, right = 0;
+        for (int y = 0; y < H; ++y) {
+            for (int x = 0; x < W; ++x) {
+                if (!dgx_get_pixel(scr, x, y)) continue;
+                left += x < W / 2 - 1;
+                right += x > W / 2 + 1;
+            }
+        }
+        CHECK(sweep < 0 ? left > 900 && right == 0 : right > 900 && left == 0);
+    }
+
     dgx_screen_destroy(&scr);
     CHECK_DONE();
 }

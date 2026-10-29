@@ -1,6 +1,7 @@
 #include <math.h>
 
 #include "dgx_hw_font.h"
+#include "dgx_hw_font_priv.h"
 
 float dgx_hw_element_effort(const dgx_hw_element_t *element, const dgx_hw_pace_t *pace)
 {
@@ -118,7 +119,6 @@ void dgx_hw_writer_begin(dgx_hw_writer_t *w, dgx_font_t *font, const char *text,
     w->line_y = 0;
     w->g = 0;
     w->prev = 0;
-    w->has_joint = false;
     w->run = false;
     w->run_idx = w->run_end = 0;
     w->posting = false;
@@ -132,22 +132,6 @@ static void dgx_hw_in_text(const dgx_hw_writer_t *w, const dgx_hw_element_t *e, 
     for (int i = 0; i < e->type; ++i) {
         x[i] = e->points[i].x + shift;
         y[i] = e->points[i].y - hw->symbol_offset_y - hw->base_line + w->line_y;
-    }
-}
-
-/* any element as a cubic curve drawing the same */
-static void dgx_hw_cubic(int type, float *x, float *y)
-{
-    if (type == DGX_HW_CURVE3P) {
-        x[3] = x[2], y[3] = y[2];
-        x[2] = x[3] + (x[1] - x[3]) * 2 / 3, y[2] = y[3] + (y[1] - y[3]) * 2 / 3;
-        x[1] = x[0] + (x[1] - x[0]) * 2 / 3, y[1] = y[0] + (y[1] - y[0]) * 2 / 3;
-    } else if (type == DGX_HW_LINE) {
-        x[3] = x[1], y[3] = y[1];
-        x[1] = x[0] + (x[3] - x[0]) / 3, y[1] = y[0] + (y[3] - y[0]) / 3;
-        x[2] = x[0] + (x[3] - x[0]) * 2 / 3, y[2] = y[0] + (y[3] - y[0]) * 2 / 3;
-    } else if (type == DGX_HW_DOT) {
-        x[1] = x[2] = x[3] = x[0], y[1] = y[2] = y[3] = y[0];
     }
 }
 
@@ -313,14 +297,12 @@ bool dgx_hw_writer_next(dgx_hw_writer_t *w, dgx_hw_stroke_t *stroke)
                 w->k = 0;
             }
             /* the end connection but its last element, which goes into the joint with the next symbol */
-            w->has_joint = false;
             if (w->joined_next) {
                 const dgx_hw_element_t *end = &e[s->begin_connection + s->main_segments];
                 if (w->k + 1 < s->end_connection) return dgx_hw_stroke_of(w, &end[w->k++], w->shift, w->g_number, stroke);
                 const dgx_hw_element_t *last = &end[s->end_connection - 1];
                 dgx_hw_in_text(w, last, w->shift, w->jx, w->jy);
                 dgx_hw_cubic(last->type, w->jx, w->jy);
-                w->has_joint = true;
             }
             w->prev = w->g;
             w->g = 0;

@@ -133,19 +133,18 @@ static inline void dgx_fill_bits_msb(uint8_t *array, size_t idx, size_t len, boo
     array[last] = value ? (array[last] | tail_mask) : (array[last] & (uint8_t)~tail_mask);
 }
 
-static inline uint32_t dgx_rol_bits(uint32_t a, uint8_t bits)
-{
-    return (a >> (bits - 1)) | (a << 1);
-}
-
-static inline uint32_t dgx_ror_bits(uint32_t a, uint8_t bits)
-{
-    return (a << (bits - 1)) | (a >> 1);
-}
-
+/*
+ * A pattern of `bits` bits, the lowest bits of `a`, turned round by `n`: to
+ * the left (rol), its top bit coming to bit 0, or to the right (ror), bit 0
+ * coming to the top. A dashed line turns its pattern so from pixel to pixel,
+ * and rol undoes ror. Nothing above `bits` is in the result.
+ */
 static inline uint32_t dgx_rol_nbits(uint32_t a, uint8_t bits, uint8_t n)
 {
-    return (a >> (bits - n)) | (a << n);
+    /* as in dgx_ror_nbits(): the value is its lowest bits, and what lies above must not come into it on turning */
+    uint32_t low = bits < 32 ? (1u << bits) - 1 : UINT32_MAX;
+    a &= low;
+    return ((a << n) | (a >> (bits - n))) & low;
 }
 
 static inline uint32_t dgx_ror_nbits(uint32_t a, uint8_t bits, uint8_t n)
@@ -154,6 +153,17 @@ static inline uint32_t dgx_ror_nbits(uint32_t a, uint8_t bits, uint8_t n)
     uint32_t low = bits < 32 ? (1u << bits) - 1 : UINT32_MAX;
     a &= low;
     return ((a << (bits - n)) | (a >> n)) & low;
+}
+
+/* the same by one step: once the type of the result cut the pattern, which a uint32_t does only at 32 bits */
+static inline uint32_t dgx_rol_bits(uint32_t a, uint8_t bits)
+{
+    return dgx_rol_nbits(a, bits, 1);
+}
+
+static inline uint32_t dgx_ror_bits(uint32_t a, uint8_t bits)
+{
+    return dgx_ror_nbits(a, bits, 1);
 }
 
 static inline uint8_t bit_reverse(uint8_t b)
