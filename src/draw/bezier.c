@@ -4,13 +4,22 @@
 #include <string.h>
 
 #include "dgx_draw.h"
+#include "drivers/vscreen.h"
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
+/*
+ * What a pen does only on a virtual screen; without virtual screens both are 0. The soft pen has
+ * functions of its own, and a plain if before their calls is enough for the compiler to leave them
+ * out. The pen into the memory lies inside the loops of the hard pen: an if there, even one that is
+ * never true, makes the compiler arrange the hard pen differently, so it is cut out by #if.
+ */
 #if !defined(ESP_PLATFORM) || defined(CONFIG_DGX_ENABLE_VSCREEN)
-#include "drivers/vscreen.h"
 #define DGX_STROKE_SOFT   1 /* a pen with a soft edge */
 #define DGX_STROKE_MEMORY 1 /* a pen that writes into the memory of a virtual screen itself */
+#else
+#define DGX_STROKE_SOFT   0
+#define DGX_STROKE_MEMORY 0
 #endif
 
 /* the thick polyline of a curve, drawn one piece at a time */
@@ -128,7 +137,7 @@ static void dgx_stroke_figure(dgx_stroke_t *s, int bx, int by, float len, float 
     int        chord = (d & 1) ^ 1; /* of the disc, in half pixels */
     int64_t    chord_wide = chord;  /* the same for a disc whose square is too large for 32 bits */
     const bool wide = d > 23000;
-#ifdef DGX_STROKE_MEMORY
+#if DGX_STROKE_MEMORY
     /*
      * A virtual screen of whole bytes a pixel has its rows put here, not asked for one by one: a figure
      * of a small text is a few rows of a few pixels, and to ask for a row costs more than to fill it.
@@ -184,7 +193,7 @@ static void dgx_stroke_figure(dgx_stroke_t *s, int bx, int by, float len, float 
                 if (cr > right) right = cr;
             }
         }
-#ifdef DGX_STROKE_MEMORY
+#if DGX_STROKE_MEMORY
         if (bytes) {
             if (left < 0) left = 0;
             if (right >= width) right = width - 1;
@@ -213,7 +222,7 @@ static void dgx_stroke_figure(dgx_stroke_t *s, int bx, int by, float len, float 
 #endif
         if (left <= right) dgx_stroke_row(s, row, left, right);
     }
-#ifdef DGX_STROKE_MEMORY
+#if DGX_STROKE_MEMORY
     if (bytes) {
         if (touched_left <= touched_right) dgx_screen_touch(s->scr, touched_left, touched_right, top, bottom);
         return;
@@ -221,8 +230,6 @@ static void dgx_stroke_figure(dgx_stroke_t *s, int bx, int by, float len, float 
 #endif
     dgx_stroke_flush(s);
 }
-
-#ifdef DGX_STROKE_SOFT
 
 /* a part of a piece begins this far behind the place the pen stopped at: the soft end of the part before is covered whole */
 #define DGX_STROKE_LAP    2.0f
@@ -513,8 +520,6 @@ static void dgx_stroke_disc(dgx_stroke_t *s, float cx, float cy, int d, const fl
     dgx_screen_touch(s->scr, left, right, top, bottom);
 }
 
-#endif /* DGX_STROKE_SOFT */
-
 /*
  * A line one pixel wide: the pixels of a piece from f0 to f1 of its length.
  * Which pixels a piece has does not depend on the parts it is drawn by: the
@@ -532,7 +537,7 @@ static void dgx_stroke_thin(dgx_stroke_t *s, int bx, int by, float len, float f0
     const int gone_x = (int)((2 * (int64_t)from * wx + n) / (2 * (int64_t)n)), gone_y = (int)((2 * (int64_t)from * wy + n) / (2 * (int64_t)n));
     int       over_x = (int)(2 * ((int64_t)from * wx - (int64_t)gone_x * n)), over_y = (int)(2 * ((int64_t)from * wy - (int64_t)gone_y * n));
     int       x = s->x + (dx < 0 ? -gone_x : gone_x), y = s->y + (dy < 0 ? -gone_y : gone_y);
-#ifdef DGX_STROKE_MEMORY
+#if DGX_STROKE_MEMORY
     if (s->direct) {
         const int      width = s->scr->width, height = s->scr->height, bytes = s->direct, step_x = dx < 0 ? -1 : 1, step_y = dy < 0 ? -1 : 1;
         uint8_t *const memory = ((dgx_vscreen_t *)s->scr)->v_array;
@@ -605,24 +610,22 @@ static void dgx_bezier_begin(dgx_bezier_t *b, dgx_screen_t *scr, dgx_point_2d_t 
     /* the kind of the pen comes with its width; a width below 1 is no pen at all, whatever bits it has */
     const bool asked = width > 0 && (width & DGX_PEN_SOFT);
     if (width > 0) width &= ~DGX_PEN_SOFT;
-    (void)asked; /* of no use where there is no virtual screen to be soft on */
     b->scr = scr;
     b->color = color;
     b->width = width > INT16_MAX ? INT16_MAX : width;
     b->started = false;
     b->soft = false;
     b->direct = 0;
-#ifdef DGX_STROKE_MEMORY
+#if DGX_STROKE_MEMORY
     if ((scr->color_bits == 8 || scr->color_bits == 16) && dgx_vscreen_is_linear(scr)) b->direct = scr->color_bits / 8;
 #endif
-#ifdef DGX_STROKE_SOFT
     /*
      * A soft edge is a share of the ink in a pixel, and where lines meet the larger share stays. Only
      * a pixel that is an amount of ink can do it, and that is a byte of a virtual screen. A pixel of
      * colors has nothing to take the larger of, and a display behind a bus cannot be read: there the
      * pen is hard whatever is asked for.
      */
-    b->soft = asked && width >= 1 && scr->color_bits == 8 && dgx_vscreen_is_linear(scr);
+    b->soft = DGX_STROKE_SOFT && asked && width >= 1 && scr->color_bits == 8 && dgx_vscreen_is_linear(scr);
     if (b->soft) {
         const float edge = b->width * 0.5f + 0.5f;
         b->fx = b->kx[3] + dgx_stroke_half(b->width), b->fy = b->ky[3] + dgx_stroke_half(b->width);
@@ -634,7 +637,6 @@ static void dgx_bezier_begin(dgx_bezier_t *b, dgx_screen_t *scr, dgx_point_2d_t 
         b->back = 0;
         b->next_length = 0;
     }
-#endif
     if (!b->soft) {
         b->x = dgx_stroke_round(b->kx[3]);
         b->y = dgx_stroke_round(b->ky[3]);
@@ -699,7 +701,6 @@ static void dgx_bezier_point(const dgx_bezier_t *b, int piece, int *x, int *y)
     *y = dgx_stroke_round(((b->ky[0] * t + b->ky[1]) * t + b->ky[2]) * t + b->ky[3]);
 }
 
-#ifdef DGX_STROKE_SOFT
 /* the same for a soft line, pieces counted from 0, the start of the curve: the point as it is */
 static void dgx_bezier_soft_point(const dgx_bezier_t *b, int piece, float *x, float *y)
 {
@@ -713,12 +714,10 @@ static void dgx_bezier_soft_point(const dgx_bezier_t *b, int piece, float *x, fl
     *x = ((b->kx[0] * t + b->kx[1]) * t + b->kx[2]) * t + b->kx[3] + half;
     *y = ((b->ky[0] * t + b->ky[1]) * t + b->ky[2]) * t + b->ky[3] + half;
 }
-#endif
 
 float dgx_bezier_length(dgx_bezier_t *b)
 {
-#ifdef DGX_STROKE_SOFT
-    if (b->length < 0 && b->soft) {
+    if (DGX_STROKE_SOFT && b->length < 0 && b->soft) {
         float x0, y0;
         dgx_bezier_soft_point(b, 0, &x0, &y0);
         b->length = 0;
@@ -731,7 +730,6 @@ float dgx_bezier_length(dgx_bezier_t *b)
             x0 = x, y0 = y;
         }
     }
-#endif
     if (b->length < 0) {
         int x0 = dgx_stroke_round(b->kx[3]), y0 = dgx_stroke_round(b->ky[3]);
         b->length = 0;
@@ -749,14 +747,12 @@ float dgx_bezier_length(dgx_bezier_t *b)
 static void dgx_bezier_start(dgx_bezier_t *b)
 {
     b->started = true;
-#ifdef DGX_STROKE_SOFT
-    if (b->soft) {
+    if (DGX_STROKE_SOFT && b->soft) {
         /* of a line, what lies behind the start of its first piece; of a dot, all of it */
         const float ahead[2] = {b->ux, b->uy};
         dgx_stroke_disc(b, b->fx, b->fy, b->width, b->in_piece ? ahead : NULL, DGX_STROKE_SEAM, NULL);
         return;
     }
-#endif
     if (b->width == 1) {
         dgx_set_pixel(b->scr, b->x, b->y, b->color);
         return;
@@ -768,7 +764,6 @@ static void dgx_bezier_start(dgx_bezier_t *b)
     dgx_stroke_figure(b, b->x, b->y, 0, 0, 0, b->x, b->y, b->width);
 }
 
-#ifdef DGX_STROKE_SOFT
 /*
  * What dgx_bezier_draw_to() does for a soft line.
  *
@@ -861,7 +856,6 @@ static void dgx_bezier_soft_to(dgx_bezier_t *b, bool whole, float target)
         break;
     }
 }
-#endif
 
 /*
  * Two levels: the pieces of the curve one after another, and how far the
@@ -875,9 +869,7 @@ bool dgx_bezier_draw_to(dgx_bezier_t *b, float t)
     float target = whole ? 0 : t * dgx_bezier_length(b);
     if (!whole && !(target > b->drawn)) return false;
     dgx_screen_progress_up(b->scr);
-#ifdef DGX_STROKE_SOFT
-    if (b->soft) dgx_bezier_soft_to(b, whole, target);
-#endif
+    if (DGX_STROKE_SOFT && b->soft) dgx_bezier_soft_to(b, whole, target);
     while (!b->soft && b->done < b->pieces) {
         if (!b->in_piece) {
             int x, y;

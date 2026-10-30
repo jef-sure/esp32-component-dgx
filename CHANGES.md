@@ -194,8 +194,17 @@ Fixes in MIPI-DSI:
   NULL, but the panel with its frame buffers stayed on the bus, and the next
   call of the constructor was refused with "the bus already has a display".
   `dgx_dsi_video_start()` now lets go of all that `dgx_dsi_video_setup()`
-  made, as the disposal of the bus does. Not tried on hardware: the start
-  does not fail on the boards here.
+  made, as the disposal of the bus does. Tried with the first
+  `esp_lcd_panel_init()` made to fail by the linker after it had run, on
+  the Guition JC1060P470 (JD9165, IDF 5.5.4) and JC8012P4A1C (JD9365, IDF
+  6.1): the frame buffer of the failed start is freed and the second
+  constructor makes the screen; with 0.9.1 the second one is refused. On
+  the JC1060P470 the picture of that screen came out shifted along its rows,
+  the end of a row at the start of the next, when the failed start had sent
+  frames already; after a start that failed before its first frame it is
+  right. Only such a test makes a start fail after its first frames: in
+  ESP-IDF 5.5.4 to 6.1 `esp_lcd_panel_init()` of a DPI panel always
+  returns `ESP_OK`.
 - **Two frame buffers, where frames are counted at the buffer switch**
   (`on_frame_buf_complete`, or `on_refresh_done` below chip revision 3). The
   interrupt counts a frame a moment after the driver has taken the buffer
