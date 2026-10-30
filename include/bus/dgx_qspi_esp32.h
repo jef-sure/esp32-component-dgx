@@ -51,15 +51,14 @@ dgx_bus_protocols_t *dgx_qspi_init(spi_host_device_t host_id, spi_dma_chan_t dma
  * The host must have been initialized by spi_bus_initialize() with its four
  * data lines, DMA (e.g. SPI_DMA_CH_AUTO) and a max_transfer_sz of 0 or at
  * least 4092 bytes. The buffer of the display, the longest piece of pixels
- * DGX sends, is as long as the wire takes about 0.8 ms to send at its clock,
+ * DGX sends, is as long as the wire takes about 0.95 ms to send at its clock,
  * 4000 bytes at least, 32000 at most and no more than the host takes: about
- * 16000 bytes at 40 MHz, so give the host a max_transfer_sz of 16000 or more
+ * 19000 bytes at 40 MHz, so give the host a max_transfer_sz of 19000 or more
  * for the full speed. DGX adds its device to the host and removes it when the backend is disposed; the
  * host stays the program's to free, after the backend.
  *
  * @param host_id        SPI host the program has initialized.
- * @param cs             Chip-select GPIO of the panel, driven by the SPI hardware for every transfer: other devices
- *                       of the host are served between the pieces of a picture.
+ * @param cs             Chip-select GPIO of the panel, driven by the SPI hardware for every transfer.
  * @param clock_speed_hz SPI clock of this device in Hz.
  * @param cpolpha_mode   SPI mode 0..3 (CPOL/CPHA); pass 0 for most panels.
  * @return Bus backend usable by panel drivers, or NULL on failure.

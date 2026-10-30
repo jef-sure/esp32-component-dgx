@@ -21,6 +21,13 @@ static const char TAG[] = "DGX V-Screen 2H";
 
 // Initialize the display
 
+/* the two panels share what only one of them can hold at a time */
+static bool dgx_vscreen_2h_one_wire(const dgx_vscreen_2h_t *scr)
+{
+    const void *left = ((const dgx_screen_with_bus_t *)scr->left_screen)->bus->wire;
+    return left && left == ((const dgx_screen_with_bus_t *)scr->right_screen)->bus->wire;
+}
+
 static void dgx_vscreen_2h_update_area(dgx_screen_t *_scr, int left, int right, int top, int bottom) {
     dgx_vscreen_2h_t *scr = (dgx_vscreen_2h_t *)_scr;
     int ll = DGX_MAX(0, left);
@@ -34,11 +41,12 @@ static void dgx_vscreen_2h_update_area(dgx_screen_t *_scr, int left, int right, 
      * rows to each: only when the panels are of one height, or the shorter one
      * would be sent rows its window has no room for, and the window would take
      * them from its top again. Each panel is sent through the halves of its
-     * bus buffer, a row to one and then a row to the other.
+     * bus buffer, a row to one and then a row to the other. Two panels on one
+     * host cannot go so: the bus held for one keeps the other waiting.
      */
     if (scr->left_screen->screen_subtype == DgxPhysicalScreenWithBus && scr->right_screen->screen_subtype == DgxPhysicalScreenWithBus &&
         scr->left_screen->color_bits == 16 && lw == rw && lw == scr->left_screen->width && rw == scr->right_screen->width &&
-        scr->left_screen->height == scr->right_screen->height) {
+        scr->left_screen->height == scr->right_screen->height && !dgx_vscreen_2h_one_wire(scr)) {
         top = DGX_MAX(0, top);
         bottom = DGX_MIN(_scr->height - 1, bottom);
         if (top > bottom) return;

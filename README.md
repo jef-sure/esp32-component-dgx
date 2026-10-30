@@ -86,7 +86,8 @@ dependencies:
 Then enable the drivers you need in `menuconfig`, under the **DGX** menu. A
 driver is offered only once a transport it works on is enabled, so enable both;
 in `sdkconfig.defaults` a driver option without its transport is silently
-dropped, and the link fails later. To work on DGX itself, check the
+dropped, and the link fails later. Virtual screens, which most recipes below
+draw into, need `CONFIG_DGX_ENABLE_VSCREEN`. To work on DGX itself, check the
 repository out under `components/` instead; a git submodule at
 `components/dgx` works well.
 
@@ -127,7 +128,7 @@ for an ILI9341 on the usual pins of an ESP32.
 
 ## Recipes
 
-Short answers to the things people look for first. Each recipe names a
+Short answers to the things people look for first. Most recipes name a
 complete example to run and read; the functions are listed in the
 [API reference](#api-reference).
 
@@ -336,8 +337,8 @@ dgx_vscreen_to_screen(lcd, 0, 0, page, 0);
 ```
 
 Some displays can be scrolled directly, without a virtual screen: an ILI9341
-scrolls by its own hardware along the long side of the panel, and a MIPI-DSI
-display is scrolled in its frame buffer. The call is the same; it returns
+scrolls by its own hardware along the long side of the panel, an ST77916 along
+y of a screen upright, and a MIPI-DSI display is scrolled in its frame buffer. The call is the same; it returns
 `ESP_OK`, or `ESP_ERR_NOT_SUPPORTED` when the display cannot do that scroll:
 
 ```c
@@ -345,8 +346,8 @@ display is scrolled in its frame buffer. The call is the same; it returns
 dgx_scroll(lcd, 0, 24, lcd->width, lcd->height - 24, 0, -line_height, paper);
 ```
 
-On an ILI9341 such a move costs the commands of the panel and the fill of
-the strip that leaves. When the new line or column is drawn right after the
+On such a panel a move costs its commands and the fill of the strip that
+leaves. When the new line or column is drawn right after the
 move anyway, use `dgx_scroll_no_fill()`: the same move without the fill, and
 on the panel it is the commands alone.
 
@@ -736,7 +737,7 @@ See [Coordinates and orientation](#coordinates-and-orientation).
 
 A screen takes one task at a time. Let one task own the display and draw,
 and let the others send it messages or finished virtual screens; or guard
-each batch with a mutex of your own. Both ways, with measurements, are in
+each batch with a mutex of your own. Both ways are in
 [Drawing from several tasks](#drawing-from-several-tasks).
 
 ### An Arduino sketch
@@ -939,21 +940,65 @@ PDQ graphics test on a CYD, drawn in memory and sent once, microseconds:
 
 | Test | DGX, virtual screen | TFT_eSPI, sprite |
 | --- | ---: | ---: |
-| Hackaday logo, 16 times | 419 212 | 327 052 |
-| Screen fill | 32 293 | 37 860 |
-| Text | 36 534 | 40 720 |
-| Pixels | 92 071 | 79 425 |
-| Lines | 74 032 | 71 186 |
-| Horiz/Vert Lines | 32 389 | 41 099 |
-| Rectangles (outline) | 32 413 | 39 846 |
-| Rectangles (filled) | 34 991 | 41 337 |
-| Circles (filled) | 35 540 | 40 448 |
-| Circles (outline) | 36 261 | 41 857 |
-| Triangles (outline) | 34 652 | 40 419 |
-| Triangles (filled) | 35 316 | 40 826 |
-| Rounded rects (outline) | 33 562 | 40 788 |
-| Rounded rects (filled) | 35 475 | 40 597 |
-| Total | 964 741 | 923 460 |
+| Hackaday logo, 16 times | 48 668 | 327 052 |
+| Screen fill | 32 330 | 37 860 |
+| Text | 36 425 | 40 720 |
+| Pixels | 92 062 | 79 425 |
+| Lines | 74 041 | 71 186 |
+| Horiz/Vert Lines | 32 387 | 41 099 |
+| Rectangles (outline) | 32 409 | 39 846 |
+| Rectangles (filled) | 34 979 | 41 337 |
+| Circles (filled) | 35 602 | 40 448 |
+| Circles (outline) | 36 246 | 41 857 |
+| Triangles (outline) | 34 648 | 40 419 |
+| Triangles (filled) | 35 335 | 40 826 |
+| Rounded rects (outline) | 33 476 | 40 788 |
+| Rounded rects (filled) | 35 479 | 40 597 |
+| Total | 594 087 | 923 460 |
+
+The same test with DGX on the next chips and displays:
+
+| Board | Chip | Display | Bus | Pixels |
+| --- | --- | --- | --- | ---: |
+| CYD | ESP32, 240 MHz | ILI9341, 240x320 | SPI, 40 MHz | 76 800 |
+| Guition JC4827W543 | ESP32-S3, 240 MHz | NV3041A, 272x480 | QSPI, 40 MHz | 130 560 |
+| Guition JC1060P470 | ESP32-P4, 360 MHz | 7-inch JD9165, 600x1024 | MIPI-DSI, 2 lanes | 614 400 |
+
+PDQ graphics test with DGX on the three boards, microseconds. In the
+"display" columns every call draws straight on the display; in the "memory"
+columns each test draws into an 8-bit virtual screen, which is then sent once:
+
+| Test | CYD 240x320, display | CYD 240x320, memory | JC4827W543 272x480, display | JC4827W543 272x480, memory | JC1060P470 600x1024, display | JC1060P470 600x1024, memory |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Hackaday logo, 16 times | 533 959 | 48 668 | 163 874 | 29 164 | 1 734 100 | 41 594 |
+| Screen fill | 31 287 | 32 330 | 13 371 | 14 078 | 3 547 | 38 685 |
+| Text | 22 833 | 36 425 | 19 878 | 17 388 | 4 936 | 33 503 |
+| Pixels | 650 896 | 92 062 | 1 013 447 | 99 832 | 3 295 808 | 191 330 |
+| Lines | 599 548 | 74 041 | 988 612 | 72 571 | 632 674 | 238 744 |
+| Horiz/Vert Lines | 17 053 | 32 387 | 11 876 | 14 136 | 60 804 | 43 367 |
+| Rectangles (outline) | 12 300 | 32 409 | 8 325 | 14 042 | 37 756 | 34 357 |
+| Rectangles (filled) | 327 554 | 34 979 | 120 982 | 17 416 | 77 071 | 176 725 |
+| Circles (filled) | 66 462 | 35 602 | 80 046 | 18 964 | 60 266 | 51 517 |
+| Circles (outline) | 50 385 | 36 246 | 81 253 | 19 429 | 65 880 | 50 297 |
+| Triangles (outline) | 34 537 | 34 648 | 41 273 | 16 361 | 39 623 | 39 602 |
+| Triangles (filled) | 164 448 | 35 335 | 135 978 | 17 331 | 1 935 747 | 67 570 |
+| Rounded rects (outline) | 23 683 | 33 476 | 23 767 | 15 236 | 49 920 | 37 098 |
+| Rounded rects (filled) | 346 428 | 35 479 | 154 621 | 17 923 | 637 672 | 189 094 |
+| Total | 2 881 373 | 594 087 | 2 857 303 | 383 871 | 8 635 804 | 1 233 483 |
+
+Each board draws at the size of its own screen, so a row shows what that
+board does, not one picture drawn three times; only the logo is 240x320
+everywhere. The memory rows that draw least show what sending the whole
+screen takes: about 32 ms on the CYD, 14 ms on the JC4827W543 with 1.7 times
+the pixels, and 33 ms on the JC1060P470 with eight times the pixels.
+
+The display of the JC1060P470 is memory in PSRAM, and outside a batch every
+drawing writes the cache of the processor back over the rows it changed.
+Its panel is 1024x600 and the test runs it upright, so neighbours in a row of
+the screen lie 2 KB apart in the frame buffer, each on a cache line of its own:
+that is the 1.7 s of the logo. So figures drawn straight on it take long, and
+a program there draws in memory: the test takes 8.6 s on the display and 1.2 s
+in memory.
 
 How it was measured, the other boards, and the numbers published for these
 libraries: [docs/benchmarks-en.md](docs/benchmarks-en.md).
@@ -1070,9 +1115,9 @@ how it takes pixels to its TE line, with what was measured and tried:
 ST77916 is the controller of round 360x360 panels, on QSPI as a rule, with
 the same commands and pixels on that bus as NV3041A. The driver has the init
 table of Arduino_GFX for a 1.5-inch glass, seen right at 40 MHz on a module
-marked "TFT 1.53 1.0" with the glass T150XV-C16-04. It takes 16 or 18 bits, 16
-seen on that module, and keeps the backlight off until the panel memory is
-black, as NV3041A does. An init table belongs to its glass: with the table of
+marked "TFT 1.53 1.0" with the glass T150XV-C16-04. It takes 16 or 18 bits,
+keeps the backlight off until the panel memory is black, as NV3041A does, and
+scrolls by its own hardware. An init table belongs to its glass: with the table of
 another one the picture comes out as stripes, so a module of another glass
 takes its own, see [A panel of your own module](#a-panel-of-your-own-module).
 
@@ -1169,10 +1214,9 @@ of the u8g2 driver written for the controller after its datasheet.
 ## How it fits together
 
 Everything above the transport layer talks to a `dgx_screen_t` vtable. Bus
-backends produce a `dgx_bus_protocols_t`. Driver constructors return either a
-plain `dgx_screen_t *` for RAM-only screens, or a `dgx_screen_with_bus_t *`
-for hardware panels. The drawing and font code never touches SPI, I2C or P8
-directly — it only goes through the screen vtable. Monochrome panels keep a
+backends produce a `dgx_bus_protocols_t`. Driver constructors return a
+`dgx_screen_t *`, which on a hardware panel is a `dgx_screen_with_bus_t`. The
+drawing and font code never touches SPI, QSPI, I2C or P8 directly — it only goes through the screen vtable. Monochrome panels keep a
 RAM page buffer and flush it to the controller, and the ST7920 driver reuses
 the color virtual screen the same way. A MIPI-DSI display is sent a frame
 buffer all the time; its bus takes the window and the pixels a driver sends,
@@ -1182,7 +1226,7 @@ as a display with memory of its own does, and puts them into that buffer.
 application
   └─ dgx_draw.h / dgx_font.h / dgx_hw_font.h / dgx_gauge.h / dgx_morph.h
         └─ dgx_screen_t  (vtable)
-              ├─ dgx_screen_with_bus_t  → bus backend (SPI / I2C / P8 / DSI)
+              ├─ dgx_screen_with_bus_t  → bus backend (SPI / QSPI / I2C / P8 / DSI)
               ├─ dgx_bw_vscreen_t       → 1-bit RAM buffer
               ├─ dgx_vscreen_t          → color RAM buffer
               └─ vscreen_2h             → composes two child screens
@@ -1220,7 +1264,7 @@ Declared in [include/dgx_draw.h](include/dgx_draw.h):
 | `dgx_draw_ellipse(scr, x, y, rx, ry, color)` | Ellipse outline, a pixel wide, by the rule of the midpoint algorithm: with equal radii it is `dgx_draw_circle()` pixel for pixel. |
 | `dgx_draw_arc(scr, x, y, rx, ry, from, to, width, color)` | Arc of an ellipse, of a circle with equal radii, between two angles in degrees, by a pen of `width`; `DGX_PEN_SOFT | width` gives it a soft edge. A hard pen of 1 draws the pixels of the outline between the rays. |
 | `dgx_solid_sector(scr, x, y, rx, ry, from, to, color)` | Filled sector of an ellipse between two angles; a whole turn is the ellipse filled. |
-| `dgx_scroll(scr, x, y, w, h, dx, dy, color)` | Move what a rectangle shows by `dx`, `dy` within it, any way, and fill what it has left with `color`. In memory where a screen is read, by the scroll of the panel where an ILI9341 can. Returns `ESP_OK`, or `ESP_ERR_NOT_SUPPORTED` when neither is possible. |
+| `dgx_scroll(scr, x, y, w, h, dx, dy, color)` | Move what a rectangle shows by `dx`, `dy` within it, any way, and fill what it has left with `color`. In memory where a screen is read, by the scroll of the panel where an ILI9341 or an ST77916 can. Returns `ESP_OK`, or `ESP_ERR_NOT_SUPPORTED` when neither is possible. |
 | `dgx_scroll_no_fill(scr, x, y, w, h, dx, dy)` | The same move without the fill: what the picture has left is for the caller to draw. On a panel that scrolls itself the move is its commands alone. |
 | `dgx_draw_triangle_solid(scr, x0, y0, x1, y1, x2, y2, color)` | Filled triangle. |
 | `dgx_draw_polygon4_solid(scr, x0..y3, color)` | Filled simple quadrilateral (convex or concave). |
@@ -1260,8 +1304,9 @@ figures and every kind of scroll on a CYD and on a 7-inch DSI display.
 
 A display that keeps its pixels in the panel behind a bus is not read. There
 the panel moves the picture itself when it can, and no pixel of the picture
-is sent. An ILI9341 scrolls along the long side of its panel: up and down on
-a screen upright, left and right on one that lies. The rectangle has to take
+is sent. An ILI9341 scrolls along the long side of its panel, an ST77916 along
+the rows of its memory: up and down on a screen upright, left and right on one
+with its axes swapped. The rectangle has to take
 the screen from edge to edge across that side, what is before it and after
 it along the side stays, as the head and the foot of a terminal do:
 
@@ -1568,8 +1613,8 @@ depends on the constructor:
   put the display on a bus DGX sets up: the SPI host, the I2C master bus of the port, the I80
   bus of those pins. Further displays on the same host or port share it, and
   must name the same pins; an I80 bus takes one display. DGX releases the bus
-  with the last of its displays, unless the program has put devices of its own
-  on it. An SPI host DGX sets up takes no devices of the program: the only
+  with the last of its displays, an I2C or I80 bus unless the program has put
+  devices of its own on it. An SPI host DGX sets up takes no devices of the program: the only
   display on it keeps the host between its drawings, and a device added to
   it would wait for ever. A touch controller or an SD card beside the display
   goes on a host the program sets up, with `dgx_spi_init_on_bus()`.
@@ -1715,7 +1760,7 @@ Guidelines:
 ## Drawing from several tasks
 
 DGX has no task of its own and no lock of its own, and nothing in it is
-global. All it keeps is in the objects a program makes: a screen with its
+global but its tables of the buses in use. All it keeps is in the objects a program makes: a screen with its
 bus, a virtual screen, a morph, a writer of handwriting. So what may run at
 the same time follows from what each object keeps between calls.
 
@@ -1725,7 +1770,7 @@ the same time follows from what each object keeps between calls.
 | A virtual screen | its pixels, how deep in batches it is, what is changed | one task writes it at a time; any number of virtual screens may be written at the same time |
 | A font | nothing, it is read only | shared freely |
 | A morph, a glow renderer, a writer or a morph of handwriting | its own progress and memory | one task an object |
-| Several displays | nothing in common | they do not hinder each other; each takes one task at a time |
+| Several displays | nothing on hosts of their own, the host when they share one | on separate hosts they do not hinder each other; on one SPI or QSPI host they take turns, and one is not drawn on inside a batch of the other; each takes one task at a time |
 
 Why a screen takes one task at a time: a primitive is "set a window, then
 send pixels into it", often in several pieces through the one buffer of the
@@ -1769,7 +1814,7 @@ What a drawing call may wait for, with the lock held if there is one:
 
 | Bus | What a drawing call waits for |
 | --- | --- |
-| SPI, I2C, 8-bit parallel | the transfer of the pixels, as long as the bus takes for them |
+| SPI, QSPI, I2C, 8-bit parallel | the transfer of the pixels, as long as the bus takes for them; on a shared SPI or QSPI host also the turn of the other device |
 | MIPI-DSI, one frame buffer | nothing but a transfer or a fill by the hardware of the chip, when the piece is large |
 | MIPI-DSI, two frame buffers | the same, and the display: the first drawing after a finished picture may wait until the display has taken it, up to a frame, 16 ms on the JD9165 panel |
 | MIPI-DSI, behind the scan | the same as with one frame buffer, and the scan of the display to leave the rows, up to a frame |
@@ -1864,8 +1909,8 @@ A couple of practical limitations are worth knowing up front:
   `dgx_vscreen_to_screen()`. `dgx_screen_is_readable()` tells which of the two
   a screen is. `dgx_scroll()` reads the picture it moves; on a screen that is
   not read it moves only what the panel can scroll itself, an ILI9341 along
-  its long side.
-- **The scroll of the panel is used on an ILI9341 only.** ST7789, ST7735 and
+  its long side, an ST77916 along y of a screen upright.
+- **The scroll of the panel is used on an ILI9341 and an ST77916 only.** ST7789, ST7735 and
   GC9A01 have the same two commands and take the same code, three lines of a
   driver each; they are not switched on, for there was no panel to see them
   on. `dgx_scroll()` returns `ESP_ERR_NOT_SUPPORTED` there.
@@ -1959,7 +2004,7 @@ include/                 public headers
 src/                     implementations, by topic
   screen/                what every screen does: the window of a display behind a bus,
                          pixel runs, 1-bit bitmaps
-  draw/                  drawing on any screen: lines, circles, polygons, ellipses and arcs,
+  draw/                  drawing on any screen: lines, circles, rectangles, polygons, ellipses and arcs,
                          Bezier curves and the pen, textures, scrolling, the gauge
   vscreen/               virtual screens and what puts them on screens: transfers with
                          their flags, scaling and smoothing, the overlay layer, sprites,
@@ -1979,8 +2024,9 @@ test/host/               host tests
 test/fonts/              the test of the fonts made at build time
 docs/                    morphing articles, handwritten text guides, fonts made at build time (English and Russian),
                          the converter and the tables of handwritten fonts (Russian),
-                         a guide to a display on the DSI bus and notes on how its bus is made
-                         (English and Russian)
+                         a guide to a display on the DSI bus and notes on how its bus is made,
+                         the soft pen, the NV3041A panel, the first piece of a transfer, 18-bit
+                         color and benchmarks (English and Russian)
 Kconfig                  feature toggles
 CMakeLists.txt           ESP-IDF component build
 ```

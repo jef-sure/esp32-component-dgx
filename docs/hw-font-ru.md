@@ -55,17 +55,22 @@
 
 ```
 $ ./font2c font0-ss.json
-font0ss: 200 pairs of symbols closer than 16 cells between the lines of the pen, the closest 20:
-  7ъ 5.5   7ь 6.1   7v 6.2   7n 6.3   7r 6.3   7п 6.3   7w 6.4   7p 6.5
+font0ss: 8 symbols with parts of their own closer than 16 cells:
+  Т 4.5   Б 8.7   Г 9.7   П 12.6   « 12.7   » 12.7   " 13.7   й 15.5
+  a part is moved in the editor; strokes within 3 cells of one another are one part
+font0ss: 175 pairs of symbols closer than 16 cells between the lines of the pen, the closest 20:
+  7ъ 5.5   7ь 6.1   7v 6.2   7n 6.3   7r 6.3   7п 6.3   7p 6.5   7р 6.5
   ...
   to move them 16 cells apart, in the file of the font:
-    7 ("55"): spaceAfter 16 -> 41, 45 pairs
+    7 ("55"): spaceAfter 16 -> 41, 43 pairs
     Ч ("1063"): spaceBefore 8 -> 16, 30 pairs
-    Ф ("1060"): spaceAfter 16 -> 33, 30 pairs
+    7 ("55"): spaceBefore 0 -> 5, 28 pairs
+    F ("70"): spaceAfter 16 -> 33, 25 pairs
+    Ф ("1060"): spaceAfter 24 -> 33, 17 pairs
     ...
     and 7 more
   -g 16 -x changes the file so, -i asks about each space; -t cells moves the pairs further apart;
-  closer than 8 cells: 22 pairs, 12 cells: 90 pairs; -g cells lists the pairs closer than that, -g 0 turns the check off
+  closer than 8 cells: 21 pairs, 12 cells: 66 pairs; -g cells lists the pairs closer than that, -g 0 turns the check off
 ```
 
 Тем же расстоянием проверяется и символ сам по себе: его части, которые друг
@@ -207,12 +212,12 @@ font0ss: 8 symbols with parts of their own closer than 16 cells:
   но не меньше прежнего `upX`;
 - пробел и символ, которого нет в шрифте, сбрасывают `upX`.
 
-Проверено на `font0-ss` (коммит 75c4868 в hw-fonts):
+Проверено на `font0-ss` (коммит af3e424 в hw-fonts):
 
 | Строка | Что получается |
 | --- | --- |
 | «Го» | «о» встаёт под перекладину «Г»: правило верхней полосы не срабатывает |
-| «ГЧ» | по строчной полосе «Ч» встала бы на 9 и наехала на перекладину; правило отодвигает её на 96 |
+| «ГЧ» | по строчной полосе «Ч» встала бы на 17 и наехала на перекладину; правило отодвигает её на 104 |
 | «WWW» | между завитком и следующей «W» остаётся `spaceAfter + spaceBefore` = 24 |
 
 `font0-ss` целиком занимает около 17 КБ.

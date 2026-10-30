@@ -16,7 +16,7 @@ LDLIBS  += $(DGX_HOST_LDLIBS)
 
 LIB_SRCS := $(DGX_HOST_SRCS)
 
-TESTS := test_fb_area test_fb_tiles test_fb_flip test_pixels test_fill test_circle test_ellipse test_scroll test_panel_scroll test_matrix test_morph test_render test_fonts test_screen test_region test_bw test_texture test_bezier test_hw_font test_hw_line test_hw_write test_hw_morph test_soft_pen test_gauge test_oriented test_p8 test_p8_lcdcam test_st7920 test_ssd1309 test_sh1106 test_image test_lut test_overlay test_overlay_whole_rows test_frame_to_panel test_life_panel test_scale test_transfer test_polygon test_ssd1351 test_bus_owner test_argb test_bus_fill test_spi test_spi_idf54 test_spi_ndebug test_spi_p4 test_st7789 test_vscreen_2h test_line_thick test_panel_streams test_rectangles
+TESTS := test_fb_area test_fb_tiles test_fb_flip test_pixels test_fill test_circle test_ellipse test_scroll test_panel_scroll test_matrix test_morph test_render test_fonts test_screen test_region test_bw test_texture test_bezier test_hw_font test_hw_line test_hw_write test_hw_morph test_soft_pen test_gauge test_oriented test_p8 test_p8_lcdcam test_st7920 test_ssd1309 test_sh1106 test_image test_lut test_overlay test_overlay_whole_rows test_frame_to_panel test_life_panel test_scale test_transfer test_polygon test_ssd1351 test_bus_owner test_argb test_bus_fill test_spi test_spi_idf54 test_spi_ndebug test_spi_p4 test_st7789 test_vscreen_2h test_line_thick test_panel_streams test_rectangles test_vscreen_area
 BUILD := build
 
 all: $(addprefix run-, $(TESTS))

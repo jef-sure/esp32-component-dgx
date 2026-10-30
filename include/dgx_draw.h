@@ -254,7 +254,8 @@ bool dgx_screen_is_readable(const dgx_screen_t *scr);
  * A display that keeps its pixels in the panel behind a bus is not read. A
  * panel that scrolls itself moves the picture then, and no pixel of it is
  * sent: an ILI9341 does, along the long side of its panel, which is y of a
- * screen upright and x of one that lies. It is a move the panel can make
+ * screen upright and x of one that lies, and an ST77916 along the rows of its
+ * memory. It is a move the panel can make
  * when it goes along that side only and the rectangle takes the screen from
  * edge to edge across it; and the panel has one such area at a time, so a
  * rectangle that has been moved has to be filled, by a move as large as it,

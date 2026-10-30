@@ -421,14 +421,13 @@ static void demo_run_step(dgx_screen_t *screen, const char *name, demo_step_fn_t
  * dgx_dsi_tune(). Numbers kept for another panel, another color depth or
  * another PSRAM clock are not taken, and the board is measured again.
  *
- * The numbers also say how to use the display, dgx_dsi_advise(): whether
- * one frame buffer will run the display short of data under heavy drawing,
- * and whether the pixels nearly fill the DSI lanes. The advice needs no
- * display, so at a start that has the numbers in NVS the display is made
- * by it: two frame buffers when it says so. At the first start there are no
- * numbers yet; the display is made as the menu says, measured, and when the
- * advice asks for two frame buffers it does not have, the example restarts
- * once, with the numbers in NVS.
+ * The numbers also say how to use the display, dgx_dsi_advise(): whether one
+ * frame buffer will run the display short of data under heavy drawing. The
+ * advice needs no display, so at a start that has the numbers in NVS the
+ * display is made by it: two frame buffers when it says so. At the first
+ * start there are no numbers yet; the display is made as the menu says,
+ * measured, and when the advice asks for two frame buffers it does not have,
+ * the example restarts once, with the numbers in NVS.
  */
 
 /* the numbers of an earlier start, when NVS has them and they are for this panel and this build */

@@ -3,7 +3,9 @@
  * side, each behind a bus of its own. What is drawn into it has to come out
  * on the panels as it lies in it, whatever the sizes of the two: rows that
  * cross both go through the buses side by side when the panels are alike,
- * and every rectangle to each panel by itself otherwise.
+ * and every rectangle to each panel by itself otherwise. Two panels on one
+ * SPI host cannot go side by side: a bus held for one panel keeps the other
+ * waiting for ever, in the same task.
  */
 #include <stdint.h>
 #include <stdlib.h>
@@ -37,6 +39,24 @@ typedef struct {
     uint8_t             command;                        /* sent, its parameters not yet */
     uint8_t buffer[64] __attribute__((aligned(4)));
 } panel_t;
+
+/* what the two buses share when they lie on one host, the panel that holds it and how many times the other waited for ever */
+static const char one_host = 0;
+static const panel_t *holder;
+static int            hangs;
+
+static void panel_hold(dgx_bus_protocols_t *bus)
+{
+    const panel_t *p = (const panel_t *)bus;
+    if (bus->wire != &one_host) return;
+    if (holder && holder != p) ++hangs;
+    holder = p;
+}
+
+static void panel_release(dgx_bus_protocols_t *bus)
+{
+    if (holder == (const panel_t *)bus) holder = NULL;
+}
 
 /* pixels into the window, as a controller takes them: at its end it starts again at its top */
 static void panel_pixels(panel_t *p, const uint8_t *data, uint32_t bytes)
@@ -106,11 +126,15 @@ int main(void)
 {
     /* of one size, of one width and two heights the one way and the other, and of two widths */
     static const int sizes[][4] = {{40, 30, 40, 30}, {40, 30, 40, 40}, {40, 40, 40, 30}, {30, 30, 40, 30}};
-    for (int kind = 0; kind < 4; ++kind) {
+    for (int run = 0; run < 8; ++run) {
+        const int     kind = run % 4;
         panel_t       lm, rm;
         dgx_screen_t *left = panel_screen(&lm, sizes[kind][0], sizes[kind][1]), *right = panel_screen(&rm, sizes[kind][2], sizes[kind][3]);
         dgx_screen_t *both = dgx_vscreen_2h_init(left, right);
         CHECK(both && both->width == left->width + right->width);
+        lm.bus.hold = rm.bus.hold = panel_hold, lm.bus.release = rm.bus.release = panel_release;
+        /* a host each, then one host */
+        lm.bus.wire = run < 4 ? (const void *)&lm : &one_host, rm.bus.wire = run < 4 ? (const void *)&rm : &one_host;
         int wrong = 0;
         for (int round = 0; round < 300; ++round) {
             /* bands across both panels, every row of a color of its own, and rectangles anywhere */
@@ -127,6 +151,9 @@ int main(void)
         }
         if (wrong) fprintf(stderr, "two panels of %dx%d and %dx%d: %d pixels wrong\n", sizes[kind][0], sizes[kind][1], sizes[kind][2], sizes[kind][3], wrong);
         CHECK(wrong == 0);
+        if (hangs) fprintf(stderr, "two panels of %dx%d and %dx%d on one host: %d waits for ever\n", sizes[kind][0], sizes[kind][1], sizes[kind][2], sizes[kind][3], hangs);
+        CHECK(hangs == 0);
+        hangs = 0, holder = NULL;
         dgx_screen_destroy(&both);
         free(left), free(right), free(lm.memory), free(rm.memory);
     }

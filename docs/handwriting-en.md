@@ -52,7 +52,8 @@ dgx_hw_draw_text(scr, 10, 80, font0ss(), "Hello, World", 0.3f, 3, color, true);
 | `true` | Joined writing. `false` writes every letter apart. |
 
 `\n` in the text starts the next line, `symbol_size_y` cells lower. A symbol
-the font does not have takes the room of a whole cell and draws nothing.
+the font does not have takes the room of a whole symbol (`symbol_size_x` cells)
+and draws nothing.
 
 A handwritten font is an ordinary `dgx_font_t`, of type `DGX_FONT_HW`, and
 its symbols are found with `dgx_font_find_glyph()` like any glyphs. But
@@ -114,7 +115,10 @@ handwritten font is never of fixed width.
 **Joining.** With joined writing a letter that has an end connection and a
 next one that has a begin connection are joined by one curve made of those two
 connections. A connection that has nothing to join is not written, so a word
-does not begin or end with a loose tail. Digits and punctuation have no
+does not begin or end with a loose tail. The one exception is the letter after
+a letter that has a begin connection and no end connection: the pen cannot come
+out of that one, so the next letter is begun with its whole begin connection.
+Digits and punctuation have no
 connections and are written apart; a capital letter goes on into the next
 lowercase one but is not joined to the one before.
 
@@ -543,7 +547,7 @@ dgx_hw_morph_t *morph = dgx_hw_morph_create(font, "привет", "участн�
 ```
 
 The whole way of the pen of one text goes into the whole way of the pen of
-the other, whatever letters they have. «привет» is 23 curves and «участникам»
+the other, whatever letters they have. «привет» is 24 curves and «участникам»
 46, so the shorter way is made longer: its longest curve is cut in two, again
 and again, until both have the same number. Cutting a Bezier curve in two
 changes nothing in its shape. Then the curves are paired in the order of
@@ -696,7 +700,7 @@ the curve, on the stack or wherever you put it; in 0.5.3 they were 336 and
 - `font0ss` has the Latin alphabet with the German letters `ÄÖÜäöüß`, the
   Russian alphabet, digits and punctuation, and nothing else. Other alphabets
   are to be drawn in the [hw-fonts][gh-hw-fonts] editor by those who need
-  them; a symbol the font does not have leaves an empty cell.
+  them; a symbol the font does not have leaves an empty space.
 - A soft edge comes out on an 8-bit virtual screen only. On a screen of
   another depth and on the display itself a soft pen draws as a hard one:
   there is nothing to compare there and nothing to read.

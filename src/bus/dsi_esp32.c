@@ -2830,9 +2830,9 @@ bool dgx_dsi_bench(dgx_bus_protocols_t *_bus, dgx_dsi_tuning_t *tuning)
 /*
  * dgx_dsi_advise() and dgx_dsi_tuning_text(): the limits were found on a
  * JC8012P4A1C (800x1280, chip revision 3.2, IDF 6.0.1) by eye. At 16 bits
- * the test of the bench gave 29 to 33 drops a frame with PSRAM at 200 MHz,
+ * the test of the bench gave 28 to 33 drops a frame with PSRAM at 200 MHz,
  * where a moving picture with one frame buffer flashed and with two did not,
- * and 8 to 10 at 250 MHz, where it did not flash. At 24 bits the pixels took
+ * and 8 to 11 at 250 MHz, where it did not flash. At 24 bits the pixels took
  * 96% of the lanes, and the display flashed now and then with nothing drawn.
  */
 #define DGX_DSI_ADVISE_DROPS         15u

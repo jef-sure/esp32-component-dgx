@@ -179,7 +179,7 @@ changed area once a figure. On other screens, and on a display behind a bus,
 all is as it was: there a transfer over the bus stands behind a call, and
 joining the rows saves it.
 
-A row shorter than 8 pixels is filled by a loop in place, a longer one by
+A row of up to 8 pixels is filled by a loop in place, a longer one by
 `memset`. The compiler turns such a loop into a call of `memset` by itself;
 for a short row the call costs more than the loop, and an empty `__asm__`
 statement keeps the loop from it.
@@ -381,7 +381,7 @@ which stands for a division.
 
 The hard pen calls: `sqrtf` for a piece, a division for a point of a piece,
 up to four divisions for the figure of a slanted piece and `memset` for a row
-of 8 pixels and more. A division cannot be replaced here with one over the
+of 9 pixels and more. A division cannot be replaced here with one over the
 number for the same reason as the root: the last bit moves pixels on the
 edge.
 

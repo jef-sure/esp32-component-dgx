@@ -24,10 +24,11 @@ extern "C" {
  *
  * DGX initializes the host with the first display on it; further displays on
  * the same host share it and must name the same MOSI, MISO, SCLK and DMA
- * channel. The host is freed when the last of them is disposed, unless the
- * program has added devices of its own to it. To put a display on a host the
- * program already uses for other devices, initialize the host in the program
- * and call dgx_spi_init_on_bus().
+ * channel. The host is freed when the last of them is disposed. It takes no
+ * devices of the program: the only display on it keeps the host between its
+ * drawings, and a device added to it would wait for ever. To put a display on
+ * a host the program uses for other devices, initialize the host in the
+ * program and call dgx_spi_init_on_bus().
  *
  * @param host_id        SPI host (e.g. SPI2_HOST, SPI3_HOST).
  * @param dma_chan       DMA channel (e.g. SPI_DMA_CH_AUTO).
@@ -59,12 +60,12 @@ dgx_bus_protocols_t* dgx_spi_init(          //
  * controller, an SD card. The host must have been initialized by
  * spi_bus_initialize() with DMA (e.g. SPI_DMA_CH_AUTO) and a max_transfer_sz of
  * 0 or at least 4092 bytes. The buffer of the display, the longest piece of
- * pixels DGX sends, is as long as the wire takes about 0.8 ms to send at its
+ * pixels DGX sends, is as long as the wire takes about 0.95 ms to send at its
  * clock, 4000 bytes at least, 32000 at most and no more than the host takes:
- * 4000 bytes at 40 MHz, 8000 at 80 MHz. DGX adds its device to the host and removes it when the backend is disposed;
- * the host stays the program's to free, after the backend. The ESP-IDF driver
- * takes turns between the devices; a long picture keeps the bus for the time
- * of each piece.
+ * 4736 bytes at 40 MHz, 9488 at 80 MHz. DGX adds its device to the host and removes it when the backend is disposed;
+ * the host stays the program's to free, after the backend. The display holds
+ * the host from a window to the end of its drawing, or of the batch around it;
+ * the ESP-IDF driver takes turns between the devices outside that.
  *
  * @param host_id        SPI host the program has initialized.
  * @param cs             Chip-select GPIO of the panel.

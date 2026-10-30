@@ -406,7 +406,7 @@ itself groups them by (face, pixel size): one font is made per group, with
 the characters of all its needs merged, and every need gets its own function
 pointing to it. If the game asks for "DejaVu Sans Mono at 48 px with the
 characters of the dialogs" and the keyboard asks for "the same face at
-4 mm", which is also 48 px on this board, flash holds one set of glyphs, and
+8.1 mm", which is also 48 px on this board, flash holds one set of glyphs, and
 `dgx_font_text()` and `dgx_font_keys()` return the same font.
 
 A handwritten font from a JSON has no size (the size is chosen when text is
@@ -495,8 +495,9 @@ dgx_font_t *dgx_font_keys(void);
   never references code of the program, and link order does not matter; the
   header declares a program's own font (`FILE`) itself.
 - `DGX_FONT_<NEED>_MADE` is 1 if the font was made for this board (its size
-  is already in display pixels; draw text with `scale` 1) and 0 if it is an
-  existing font (the program scales it itself: the DGX-GE engine, for
+  is already in display pixels; draw text with `scale` 1) and 0 if it is a
+  handwritten font, whose size is chosen when text is drawn, or an existing
+  font (the program scales it itself: the DGX-GE engine, for
   instance, draws the pixel font of its status bar at ×4 and sizes its
   handwritten font by line height).
 - `DGX_FONT_<NEED>_PX` and, for a need in millimeters, `_MM`: the pixel size
@@ -558,11 +559,11 @@ mind:
 - The board, the scale and the rules are declared by the program, not by a
   component: the board is the program's. A need in millimeters without a
   board stops the build with a hint about what to declare.
-- To build against a checkout of DGX instead of the registry's copy, the
-  checkout must sit in a directory named `jef-sure__dgx` (ESP-IDF names a
-  local component after its directory, and the registry components require
-  exactly that name), and the program's `idf_component.yml` must point
-  `override_path` at it. Without `override_path` a copy under `components/`
+- To build against a checkout of DGX instead of the registry's copy, point
+  `override_path` in the program's `idf_component.yml` at it. The directory
+  has to be named `jef-sure__dgx` only when another component from the
+  registry requires DGX: ESP-IDF names a local component after its directory,
+  and such a component requires exactly that name. Without `override_path` a copy under `components/`
   loses: the component manager downloads `jef-sure/dgx` from the registry
   anyway, the local `project_include.cmake` never runs, and
   `dgx_fonts_board` is an unknown command.

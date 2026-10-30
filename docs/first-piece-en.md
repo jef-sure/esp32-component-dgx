@@ -33,7 +33,7 @@ Table 1. The boards used for the measurements.
 
 | Board | Chip | Display | ESP-IDF | Bus buffer |
 | --- | --- | --- | --- | --- |
-| CYD, ESP32-2432S028R | ESP32-D0WD-V3 revision v3.1, 240 MHz, no PSRAM | ILI9341, 320x240, SPI at 40 MHz | 5.5.4 | 4000 bytes, DGX's choice |
+| CYD, ESP32-2432S028R | ESP32-D0WD-V3 revision v3.1, 240 MHz, no PSRAM | ILI9341, 320x240, SPI at 40 MHz | 5.5.4 | 4000 bytes, DGX's choice at the time |
 | Guition JC4827W543 | ESP32-S3 revision v0.2, 240 MHz, octal PSRAM at 80 MHz | NV3041A, 480x272, QSPI at 40 MHz | 6.1 | 15,640 bytes, DGX's choice at the time, and 32,000 |
 
 The virtual screen was the size of the screen: in internal memory on the
@@ -96,17 +96,19 @@ fast the CPU fills the buffer:
 ## The leftover first
 
 All pieces have the same length except the last, which is shorter when the
-pixels do not divide evenly. For example, a fill of the whole CYD screen is
-153,600 bytes: 38 pieces of 4000 bytes and a last one of 1600 bytes. Send
+pixels do not divide evenly. For example, with the buffer of 0.9.1 a fill of
+the whole CYD screen is 153,600 bytes: 38 pieces of 4000 bytes and a last one
+of 1600 bytes. Send
 those 1600 bytes first, and the bus starts as soon as the CPU has filled
-1600 bytes instead of 4000. There are still 39 pieces.
+1600 bytes instead of 4000. There are still 39 pieces. The buffer has been
+4736 bytes since 0.9.3: 32 pieces and a leftover of 2048 bytes.
 
 Since DGX 0.9.1, fills and virtual screens sent through the halves do
 this. A leftover that ends in the middle of a byte, such as an odd number
 of 12-bit pixels, stays last: otherwise the pieces after it would start in
-the middle of a byte. A whole frame usually has no leftover: 272 rows are
-34 halves of 8 rows on the JC4827W543 and 240 rows are 80 halves of 3 rows
-on the CYD, so nothing changes for it.
+the middle of a byte. A whole frame may have no leftover: on the CYD 240 rows
+are 80 halves of 3 rows. On the JC4827W543 272 rows were 34 halves of 8 rows
+in 0.9.1; since 0.9.3 they are 30 halves of 9 rows and a leftover of 2 rows.
 
 ### Why it is not slower
 

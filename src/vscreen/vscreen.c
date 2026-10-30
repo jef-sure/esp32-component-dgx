@@ -53,10 +53,24 @@ static inline void _dgx_move_to_next_area_pixel_v(dgx_screen_t *_scr)
 
 static void dgx_vscreen_write_area(dgx_screen_t *_scr, uint8_t *data, uint32_t lenbits)
 {
-    dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
-    int            idx = 0;
-    /* an 18-bit pixel takes three bytes in a buffer, as it does on the wire */
-    uint32_t       pixel_bits = _scr->color_bits == 18 ? 24u : _scr->color_bits;
+    dgx_vscreen_t *scr   = (dgx_vscreen_t *)_scr;
+    const uint8_t  bytes = dgx_vscreen_pixel_bytes(_scr->color_bits);
+    if (bytes) {
+        /* pixels of whole bytes lie in memory as they do in a buffer: what falls on a row of the window goes at once */
+        for (uint32_t pixels = lenbits / (8u * bytes); pixels;) {
+            const uint16_t x   = scr->area.x_offset;
+            uint32_t       run = x < scr->area.right ? (uint32_t)(scr->area.right - x) + 1u : 1u;
+            if (run > pixels) run = pixels;
+            memcpy(DGX_VSCR_PTR(scr, DGX_VSCR_OFFSET(scr, x, scr->area.y_offset)), data, run * bytes);
+            data += run * bytes;
+            pixels -= run;
+            scr->area.x_offset = (uint16_t)(x + run - 1u);
+            _dgx_move_to_next_area_pixel_v(_scr);
+        }
+        return;
+    }
+    int            idx        = 0;
+    const uint32_t pixel_bits = _scr->color_bits;
     while (lenbits >= pixel_bits) {
         uint32_t offset = DGX_VSCR_OFFSET(scr, scr->area.x_offset, scr->area.y_offset);
         uint8_t *lp     = DGX_VSCR_PTR(scr, offset);

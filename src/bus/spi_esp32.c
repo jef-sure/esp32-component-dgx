@@ -703,9 +703,10 @@ uint8_t *dgx_spi_dev_memory(uint32_t len)
 dgx_bus_protocols_t *dgx_spi_dev_attach(dgx_spi_dev_t *dev, spi_host_device_t host_id, bool owns_host, const spi_device_interface_config_t *devcfg,
                                         unsigned data_lines, const dgx_spi_options_t *options)
 {
-    dev->host_id   = host_id;
-    dev->owns_host = owns_host;
-    dev->hw        = (void *)SPI_LL_GET_HW(host_id);
+    dev->host_id        = host_id;
+    dev->owns_host      = owns_host;
+    dev->hw             = (void *)SPI_LL_GET_HW(host_id);
+    dev->protocols.wire = &dgx_spi_hosts[host_id];
     esp_err_t rc   = spi_bus_add_device(host_id, devcfg, &dev->spi);
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "%s: spi_bus_add_device failed: %s", dev->protocols.bus_name, esp_err_to_name(rc));

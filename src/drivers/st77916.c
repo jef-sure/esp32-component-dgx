@@ -13,7 +13,9 @@
 
 #define ST77916_SWRESET 0x01
 #define ST77916_DISPON  0x29
+#define ST77916_VSCRDEF 0x33
 #define ST77916_MADCTL  0x36
+#define ST77916_VSCSAD  0x37
 #define ST77916_COLMOD  0x3A
 
 /*
@@ -237,18 +239,21 @@ static const dgx_lcd_init_cmd_t st77916_on_cmds[] = {
  * The memory of the controller has 390 rows by its datasheet, but with the
  * rows going up the glass stays at the same 360 addresses: counting them from
  * the end of the 390, as the ST7789 has its 240 in 320, moved the picture by
- * 30 rows on a panel.
+ * 30 rows on a panel. Its scroll goes round those 360 rows too.
  */
 const dgx_panel_t dgx_panel_st77916 = {
-    .name           = "ST77916",
-    .width          = 360,
-    .height         = 360,
-    .colmod         = {0, 0x55, 0x66},
-    .reset_low_ms   = 10,
-    .reset_after_ms = 120,
-    .flags          = DGX_PANEL_CLEAR_FIRST,
-    .init           = st77916_init_cmds,
-    .on             = st77916_on_cmds,
+    .name             = "ST77916",
+    .width            = 360,
+    .height           = 360,
+    .colmod           = {0, 0x55, 0x66},
+    .reset_low_ms     = 10,
+    .reset_after_ms   = 120,
+    .flags            = DGX_PANEL_CLEAR_FIRST,
+    .scroll_lines     = 360,
+    .scroll_area_cmd  = ST77916_VSCRDEF,
+    .scroll_start_cmd = ST77916_VSCSAD,
+    .init             = st77916_init_cmds,
+    .on               = st77916_on_cmds,
 };
 
 dgx_screen_t *dgx_st77916_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo)

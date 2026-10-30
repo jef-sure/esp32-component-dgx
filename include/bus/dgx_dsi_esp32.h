@@ -73,10 +73,11 @@ typedef enum {
      * processor makes, and is whole as long as it makes them faster than
      * the display reads.
      *
-     * Pixels the processor sends through the window (small parts, a turned
-     * screen, 24-bit color, a part under an overlay layer, text, every part
-     * without CONFIG_DGX_DSI_PRIVATE_DMA2D) wait until the scan has left
-     * the rows of the window, when they can be written before it is back.
+     * Pixels the processor sends through the window (small parts, a 16-bit
+     * part on a turned screen, 24-bit color, a part under an overlay layer,
+     * every part without CONFIG_DGX_DSI_PRIVATE_DMA2D) wait until the scan
+     * has left the rows of the window, when they can be written before it
+     * is back.
      * That holds for about 160 rows of 1024 pixels; a larger window goes as
      * it comes and may tear, as with DgxDsiOneFrame. What a batch has left
      * in the cache of the chip is brought out the same way at its end.

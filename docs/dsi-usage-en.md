@@ -113,13 +113,16 @@ at 24 bits.
 - A part of a 16-bit virtual screen of 16 KB or more is sent to the display
   by the 2D DMA of the chip, which also swaps the bytes of the pixels: a
   full 1024x600 screen takes 8 ms instead of 34. The screen must not be
-  mirrored or rotated. Otherwise, and for 24-bit color, the processor moves
-  the pixels as before.
+  mirrored or rotated, and the picture has to go at its own size, not turned,
+  with no overlay layer and no transparency. Otherwise, and for 24-bit color,
+  the processor moves the pixels as before.
 - A large rectangle is filled by the pixel processing accelerator (PPA): the
   full screen in 3.5 ms instead of 16, in any orientation and color depth.
 - An 8-bit virtual screen whose table is a ramp between two colors, like the
   one a soft pen draws on, is blended from those two colors by the same
-  accelerator when the display has two frame buffers: 367 thousand pixels in
+  accelerator when the display has two frame buffers, is neither mirrored nor
+  rotated, and the picture goes at its own size with no overlay layer,
+  transparency, turn or smoothing: 367 thousand pixels in
   10.6 ms instead of 17.1 ms through the table. The first and last colors
   are exactly those of the table. A color in between can differ from the
   table by one step of a channel: 3.2% of the range of red or blue, 1.6% of
@@ -191,7 +194,7 @@ short of data under the 2D DMA and whether that is margin enough, and if
 not what mends it (two frame buffers, or a faster PSRAM clock if the chip
 has one); how much of the lanes the pixels take and whether that is too
 much for the color depth. `dgx_dsi_bench()` logs the same text, as a warning
-when the margin is short. A library that cannot act on it hands the text on
+when the margin is short or the lanes are nearly full. A library that cannot act on it hands the text on
 to its user.
 
 ```c
@@ -201,10 +204,10 @@ ESP_LOGI(TAG, "%s", text);
 ```
 
 The limits were found by eye on the 10.1-inch JC8012P4A1C, chip revision
-3.2, IDF 6.0.1: 16 bits, PSRAM at 200 MHz gave 29 to 33 drops a frame, a
-moving picture with one buffer flashed and with two did not; at 250 MHz 8
-to 10, no flashes; 24 bits took 96% of the lanes and flashed now and then
-with nothing drawn. Other boards may draw the line elsewhere.
+3.2, IDF 6.0.1: 16 bits gave 28 to 33 drops a frame with PSRAM at 200 MHz
+and 8 to 11 at 250 MHz; 24 bits took 96% of the lanes and flashed now and
+then with nothing drawn. What the screen showed is under "PSRAM speed"
+below. Other boards may draw the line elsewhere.
 
 **Tile size.** The best size depends on what a program draws. The default
 is 32x4. Compared with 32x8, which is the fastest for the DGX demos, it is
@@ -224,8 +227,8 @@ panel and 160 MB/s for the 800x1280 one at 16 bits, 75 and 123 MB/s averaged
 over a frame. Drawing shares the same memory. When the bridge in front of
 the DSI host runs out of data, it sends a color of its own for the rest of
 the frame, and the screen flashes light blue for a frame, with torn rows
-around it. IDF has an interrupt for this, but on the 10.1-inch board it
-never fired, so the flash is the only sign. What was seen on the JC8012P4A1C
+around it. IDF has an interrupt for this, but on the 10.1-inch board at
+16 bits it never fired, so there the flash is the only sign. What was seen on the JC8012P4A1C
 with a chip of revision 3.2:
 
 - one frame buffer, PSRAM at 200 MHz: the moving bars of `examples/dsi_demo`
@@ -253,8 +256,8 @@ What is seen whole this way:
 
 - a large rectangle filled by the PPA, in any orientation and color depth;
 - a part of a 16-bit virtual screen the 2D DMA puts: 16 KB or more, on a
-  screen neither mirrored nor rotated, with no overlay layer over it, put
-  without transparency, and with `CONFIG_DGX_DSI_PRIVATE_DMA2D` on, as it is
+  screen neither mirrored nor rotated, at its own size and not turned, with
+  no overlay layer over it, put without transparency, and with `CONFIG_DGX_DSI_PRIVATE_DMA2D` on, as it is
   by default;
 - a part of an 8-bit virtual screen through a table of colors, 16 KB or
   more, put without transparency, in any orientation, with the same option
@@ -264,19 +267,21 @@ What is seen whole this way:
 
 Anything else from a virtual screen is sent through the window by the
 processor, which writes slower than the display reads: a 16-bit screen on a
-mirrored or rotated display (the 10.1-inch JD9365 in landscape, for one),
-24-bit color, a part under an overlay layer or under 16 KB. Such a window
+mirrored or rotated display (the 10.1-inch JD9365 in landscape, for one), a
+scaled or turned 16-bit picture, 24-bit color, a part under an overlay layer or under 16 KB. Such a window
 waits for the scan only when it can be written before the scan is back,
 about 160 rows of 1024 pixels; a larger one goes at once and may tear, as
 with `DgxDsiOneFrame`. Where such a picture must not tear, take
-`DgxDsiTwoFrames`.
+`DgxDsiTwoFrames`. A transparent put goes pixel by pixel, not through the
+window, and is not held back as it is written.
 
 This mode is a compromise:
 
 - a picture the 2D DMA puts from a virtual screen does not tear, one the
   processor sends only when it is small;
-- drawing directly on the display is held back only for large rectangles,
-  and a batch is not shown as one: of many tall rectangles some appear one
+- drawing directly on the display is held back only for large rectangles and
+  for what the end of a batch brings out of the cache, and a batch is not
+  shown as one: of many tall rectangles some appear one
   frame later than the others;
 - the wait does not set the pace, so a program that updates more often than
   the display shows frames still has to hold itself back.
@@ -287,9 +292,9 @@ Tasks have to draw on a screen one at a time, on a DSI display as on any
 other; see "Drawing from several tasks" in the
 [README](../README.md#drawing-from-several-tasks).
 
-With two frame buffers the bus does one thing for several tasks: whatever
-they draw within one frame time is shown by one swap of the buffers. The bus
-does not know which task draws and does not care. Which task draws when, how
+With two frame buffers the bus does one thing for several tasks, see
+[Two frame buffers](#two-frame-buffers). It does not know which task draws
+and does not care. Which task draws when, how
 often and how evenly is up to the program; `dgx_dsi_frame_us()` and
 `dgx_dsi_frame_ended()` give it what it needs to know about the display.
 
@@ -305,7 +310,8 @@ of the display; all of it in one column is even motion.
 | A band of 1024x168 each, little redrawn, a picture a frame | 608, 0 to 1, 0 | 604 to 606, 0 to 1, 0 |
 | A band of 1024x168 each, redrawn whole, a picture every second frame | 1 to 53, 198 to 302, 1 to 53 | 1, 302, 0 |
 
-The DSI bus is the only place where DGX uses interrupts. At the end of a
-frame it counts the frame and starts the copy a picture still lacks, and it
+The DSI bus is the only one that does work of its own in interrupts; the
+SPI and parallel buses only set a line or report a transfer done there. At
+the end of a frame it counts the frame and starts the copy a picture still lacks, and it
 is notified when a 2D DMA transfer is done. These handlers touch only the
 bus and never call code of the program.

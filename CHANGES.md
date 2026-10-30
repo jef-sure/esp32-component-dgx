@@ -1,5 +1,49 @@
 # Changes
 
+## 0.10.1 - 2026-10-30
+
+New:
+
+- **The ST77916 scrolls by its own hardware:** `dgx_scroll()` and
+  `dgx_scroll_no_fill()` move the picture with the commands of the panel,
+  along y of a screen upright and along x of one with its axes swapped.
+
+Fixed:
+
+- **Two panels on one SPI or QSPI host under `dgx_vscreen_2h_init()`** hung
+  on the first picture since 0.10.0: the bus held for the left panel kept the
+  right one waiting in the same task. Such panels now get their pixels one
+  after the other. Panels on two hosts still go side by side, a row to each.
+  Checked on a model of the host in `test_vscreen_2h`, not on two real panels.
+
+Faster:
+
+- **`write_area()` of a virtual screen** copies the pixels that fall on a row
+  of its window at once, for 8, 16, 18, 24 and 32 bits a pixel, and no longer
+  takes them one at a time. The Hackaday logo of
+  [examples/graphicstest](examples/graphicstest) drawn in an 8-bit virtual
+  screen and sent took 419 ms on a CYD and takes 49 ms; on a JC4827W543
+  339 ms and 29 ms; on a JC1060P470 144 ms and 42 ms. The whole test in memory
+  on the CYD took 965 ms and takes 594 ms, ahead of the 923 ms of TFT_eSPI
+  with an 8-bit sprite.
+
+Documentation:
+
+- Everything in `docs/` and the README checked against the code, with what
+  had gone stale put right: the DSI guide and notes, the NV3041A note,
+  fonts, handwriting, morphing, the pen, the comments of the bus headers.
+- `docs/benchmarks-en.md` and the README put the CYD, the JC4827W543 and the
+  JC1060P470 side by side, and the benchmarks have a round ST77916 on QSPI.
+
+Tests:
+
+- `test_vscreen_2h` models one host under two panels: a bus held for one
+  panel must not meet the other waiting for it.
+- `test_vscreen_area` checks `write_area()` of a virtual screen of every depth
+  against one pixel at a time: windows of every shape, with their bounds the
+  wrong way round as well, cut into pieces that go on past the end of the
+  window.
+
 ## 0.10.0 - 2026-10-30
 
 New:

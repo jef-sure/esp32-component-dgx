@@ -218,6 +218,12 @@ typedef struct _dgx_bus_protocols_t {
      */
     dgx_bus_hold_func hold;
     dgx_bus_hold_func release;
+    /*!
+     * What the bus shares with others, the host of an SPI or QSPI bus: of two
+     * buses with the same one only one can be held, and the other waits until
+     * it is let go of. NULL for a bus that shares nothing.
+     */
+    const void *wire;
 } dgx_bus_protocols_t;
 
 #ifdef __cplusplus

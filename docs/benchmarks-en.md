@@ -1,6 +1,6 @@
 # Benchmarks
 
-How fast DGX draws on three boards, and beside TFT_eSPI, LovyanGFX and
+How fast DGX draws on four boards, and beside TFT_eSPI, LovyanGFX and
 Adafruit_ILI9341 on one of them. The test is the PDQ graphics test those
 libraries ship; DGX runs it as [examples/graphicstest](../examples/graphicstest).
 Times are in microseconds, as the test prints them.
@@ -11,6 +11,8 @@ Contents:
 - [The boards](#the-boards)
 - [Four libraries on a CYD](#four-libraries-on-a-cyd)
 - [Drawn in memory and sent](#drawn-in-memory-and-sent)
+- [Three boards side by side](#three-boards-side-by-side)
+- [A round ST77916 on QSPI](#a-round-st77916-on-qspi)
 - [The other libraries against their published numbers](#the-other-libraries-against-their-published-numbers)
 - [What the SPI bus of DGX does](#what-the-spi-bus-of-dgx-does)
 - [DGX before and after, on SPI and QSPI](#dgx-before-and-after-on-spi-and-qspi)
@@ -70,13 +72,14 @@ calls when the bus is done.
 
 ## The boards
 
-The three boards, as they were measured on 2026-10-30:
+The boards, as they were measured on 2026-10-30:
 
 | Board | Chip | Panel | Bus | Upright screen |
 | --- | --- | --- | --- | --- |
 | CYD, ESP32-2432S028R | ESP32-D0WD-V3, revision 3.1, 240 MHz | ILI9341, 240x320 | SPI2 (HSPI) on pins 14, 13, 12 and 15 of the IO MUX, D/C on 2, 40 MHz | 240x320 |
 | Guition JC4827W543 | ESP32-S3 (QFN56), revision 0.2, 240 MHz | NV3041A, 480x272 | QSPI on SPI2, 40 MHz | 272x480 |
 | Guition JC1060P470 | ESP32-P4, revision 1.3, 360 MHz | JD9165, 1024x600 | MIPI-DSI, 2 lanes of 750 Mbit/s, one frame buffer in PSRAM | 600x1024 |
+| ESP32-S3 dev board with the round module "TFT 1.53 1.0" | ESP32-S3 (QFN56), revision 0.2, 240 MHz | ST77916, 360x360, glass T150XV-C16-04 | QSPI on SPI2, 40 MHz, jumper leads | 360x360 |
 
 DGX was built with ESP-IDF 5.5.4, GCC 14.2 and `-O2`, the processor at the
 clock in the table. TFT_eSPI 2.5.43, LovyanGFX 1.2.7 and Adafruit_ILI9341
@@ -109,8 +112,8 @@ which differed by less than 1 %:
 | Total | 2 881 373 | 1 940 743 | 1 890 211 | 3 626 799 |
 
 A full screen of 16-bit pixels takes the wire 30.7 ms at 40 MHz. The fills,
-the filled rectangles and the logo are that much of the wire and nearly
-nothing else, in every library but Adafruit's. Every other line is a great
+the filled rectangles and rounded squares and the logo are that much of the
+wire and nearly nothing else, in every library but Adafruit's. Every other line is a great
 many small windows, and there DGX is 1.2 to 2.9 times as slow as TFT_eSPI;
 see [Where DGX is still slower](#where-dgx-is-still-slower).
 
@@ -134,45 +137,108 @@ memory and one send of the whole screen together:
 
 | Test | DGX on the display | DGX in memory | TFT_eSPI, 8-bit sprite |
 | --- | ---: | ---: | ---: |
-| HaD pushColor | 533 959 | 419 212 | 327 052 |
-| Screen fill | 31 287 | 32 293 | 37 860 |
-| Text | 22 833 | 36 534 | 40 720 |
-| Pixels | 650 896 | 92 071 | 79 425 |
-| Lines | 599 548 | 74 032 | 71 186 |
-| Horiz/Vert Lines | 17 053 | 32 389 | 41 099 |
-| Rectangles (outline) | 12 300 | 32 413 | 39 846 |
-| Rectangles (filled) | 327 554 | 34 991 | 41 337 |
-| Circles (filled) | 66 462 | 35 540 | 40 448 |
-| Circles (outline) | 50 385 | 36 261 | 41 857 |
-| Triangles (outline) | 34 537 | 34 652 | 40 419 |
-| Triangles (filled) | 164 448 | 35 316 | 40 826 |
-| Rounded rects (outline) | 23 683 | 33 562 | 40 788 |
-| Rounded rects (filled) | 346 428 | 35 475 | 40 597 |
-| Total | 2 881 373 | 964 741 | 923 460 |
+| HaD pushColor | 533 959 | 48 668 | 327 052 |
+| Screen fill | 31 287 | 32 330 | 37 860 |
+| Text | 22 833 | 36 425 | 40 720 |
+| Pixels | 650 896 | 92 062 | 79 425 |
+| Lines | 599 548 | 74 041 | 71 186 |
+| Horiz/Vert Lines | 17 053 | 32 387 | 41 099 |
+| Rectangles (outline) | 12 300 | 32 409 | 39 846 |
+| Rectangles (filled) | 327 554 | 34 979 | 41 337 |
+| Circles (filled) | 66 462 | 35 602 | 40 448 |
+| Circles (outline) | 50 385 | 36 246 | 41 857 |
+| Triangles (outline) | 34 537 | 34 648 | 40 419 |
+| Triangles (filled) | 164 448 | 35 335 | 40 826 |
+| Rounded rects (outline) | 23 683 | 33 476 | 40 788 |
+| Rounded rects (filled) | 346 428 | 35 479 | 40 597 |
+| Total | 2 881 373 | 594 087 | 923 460 |
 
 A transfer of the whole screen takes DGX 32 ms and TFT_eSPI 39 ms, and that
 is most of every test. Pixels set one by one in memory cost DGX 0.78 us
-each, 0.53 us TFT_eSPI, and the logo goes slower through `write_area()` of
-a virtual screen than through the window of a sprite. The JC4827W543, its
+each, 0.53 us TFT_eSPI. They part most on the logo: `write_area()` of a
+virtual screen copies whole rows, about 17 ms for the 16 logos, where the
+sprite takes about 288 ms. The JC4827W543, its
 virtual screen of 130 KB in internal memory:
 
 | Test | on the display | in memory |
 | --- | ---: | ---: |
-| HaD pushColor | 163 874 | 338 512 |
-| Screen fill | 13 371 | 14 095 |
-| Text | 19 878 | 17 421 |
-| Pixels | 1 013 447 | 99 857 |
-| Lines | 988 612 | 72 604 |
-| Horiz/Vert Lines | 11 876 | 14 163 |
-| Rectangles (outline) | 8 325 | 14 058 |
-| Rectangles (filled) | 120 982 | 17 452 |
-| Circles (filled) | 80 046 | 18 970 |
-| Circles (outline) | 81 253 | 19 471 |
-| Triangles (outline) | 41 273 | 16 372 |
-| Triangles (filled) | 135 978 | 17 369 |
-| Rounded rects (outline) | 23 767 | 15 238 |
-| Rounded rects (filled) | 154 621 | 17 890 |
-| Total | 2 857 303 | 693 472 |
+| HaD pushColor | 163 874 | 29 164 |
+| Screen fill | 13 371 | 14 078 |
+| Text | 19 878 | 17 388 |
+| Pixels | 1 013 447 | 99 832 |
+| Lines | 988 612 | 72 571 |
+| Horiz/Vert Lines | 11 876 | 14 136 |
+| Rectangles (outline) | 8 325 | 14 042 |
+| Rectangles (filled) | 120 982 | 17 416 |
+| Circles (filled) | 80 046 | 18 964 |
+| Circles (outline) | 81 253 | 19 429 |
+| Triangles (outline) | 41 273 | 16 361 |
+| Triangles (filled) | 135 978 | 17 331 |
+| Rounded rects (outline) | 23 767 | 15 236 |
+| Rounded rects (filled) | 154 621 | 17 923 |
+| Total | 2 857 303 | 383 871 |
+
+## Three boards side by side
+
+What the next chips and displays give. Each board draws at the size of its
+own screen, so a row shows what that board does, not one picture drawn three
+times; only the logo is 240x320 everywhere. In the "display" columns every
+call draws straight on the display; in the "memory" columns each test draws
+into an 8-bit virtual screen, which is then sent once:
+
+| Test | CYD 240x320, display | CYD 240x320, memory | JC4827W543 272x480, display | JC4827W543 272x480, memory | JC1060P470 600x1024, display | JC1060P470 600x1024, memory |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| HaD pushColor | 533 959 | 48 668 | 163 874 | 29 164 | 1 734 100 | 41 594 |
+| Screen fill | 31 287 | 32 330 | 13 371 | 14 078 | 3 547 | 38 685 |
+| Text | 22 833 | 36 425 | 19 878 | 17 388 | 4 936 | 33 503 |
+| Pixels | 650 896 | 92 062 | 1 013 447 | 99 832 | 3 295 808 | 191 330 |
+| Lines | 599 548 | 74 041 | 988 612 | 72 571 | 632 674 | 238 744 |
+| Horiz/Vert Lines | 17 053 | 32 387 | 11 876 | 14 136 | 60 804 | 43 367 |
+| Rectangles (outline) | 12 300 | 32 409 | 8 325 | 14 042 | 37 756 | 34 357 |
+| Rectangles (filled) | 327 554 | 34 979 | 120 982 | 17 416 | 77 071 | 176 725 |
+| Circles (filled) | 66 462 | 35 602 | 80 046 | 18 964 | 60 266 | 51 517 |
+| Circles (outline) | 50 385 | 36 246 | 81 253 | 19 429 | 65 880 | 50 297 |
+| Triangles (outline) | 34 537 | 34 648 | 41 273 | 16 361 | 39 623 | 39 602 |
+| Triangles (filled) | 164 448 | 35 335 | 135 978 | 17 331 | 1 935 747 | 67 570 |
+| Rounded rects (outline) | 23 683 | 33 476 | 23 767 | 15 236 | 49 920 | 37 098 |
+| Rounded rects (filled) | 346 428 | 35 479 | 154 621 | 17 923 | 637 672 | 189 094 |
+| Total | 2 881 373 | 594 087 | 2 857 303 | 383 871 | 8 635 804 | 1 233 483 |
+
+The memory rows that draw least show what sending the whole screen takes:
+about 32 ms on the CYD, 14 ms on the JC4827W543 with 1.7 times the pixels,
+and 33 ms on the JC1060P470 with eight times the pixels. The long rows of
+the JC1060P470 on the display are the writes of the cache of its processor
+and its turned screen: see [A MIPI-DSI display](#a-mipi-dsi-display).
+
+## A round ST77916 on QSPI
+
+The same chip and clock as the JC4827W543, on a dev board with a round module,
+built from a copy of the example with the pins and the driver changed. The
+screen has almost the same number of pixels, 129 600 against 130 560. The
+filled rectangles, triangles and rounded squares are larger only because the
+test sizes them by the shorter side, 360 against 272.
+
+The ST77916, one round, microseconds:
+
+| Test | on the display | in memory |
+| --- | ---: | ---: |
+| HaD pushColor | 163 901 | 29 058 |
+| Screen fill | 13 268 | 13 931 |
+| Text | 19 842 | 17 267 |
+| Pixels | 1 005 658 | 99 077 |
+| Lines | 974 642 | 71 277 |
+| Horiz/Vert Lines | 11 524 | 14 048 |
+| Rectangles (outline) | 12 914 | 14 097 |
+| Rectangles (filled) | 275 480 | 20 823 |
+| Circles (filled) | 78 325 | 18 682 |
+| Circles (outline) | 80 773 | 19 228 |
+| Triangles (outline) | 73 444 | 18 224 |
+| Triangles (filled) | 280 250 | 20 153 |
+| Rounded rects (outline) | 39 173 | 15 974 |
+| Rounded rects (filled) | 337 078 | 21 663 |
+| Total | 3 366 272 | 393 502 |
+
+A fill of the whole screen takes 13.3 ms at 16 bits a pixel and 20.0 ms at 18.
 
 ## The other libraries against their published numbers
 
@@ -212,7 +278,7 @@ lines 1 062 311 against 1 000 627, outlined circles 118 125 against
 
 Up to 0.9.3 DGX sent every transfer through the SPI master driver of
 ESP-IDF, and the driver takes far longer to start a transfer than the wire
-takes to send a few bytes. A window and a single pixel are four transfers
+takes to send a few bytes. A window of which only the columns change and a single pixel are four transfers
 on SPI: the column command, its four bytes, the memory write command and
 the pixel. Measured on the CYD, means of 1000:
 
@@ -227,7 +293,7 @@ the pixel. Measured on the CYD, means of 1000:
 
 Since then a display holds the bus from a window to the end of its drawing,
 and while it holds it the short transfers go by the registers of the host:
-commands, their parameters and pixels of up to 256 bytes, in transfers of
+commands, their short parameters and pixels of up to 256 bytes, in transfers of
 60 bytes, whole pixels of 2, 3 and 4 bytes. `spi_device_acquire_bus()` sets
 the host for the device; before the first transfer by the registers after a
 transfer of the driver, the host is set back for them. Longer pixels go by
@@ -238,7 +304,8 @@ while one is sent.
   `dgx_qspi_init()` is alone on the host DGX set up, and keeps the bus
   between its drawings: acquiring it costs 6.9 us, more than a pixel. A
   second display of DGX on the host makes it let go, and the two take turns
-  at every drawing. A display made by `dgx_spi_init_on_bus()` lets go at
+  at every drawing. A display made by `dgx_spi_init_on_bus()` or
+  `dgx_qspi_init_on_bus()` lets go at
   the end of every drawing, or of the batch around it, for the other
   devices of the program's host.
 - **QSPI** sends an opcode and an address on one line before the data, on one
@@ -310,21 +377,21 @@ the pixels of the CYD, so the lines of the test draw more:
 
 | Test | on the display | in memory |
 | --- | ---: | ---: |
-| HaD pushColor | 1 734 100 | 144 188 |
-| Screen fill | 3 547 | 38 592 |
-| Text | 4 936 | 33 228 |
-| Pixels | 3 295 808 | 191 301 |
-| Lines | 632 674 | 238 301 |
-| Horiz/Vert Lines | 60 804 | 43 230 |
-| Rectangles (outline) | 37 756 | 34 173 |
-| Rectangles (filled) | 77 071 | 176 421 |
-| Circles (filled) | 60 266 | 51 224 |
-| Circles (outline) | 65 880 | 50 052 |
-| Triangles (outline) | 39 623 | 39 432 |
-| Triangles (filled) | 1 935 747 | 67 376 |
-| Rounded rects (outline) | 49 920 | 36 942 |
-| Rounded rects (filled) | 637 672 | 189 060 |
-| Total | 8 635 804 | 1 333 520 |
+| HaD pushColor | 1 734 100 | 41 594 |
+| Screen fill | 3 547 | 38 685 |
+| Text | 4 936 | 33 503 |
+| Pixels | 3 295 808 | 191 330 |
+| Lines | 632 674 | 238 744 |
+| Horiz/Vert Lines | 60 804 | 43 367 |
+| Rectangles (outline) | 37 756 | 34 357 |
+| Rectangles (filled) | 77 071 | 176 725 |
+| Circles (filled) | 60 266 | 51 517 |
+| Circles (outline) | 65 880 | 50 297 |
+| Triangles (outline) | 39 623 | 39 602 |
+| Triangles (filled) | 1 935 747 | 67 570 |
+| Rounded rects (outline) | 49 920 | 37 098 |
+| Rounded rects (filled) | 637 672 | 189 094 |
+| Total | 8 635 804 | 1 233 483 |
 
 A fill of 1.2 MB takes 3.5 ms. Every drawing outside a batch ends with the
 cache of the processor written back to PSRAM over the bytes it has changed,
@@ -333,6 +400,12 @@ writes back hundreds of kilobytes, a single pixel a line of the cache. That
 is what the filled triangles, the filled rounded squares and the pixels
 cost here. A batch around many drawings writes back once, and a picture
 drawn in memory is written back once as it is sent.
+
+The logo costs something else: nothing is written back while it is drawn. The
+panel is 1024x600 and the test runs it upright, so neighbours in a row of the
+screen lie 2 KB apart in the frame buffer, each on a cache line of its own,
+and `write_area()` moves them a pixel at a time: 1.4 us a pixel all told. A
+picture sent whole from memory goes in the order of the panel instead.
 
 ## Where DGX is still slower
 

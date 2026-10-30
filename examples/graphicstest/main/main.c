@@ -147,7 +147,7 @@ static uint32_t test_had(void)
         const uint32_t color = color565((i << 4) | i, (i << 4) | i, (i << 4) | i);
         uint32_t       now = 0;
         tft->set_area(tft, 0, 239, 0, 319);
-        /* the runs go into one half while the other one is sent */
+        /* the runs go into a buffer of 4 KB, sent when it is full */
         int            k = 0, n = 0;
         const uint8_t *cmp = had_240x320;
         while (cmp < had_240x320 + sizeof(had_240x320)) {

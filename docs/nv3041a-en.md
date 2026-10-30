@@ -23,7 +23,7 @@ In short:
   window, which is unsafe with other devices on the same SPI host, and
   under ESP-IDF 6.0 and 6.1 versions before 0.9.1 connect SPI outputs to
   GPIO0, the TE line of the panel.
-- Only the upright landscape picture has been tried.
+- Two positions have been tried: landscape, 480x272, and on its side, 272x480.
 
 ## The hardware and software
 
@@ -83,8 +83,9 @@ Table 2. The three kinds of transfer DGX sends, and what goes in each part.
   only the second; with the first it ignores the pixels.
 - Pixels sent past the end of a window do not wrap around to its start: the
   panel puts them outside the window.
-- Every transfer is a chip select of its own, made by the SPI hardware, so
-  other devices on the host can be served between two pieces of a picture.
+- Every transfer is a chip select of its own, made by the SPI hardware. On a
+  host of the program other devices are served between the long pieces of a
+  picture; a display made by `dgx_qspi_init()` keeps its host to itself.
   The datasheet asks for the chip select to go low 10 ns before the first
   clock edge and stay low 30 ns after the last (TCSS and TCSH, table
   8.3.2.1), and to stay high 30 ns between transfers (TCHW). With
@@ -237,8 +238,8 @@ within a few minutes.
 
 ### Why DGX is not the cause
 
-The host test `test_life_panel` runs the Game of Life morph exactly as the
-board does: the same patterns, a 480x272 screen and a bus buffer of 10424
+The host test `test_life_panel` runs the Game of Life morph as the board did
+in 0.9.1: the same patterns, a 480x272 screen and a bus buffer of 10424
 bytes. Every frame goes to a model of the panel that fills its memory the
 way the commands tell it to. After every frame, the model's memory matches
 a virtual screen drawn the same way, pixel for pixel, and no pixel comes
@@ -300,9 +301,10 @@ shows a frame every 15.6 ms (64 Hz). DGX does not use TE.
 ## Turning the picture
 
 According to [atomic14](https://www.atomic14.com/esp32/boards/guition-jc4827w543/),
-only 0° and 180° work on this panel. DGX has tried only the upright
-picture: `dgx_nv3041a_orientation()` has not been tried in any direction,
-with the axes swapped or not.
+only 0° and 180° work on this panel. DGX has also run it on its side:
+[examples/graphicstest](../examples/graphicstest) draws at 272x480 with
+`dgx_nv3041a_orientation(scr, DgxScreenLeftRight, DgxScreenBottomTop, true)`,
+and the picture came out right. The other positions have not been tried.
 
 ## ESP-IDF 6.0 and 6.1: GPIO0
 
@@ -362,3 +364,8 @@ panel.
   the program kept the host locked. 0.9.1 also stopped the SPI outputs
   going to GPIO0 under ESP-IDF 6, and sends a frame from PSRAM by DMA as it
   lies where PSRAM keeps up.
+- 0.9.3 made the bus buffer 18,992 bytes at 40 MHz, for 5 % of the time lost
+  between pieces, and the driver a description of the panel, `dgx_panel_t`.
+- 0.10.0 sends windows, commands and short pixels by the registers of the
+  host, holds the host from a window to the end of a drawing, and lets a
+  display made by `dgx_qspi_init()` keep the host between its drawings.

@@ -33,9 +33,9 @@ I (...) graphicstest: HaD pushColor                533959
 ...
 I (...) graphicstest: Total                       2881373
 I (...) graphicstest: Benchmark                Time (microseconds), in memory and sent
-I (...) graphicstest: HaD pushColor                419212
+I (...) graphicstest: HaD pushColor                 48668
 ...
-I (...) graphicstest: Total                        964741
+I (...) graphicstest: Total                        594087
 ```
 
 A time ends when the display has the last pixel: the bus is waited for
@@ -43,8 +43,8 @@ before the clock is read. Where DGX has no single call for a figure, the
 test makes it of the calls a program would use: a horizontal or vertical
 line is `dgx_fill_rectangle()` a pixel high or wide, the outline of a
 triangle is three `dgx_draw_line()`, and the logo goes by `set_area()` and
-`write_area()` of the screen in two halves of 4 KB, one filled while the
-other is sent.
+`write_area()` of the screen in pieces of 4 KB, each sent before the next is
+made.
 
 ## Boards
 

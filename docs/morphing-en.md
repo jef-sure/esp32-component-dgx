@@ -211,7 +211,8 @@ index to each dot while editing a glyph.
 
 A matrix does not preserve dot order, so it does not matter for matrix-based
 morphing: sources are selected geometrically. The clock's index-based morph
-remains in `dgx_font_make_morph_struct()`, as before.
+remains in `dgx_font_make_morph_struct()`, and `dgx_morph_symbol_draw()` draws it
+through the same renderers.
 
 ### Plan: What Flies Where
 
@@ -605,7 +606,8 @@ dgx_morph_draw(morph, t, x, y, cell, false, dgx_morph_sprite_dot, sprite);
 ```
 
 The sprite overwrites pixels instead of adding brightness, so trails are
-disabled with it.
+disabled with it. It draws into a virtual screen of 8, 16, 18 or 24 bits; an
+8-bit one gets the brightness of the sprite, or the value the LUT has for it.
 
 ## Optimizations for a Microcontroller
 
@@ -712,8 +714,8 @@ every frame as in the original.
 **[dotview-clock][gh-dotview-clock].** The clock stays as it is. Its morph is
 index-based and depends on point order in the font, which a matrix does not
 preserve. Besides, the clock's morph code is already only a few lines:
-`dgx_font_make_morph_struct()` is in DGX, and drawing is a loop over points
-that blits the sprite.
+`dgx_font_make_morph_struct()` makes the morph and `dgx_morph_symbol_draw()`
+draws it.
 
 ## Pitfalls
 
@@ -765,7 +767,8 @@ to the same place, which was not noticeable by eye.
 ## What Is Still Open
 
 1. **The clock's index-based order.** A morph based on font point order does
-   not fit the matrix model and remains separate.
+   not fit the matrix model: it is planned separately and shares only the
+   renderers.
 2. **Retargeting mid-flight.** A new morph can start from the last discrete
    state and the phosphor will smooth brightness, but flying dots may jump to
    those discrete positions.
@@ -812,7 +815,7 @@ and run under ASan/UBSan with `make -C test/host`. They cover:
 - a morph wider than 32767 cells is rejected, dots outside `int16_t` are not
   drawn;
 - matrix copy, comparison and clearing, a matrix from a 1-bpp bitmap;
-- metrics for all 11 bundled fonts match their glyph data, and
+- metrics for 11 of the bundled fonts match their glyph data, and
   `TerminusTTFMedium12` has every letter of the example's words.
 
 Hardware-dependent behavior is not covered on the host: visual appearance,
