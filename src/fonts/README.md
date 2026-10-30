@@ -1,7 +1,8 @@
 # The fonts of DGX
 
 Every font here is a C file made by [font2c](../../font2c/README.md) from a
-font file under a free license, or drawn for DGX. The table records what each
+font file under a free license, or drawn for DGX; `GLCD5x7` was turned by a
+script from the C source of the classic font of the Adafruit GFX Library. The table records what each
 one was made from and under what license; `font2c/dgx_fonts.py` reads it to
 write `fonts-used.txt` of a program and to match `deny` lines of the rules
 against these fonts by family. A font added here gets its row.
@@ -9,7 +10,8 @@ against these fonts by family. A font added here gets its row.
 The top of each `.c` says the same with the copyright notices of the makers
 of its font and what was changed, and [licenses](licenses) holds the texts
 of the licenses that ask to go with the fonts: the SIL Open Font License,
-the Apache License, the license of the DejaVu fonts and that of Cozette. The
+the Apache License, the license of the DejaVu fonts, that of Cozette and the
+BSD License of the Adafruit GFX Library. The
 fonts drawn for DGX are under its MIT License, `LICENSE` at the top of DGX,
 and the Creative Commons license of the IBM CGA font is named by its link,
 as that license allows. `font2c` does not write this comment: a font of
@@ -28,6 +30,7 @@ size takes the patch too: see "Glyphs fixed by hand" in
 | `CozetteRegular13` | Cozette | cozette.bdf 1.30.0 of Ines (github.com/the-moonwitch/Cozette), a bitmap font drawn at 13 px, used at its own size: ASCII, Latin-1, Cyrillic U+0400 to U+045F, dashes, quotes, the ellipsis, € and №; the Nerd Font icons left out | MIT License, (c) 2020-2025 Ines |
 | `DejaVuSansBook32` | DejaVu Sans | DejaVuSans.ttf 2.37 at 32 px, characters U+0020 to U+007E | Bitstream Vera license; the DejaVu changes are in the public domain |
 | `DroidSansRegular9` | Droid Sans | DroidSans.ttf 1.00 of Google at 9 px, with the glyphs of `DroidSansRegular9.patch.json` | Apache License 2.0 |
+| `GLCD5x7` | GLCD | glcdfont.c of the Adafruit GFX Library (github.com/adafruit/Adafruit-GFX-Library), the classic 5x7 font of Adafruit_GFX: characters U+0020 to U+007E | BSD License, (c) 2012 Adafruit Industries |
 | `IBMCGALight8x16Light8x1616` | IBM CGA Light 8x16 | icl8x16u.bdf of the IBM fonts of farsil (github.com/farsil/ibmfonts), "BDF conversion (c) 2016 farsil", made after the PxPlus fonts of VileR (The Ultimate Oldschool PC Font Pack, int10h.org), made a TTF by bdf2ttf 0.0.5 and rendered at 16 px: 782 glyphs, Latin, Greek, Cyrillic, Hebrew | Creative Commons Attribution-ShareAlike 4.0 |
 | `IBMPlexMonoMedium28` | IBM Plex Mono | IBMPlexMono-Medium.ttf 2.3 of IBM at 28 px | SIL Open Font License 1.1 |
 | `LiberationSansRegular12` | Liberation Sans | LiberationSans-Regular.ttf 2.1.5 at 12 px, the characters Arial 12 had here before, Arabic aside, with the glyphs of `LiberationSansRegular12.patch.json` | SIL Open Font License 1.1 |

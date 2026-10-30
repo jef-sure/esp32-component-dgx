@@ -158,41 +158,41 @@ static void dgx_line_thick_runs(dgx_screen_t *scr, int x, int y, int x2, int y2,
     if (run_h) dgx_line_thick_fill(scr, across, run_x, run_y, run_w, run_h, color);
 }
 
-void dgx_draw_line_thick(dgx_screen_t *scr, int x, int y, int x2, int y2, int width, uint32_t color)
+void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int width, uint32_t color)
 {
     if (width < 1) return;
-    int dx = x2 - x;
-    int dy = y2 - y;
+    int dx = x2 - x1;
+    int dy = y2 - y1;
     int pw = width / 2;
     int mw = width - pw - 1;
     dgx_screen_progress_up(scr);
     if (dx == 0 && dy == 0) {
-        dgx_solid_circle(scr, x, y, mw ? mw : pw, color);
+        dgx_solid_circle(scr, x1, y1, mw ? mw : pw, color);
         dgx_screen_progress_down(scr);
         return;
     }
     if (dx == 0) {
         /* the wider side of an even width is on the right of the way, as for slanted lines */
         if (dy < 0) {
-            scr->fill_rectangle(scr, x - mw, y2, width, -dy + 1, color);
+            scr->fill_rectangle(scr, x1 - mw, y2, width, -dy + 1, color);
         } else {
-            scr->fill_rectangle(scr, x - pw, y, width, dy + 1, color);
+            scr->fill_rectangle(scr, x1 - pw, y1, width, dy + 1, color);
         }
         dgx_screen_progress_down(scr);
         return;
     }
     if (dy == 0) {
         if (dx < 0) {
-            scr->fill_rectangle(scr, x2, y - pw, -dx + 1, width, color);
+            scr->fill_rectangle(scr, x2, y1 - pw, -dx + 1, width, color);
         } else {
-            scr->fill_rectangle(scr, x, y - mw, dx + 1, width, color);
+            scr->fill_rectangle(scr, x1, y1 - mw, dx + 1, width, color);
         }
         dgx_screen_progress_down(scr);
         return;
     }
     /* a rectangle a pixel wide would have two pixels in some rows: a slanted line of one pixel is the line of dgx_draw_line() */
     if (width == 1) {
-        dgx_draw_line(scr, x, y, x2, y2, color);
+        dgx_draw_line(scr, x1, y1, x2, y2, color);
         dgx_screen_progress_down(scr);
         return;
     }
@@ -201,8 +201,8 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x, int y, int x2, int y2, int wi
      * over the diagonal, which puts its right side on the left, so pw and mw change places.
      */
     const int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
-    if (ady > adx) dgx_line_thick_runs(scr, y, x, y2, x2, mw, pw, true, color);
-    else dgx_line_thick_runs(scr, x, y, x2, y2, pw, mw, false, color);
+    if (ady > adx) dgx_line_thick_runs(scr, y1, x1, y2, x2, mw, pw, true, color);
+    else dgx_line_thick_runs(scr, x1, y1, x2, y2, pw, mw, false, color);
     dgx_screen_progress_down(scr);
 }
 

@@ -42,6 +42,7 @@ typedef uint32_t (*dgx_bus_read_data_func)(struct _dgx_bus_protocols_t *bus, uin
 typedef void (*dgx_bus_write_data_async_func)(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t len);
 typedef void (*dgx_bus_sync_write_func)(struct _dgx_bus_protocols_t *bus);
 typedef bool (*dgx_bus_sends_from_func)(struct _dgx_bus_protocols_t *bus, const void *pixels);
+typedef void (*dgx_bus_hold_func)(struct _dgx_bus_protocols_t *bus);
 
 /*
  * Special protocol functions
@@ -206,6 +207,17 @@ typedef struct _dgx_bus_protocols_t {
      * of copying them into the bus buffer. NULL for a bus that always copies.
      */
     dgx_bus_sends_from_func sends_from;
+    /*!
+     * The bus kept for the display from a window to the end of the drawing it
+     * belongs to, and let go of: a display behind a bus calls hold() when it
+     * sends a window and release() when the drawing is done, at the end of
+     * its batch or, outside one, after the pixels of the window. Meanwhile no
+     * other device takes the bus, and the short transfers of windows and
+     * small figures may go without the turns the driver takes between
+     * devices. NULL for a bus that has no use for it.
+     */
+    dgx_bus_hold_func hold;
+    dgx_bus_hold_func release;
 } dgx_bus_protocols_t;
 
 #ifdef __cplusplus

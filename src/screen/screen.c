@@ -10,6 +10,7 @@
  */
 
 #include <malloc.h>
+#include <string.h>
 
 #include "dgx_bits.h"
 #include "dgx_screen.h"
@@ -117,17 +118,20 @@ static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, in
     dgx_screen_progress_down(scr);
 }
 
+/*
+ * The bytes of the pixel go from the screen, not from the stack: a bus that
+ * sends them after the call returns has them still, and only the pixel before
+ * is waited for, before its bytes are written over.
+ */
 static void dgx_scr_set_pixel_sb(dgx_screen_t *scr, int x, int y, uint32_t color)
 {
-    if (x < 0 || x >= scr->width || y < 0 || y >= scr->height) return;
-    uint8_t  draw_buffer[4] = { 0 };
-    uint8_t *lp             = draw_buffer;
+    if (x < 0 || x >= scr->width || y < 0 || y >= scr->height || scr->screen_subtype != DgxPhysicalScreenWithBus) return;
+    uint8_t *pixel = ((dgx_screen_with_bus_t *)scr)->pixel;
     if (scr->wait_buffer) scr->wait_buffer(scr);
-    dgx_fill_buf_value(scr->color_bits, lp, 0, color);
+    memset(pixel, 0, 4);
+    dgx_fill_buf_value(scr->color_bits, pixel, 0, color);
     scr->set_area(scr, x, x, y, y);
-    scr->write_area(scr, draw_buffer, dgx_color_points_to_bytes(scr->color_bits, 1) * 8u);
-    // draw_buffer lives on the stack: an asynchronous bus must finish with it before we return
-    if (scr->wait_buffer) scr->wait_buffer(scr);
+    scr->write_area(scr, pixel, dgx_color_points_to_bytes(scr->color_bits, 1) * 8u);
     dgx_screen_touch(scr, x, x, y, y);
 }
 
@@ -148,8 +152,13 @@ bool dgx_screen_is_readable(const dgx_screen_t *scr)
 
 // NOP for physical not virtually backed screens
 
+/* a drawing is done: the bus its windows held is let go of, for the other devices on it */
 static void dgx_scr_update_area_sb(struct _dgx_screen_t *scr, int left, int right, int top, int bottom)
 {
+    if (scr->screen_subtype == DgxPhysicalScreenWithBus) {
+        dgx_bus_protocols_t *bus = ((dgx_screen_with_bus_t *)scr)->bus;
+        if (bus->release) bus->release(bus);
+    }
 }
 
 static void dgx_scr_with_bus_destroy(struct _dgx_screen_t **pscr)
@@ -188,9 +197,11 @@ static void dgx_scr_write_area_sb(dgx_screen_t *scr, uint8_t *data, uint32_t len
         if (dgx_screen_with_bus_window_is_deferred(sbus)) {
             /* a bus that takes pixels only with their command: the window goes with them */
             dgx_screen_with_bus_write_window(sbus, data, lenbits);
-            return;
+        } else {
+            bus->write_data_async(bus, data, lenbits);
         }
-        bus->write_data_async(bus, data, lenbits);
+        /* outside a batch the window and these pixels were the whole drawing */
+        if (!scr->in_progress && bus->release) bus->release(bus);
     }
 }
 

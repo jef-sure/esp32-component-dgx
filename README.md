@@ -44,6 +44,7 @@ whose text is written stroke by stroke by a pen or turns into another text.
   - [Draw from several tasks](#draw-from-several-tasks)
   - [An Arduino sketch](#an-arduino-sketch)
 - [Examples](#examples)
+- [How fast](#how-fast)
 - [Supported panels](#supported-panels)
 - [What's in the box](#whats-in-the-box)
 - [How it fits together](#how-it-fits-together)
@@ -72,14 +73,14 @@ DGX is an ESP-IDF component, published in the
 as `jef-sure/dgx`. Add it to a project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.9.0"
+idf.py add-dependency "jef-sure/dgx^0.10.0"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.9.0"
+  jef-sure/dgx: "^0.10.0"
 ```
 
 Then enable the drivers you need in `menuconfig`, under the **DGX** menu. A
@@ -871,6 +872,7 @@ idf.py flash monitor
 | [fonts_demo](examples/fonts_demo) | CYD | fonts made at build time: a title in millimeters, a paragraph in a face picked by rules, a clock in a bundled font |
 | [dsi_demo](examples/dsi_demo) | JC1060P470 or JC8012P4A1C (ESP32-P4, 7-inch or 10.1-inch MIPI-DSI) | the same kind of test for a DSI display, update modes, an even frame rate, the board measured and the numbers kept |
 | [figures_scroll_demo](examples/figures_scroll_demo) | CYD or JC1060P470 | a pie chart, arcs, a Wi-Fi icon, a scrolling terminal and chart; prints timings |
+| [graphicstest](examples/graphicstest) | CYD, JC4827W543 or JC1060P470 | the PDQ graphics test of Adafruit_GFX, TFT_eSPI and LovyanGFX made with DGX, its table in the log and on the screen; see [How fast](#how-fast) |
 | [texture_demo](examples/texture_demo) | CYD | a textured card scaled, rotated and wobbled |
 | [sprite_palette_demo](examples/sprite_palette_demo) | CYD | sprites of 1, 4 and 8 bits in maps of colors, mirrored, turned and clipped; day, night, lightning and a fade by the color table alone |
 | [pixel_scale_demo](examples/pixel_scale_demo) | CYD, JC1060P470 or JC8012P4A1C | a small picture two, three and four times as large by squares, Scale2x and Scale3x, Scale2xSFX and Scale3xSFX, each timed |
@@ -884,6 +886,77 @@ idf.py flash monitor
 | [hw_soft_pen_demo](examples/hw_soft_pen_demo) | CYD or JC1060P470 | handwriting with a soft pen, lines that move to make room |
 
 A CYD is an ESP32-2432S028R: an ESP32 with a 320x240 ILI9341 on SPI.
+
+## How fast
+
+The PDQ graphics test that Adafruit_GFX, TFT_eSPI and LovyanGFX ship, with
+each library on the same CYD: an ESP32 at 240 MHz, the ILI9341 on SPI at
+40 MHz, upright at 240x320. DGX runs it as
+[examples/graphicstest](examples/graphicstest); the others run their own
+sketch, built with the Arduino core. A time ends when the display has the
+last pixel.
+
+PDQ graphics test on a CYD, every call drawing straight on the display,
+microseconds:
+
+| Test | DGX | TFT_eSPI 2.5.43 | LovyanGFX 1.2.7 | Adafruit_ILI9341 1.6.2 |
+| --- | ---: | ---: | ---: | ---: |
+| Hackaday logo, 16 times | 533 959 | 511 150 | 504 381 | 657 095 |
+| Screen fill | 31 287 | 31 183 | 30 816 | 40 037 |
+| Text | 22 833 | 15 283 | 10 172 | 33 025 |
+| Pixels | 650 896 | 224 013 | 226 978 | 583 127 |
+| Lines | 599 548 | 266 229 | 258 198 | 1 000 627 |
+| Horiz/Vert Lines | 17 053 | 14 376 | 12 594 | 18 297 |
+| Rectangles (outline) | 12 300 | 8 905 | 8 097 | 11 990 |
+| Rectangles (filled) | 327 554 | 324 090 | 318 123 | 416 103 |
+| Circles (filled) | 66 462 | 46 696 | 40 792 | 73 377 |
+| Circles (outline) | 50 385 | 26 350 | 23 097 | 112 500 |
+| Triangles (outline) | 34 537 | 16 672 | 15 539 | 55 918 |
+| Triangles (filled) | 164 448 | 112 404 | 106 946 | 154 952 |
+| Rounded rects (outline) | 23 683 | 16 572 | 12 467 | 46 627 |
+| Rounded rects (filled) | 346 428 | 326 820 | 322 011 | 423 124 |
+| Total | 2 881 373 | 1 940 743 | 1 890 211 | 3 626 799 |
+
+Fills and pictures take as long as the wire takes, in DGX, TFT_eSPI and
+LovyanGFX. Small figures are slower in DGX, and that is a deliberate trade:
+every drawing goes through the functions of a screen and a bus, so the same
+code draws on a virtual screen and on SPI, QSPI and MIPI-DSI displays. DGX
+gave up speed in primitives to keep that flexibility.
+
+No speed removes flicker anyway. What is drawn on the panel piece by piece
+is seen piece by piece, however fast the bus. The only way to a picture
+without flicker is to prepare it first and send it whole, as a virtual
+screen or a ready image, which is why a DGX program works that way: see
+[Animation without flicker](#animation-without-flicker).
+
+Here is the same test run that way on the same CYD. Each test draws into an
+8-bit virtual screen the size of the display (for TFT_eSPI, an 8-bit
+sprite), and the whole of it is then sent to the display once. Each time
+covers both, the drawing and that one send. The send alone takes 32 ms in
+DGX and 39 ms in TFT_eSPI, so in most rows it is nearly the whole number.
+
+PDQ graphics test on a CYD, drawn in memory and sent once, microseconds:
+
+| Test | DGX, virtual screen | TFT_eSPI, sprite |
+| --- | ---: | ---: |
+| Hackaday logo, 16 times | 419 212 | 327 052 |
+| Screen fill | 32 293 | 37 860 |
+| Text | 36 534 | 40 720 |
+| Pixels | 92 071 | 79 425 |
+| Lines | 74 032 | 71 186 |
+| Horiz/Vert Lines | 32 389 | 41 099 |
+| Rectangles (outline) | 32 413 | 39 846 |
+| Rectangles (filled) | 34 991 | 41 337 |
+| Circles (filled) | 35 540 | 40 448 |
+| Circles (outline) | 36 261 | 41 857 |
+| Triangles (outline) | 34 652 | 40 419 |
+| Triangles (filled) | 35 316 | 40 826 |
+| Rounded rects (outline) | 33 562 | 40 788 |
+| Rounded rects (filled) | 35 475 | 40 597 |
+| Total | 964 741 | 923 460 |
+
+How it was measured, the other boards, and the numbers published for these
+libraries: [docs/benchmarks-en.md](docs/benchmarks-en.md).
 
 ## Supported panels
 
@@ -996,11 +1069,12 @@ how it takes pixels to its TE line, with what was measured and tried:
 
 ST77916 is the controller of round 360x360 panels, on QSPI as a rule, with
 the same commands and pixels on that bus as NV3041A. The driver has the init
-table of Espressif's `esp_lcd_st77916` for a 360x360 glass, takes 16 or 18
-bits, and keeps the backlight off until the panel memory is black, as
-NV3041A does. It has not yet been run on a panel. Its controller has 390 rows
-of memory for the 360 of the glass; the driver takes the glass as the first
-of them, the last ones when the rows go up.
+table of Arduino_GFX for a 1.5-inch glass, seen right at 40 MHz on a module
+marked "TFT 1.53 1.0" with the glass T150XV-C16-04. It takes 16 or 18 bits, 16
+seen on that module, and keeps the backlight off until the panel memory is
+black, as NV3041A does. An init table belongs to its glass: with the table of
+another one the picture comes out as stripes, so a module of another glass
+takes its own, see [A panel of your own module](#a-panel-of-your-own-module).
 
 ### A panel of your own module
 
@@ -1075,9 +1149,9 @@ of the u8g2 driver written for the controller after its datasheet.
   colors, fades and flashes, without redrawing the frame.
 - A two-head compositor (`vscreen_2h`) that exposes two child screens as one
   logical screen.
-- Drawing primitives — pixels, lines, rectangles, circles, ellipses, their
-  arcs and sectors, filled and textured quads, a rectangle scrolled any way —
-  and an arc gauge helper.
+- Drawing primitives — pixels, lines, rectangles with square or round
+  corners, circles, ellipses, their arcs and sectors, filled and textured
+  quads, a rectangle scrolled any way — and an arc gauge helper.
 - UTF-8 text rendering with 8-way orientation, glyph lookup, layout and bounds
   queries, plus a small "morph" helper for animating between glyphs.
 - Handwritten fonts: symbols kept as pen paths of Bezier curves, written at
@@ -1138,6 +1212,9 @@ Declared in [include/dgx_draw.h](include/dgx_draw.h):
 | `dgx_bezier_length(b)` | Length of a prepared curve in pixels, to share time between curves. |
 | `dgx_draw_line_mask(scr, x1, y1, x2, y2, color, bg, mask, mask_bits)` | Dashed/dotted line; returns the rotated mask to continue the pattern. |
 | `dgx_fill_rectangle(scr, x, y, w, h, color)` | Filled rectangle; a negative `w` or `h` takes it to the left of `x` or up from `y`, on every screen. |
+| `dgx_draw_rectangle(scr, x, y, w, h, color)` | Outline of the rectangle `dgx_fill_rectangle()` fills, a pixel wide. |
+| `dgx_draw_round_rectangle(scr, x, y, w, h, r, color)` | Outline of a rectangle with round corners: each a quarter of `dgx_draw_circle()` of radius `r`, so a square of 2r + 1 is that circle and `r` 0 the plain outline; a radius too large is cut to (the shorter side - 1) / 2. |
+| `dgx_fill_round_rectangle(scr, x, y, w, h, r, color)` | The same rectangle filled, its corners quarters of `dgx_solid_circle()`. |
 | `dgx_draw_circle(scr, x, y, r, color)` | Circle outline by the midpoint algorithm. |
 | `dgx_solid_circle(scr, x, y, r, color)` | Filled circle, the same outline filled by rows. |
 | `dgx_draw_ellipse(scr, x, y, rx, ry, color)` | Ellipse outline, a pixel wide, by the rule of the midpoint algorithm: with equal radii it is `dgx_draw_circle()` pixel for pixel. |
@@ -1492,10 +1569,17 @@ depends on the constructor:
   bus of those pins. Further displays on the same host or port share it, and
   must name the same pins; an I80 bus takes one display. DGX releases the bus
   with the last of its displays, unless the program has put devices of its own
-  on it.
+  on it. An SPI host DGX sets up takes no devices of the program: the only
+  display on it keeps the host between its drawings, and a device added to
+  it would wait for ever. A touch controller or an SD card beside the display
+  goes on a host the program sets up, with `dgx_spi_init_on_bus()`.
 - `dgx_spi_init_on_bus()`, `dgx_qspi_init_on_bus()`, `dgx_i2c_init_on_bus()`
   and `dgx_p8_init_on_bus()` put the display on a bus the program has set up and owns. DGX adds its
   device and removes it on dispose; the program releases the bus afterwards.
+  On SPI and QSPI the display holds the host from a window to the end of its
+  drawing, or of a batch opened with `dgx_screen_progress_up()`: the other
+  devices take it between drawings, and one used from inside such a batch,
+  in the same task, would wait for ever.
   An SPI host must have DMA and a `max_transfer_sz` of 0 or at least 4092
   bytes; DGX sends pieces as long as the host takes, see below. An I80 bus must be 8 bits wide with a `max_transfer_bytes` of at
   least 4096; the program sends to its own panels on it only after
@@ -1625,6 +1709,8 @@ Guidelines:
 - Always pair every `up` with one `down`; do not modify `in_progress` directly.
 - If you write pixels behind the primitives' back, call `dgx_screen_touch()`
   for that area.
+- A display on SPI or QSPI holds its host for the whole of a batch. Another
+  device of that host is used before or after the batch, not inside it.
 
 ## Drawing from several tasks
 

@@ -6,3 +6,6 @@
 
 /* SPI1, the host of the flash, SPI2 and SPI3, as on an ESP32-S3 */
 #define SOC_SPI_PERIPH_NUM 3
+
+/* the buffer of a transfer by the registers of an SPI host, in bytes */
+#define SOC_SPI_MAXIMUM_BUFFER_SIZE 64

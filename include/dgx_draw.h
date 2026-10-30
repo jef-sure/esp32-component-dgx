@@ -34,6 +34,58 @@ extern "C" {
 void dgx_fill_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t color);
 
 /**
+ * @brief Draws the outline of a rectangle, a pixel wide.
+ *
+ * The outline is the border of the rectangle dgx_fill_rectangle() fills
+ * with the same arguments, a negative width or height included.
+ *
+ * @param scr The screen to draw on.
+ * @param x The x coordinate of the top-left corner of the rectangle.
+ * @param y The y coordinate of the top-left corner of the rectangle.
+ * @param w The width of the rectangle, or less than 0 for one to the left of x.
+ * @param h The height of the rectangle, or less than 0 for one above y.
+ * @param color The color of the outline.
+ */
+void dgx_draw_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t color);
+
+/**
+ * @brief Draws the outline of a rectangle with round corners, a pixel wide.
+ *
+ * Each corner is a quarter of the circle dgx_draw_circle() draws with radius
+ * @p r, its centre @p r pixels in from both sides. A square of 2r + 1 pixels
+ * is that circle; a radius of 0 gives the outline of dgx_draw_rectangle().
+ * A radius larger than the rectangle allows is cut to (the shorter side - 1)
+ * / 2, and a negative one is 0.
+ *
+ * @param scr The screen to draw on.
+ * @param x The x coordinate of the top-left corner of the rectangle.
+ * @param y The y coordinate of the top-left corner of the rectangle.
+ * @param w The width of the rectangle, or less than 0 for one to the left of x.
+ * @param h The height of the rectangle, or less than 0 for one above y.
+ * @param r The radius of the corners.
+ * @param color The color of the outline.
+ */
+void dgx_draw_round_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, int r, uint32_t color);
+
+/**
+ * @brief Draws a filled rectangle with round corners.
+ *
+ * The rectangle of dgx_draw_round_rectangle() with everything inside its
+ * outline: each corner is a quarter of dgx_solid_circle(), a square of
+ * 2r + 1 pixels is that circle, and a radius of 0 gives the rectangle of
+ * dgx_fill_rectangle().
+ *
+ * @param scr The screen to draw on.
+ * @param x The x coordinate of the top-left corner of the rectangle.
+ * @param y The y coordinate of the top-left corner of the rectangle.
+ * @param w The width of the rectangle, or less than 0 for one to the left of x.
+ * @param h The height of the rectangle, or less than 0 for one above y.
+ * @param r The radius of the corners.
+ * @param color The color of the rectangle.
+ */
+void dgx_fill_round_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, int r, uint32_t color);
+
+/**
  * @brief Draws a circle outline on the screen.
  *
  * @param scr The screen to draw on.

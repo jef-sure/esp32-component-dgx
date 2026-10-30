@@ -25,6 +25,14 @@
  * the address: 0x2C writes from the start of the window, 0x3C goes on where
  * the pixels before ended. The commands of a window and their parameters,
  * four bytes at most, are polled on both buses: none of them is queued.
+ *
+ * The SPI display holds the bus from a window to the end of its drawing, and
+ * meanwhile sends short transfers by the registers of the host. The model
+ * holds another device of the host off while the bus is held, as the driver
+ * would hold it off for ever; a transfer by the registers starts only on a
+ * host set for it (one line, no phases, no DMA) after the last transfer of the
+ * driver, with nothing of the device queued; neither a new transfer, nor one
+ * of the driver, nor a change of the D/C line comes while one is under way.
  */
 #define CONFIG_DGX_ENABLE_SPI 1
 #define CONFIG_SPIRAM         1
@@ -152,8 +160,19 @@ static int panel_wrong(dgx_screen_t *model)
 static uint64_t gpio_levels;
 static int      dc_pin; /* the D/C line of the display under test */
 
+/* the registers of the hosts, see hal/spi_ll.h */
+spi_dev_t model_spi_hw[SOC_SPI_PERIPH_NUM];
+
+static bool model_running(void)
+{
+    for (int i = 0; i < SOC_SPI_PERIPH_NUM; ++i)
+        if (model_spi_hw[i].running) return true;
+    return false;
+}
+
 void dgx_host_reg_write(uint32_t reg, uint32_t value)
 {
+    const uint64_t before = gpio_levels;
     switch (reg) {
     case GPIO_OUT_W1TS_REG:
         gpio_levels |= value;
@@ -170,6 +189,8 @@ void dgx_host_reg_write(uint32_t reg, uint32_t value)
     default:
         CHECK(!"a register that sets no GPIO output");
     }
+    /* the D/C line does not change under a transfer */
+    if (((before ^ gpio_levels) >> dc_pin) & 1u) CHECK(!model_running());
 }
 
 /* ---- memory: a part of it stands for PSRAM ---- */
@@ -210,9 +231,10 @@ static inline bool psram_asks_16(void)
 #define MODEL_QUEUE 16
 
 typedef struct {
-    bool initialized;
-    int  max_transfer_sz;
-    int  devices;
+    bool                initialized;
+    int                 max_transfer_sz;
+    int                 devices;
+    spi_device_handle_t holder; /* the device that has acquired the bus */
 } model_host_t;
 
 static model_host_t model_hosts[SOC_SPI_PERIPH_NUM];
@@ -228,6 +250,10 @@ struct spi_device_t {
 };
 
 static long transfers, longest_transfer;
+static long direct_transfers, acquires; /* transfers by the registers of the host; spi_device_acquire_bus() calls */
+static long queued_while_held;          /* pixels queued for DMA by a device that holds the bus */
+static spi_device_handle_t model_other; /* a device of the program on the host, not the display: what it sends goes elsewhere */
+static long                other_transfers;
 static long queue_calls, refused_call; /* the queued transfer of that number is refused, as when the driver has no memory to copy it */
 static long queued_short;              /* transfers of 4 bytes at most that were queued, not polled */
 #ifdef SPI_TRANS_DMA_USE_PSRAM
@@ -282,6 +308,7 @@ esp_err_t spi_bus_add_device(spi_host_device_t host_id, const spi_device_interfa
 esp_err_t spi_bus_remove_device(spi_device_handle_t handle)
 {
     CHECK(handle->queued == 0); /* the driver refuses a device with transfers on their way */
+    CHECK(model_hosts[handle->host].holder != handle);
     --model_hosts[handle->host].devices;
     free(handle);
     return ESP_OK;
@@ -339,12 +366,33 @@ static esp_err_t model_result(spi_transaction_t *t, bool late)
     return ESP_OK;
 }
 
+/* a transfer of the driver: none by the registers is under way, and the host is set as the transfer asks, by DMA */
+static void model_driver_sets(spi_device_handle_t dev, const spi_transaction_t *t)
+{
+    spi_dev_t *hw = &model_spi_hw[dev->host];
+    CHECK(!hw->running);
+    const uint8_t data_lines = (t->flags & SPI_TRANS_MODE_QIO) ? 4 : 1;
+    hw->lines                = (spi_line_mode_t){1, 1, data_lines};
+    hw->user.fwrite_quad     = data_lines == 4;
+    hw->command_bits         = dev->cfg.command_bits;
+    hw->addr_bits            = dev->cfg.address_bits;
+    hw->dummy                = dev->cfg.dummy_bits;
+    hw->mosi                 = true;
+    hw->miso                 = false;
+    hw->dma_tx               = true;
+}
+
 /* the transfer goes out on the wire now, and the display takes it; bytes DMA from PSRAM came too late for are wrong ones */
 static void model_wire(spi_device_handle_t dev, spi_transaction_t *t, bool late)
 {
     const uint8_t *bytes = (t->flags & SPI_TRANS_USE_TXDATA) ? t->tx_data : t->tx_buffer;
     const size_t   n     = (t->length + 7u) / 8u;
     uint8_t       *wrong = NULL;
+    model_driver_sets(dev, t);
+    if (dev == model_other) {
+        ++other_transfers;
+        return;
+    }
     if (late) {
         wrong = malloc(n);
         for (size_t i = 0; i < n; ++i) wrong[i] = (uint8_t)~bytes[i];
@@ -378,9 +426,93 @@ static void model_wire(spi_device_handle_t dev, spi_transaction_t *t, bool late)
     free(wrong);
 }
 
+/* a device other than the one that holds the bus would wait for it for ever */
+static void model_not_held_off(spi_device_handle_t handle)
+{
+    const spi_device_handle_t holder = model_hosts[handle->host].holder;
+    if (holder && holder != handle) {
+        fprintf(stderr, "a transfer of a device while another one holds the bus: the task would wait for ever\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+esp_err_t spi_device_acquire_bus(spi_device_handle_t device, TickType_t wait)
+{
+    (void)wait;
+    model_not_held_off(device);
+    CHECK(model_hosts[device->host].holder == NULL); /* the driver refuses a device that holds it already */
+    CHECK(device->queued == 0);                      /* DGX waits for its pixels first */
+    model_hosts[device->host].holder = device;
+    ++acquires;
+    return ESP_OK;
+}
+
+void spi_device_release_bus(spi_device_handle_t dev)
+{
+    CHECK(model_hosts[dev->host].holder == dev);
+    CHECK(!model_spi_hw[dev->host].running);
+    model_hosts[dev->host].holder = NULL;
+}
+
+/* a transfer by the registers: the bytes of the buffer, a command or data by the D/C line */
+void spi_ll_user_start(spi_dev_t *hw)
+{
+    const int                 host   = (int)(hw - model_spi_hw);
+    const spi_device_handle_t holder = model_hosts[host].holder;
+    CHECK(holder != NULL);            /* only on a held bus */
+    CHECK(!hw->running);              /* the one before is done */
+    CHECK(hw->applied);               /* the setting reached the host */
+    CHECK(holder == NULL || holder->queued == 0);
+    CHECK(!hw->miso && !hw->dma_tx && hw->dummy == 0);
+    CHECK(hw->lines.cmd_lines == 1 && hw->lines.addr_lines == 1);
+    const int      data_lines = hw->user.fwrite_quad ? 4 : 1; /* what the host writes by: the field, whatever was set by the line mode */
+    const uint8_t *bytes = (const uint8_t *)hw->data_buf;
+    const size_t   n     = hw->mosi ? (hw->bitlen + 7u) / 8u : 0;
+    if (hw->mosi) CHECK(hw->bitlen > 0 && hw->bitlen <= SOC_SPI_MAXIMUM_BUFFER_SIZE * 8u);
+    if (holder && holder->cfg.command_bits) {
+        /* QSPI: the opcode and the command in the middle byte of the address, as model_wire() takes them */
+        CHECK(hw->command_bits == 8 && hw->addr_bits == 24);
+        const uint8_t command = (uint8_t)(hw->address >> 8);
+        if (hw->command == 0x02) {
+            CHECK(data_lines == 1);
+            if (command == 0x2C && !n) ++bare_memory_writes;
+            panel_take_command(command);
+            if (n) panel_take_data(bytes, n);
+        } else {
+            CHECK(hw->command == 0x32 && data_lines == 4 && n > 0);
+            CHECK(command == 0x2C || command == 0x3C);
+            CHECK(n % (size_t)panel_pixel_bytes == 0); /* a piece is whole pixels */
+            panel_take_command(command);
+            panel_take_data(bytes, n);
+        }
+    } else {
+        CHECK(data_lines == 1 && hw->command_bits == 0 && hw->addr_bits == 0 && hw->mosi);
+        if ((gpio_levels >> dc_pin) & 1u) {
+            panel_take_data(bytes, n);
+        } else {
+            for (size_t i = 0; i < n; ++i) panel_take_command(bytes[i]);
+        }
+    }
+    ++direct_transfers;
+    if ((long)n > longest_transfer) longest_transfer = (long)n;
+    hw->applied = false;
+    hw->running = true;
+}
+
+/* a transfer under way is done the first time it is asked about */
+uint32_t spi_ll_get_running_cmd(spi_dev_t *hw)
+{
+    const bool running = hw->running;
+    hw->running        = false;
+    return running;
+}
+
 esp_err_t spi_device_queue_trans(spi_device_handle_t handle, spi_transaction_t *trans_desc, TickType_t ticks_to_wait)
 {
     (void)ticks_to_wait;
+    model_not_held_off(handle);
+    CHECK(!model_spi_hw[handle->host].running);
+    if (model_hosts[handle->host].holder == handle) ++queued_while_held;
     esp_err_t rc = model_check(handle, trans_desc);
     if (rc != ESP_OK) return rc;
     if (++queue_calls == refused_call) return ESP_ERR_NO_MEM;
@@ -419,6 +551,7 @@ esp_err_t spi_device_get_trans_result(spi_device_handle_t handle, spi_transactio
 
 esp_err_t spi_device_polling_transmit(spi_device_handle_t handle, spi_transaction_t *trans_desc)
 {
+    model_not_held_off(handle);
     CHECK(handle->queued == 0); /* the transfers queued before go first */
     esp_err_t rc = model_check(handle, trans_desc);
     if (rc != ESP_OK) return rc;
@@ -871,6 +1004,113 @@ static void test_sends_from(void)
 }
 
 /* an SPI display and a QSPI one on a host DGX sets up: one host, freed with the second */
+/*
+ * A display on a host of the program holds the bus from a window to the end
+ * of the drawing. A pixel, a line and a small rectangle go by the registers,
+ * the driver sending none of their transfers, and the bus is let go of after
+ * each; a batch holds it once for all it draws. A device of the program on
+ * the host sends between drawings. A rectangle too long to poll lets go of
+ * the bus before its pixels are queued, and they go by DMA as before.
+ */
+static void test_hold(void)
+{
+    panel_reset(2);
+    dc_pin                     = 2;
+    const spi_bus_config_t hcfg = {.mosi_io_num = 13, .miso_io_num = 12, .sclk_io_num = 14, .quadwp_io_num = -1, .quadhd_io_num = -1};
+    CHECK(spi_bus_initialize(SPI3_HOST, &hcfg, SPI_DMA_CH_AUTO) == ESP_OK);
+    dgx_bus_protocols_t *bus = dgx_spi_init_on_bus(SPI3_HOST, 15, 2, 40 * 1000 * 1000, 0);
+    CHECK(bus != NULL);
+    if (!bus) return;
+    static dgx_screen_with_bus_t s;
+    screen_on(&s, bus, 16);
+    dgx_screen_t                 *lcd       = &s.scr;
+    dgx_screen_t                 *model     = dgx_vscreen_init(PW, PH, 16, DgxScreenRGB);
+    const spi_device_interface_config_t cfg = {.clock_speed_hz = 1000 * 1000, .spics_io_num = 5, .queue_size = 2};
+    CHECK(spi_bus_add_device(SPI3_HOST, &cfg, &model_other) == ESP_OK);
+    spi_transaction_t ping = {.length = 8, .flags = SPI_TRANS_USE_TXDATA};
+    const long        t0 = transfers, d0 = direct_transfers, a0 = acquires, o0 = other_transfers, q0 = queued_while_held;
+
+    dgx_set_pixel(lcd, 3, 4, 0x1234), dgx_set_pixel(model, 3, 4, 0x1234);
+    CHECK(transfers == t0 && direct_transfers > d0 && acquires == a0 + 1);
+    CHECK(model_hosts[SPI3_HOST].holder == NULL);
+    CHECK(spi_device_polling_transmit(model_other, &ping) == ESP_OK);
+    dgx_draw_line(lcd, 0, 0, 20, 9, 0x5678), dgx_draw_line(model, 0, 0, 20, 9, 0x5678);
+    dgx_fill_rectangle(lcd, 30, 30, 5, 3, 0x9abc), dgx_fill_rectangle(model, 30, 30, 5, 3, 0x9abc);
+    CHECK(transfers == t0 && acquires == a0 + 3); /* the pings are counted apart */
+    CHECK(model_hosts[SPI3_HOST].holder == NULL);
+    CHECK(spi_device_polling_transmit(model_other, &ping) == ESP_OK);
+
+    /* a batch holds the bus once, and lets go of it at its end */
+    dgx_screen_progress_up(lcd);
+    for (int i = 0; i < 40; ++i) dgx_set_pixel(lcd, i, 40, (uint32_t)i * 1000u), dgx_set_pixel(model, i, 40, (uint32_t)i * 1000u);
+    dgx_draw_circle(lcd, 40, 20, 7, 0xffff), dgx_draw_circle(model, 40, 20, 7, 0xffff);
+    CHECK(model_hosts[SPI3_HOST].holder != NULL && acquires == a0 + 4);
+    dgx_screen_progress_down(lcd);
+    CHECK(model_hosts[SPI3_HOST].holder == NULL && acquires == a0 + 4);
+    CHECK(spi_device_polling_transmit(model_other, &ping) == ESP_OK);
+
+    /* a long rectangle: its window by the registers, its pixels by DMA with the bus let go of */
+    const long t1 = transfers;
+    dgx_fill_rectangle(lcd, 0, 0, PW, PH / 2, 0x0f0f), dgx_fill_rectangle(model, 0, 0, PW, PH / 2, 0x0f0f);
+    lcd->wait_buffer(lcd);
+    CHECK(transfers > t1 && queued_while_held == q0 && model_hosts[SPI3_HOST].holder == NULL);
+    CHECK(spi_device_polling_transmit(model_other, &ping) == ESP_OK);
+    CHECK(other_transfers == o0 + 4);
+
+    CHECK(panel_wrong(model) == 0);
+    CHECK(stray_bytes == 0 && unknown_commands == 0);
+    CHECK(spi_bus_remove_device(model_other) == ESP_OK);
+    model_other = NULL;
+    dgx_screen_destroy(&model);
+    bus->dispose(bus);
+    CHECK(spi_bus_free(SPI3_HOST) == ESP_OK);
+}
+
+/*
+ * The only display on a host DGX has set up keeps the bus between its
+ * drawings: acquired once, and its long pixels queued while it holds it. A
+ * second display that joins the host takes it from the first, and the two
+ * take turns at every drawing; when the second goes, the first keeps the
+ * bus again from its next drawing.
+ */
+static void test_keep(void)
+{
+    panel_reset(2);
+    dc_pin                   = 2;
+    dgx_bus_protocols_t *bus = dgx_spi_init(SPI2_HOST, SPI_DMA_CH_AUTO, 13, 12, 14, 15, 2, 40 * 1000 * 1000, 0);
+    CHECK(bus != NULL);
+    if (!bus) return;
+    static dgx_screen_with_bus_t s;
+    screen_on(&s, bus, 16);
+    dgx_screen_t *lcd   = &s.scr;
+    dgx_screen_t *model = dgx_vscreen_init(PW, PH, 16, DgxScreenRGB);
+    const long    a0 = acquires, q0 = queued_while_held;
+    for (int i = 0; i < 20; ++i) dgx_set_pixel(lcd, i, 3, 0x1111), dgx_set_pixel(model, i, 3, 0x1111);
+    dgx_draw_line(lcd, 0, 0, 30, 20, 0x2222), dgx_draw_line(model, 0, 0, 30, 20, 0x2222);
+    dgx_fill_rectangle(lcd, 0, 24, PW, PH - 24, 0x3333), dgx_fill_rectangle(model, 0, 24, PW, PH - 24, 0x3333);
+    dgx_draw_circle(lcd, 30, 30, 9, 0x4444), dgx_draw_circle(model, 30, 30, 9, 0x4444);
+    lcd->wait_buffer(lcd);
+    CHECK(acquires == a0 + 1 && model_hosts[SPI2_HOST].holder != NULL && queued_while_held > q0);
+    CHECK(panel_wrong(model) == 0);
+
+    /* a second display on the host: the first lets go of the bus, and then takes it for each drawing */
+    dgx_bus_protocols_t *second = dgx_spi_init(SPI2_HOST, SPI_DMA_CH_AUTO, 13, 12, 14, 16, 2, 40 * 1000 * 1000, 0);
+    CHECK(second != NULL && model_hosts[SPI2_HOST].holder == NULL);
+    const long a1 = acquires;
+    dgx_set_pixel(lcd, 50, 40, 0x5555), dgx_set_pixel(model, 50, 40, 0x5555);
+    dgx_set_pixel(lcd, 51, 40, 0x5555), dgx_set_pixel(model, 51, 40, 0x5555);
+    CHECK(acquires == a1 + 2 && model_hosts[SPI2_HOST].holder == NULL);
+    if (second) second->dispose(second);
+    dgx_set_pixel(lcd, 52, 40, 0x6666), dgx_set_pixel(model, 52, 40, 0x6666);
+    dgx_set_pixel(lcd, 53, 40, 0x6666), dgx_set_pixel(model, 53, 40, 0x6666);
+    CHECK(acquires == a1 + 3 && model_hosts[SPI2_HOST].holder != NULL);
+    CHECK(panel_wrong(model) == 0);
+    CHECK(stray_bytes == 0 && unknown_commands == 0);
+    dgx_screen_destroy(&model);
+    bus->dispose(bus);
+    CHECK(model_hosts[SPI2_HOST].holder == NULL && !model_hosts[SPI2_HOST].initialized);
+}
+
 static void test_shared_host(void)
 {
     dgx_bus_protocols_t *q = dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, 21, 48, 40, 39, 47, 45, 40 * 1000 * 1000, 0);
@@ -918,5 +1158,7 @@ int main(void)
 #endif
     test_sends_from();
     test_shared_host();
+    test_hold();
+    test_keep();
     CHECK_DONE();
 }

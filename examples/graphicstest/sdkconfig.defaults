@@ -1,0 +1,11 @@
+# The test is made for three boards: the settings of each are in
+# sdkconfig.defaults.esp32 (a CYD), sdkconfig.defaults.esp32s3 (a JC4827W543)
+# and sdkconfig.defaults.esp32p4 (a JC1060P470).
+
+# -O2 and a tick of 1 ms; the clock of the processor is in the file of each board
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# the run in memory draws into a virtual screen
+CONFIG_DGX_ENABLE_VSCREEN=y

@@ -110,3 +110,5 @@ esp_err_t spi_device_queue_trans(spi_device_handle_t handle, spi_transaction_t *
 esp_err_t spi_device_get_trans_result(spi_device_handle_t handle, spi_transaction_t **trans_desc, TickType_t ticks_to_wait);
 esp_err_t spi_device_transmit(spi_device_handle_t handle, spi_transaction_t *trans_desc);
 esp_err_t spi_device_polling_transmit(spi_device_handle_t handle, spi_transaction_t *trans_desc);
+esp_err_t spi_device_acquire_bus(spi_device_handle_t device, TickType_t wait);
+void      spi_device_release_bus(spi_device_handle_t dev);

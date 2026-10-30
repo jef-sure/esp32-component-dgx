@@ -13,6 +13,7 @@
 #include "dgx_spi_esp32_priv.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "hal/spi_ll.h"
 
 static const char TAG[] = "DGX QSPI BUS";
 
@@ -50,9 +51,49 @@ typedef struct _dgx_qspi_bus_t
     bool          complained; /* parameters with no command have been refused, and the log told of it once */
 } dgx_qspi_bus_t;
 
+/*
+ * A transfer by the registers of the host, while the display holds the bus:
+ * see dgx_spi_dev_direct_begin(). The opcode and the address on one line,
+ * the data on four lines for pixels and on one for parameters, as the driver
+ * sends them; no data at all for a command alone.
+ *
+ * The lengths of the opcode and the address are set once, after the host is
+ * set for the registers on one line. The data lines go from one to four and
+ * back at almost every transfer of a window and its pixels: only the field
+ * that tells the two apart is written, user.fwrite_quad, as every chip names
+ * it. spi_ll_master_set_line_mode() writes a dozen fields, and every one is a
+ * read of the register as well: a transfer took 5.8 us so on the
+ * JC4827W543 (ESP32-S3, 40 MHz), and 3.0 us without.
+ */
+static void dgx_qspi_direct_send(dgx_qspi_bus_t *bus, uint8_t op, uint8_t cmd, const uint8_t *data, uint32_t len)
+{
+    const bool fresh = !bus->dev.direct;
+    spi_dev_t *hw    = (spi_dev_t *)dgx_spi_dev_direct_begin(&bus->dev);
+    if (fresh) {
+        spi_ll_set_command_bitlen(hw, 8);
+        spi_ll_set_addr_bitlen(hw, 24);
+    }
+    hw->user.fwrite_quad = op == DGX_QSPI_OP_PIXELS;
+    spi_ll_set_command(hw, op, 8, false);
+    spi_ll_set_address(hw, (uint64_t)cmd << 8, 24, false);
+    if (len) {
+        dgx_spi_dev_direct_start(&bus->dev, data, len);
+        return;
+    }
+    spi_ll_enable_mosi(hw, 0);
+    spi_ll_apply_config(hw);
+    spi_ll_user_start(hw);
+    bus->dev.direct = false; /* the next transfer sets the host again, its data with it */
+}
+
 /* a command and its parameters on one line; the pixels on their way go first */
 static void dgx_qspi_send_command_with(dgx_qspi_bus_t *bus, uint8_t cmd, const uint8_t *data, uint32_t len)
 {
+    if (bus->dev.held && len <= SOC_SPI_MAXIMUM_BUFFER_SIZE * 8u) {
+        dgx_qspi_direct_send(bus, DGX_QSPI_OP_COMMAND, cmd, data, len);
+        return;
+    }
+    dgx_spi_dev_direct_end(&bus->dev);
     spi_transaction_t *trans = &bus->dev.trans_sync;
     memset(trans, 0, sizeof(*trans));
     trans->cmd  = DGX_QSPI_OP_COMMAND;
@@ -111,10 +152,27 @@ static void dgx_qspi_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t 
     dgx_qspi_send_command_with(bus, bus->command, data, len);
 }
 
-/* pixels on four lines with the command held back (0x2C, which starts the window) or the one that goes on writing memory */
+/*
+ * Pixels on four lines with the command held back (0x2C, which starts the
+ * window) or the one that goes on writing memory. Held, a piece that is
+ * polled anyway goes by the registers, in transfers of the buffer of the
+ * host, those after the first with 0x3C; a longer one goes to the queue of
+ * the driver, see dgx_spi_dev_to_queue().
+ */
 static void dgx_qspi_send_piece(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
 {
-    dgx_qspi_bus_t      *bus  = (dgx_qspi_bus_t *)_bus;
+    dgx_qspi_bus_t *bus = (dgx_qspi_bus_t *)_bus;
+    if (bus->dev.held) {
+        if (len <= 2048) {
+            uint8_t cmd = bus->command_pending ? bus->command : DGX_QSPI_RAMWRC;
+            bus->command_pending = false;
+            for (; len > DGX_SPI_DIRECT_PIECE * 8u; data += DGX_SPI_DIRECT_PIECE, len -= DGX_SPI_DIRECT_PIECE * 8u, cmd = DGX_QSPI_RAMWRC)
+                dgx_qspi_direct_send(bus, DGX_QSPI_OP_PIXELS, cmd, data, DGX_SPI_DIRECT_PIECE * 8u);
+            dgx_qspi_direct_send(bus, DGX_QSPI_OP_PIXELS, cmd, data, len);
+            return;
+        }
+        dgx_spi_dev_to_queue(&bus->dev);
+    }
     const bool           held = bus->command_pending;
     const dgx_spi_head_t head = {
         .flags = SPI_TRANS_MODE_QIO,
@@ -146,7 +204,7 @@ static void dgx_qspi_sync_write(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_qspi_bus_t *bus = (dgx_qspi_bus_t *)_bus;
     if (bus->command != DGX_QSPI_RAMWR) dgx_qspi_flush_command(bus);
-    dgx_spi_dev_wait(&bus->dev);
+    dgx_spi_dev_sync(&bus->dev);
 }
 
 /* the display is not read through this bus: nothing is read, and the buffer is left as it was */
@@ -182,6 +240,8 @@ static dgx_bus_protocols_t *dgx_qspi_attach(spi_host_device_t host_id, bool owns
     protocols->sends_from          = dgx_spi_dev_sends_from;
     protocols->dispose             = dgx_qspi_dispose_bus_func;
     protocols->memory_allocator    = dgx_spi_dev_memory;
+    protocols->hold                = dgx_spi_dev_hold;
+    protocols->release             = dgx_spi_dev_release;
     spi_device_interface_config_t devcfg;
     memset(&devcfg, 0, sizeof(devcfg));
     devcfg.command_bits   = 8;

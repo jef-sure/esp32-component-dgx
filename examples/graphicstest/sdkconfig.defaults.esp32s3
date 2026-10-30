@@ -1,0 +1,6 @@
+# A Guition JC4827W543 (ESP32-S3): an NV3041A of 480x272 on QSPI
+CONFIG_DGX_ENABLE_SPI=y
+CONFIG_DGX_ENABLE_NV3041A=y
+
+# the processor at 240 MHz, as their sketches run
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y

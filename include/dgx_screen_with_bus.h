@@ -54,6 +54,7 @@ typedef struct _dgx_screen_with_bus_t {
         bool     cut;     /* the scroll of the panel cuts it: it goes in pieces, each to where its rows lie in memory */
     } window;
     bool area_void; /* the window that was asked for lies off the screen: the pixels sent into it are dropped */
+    uint8_t pixel[4] __attribute__((aligned(4))); /* the bytes of a pixel set alone, sent from here: a bus may still be sending them after the call */
     /*
      * The scroll of the panel itself, of a controller that has one: an area
      * of its rows is shown from another row of its memory on, and the rows

@@ -39,6 +39,8 @@ static void dgx_screen_with_bus_send_range(dgx_screen_with_bus_t *sbus, uint8_t 
 static void dgx_screen_with_bus_send_window(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom, bool full)
 {
     dgx_bus_protocols_t *bus = sbus->bus;
+    /* the bus is the display's until its drawing is done: see the hold of dgx_bus_protocols_t */
+    if (bus->hold) bus->hold(bus);
     if (full || sbus->cached_area.left != left || sbus->cached_area.right != right) {
         dgx_screen_with_bus_send_range(sbus, sbus->xcmd_set, left, right);
         sbus->cached_area.left  = left;

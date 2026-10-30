@@ -20,7 +20,7 @@ set(srcs
 	"src/screen/screen.c" "src/screen/screen_bus.c" "src/screen/pixels.c" "src/screen/bitmap.c"
 	"src/draw/draw.c" "src/draw/lines.c" "src/draw/circles.c" "src/draw/polygons.c"
 	"src/text/font.c" "src/text/hw_font.c" "src/draw/bezier.c" "src/text/hw_morph.c" "src/text/font_morph.c"
-	"src/draw/gauge.c" "src/draw/texture.c" "src/draw/ellipse.c" "src/draw/scroll.c"
+	"src/draw/gauge.c" "src/draw/texture.c" "src/draw/ellipse.c" "src/draw/scroll.c" "src/draw/rectangles.c"
 	"src/vscreen/lut.c" "src/vscreen/scale.c" "src/vscreen/overlay.c")
 
 list(APPEND srcs ${dgx_font_sources})

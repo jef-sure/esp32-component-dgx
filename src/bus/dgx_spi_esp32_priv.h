@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "bus/dgx_spi_esp32.h"
+#include "soc/soc_caps.h"
 
 /*
  * What the SPI and the QSPI bus share, and what each begins with: the device
@@ -18,6 +19,9 @@ typedef struct _dgx_spi_dev_t
     bool                psram_late;  /* pixels from PSRAM go through a copy: the wire is faster than DMA from PSRAM keeps up with, or it fell behind once */
     uint8_t             data_queued; /* transfers of pixels in trans_data on their way: 0, 1, or 2 inside write_data_async() */
     uint8_t             data_slot;   /* the one of trans_data the next transfer of pixels takes */
+    bool                held;        /* the bus is acquired for the display, from a window to the end of its drawing */
+    bool                direct;      /* the host is set for transfers by its registers, and one may be under way */
+    void               *hw;          /* the registers of the host, spi_dev_t */
     spi_device_handle_t spi;
     spi_transaction_t   trans_data[2]; /* pixels, queued in turn: one may be under way when a call returns */
     spi_transaction_t   trans_sync;    /* commands and parameters, waited for */
@@ -71,6 +75,30 @@ static inline void dgx_spi_dev_wait(dgx_spi_dev_t *dev)
  * pixels are lost, and the pieces before it have been waited for.
  */
 bool dgx_spi_dev_send_piece(dgx_spi_dev_t *dev, const uint8_t *data, uint32_t len, const dgx_spi_head_t *head);
+
+/*
+ * Short transfers by the registers of the host, for both buses, while the
+ * display holds the bus: see dgx_spi_direct_send() in spi_esp32.c. hold and
+ * release of the protocols of both. A transfer begins: the one before is
+ * done, and after a transfer of the driver the host is set for the
+ * registers again (one line, no phases, no DMA, nothing of the device on its
+ * way); the registers are returned for a bus to set what it sends besides
+ * its data. It starts with its data, 1 to SOC_SPI_MAXIMUM_BUFFER_SIZE bytes.
+ * Before a transfer of the driver the one by the registers is done, and the
+ * host is set again before the next; a long piece of pixels for the queue of
+ * the driver lets go of the bus first, unless the display keeps it. sync is
+ * sync_write of both: nothing of the display is on its way when it returns.
+ */
+void  dgx_spi_dev_hold(struct _dgx_bus_protocols_t *bus);
+/* pixels by the registers go in transfers of whole pixels of 2, 3 and 4 bytes, as the pieces of DMA do: 60 bytes of the 64 of the buffer */
+#define DGX_SPI_DIRECT_PIECE (SOC_SPI_MAXIMUM_BUFFER_SIZE - SOC_SPI_MAXIMUM_BUFFER_SIZE % 12u)
+
+void  dgx_spi_dev_release(struct _dgx_bus_protocols_t *bus);
+void *dgx_spi_dev_direct_begin(dgx_spi_dev_t *dev);
+void  dgx_spi_dev_direct_start(dgx_spi_dev_t *dev, const uint8_t *bytes, uint32_t len);
+void  dgx_spi_dev_direct_end(dgx_spi_dev_t *dev);
+void  dgx_spi_dev_to_queue(dgx_spi_dev_t *dev);
+void  dgx_spi_dev_sync(dgx_spi_dev_t *dev);
 
 /* sends_from, memory_allocator and dispose of both buses */
 bool     dgx_spi_dev_sends_from(struct _dgx_bus_protocols_t *bus, const void *pixels);

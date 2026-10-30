@@ -1,5 +1,96 @@
 # Changes
 
+## 0.10.0 - 2026-10-30
+
+New:
+
+- **Outlined rectangles and rectangles with round corners:**
+  `dgx_draw_rectangle()`, `dgx_draw_round_rectangle()` and
+  `dgx_fill_round_rectangle()`. A corner is a quarter of the circle of
+  `dgx_draw_circle()` or `dgx_solid_circle()`: a square of 2r + 1 is that
+  circle pixel for pixel, and a radius of 0 is the plain rectangle. A
+  radius larger than the rectangle allows is cut to (the shorter side - 1) /
+  2. No pixel is sent twice but where the eighths of a corner meet.
+- **`GLCD5x7`**, the classic 5x7 font of the Adafruit GFX Library
+  (`glcdfont.c`, BSD License), characters U+0020 to U+007E: the default font
+  of Adafruit_GFX, TFT_eSPI and LovyanGFX, readable on small screens.
+- **`examples/graphicstest`**, the PDQ graphics test that Adafruit_GFX,
+  TFT_eSPI and LovyanGFX ship, made with DGX: the same figures, sizes,
+  colors and order, timed the same way, on a CYD, a JC4827W543 or a
+  JC1060P470: once on the display, and once drawn in an 8-bit virtual
+  screen sent after each test. [docs/benchmarks-en.md](docs/benchmarks-en.md)
+  puts its numbers beside those of the other libraries run on the same CYD,
+  TFT_eSPI with an 8-bit sprite among them.
+
+Fixed:
+
+- **The ST77916, seen on a panel for the first time:** a round module marked
+  "TFT 1.53 1.0", glass T150XV-C16-04, on an ESP32-S3 with QSPI at 40 MHz. The
+  init table of `esp_lcd_st77916` shows white stripes on it, so the driver now
+  has the table of a 1.5-inch glass from Arduino_GFX, with VCOMS lowered from
+  0x2F to 0x28, which keeps the columns that hold bright pixels as black as
+  the others; a module of another glass gives its own to `dgx_panel_init()`. With the rows going up the
+  picture lay 30 rows off: the glass stays at the same addresses, and
+  `dgx_panel_st77916` no longer has 390 rows of memory.
+
+Changes a program may see:
+
+- **A display made by `dgx_spi_init()` or `dgx_qspi_init()` keeps its SPI
+  host** while it is the only display on it, from its first window on. The
+  host DGX sets up is the display's: a device of the program, such as a
+  touch controller or an SD card, goes on a host the program sets up, with
+  `dgx_spi_init_on_bus()` or `dgx_qspi_init_on_bus()`. A device the program
+  adds to a host of DGX now waits for ever for its first transfer. Another
+  display of DGX on the same host takes turns with the first as before.
+- **On a host of the program, a display holds the host from a window to
+  the end of its drawing**, or to the end of a batch opened with
+  `dgx_screen_progress_up()`. Another device of the host used from inside
+  such a batch, in the same task, waits for ever; between drawings and
+  batches it takes the host as before.
+
+Faster:
+
+- **Short SPI and QSPI transfers go by the registers of the host** while the
+  display holds it, not through the SPI master driver of ESP-IDF: windows,
+  commands, their parameters and pixels of up to 256 bytes. On a CYD
+  (ESP32, ILI9341 on SPI at 40 MHz) the driver takes 12.3 us to send one
+  byte that the wire sends in 0.2 us, and a window with its pixel is four
+  such transfers; by the registers a byte takes 1 us. Longer pixels go by
+  DMA through the driver, as before. The PDQ test of
+  [examples/graphicstest](examples/graphicstest) on the CYD took 11.03 s and
+  takes 2.88 s: pixels one by one 4.20 s -> 0.65 s, lines 4.19 s -> 0.60 s,
+  outlined circles 334 ms -> 50 ms, text 123 ms -> 23 ms; fills and the
+  pictures are as fast as before, as the wire was already full. On a
+  JC4827W543 (ESP32-S3, NV3041A on QSPI at 40 MHz) the test took 11.87 s and
+  takes 2.86 s. See [docs/benchmarks-en.md](docs/benchmarks-en.md).
+- **`dgx_set_pixel()` on a display behind a bus** no longer waits for its
+  pixel to be sent: the bytes go from the screen, not from the stack, and
+  only the pixel before is waited for.
+
+Inside DGX:
+
+- `dgx_bus_protocols_t` has `hold` and `release`: a display behind a bus
+  holds it from a window to the end of the drawing. The SPI and QSPI buses
+  have them; the others leave them NULL.
+- The SPI and QSPI buses share the code of the transfers by the registers
+  (`dgx_spi_dev_direct_begin()` and the rest in `dgx_spi_esp32_priv.h`).
+  They set the host with the `spi_ll_*` functions of ESP-IDF, but for the
+  one field that switches the data of QSPI between one line and four.
+
+Tests:
+
+- `test_rectangles` checks the new rectangles against a model made from the
+  midpoint circle of the textbooks, and against pixels sent twice.
+- `test_spi` models the registers of the host and the holding of the bus: a
+  transfer by the registers only on a held bus and a host set for it, none
+  while another is under way, no change of the D/C line under one, and
+  another device of the host held off while the bus is held.
+  `test_hold` draws on a host of the program with a device of the program
+  on it, `test_keep` on a host of DGX with a second display coming and
+  going.
+- `test/host/panel_streams.txt` lost the 176 waits that followed every
+  pixel set alone; the bytes of every panel are the same.
+
 ## 0.9.3 - 2026-10-30
 
 0.9.2 was not released: everything made for it comes with this version.
