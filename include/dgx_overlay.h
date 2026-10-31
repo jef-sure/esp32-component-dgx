@@ -37,7 +37,9 @@ extern "C" {
  * What is drawn straight on the screen, a line, a text, a filled rectangle,
  * is not: it goes under the layer as if there were none, and the layer
  * shows over it only where something from a virtual screen is put again.
- * A transfer with DGX_VSCREEN_TRANSPARENT mixes the pixels it puts.
+ * A transfer with DGX_VSCREEN_TRANSPARENT mixes the pixels it puts. So the
+ * layer is not seen where no picture is put: the free space around a smaller
+ * picture is put from the layer itself, through a table of one color.
  *
  * The screen cannot draw again by itself what lies under a part of the
  * layer that has changed: a display behind SPI keeps its pixels where they

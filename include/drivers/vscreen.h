@@ -31,12 +31,65 @@ typedef struct _dgx_vscreen_t {
 dgx_screen_t* dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_color_order_t cbo);
 
 /**
+ * @brief Create a virtual screen over memory the program owns.
+ *
+ * The same screen as from dgx_vscreen_init(), with its pixels in @p v_array:
+ * a camera frame, a decoded picture, a buffer of another library. Nothing is
+ * copied, and dgx_screen_destroy() leaves the memory alone. It must outlive
+ * the screen.
+ *
+ * The memory has to be laid out the way a virtual screen keeps its pixels:
+ * rows one right after another, with no padding even when a pixel is smaller
+ * than a byte, and the high byte of a pixel first. For RGB565 that is the
+ * order of the wire, LVGL's LV_COLOR_FORMAT_RGB565_SWAPPED. It has to be RAM
+ * aligned as its pixels are, because a display may read it by DMA, and hold
+ * dgx_color_points_to_bytes(color_bits, width * height) bytes.
+ *
+ * When the rows of the memory are longer than the picture, give the length of
+ * a row in pixels as @p width and take the picture with
+ * dgx_vscreen_region_to_screen().
+ *
+ * @param v_array    The pixels.
+ * @param width      Width in pixels, also the step from one row to the next.
+ * @param height     Height in pixels.
+ * @param color_bits Pixel depth in bits, as for dgx_vscreen_init().
+ * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR).
+ * @return Newly allocated screen, or NULL on failure, also when @p v_array is NULL or the size has no pixels. Free with
+ *         dgx_screen_destroy().
+ */
+dgx_screen_t *dgx_vscreen_from_array(void *v_array, int width, int height, uint8_t color_bits, dgx_color_order_t cbo);
+
+/**
+ * @brief Point a screen of dgx_vscreen_from_array() at other memory.
+ *
+ * The next drawing or transfer uses @p pixels, under the rules of
+ * dgx_vscreen_from_array(). The depth and the color order stay. A transfer
+ * keeps no hold on its source, so this may follow it at once, whatever the bus,
+ * and the old memory is free to be used again. The window of write_area() goes
+ * back to the pixel (0, 0) and nothing is left dirty, as on a new screen.
+ *
+ * Costs a few assignments, so a screen can be made once and pointed at every
+ * band a renderer gives.
+ *
+ * An error is logged and nothing changes for a screen of any other kind, and
+ * for one laid over a display by dgx_overlay_set(), or with a layer over it:
+ * dgx_overlay_clear() it first. The same for NULL or a size with no pixels.
+ *
+ * @param scr     A screen of dgx_vscreen_from_array().
+ * @param pixels  The pixels.
+ * @param width   Width in pixels, also the step from one row to the next.
+ * @param height  Height in pixels.
+ */
+void dgx_vscreen_array_set(dgx_screen_t *scr, void *pixels, int width, int height);
+
+/**
  * @brief Tell whether a screen keeps its pixels in the linear dgx_vscreen_t layout.
  *
- * True for dgx_vscreen_init() screens and the drivers built on them (ST7920,
- * vscreen_2h). False for hardware panels and for the page-organised
- * black-and-white screens (SSD1306, ST7565R), although those are also
- * DgxVirtualBackScreen: their v_array must not be accessed as a dgx_vscreen_t.
+ * True for dgx_vscreen_init() and dgx_vscreen_from_array() screens and the
+ * drivers built on them (ST7920, vscreen_2h). False for hardware panels and
+ * for the page-organised black-and-white screens (SSD1306, ST7565R), although
+ * those are also DgxVirtualBackScreen: their v_array must not be accessed as
+ * a dgx_vscreen_t.
  */
 bool dgx_vscreen_is_linear(const dgx_screen_t *scr);
 

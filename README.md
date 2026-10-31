@@ -18,6 +18,7 @@ ESP32-P4 without tearing, and puts a picture drawn small on a large display
 scaled and smoothed on the way, as a game port needs. On top of that it
 animates: dots that morph one glyph into another, and handwritten fonts
 whose text is written stroke by stroke by a pen or turns into another text.
+Every picture in this README was drawn by DGX's own code, run on a PC.
 
 ## Contents
 
@@ -540,6 +541,19 @@ into the layer, moving it or taking it away only marks the place; whoever
 owns the picture puts that place again. Lines, texts and fills drawn
 straight on the screen are not mixed. The drawing into the layer and the
 output to the screen belong to one task.
+
+The layer shows only where a picture is put, so a picture smaller than the
+screen would cut off a gamepad beside it. Put the free space from the layer
+itself through a table of one color: that color goes to the screen, and the
+layer is mixed over it as over any picture. Do it at the start and when
+`dgx_overlay_take_dirty()` reports a change there:
+
+```c
+// a 960x600 picture at (32, 0) on a 1024x600 display, the layer as large as the display at (0, 0)
+static uint16_t paper[256];   // every index black
+dgx_vscreen8_region_to_screen16(display, 0, 0, buttons, 0, 0, 32, 600, paper, 0);
+dgx_vscreen8_region_to_screen16(display, 992, 0, buttons, 992, 0, 32, 600, paper, 0);
+```
 
 ### Morph one glyph into another
 
@@ -1544,6 +1558,8 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | Function | Description |
 | --- | --- |
 | `dgx_vscreen_init(width, height, color_bits, cbo)` | Allocate a color RAM screen. |
+| `dgx_vscreen_from_array(v_array, width, height, color_bits, cbo)` | Make a RAM screen over memory the program owns: a camera frame, a decoded picture, a buffer of another library. Nothing is copied, and `dgx_screen_destroy()` leaves the memory alone. Rows lie one right after another, the high byte of a pixel first; when the rows of the memory are longer than the picture, `width` is their length and the picture goes by `dgx_vscreen_region_to_screen()`. |
+| `dgx_vscreen_array_set(scr, pixels, width, height)` | Point such a screen at other memory of any size. It costs a few assignments, so one screen can serve every band a renderer gives. |
 | `dgx_vscreen_clone(src)` | Allocate a copy with the same geometry and pixels. |
 | `dgx_vscreen_copy(dst, src)` | Copy a whole same-sized screen. |
 | `dgx_vscreen_to_screen(dst, x, y, src, flags)` | Put a RAM screen on a screen of the same depth: a display or another RAM screen. |

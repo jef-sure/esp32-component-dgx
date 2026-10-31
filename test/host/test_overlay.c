@@ -374,11 +374,63 @@ static void test_panel(bool mirror_x, bool mirror_y, bool swap_xy)
     }
 }
 
+/*
+ * A picture smaller than the screen, the layer over the whole screen: nothing
+ * is put outside the picture, so the layer is not seen there until something
+ * is. The layer put as its own source through a table of one color lays that
+ * color outside the picture, with the layer mixed over it. A transfer does not
+ * care where its pixels come from: the ways of a bus are tested above.
+ */
+static void test_margins(void)
+{
+    enum { SW = 40, SH = 30, PW2 = 20, PH2 = 12, PX = 10, PY = 9 };
+    const uint8_t alpha = 160;
+    uint16_t      paper[256], lut[256], layer_lut[256];
+    for (int i = 0; i < 256; ++i) paper[i] = 0x1234, lut[i] = (uint16_t)(0x0841 * (i % 8)), layer_lut[i] = (uint16_t)(0xF800 | i);
+    for (int kind = 0; kind < 2; ++kind) {
+        dgx_screen_t *display = dgx_vscreen_init(SW, SH, 16, DgxScreenRGB);
+        dgx_screen_t *layer = dgx_vscreen_init(SW, SH, 8, DgxScreenRGB);
+        dgx_screen_t *frame = dgx_vscreen_init(PW2, PH2, 8, DgxScreenRGB);
+        CHECK(display && layer && frame);
+        for (int y = 0; y < PH2; ++y)
+            for (int x = 0; x < PW2; ++x) dgx_set_pixel(frame, x, y, (uint32_t)rnd(0, 255));
+        /* a gamepad on both sides of the picture and one button across its edge */
+        dgx_fill_rectangle(layer, 2, 12, 6, 6, 1);
+        dgx_fill_rectangle(layer, 32, 12, 6, 6, 2);
+        dgx_fill_rectangle(layer, 8, 10, 4, 4, 3);
+        CHECK(dgx_overlay_set(display, layer, 0, 0, layer_lut, alpha));
+        dgx_vscreen8_to_screen16(display, PX, PY, frame, lut, 0);
+        /* the four sides around the picture */
+        const int sides[4][4] = {{0, 0, SW, PY}, {0, PY + PH2, SW, SH - PY - PH2}, {0, PY, PX, PH2}, {PX + PW2, PY, SW - PX - PW2, PH2}};
+        for (int i = 0; i < 4; ++i) {
+            const int *r = sides[i];
+            if (kind) {
+                dgx_vscreen8_region_to_screen16(display, r[0], r[1], layer, r[0], r[1], r[2], r[3], paper, 0);
+            } else {
+                dgx_vscreen8_region_to_screen16(display, r[0], r[1], layer, r[0], r[1], r[2], r[3], paper, DGX_VSCREEN_EXACT);
+            }
+        }
+        int wrong = 0;
+        for (int y = 0; y < SH; ++y)
+            for (int x = 0; x < SW; ++x) {
+                const bool     in    = x >= PX && x < PX + PW2 && y >= PY && y < PY + PH2;
+                const uint16_t under = in ? lut[dgx_get_pixel(frame, x - PX, y - PY)] : 0x1234;
+                const uint32_t index = dgx_get_pixel(layer, x, y);
+                const uint16_t want  = index ? model_mix(layer_lut[index], under, weight_of(alpha)) : under;
+                wrong += (uint16_t)dgx_get_pixel(display, x, y) != want;
+            }
+        if (wrong) fprintf(stderr, "margins, kind %d: %d pixels wrong\n", kind, wrong);
+        CHECK(wrong == 0);
+        dgx_screen_destroy(&frame), dgx_screen_destroy(&layer), dgx_screen_destroy(&display);
+    }
+}
+
 int main(void)
 {
     test_mix();
     test_transfers();
     test_changes();
+    test_margins();
     for (int bits = 0; bits < 8; ++bits) test_panel(bits & 4, bits & 2, bits & 1);
     CHECK_DONE();
 }

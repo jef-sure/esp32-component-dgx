@@ -142,6 +142,13 @@ static void dgx_vscreen_screen_destroy(dgx_screen_t **_pscr)
     }
 }
 
+/* the memory of dgx_vscreen_from_array() stays with its owner */
+static void dgx_vscreen_array_destroy(dgx_screen_t **_pscr)
+{
+    free(*_pscr);
+    *_pscr = 0;
+}
+
 static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, int h, uint32_t color)
 {
     dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
@@ -257,10 +264,9 @@ static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, 
     }
     dgx_screen_touch(_scr, x, x + w - 1, y, y + h - 1);
 }
-// Initialize the display
-dgx_screen_t *dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_color_order_t cbo)
+// A virtual screen with no pixels yet
+static dgx_vscreen_t *dgx_vscreen_without_array(int width, int height, uint8_t color_bits, dgx_color_order_t cbo)
 {
-    // Attach the LCD to the SPI bus
     dgx_vscreen_t *scr = (dgx_vscreen_t *)calloc(1, sizeof(dgx_vscreen_t));
     if (!scr) {
         ESP_LOGE(TAG, "Screen structure memory allocation failed");
@@ -290,7 +296,14 @@ dgx_screen_t *dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_co
     scr->base.write_area      = dgx_vscreen_write_area;
     scr->base.wait_buffer     = dgx_vscreen_wait_buffer_dummy;
     scr->base.update_screen   = dgx_vscreen_update_area;
+    return scr;
+}
 
+// Initialize the display
+dgx_screen_t *dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_color_order_t cbo)
+{
+    dgx_vscreen_t *scr = dgx_vscreen_without_array(width, height, color_bits, cbo);
+    if (!scr) return 0;
     uint32_t asize = dgx_color_points_to_bytes(color_bits, width * height);
     scr->v_array   = calloc(asize, 1);
     if (!scr->v_array) {
@@ -299,6 +312,35 @@ dgx_screen_t *dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_co
         return 0;
     }
     return (dgx_screen_t *)scr;
+}
+
+dgx_screen_t *dgx_vscreen_from_array(void *v_array, int width, int height, uint8_t color_bits, dgx_color_order_t cbo)
+{
+    if (!v_array || width <= 0 || height <= 0) {
+        ESP_LOGE(TAG, "dgx_vscreen_from_array: no memory, or a size of no pixels");
+        return 0;
+    }
+    dgx_vscreen_t *scr = dgx_vscreen_without_array(width, height, color_bits, cbo);
+    if (!scr) return 0;
+    scr->base.destroy = dgx_vscreen_array_destroy;
+    scr->v_array      = (uint8_t *)v_array;
+    return (dgx_screen_t *)scr;
+}
+
+void dgx_vscreen_array_set(dgx_screen_t *_scr, void *pixels, int width, int height)
+{
+    /* another screen would lose its own memory; an overlay keeps where the pixels of its layer lie and their size */
+    if (_scr->destroy != dgx_vscreen_array_destroy || _scr->overlay || !pixels || width <= 0 || height <= 0) {
+        ESP_LOGE(TAG, "dgx_vscreen_array_set: not a free screen of dgx_vscreen_from_array(), no memory, or a size of no pixels");
+        return;
+    }
+    dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
+    scr->v_array       = (uint8_t *)pixels;
+    _scr->width        = width;
+    _scr->height       = height;
+    /* the window and the dirty area are of the old pixels, and may lie outside the new ones */
+    memset(&scr->area, 0, sizeof(scr->area));
+    _scr->dirty_left = _scr->dirty_right = _scr->dirty_top = _scr->dirty_bottom = 0;
 }
 
 bool dgx_vscreen_copy(dgx_screen_t *_scr_dst, dgx_screen_t *_scr_src)

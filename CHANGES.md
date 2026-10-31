@@ -1,5 +1,31 @@
 # Changes
 
+## 0.10.2 - 2026-10-31
+
+New:
+
+- `dgx_vscreen_from_array()` makes a virtual screen over memory the program
+  owns: a camera frame, a decoded picture, a buffer of another library. Nothing
+  is copied, and `dgx_screen_destroy()` leaves the memory alone.
+  `dgx_vscreen_array_set()` points such a screen at other memory of any size. A
+  program no longer has to change `v_array`, `width` and `height` of a
+  `dgx_vscreen_t` by hand.
+
+Documentation:
+
+- The README recipe "Translucent buttons over a picture" and `dgx_overlay.h`
+  say how to show the layer beside a picture smaller than the screen: put the
+  free space from the layer itself, through a table of one color.
+- The README says how its pictures were made.
+
+Tests:
+
+- `test_overlay` puts a gamepad on both sides of a smaller picture that way.
+- `test_vscreen_array` checks screens over memory of the program at every
+  depth: the pixels against a screen with memory of its own, bands of random
+  size and row length put on another screen, what is refused, and that nothing
+  of the old memory stays in the screen.
+
 ## 0.10.1 - 2026-10-30
 
 New:
