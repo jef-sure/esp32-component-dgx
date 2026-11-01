@@ -1,5 +1,20 @@
 # Changes
 
+## 0.10.4 - 2026-11-01
+
+Fixed:
+
+- The archive of the component held files that are not part of DGX: a Python
+  cache file of the font tool,
+  `font2c/__pycache__/dgx_fonts.cpython-314.pyc`, from 0.7.3 to 0.10.3, and
+  `.clangd` in several versions up to 0.7.0. Git tracks neither of them, the
+  upload took them from the working directory. `files` in `idf_component.yml`
+  is now a list of what goes into the archive, and nothing else does, whether
+  git ignores it or not. Builds are not affected.
+- `.clang-format`, `.gitignore` and `test/host/.gitignore` are no longer in the
+  archive either. The sources, font tools, documents, examples and tests all
+  stay.
+
 ## 0.10.3 - 2026-11-01
 
 Fixed:
