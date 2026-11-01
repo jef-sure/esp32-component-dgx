@@ -273,8 +273,8 @@ static dgx_bus_protocols_t *dgx_qspi_attach(spi_host_device_t host_id, bool owns
 dgx_bus_protocols_t *dgx_qspi_init_with(spi_host_device_t host_id, spi_dma_chan_t dma_chan, gpio_num_t d0, gpio_num_t d1, gpio_num_t d2, gpio_num_t d3,
                                         gpio_num_t sclk, gpio_num_t cs, int clock_speed_hz, uint8_t cpolpha_mode, const dgx_spi_options_t *options)
 {
-    if (d2 == GPIO_NUM_NC || d3 == GPIO_NUM_NC) {
-        ESP_LOGE(TAG, "a QSPI bus needs all four data lines");
+    if (!GPIO_IS_VALID_OUTPUT_GPIO(d0) || !GPIO_IS_VALID_OUTPUT_GPIO(d1) || !GPIO_IS_VALID_OUTPUT_GPIO(d2) || !GPIO_IS_VALID_OUTPUT_GPIO(d3)) {
+        ESP_LOGE(TAG, "a QSPI bus needs all four data lines, on pins that can drive them");
         return NULL;
     }
     if (dgx_spi_take_host(host_id, dma_chan, d0, d1, sclk, d2, d3) != ESP_OK) return NULL;

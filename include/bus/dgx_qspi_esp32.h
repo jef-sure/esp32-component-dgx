@@ -57,6 +57,13 @@ dgx_bus_protocols_t *dgx_qspi_init(spi_host_device_t host_id, spi_dma_chan_t dma
  * for the full speed. DGX adds its device to the host and removes it when the backend is disposed; the
  * host stays the program's to free, after the backend.
  *
+ * Leave SPICOMMON_BUSFLAG_QUAD out of the flags of spi_bus_config_t. ESP-IDF
+ * 6.0 and 6.1 take a bus with this flag for an octal one: on the IO MUX pins
+ * of SPI2 of an ESP32-S2, S3 or P4 the clock and the data lines end up on the
+ * wrong function, and on other pins with data4_io_num to data7_io_num left at
+ * 0 the driver connects those four to GPIO 0. The driver sets up the four
+ * data lines without the flag.
+ *
  * @param host_id        SPI host the program has initialized.
  * @param cs             Chip-select GPIO of the panel, driven by the SPI hardware for every transfer.
  * @param clock_speed_hz SPI clock of this device in Hz.

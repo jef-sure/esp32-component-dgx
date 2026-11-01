@@ -9,6 +9,7 @@
 
 typedef int gpio_num_t;
 #define GPIO_NUM_NC (-1)
+#define GPIO_IS_VALID_OUTPUT_GPIO(pin) ((pin) >= 0)
 typedef enum { GPIO_MODE_INPUT = 1, GPIO_MODE_OUTPUT = 2 } gpio_mode_t;
 
 static inline esp_err_t gpio_set_level(gpio_num_t pin, uint32_t level) { (void)pin, (void)level; return ESP_OK; }

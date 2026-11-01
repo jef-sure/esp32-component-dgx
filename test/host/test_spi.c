@@ -233,6 +233,7 @@ static inline bool psram_asks_16(void)
 typedef struct {
     bool                initialized;
     int                 max_transfer_sz;
+    uint32_t            flags; /* of spi_bus_config_t */
     int                 devices;
     spi_device_handle_t holder; /* the device that has acquired the bus */
 } model_host_t;
@@ -270,6 +271,7 @@ esp_err_t spi_bus_initialize(spi_host_device_t host_id, const spi_bus_config_t *
     /* whole DMA descriptors of 4092 bytes, one at least (spicommon_dma_desc_alloc() of IDF) */
     const int asked    = bus_config->max_transfer_sz ? bus_config->max_transfer_sz : 4092;
     h->max_transfer_sz = (asked + 4091) / 4092 * 4092;
+    h->flags           = bus_config->flags;
     return ESP_OK;
 }
 
@@ -1124,6 +1126,23 @@ static void test_shared_host(void)
     CHECK(!model_hosts[SPI2_HOST].initialized && model_hosts[SPI2_HOST].devices == 0);
 }
 
+/*
+ * ESP-IDF 6.0 and 6.1 take any bit of SPICOMMON_BUSFLAG_OCTAL for an octal
+ * bus and move the IO MUX pins of SPI2 to the function of octal mode, so the
+ * host of a QSPI display asks for none of them. Those are the pins here, the
+ * ones of an ESP32-S3.
+ */
+static void test_quad_host_flags(void)
+{
+    dgx_bus_protocols_t *bus = dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, 11, 13, 14, 9, 12, 10, 40 * 1000 * 1000, 0);
+    CHECK(bus && !(model_hosts[SPI2_HOST].flags & SPICOMMON_BUSFLAG_OCTAL));
+    if (bus) bus->dispose(bus);
+    /* so the driver does not check D0 and D1, DGX does */
+    CHECK(dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_NC, 13, 14, 9, 12, 10, 40 * 1000 * 1000, 0) == NULL);
+    CHECK(dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, 11, GPIO_NUM_NC, 14, 9, 12, 10, 40 * 1000 * 1000, 0) == NULL);
+    CHECK(!model_hosts[SPI2_HOST].initialized);
+}
+
 int main(void)
 {
     test_spi(16, 0, 2);
@@ -1158,6 +1177,7 @@ int main(void)
 #endif
     test_sends_from();
     test_shared_host();
+    test_quad_host_flags();
     test_hold();
     test_keep();
     CHECK_DONE();

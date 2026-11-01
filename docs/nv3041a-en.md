@@ -314,10 +314,23 @@ quad bus too, where ESP-IDF 5.5 tests that all its bits are set. With the
 pins data4 to data7 of `spi_bus_config_t` left at 0, the driver connects its
 SPI data4 to data7 outputs to GPIO0, the TE line of this panel, and logs
 "GPIO 0 is conflict with others and be overwritten" three times. DGX 0.9.1
-sets those four pins to -1 on the hosts it sets up. A program that sets up
-the host itself for `dgx_qspi_init_on_bus()` has to set them to -1 as well.
-Found in the sources of ESP-IDF 6.0.1, 6.0.3 and 6.1; 5.5.4 and 5.5.5 are
-not affected.
+sets those four pins to -1 on the hosts it sets up.
+
+The same test does more harm on the IO MUX pins of SPI2, which this board does
+not use: GPIO 9 and 11 to 14 on the ESP32-S2 and S3, GPIO 6 and 8 to 11 on the
+P4. The driver sets them up for quad and then moves them to function 2, the one
+for octal mode on other pins. On the S3 that puts FSPIIO6 on GPIO12 instead of
+the clock, and on the P4 it puts UART signals on GPIO 8 to 11. Setting the pins
+to -1 does not help.
+
+The test only fires when the flags of `spi_bus_config_t` ask for
+`SPICOMMON_BUSFLAG_QUAD`, and that flag only asks the driver to check the pins.
+DGX now leaves it out, which avoids both failures, and checks the data pins
+itself. A program that sets up the host itself for
+`dgx_qspi_init_on_bus()` has to leave the flag out as well.
+
+Found in the sources of ESP-IDF 6.0.1, 6.0.3 and 6.1; 5.5.4 and 5.5.5 are not
+affected.
 
 ## Other parts of the board
 

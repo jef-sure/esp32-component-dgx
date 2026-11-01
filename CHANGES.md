@@ -1,5 +1,29 @@
 # Changes
 
+## 0.10.3 - 2026-11-01
+
+Fixed:
+
+- A QSPI bus that DGX sets up on the IO MUX pins of SPI2 of an ESP32-S2, S3 or
+  P4 did not work under ESP-IDF 6.0 and 6.1. DGX passed
+  `SPICOMMON_BUSFLAG_QUAD`, these versions handle a bus with that flag as
+  octal, and the driver moved the pins to the IO MUX function of octal mode.
+  On the S3 that puts FSPIIO6 on GPIO12 instead of the clock. Setting data4 to
+  data7 to -1, the fix of 0.9.1, does not help here. DGX no longer passes the
+  flag, which only asks the driver to check the pins, so ESP-IDF sets up the
+  four data lines as usual on any pins. Panels routed through the GPIO matrix,
+  such as the one on the Guition JC4827W543, were not affected.
+- `dgx_qspi_init()` now checks that all four data lines are on output-capable
+  pins. For D0 and D1 the driver used to do that because of the flag.
+- A program that sets up the host for `dgx_qspi_init_on_bus()` has to leave the
+  flag out as well. `dgx_qspi_esp32.h` and
+  [docs/nv3041a-en.md](docs/nv3041a-en.md) say so.
+
+Tests:
+
+- `test_spi` checks that a QSPI host asks the driver for no quad or octal flag
+  on the IO MUX pins of an ESP32-S3.
+
 ## 0.10.2 - 2026-10-31
 
 New:

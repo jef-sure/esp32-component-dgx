@@ -509,10 +509,16 @@ esp_err_t dgx_spi_take_host(spi_host_device_t host_id, spi_dma_chan_t dma_chan, 
     buscfg.sclk_io_num     = sclk;
     buscfg.quadwp_io_num   = quadwp;
     buscfg.quadhd_io_num   = quadhd;
-    /* not 0: ESP-IDF 6.0 and 6.1 take a quad bus for an octal one in the GPIO matrix and route data4 to data7 to GPIO 0 */
     buscfg.data4_io_num = buscfg.data5_io_num = buscfg.data6_io_num = buscfg.data7_io_num = -1;
     buscfg.max_transfer_sz = DGX_SPI_MAX_TRANSFER; // only the DMA descriptors depend on it, a few for 32000 bytes
-    if (quadwp != GPIO_NUM_NC) buscfg.flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_QUAD;
+    /*
+     * No SPICOMMON_BUSFLAG_QUAD in buscfg.flags: it only asks the driver to
+     * check the pins, the driver connects every pin it is given anyway.
+     * ESP-IDF 6.0 and 6.1 test it as `flags & SPICOMMON_BUSFLAG_OCTAL`, take
+     * a quad bus for an octal one and move the IO MUX pins of SPI2 of an
+     * ESP32-S2, S3 or P4 to the function of octal mode, which leaves the
+     * clock off its pin. dgx_qspi_init_with() checks what the flag checked.
+     */
     esp_err_t rc = spi_bus_initialize(host_id, &buscfg, dma_chan);
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "SPI host %d: spi_bus_initialize failed (%s); a host the program has initialized itself goes to dgx_spi_init_on_bus()",
