@@ -13,7 +13,7 @@ extern "C" {
 /**
  * @brief Additive glow renderer with phosphor persistence.
  *
- * Each dot is a disc of radius max(cell*3/4, 2) with smoothstep falloff,
+ * Each dot is a disc of radius cell/2 + cell/4, 2 at least, with smoothstep falloff,
  * summed into an 8-bit brightness map. present() blends it with the previous
  * frame and sends it to the screen, mapping brightness through a 256-entry
  * LUT on the way. No frame of colors is kept: the renderer takes two bytes a

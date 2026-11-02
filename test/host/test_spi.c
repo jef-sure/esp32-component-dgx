@@ -264,13 +264,12 @@ static long psram_dma_calls, late_dma_call; /* the transfer with SPI_TRANS_DMA_U
 
 esp_err_t spi_bus_initialize(spi_host_device_t host_id, const spi_bus_config_t *bus_config, spi_dma_chan_t dma_chan)
 {
-    CHECK(dma_chan != SPI_DMA_DISABLED);
     model_host_t *h = &model_hosts[host_id];
     if (h->initialized) return ESP_ERR_INVALID_STATE;
     h->initialized = true;
-    /* whole DMA descriptors of 4092 bytes, one at least (spicommon_dma_desc_alloc() of IDF) */
+    /* whole DMA descriptors of 4092 bytes, one at least (spicommon_dma_desc_alloc() of IDF); with no DMA, the buffer of the host */
     const int asked    = bus_config->max_transfer_sz ? bus_config->max_transfer_sz : 4092;
-    h->max_transfer_sz = (asked + 4091) / 4092 * 4092;
+    h->max_transfer_sz = dma_chan == SPI_DMA_DISABLED ? SOC_SPI_MAXIMUM_BUFFER_SIZE : (asked + 4091) / 4092 * 4092;
     h->flags           = bus_config->flags;
     return ESP_OK;
 }
@@ -1126,6 +1125,79 @@ static void test_shared_host(void)
     CHECK(!model_hosts[SPI2_HOST].initialized && model_hosts[SPI2_HOST].devices == 0);
 }
 
+/* a host with no DMA takes 64 bytes a transfer: the buffer is no longer, and everything is drawn */
+static void test_no_dma_host(bool qspi)
+{
+    panel_reset(2);
+    dc_pin                   = 2;
+    dgx_bus_protocols_t *bus = qspi ? dgx_qspi_init(SPI2_HOST, SPI_DMA_DISABLED, 21, 48, 40, 39, 47, 45, 40 * 1000 * 1000, 0)
+                                    : dgx_spi_init(SPI2_HOST, SPI_DMA_DISABLED, 13, 12, 14, 15, 2, 40 * 1000 * 1000, 0);
+    CHECK(bus != NULL);
+    if (!bus) return;
+    CHECK(bus->buffer_len == SOC_SPI_MAXIMUM_BUFFER_SIZE);
+    static dgx_screen_with_bus_t s;
+    screen_on(&s, bus, 16);
+    longest_transfer = 0;
+    draw_and_compare(&s.scr, 16, 300);
+    CHECK(stray_bytes == 0 && unknown_commands == 0);
+    CHECK(longest_transfer <= SOC_SPI_MAXIMUM_BUFFER_SIZE);
+    bus->dispose(bus);
+    CHECK(!model_hosts[SPI2_HOST].initialized);
+}
+
+/*
+ * A display put by dgx_spi_init_on_bus() on a host that dgx_spi_init() set
+ * up joins it as a display of DGX: the one that kept the bus lets go of it,
+ * the two take turns, and the host goes with the last of them.
+ */
+static void test_on_bus_on_dgx_host(bool qspi)
+{
+    panel_reset(2);
+    dc_pin                     = 2;
+    dgx_bus_protocols_t *first = qspi ? dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, 21, 48, 40, 39, 47, 45, 40 * 1000 * 1000, 0)
+                                      : dgx_spi_init(SPI2_HOST, SPI_DMA_CH_AUTO, 13, 12, 14, 15, 2, 40 * 1000 * 1000, 0);
+    CHECK(first != NULL);
+    if (!first) return;
+    static dgx_screen_with_bus_t s1, s2;
+    screen_on(&s1, first, 16);
+    dgx_fill_rectangle(&s1.scr, 0, 0, 10, 10, 0x1234);
+    s1.scr.wait_buffer(&s1.scr);
+    CHECK(model_hosts[SPI2_HOST].holder != NULL); /* kept, alone on the host */
+    dgx_bus_protocols_t *second = qspi ? dgx_qspi_init_on_bus(SPI2_HOST, 46, 40 * 1000 * 1000, 0) : dgx_spi_init_on_bus(SPI2_HOST, 16, 2, 40 * 1000 * 1000, 0);
+    CHECK(second != NULL && model_hosts[SPI2_HOST].holder == NULL);
+    if (!second) return;
+    screen_on(&s2, second, 16);
+    /* the model stops the program if a display draws while the other holds the bus: it would wait for ever */
+    for (int i = 0; i < 4; ++i) {
+        dgx_fill_rectangle(&s2.scr, i, i, 20, 5, 0x5678);
+        dgx_set_pixel(&s1.scr, i, 30, 0x9abc);
+    }
+    s2.scr.wait_buffer(&s2.scr);
+    CHECK(model_hosts[SPI2_HOST].holder == NULL);
+    first->dispose(first);
+    CHECK(model_hosts[SPI2_HOST].initialized);
+    second->dispose(second);
+    CHECK(!model_hosts[SPI2_HOST].initialized && model_hosts[SPI2_HOST].devices == 0);
+}
+
+/* a QSPI command with no parameters has left the wire when sync_write() returns */
+static void test_qspi_bare_command(void)
+{
+    panel_reset(2);
+    dgx_bus_protocols_t *bus = dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, 21, 48, 40, 39, 47, 45, 40 * 1000 * 1000, 0);
+    CHECK(bus != NULL);
+    if (!bus) return;
+    static dgx_screen_with_bus_t s;
+    screen_on(&s, bus, 16);
+    dgx_set_pixel(&s.scr, 1, 1, 0x1234); /* the bus held: commands go by the registers */
+    const long d0 = direct_transfers;
+    bus->write_command(bus, 0x29);
+    bus->sync_write(bus);
+    CHECK(direct_transfers == d0 + 1);
+    CHECK(!model_spi_hw[SPI2_HOST].running);
+    bus->dispose(bus);
+}
+
 /*
  * ESP-IDF 6.0 and 6.1 take any bit of SPICOMMON_BUSFLAG_OCTAL for an octal
  * bus and move the IO MUX pins of SPI2 to the function of octal mode, so the
@@ -1180,5 +1252,10 @@ int main(void)
     test_quad_host_flags();
     test_hold();
     test_keep();
+    test_no_dma_host(false);
+    test_no_dma_host(true);
+    test_on_bus_on_dgx_host(false);
+    test_on_bus_on_dgx_host(true);
+    test_qspi_bare_command();
     CHECK_DONE();
 }

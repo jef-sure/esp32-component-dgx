@@ -167,7 +167,8 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int 
     int mw = width - pw - 1;
     dgx_screen_progress_up(scr);
     if (dx == 0 && dy == 0) {
-        dgx_solid_circle(scr, x1, y1, mw ? mw : pw, color);
+        /* a dot as wide as the line: a disc of an odd width, the nearest to one of an even width, a square of round corners */
+        dgx_fill_round_rectangle(scr, x1 - pw, y1 - pw, width, width, (width - 1) / 2, color);
         dgx_screen_progress_down(scr);
         return;
     }

@@ -103,7 +103,8 @@ than 1 MB is copied in 10 seconds instead of 411 MB.
 
 With `CONFIG_LCD_DSI_ISR_CACHE_SAFE` or `CONFIG_DMA2D_ISR_IRAM_SAFE` the
 interrupts that start this copy run while the flash is written and its
-cache is off. They can start the 2D DMA only when
+cache is off, and so they do with `CONFIG_DW_GDMA_ISR_IRAM_SAFE`, which the
+cache-safe options of the camera turn on as well. They can start the 2D DMA only when
 `CONFIG_DMA2D_OPERATION_FUNC_IN_IRAM` puts its functions in IRAM; without
 that option the whole remainder is copied when the picture is finished, as
 at 24 bits.

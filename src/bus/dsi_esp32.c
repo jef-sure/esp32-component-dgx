@@ -28,6 +28,7 @@
 #include "esp_log.h"
 #include "esp_memory_utils.h"
 #include "esp_timer.h"
+#include "hal/efuse_hal.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -67,14 +68,18 @@
 /*
  * What a finished picture lacks may be copied after the display has taken
  * it, started from two interrupts: the one where a frame ends and that of
- * the 2D DMA. With CONFIG_LCD_DSI_ISR_CACHE_SAFE or
+ * the 2D DMA. The end of a frame is the interrupt of the DW-GDMA that
+ * carries the frame to the display. With CONFIG_DW_GDMA_ISR_IRAM_SAFE or
  * CONFIG_DMA2D_ISR_IRAM_SAFE they run while the cache of the flash is off,
  * as it is while the flash is written, and the functions of the 2D DMA are
  * in IRAM only with CONFIG_DMA2D_OPERATION_FUNC_IN_IRAM. Without it nothing
  * is left for those interrupts: a picture is given all it lacks when it is
- * finished, as at 24 bits.
+ * finished, as at 24 bits. CONFIG_LCD_DSI_ISR_CACHE_SAFE turns the first on,
+ * and so do the camera options CONFIG_CAM_CTLR_MIPI_CSI_ISR_CACHE_SAFE and
+ * CONFIG_CAM_CTLR_ISP_DVP_ISR_CACHE_SAFE.
  */
-#if (defined(CONFIG_LCD_DSI_ISR_CACHE_SAFE) || defined(CONFIG_LCD_DSI_ISR_IRAM_SAFE) || defined(CONFIG_DMA2D_ISR_IRAM_SAFE)) && \
+#if (defined(CONFIG_LCD_DSI_ISR_CACHE_SAFE) || defined(CONFIG_LCD_DSI_ISR_IRAM_SAFE) || defined(CONFIG_DW_GDMA_ISR_IRAM_SAFE) || \
+     defined(CONFIG_DMA2D_ISR_IRAM_SAFE)) &&                                                                                    \
     !defined(CONFIG_DMA2D_OPERATION_FUNC_IN_IRAM)
 #define DGX_DSI_LATE_FROM_ISR 0
 #else
@@ -144,6 +149,18 @@
 #define DGX_DSI_CACHE_LINE CONFIG_CACHE_L2_CACHE_LINE_SIZE
 #else
 #define DGX_DSI_CACHE_LINE 64u
+#endif
+
+/*
+ * Under flash encryption the PSRAM is encrypted by 16 bytes, and the 2D DMA,
+ * which the accelerator uses too, reads and writes it only in whole blocks
+ * of them: an address and a length in PSRAM are to be multiples of this
+ * (SOC_MEMSPI_ENCRYPTION_ALIGNMENT, dsi_lcd.rst of IDF).
+ */
+#ifdef SOC_MEMSPI_ENCRYPTION_ALIGNMENT
+#define DGX_DSI_ENCRYPTED_ALIGN SOC_MEMSPI_ENCRYPTION_ALIGNMENT
+#else
+#define DGX_DSI_ENCRYPTED_ALIGN 16u
 #endif
 
 typedef struct _dgx_dsi_bus_t dgx_dsi_bus_t;
@@ -300,6 +317,8 @@ struct _dgx_dsi_bus_t {
     bool              rows_written;
     /* the screen does not lie on the panel pixel for pixel: mirrored, or its axes swapped */
     bool              turned;
+    /* the flash, and so the PSRAM, is encrypted: see DGX_DSI_ENCRYPTED_ALIGN */
+    bool              encrypted;
     /* pixels are being sent into the window from its first one on: its tiles wait to be told how far they went */
     bool              window_open;
     uint32_t          window_got;   /* how many came */
@@ -346,6 +365,26 @@ struct _dgx_dsi_bus_t {
 };
 
 static const char TAG[] = "DGX DSI BUS";
+
+/*
+ * Whether the 2D DMA, alone or under the accelerator, takes a rectangle of
+ * `width` pixels of `bytes` by `rows` from the column `x` of a picture
+ * whose rows lie `pitch` bytes apart. It reaches the PSRAM and internal
+ * memory, but not the TCM or the RAM of the low-power part, which a plain
+ * allocation may give when the rest is full. In encrypted PSRAM every row
+ * of the rectangle has to start on DGX_DSI_ENCRYPTED_ALIGN bytes and to be
+ * a multiple of them long. What it does not take, the processor moves.
+ */
+static inline __attribute__((unused)) bool dgx_dsi_dma_takes(const dgx_dsi_bus_t *bus, const uint8_t *picture, size_t pitch, uint32_t x,
+                                                               uint32_t width, uint32_t rows, uint32_t bytes)
+{
+    if (!width || !rows) return false;
+    const uint8_t *first = picture + (size_t)x * bytes;
+    const uint8_t *last  = first + (size_t)(rows - 1u) * pitch + (size_t)width * bytes - 1u;
+    if (!(esp_ptr_dma_capable(first) || esp_ptr_dma_ext_capable(first))) return false;
+    if (!(esp_ptr_dma_capable(last) || esp_ptr_dma_ext_capable(last))) return false;
+    return !(bus->encrypted && esp_ptr_external_ram(first) && ((uintptr_t)first | pitch | (size_t)width * bytes) % DGX_DSI_ENCRYPTED_ALIGN);
+}
 
 static void dgx_dsi_send_pending(dgx_dsi_bus_t *bus)
 {
@@ -501,7 +540,13 @@ static bool dgx_dsi_flip_frames(void *context, uint32_t *ended, uint32_t *since_
     /* the time before the count, the other way round from where they are set */
     const uint32_t at = bus->refresh_us;
     *ended            = bus->refreshes;
-    *period_us        = bus->refresh_period_us;
+    /*
+     * The time a frame takes over many of them, not the time between the
+     * last two ends: after an interrupt that came late that one is longer
+     * by as much as the time since it is shorter, and the two together ate
+     * twice the lateness out of the guard against a word come too late.
+     */
+    *period_us        = bus->frame_us_256 ? (bus->frame_us_256 + 128u) >> 8 : bus->refresh_period_us;
     *since_us         = (uint32_t)esp_timer_get_time() - at;
     return *period_us >= 1000u && *period_us <= 100000u && *since_us <= 2u * *period_us;
 }
@@ -768,6 +813,10 @@ static bool dgx_dsi_dma_start(dgx_dsi_bus_t *bus, const uint8_t *from, uint32_t 
     const size_t   to_pitch   = (size_t)bus->area.fb_width * bytes;
     const size_t   from_pitch = (size_t)from_stride * bytes;
     const size_t   row_bytes  = (size_t)width * bytes;
+    /* memory the DMA cannot take as it lies, the processor moves */
+    if (!dgx_dsi_dma_takes(bus, from, from_pitch, from_x, width, rows, bytes) || !dgx_dsi_dma_takes(bus, to, to_pitch, to_x, width, rows, bytes)) {
+        return false;
+    }
     /*
      * Pieces that are only just ahead of the scan of the display are not
      * slowed down by another transfer: they are waited for first.
@@ -1116,22 +1165,24 @@ static void dgx_dsi_late_by_hand(dgx_dsi_bus_t *bus, uint32_t mask)
 }
 
 /*
- * Wait until a piece more has been copied than when `left` was read; false
- * when none is for a time many frames long.
+ * Wait until a piece more has been copied than when `left` was read. The
+ * 2D DMA copies a piece within a frame. One not copied for a quarter of a
+ * second is told of in the log, once, and still waited for: a 2D DMA or an
+ * interrupt that does not answer is a fault of the driver or of the chip,
+ * and a task that stops on it shows it plainer than one that copies the
+ * pieces itself while the DMA may still copy them later.
  */
-static bool dgx_dsi_late_step(dgx_dsi_bus_t *bus, uint32_t left)
+static void dgx_dsi_late_step(dgx_dsi_bus_t *bus, uint32_t left)
 {
-    for (int tries = 0; tries < 50; ++tries) {
-        if (bus->late->left != left) return true;
+    const uint32_t from = (uint32_t)esp_timer_get_time();
+    bool           told = false;
+    while (bus->late->left == left) {
         xSemaphoreTake(bus->late->step, pdMS_TO_TICKS(4) + 1);
+        if (!told && bus->late->left == left && (uint32_t)esp_timer_get_time() - from >= 250000u) {
+            told = true;
+            ESP_LOGW(TAG, "a piece left for the 2D DMA has not been copied for a quarter of a second: the 2D DMA or its interrupt does not answer");
+        }
     }
-    if (bus->late->left != left) return true;
-    /* the 2D DMA did not take a piece, or its interrupt never came: what is left is copied here */
-    ESP_LOGW(TAG, "a piece left for the 2D DMA was not copied: the task copies");
-    left           = bus->late->left;
-    bus->late->left = 0;
-    dgx_dsi_late_by_hand(bus, left);
-    return false;
 }
 
 /* wait until nothing is being copied behind the back of the tasks */
@@ -1140,8 +1191,7 @@ static void dgx_dsi_late_idle(dgx_dsi_bus_t *bus)
     if (!bus->late || !bus->late->left) return;
     const uint32_t from = (uint32_t)esp_timer_get_time();
     ++bus->late->waits;
-    for (uint32_t left = bus->late->left; left && dgx_dsi_late_step(bus, left); left = bus->late->left) {
-    }
+    for (uint32_t left = bus->late->left; left; left = bus->late->left) dgx_dsi_late_step(bus, left);
     const uint32_t waited = (uint32_t)esp_timer_get_time() - from;
     bus->late->wait_us += waited;
     /* only the first batch of a picture waits so: a batch that joins it comes when the pieces are long there */
@@ -2010,8 +2060,9 @@ bool dgx_dsi_video_setup(dgx_bus_protocols_t *_bus, const dgx_dsi_video_t *video
 #endif
     }
 #endif
-    bus->frame[0] = (uint8_t *)fb;
-    bus->frame[1] = (uint8_t *)fb2;
+    bus->frame[0]  = (uint8_t *)fb;
+    bus->frame[1]  = (uint8_t *)fb2;
+    bus->encrypted = efuse_hal_flash_encryption_enabled();
     /* the display starts with the first one: with two, drawing goes into the second */
 #if DGX_DSI_REFRESH_AT_SWITCH
     dgx_fb_flip_init(&bus->flip, &dgx_dsi_flip_display, bus, two ? 1 : 0, true, bus->tuning.guard_us);
@@ -2123,6 +2174,18 @@ void dgx_dsi_counters(dgx_bus_protocols_t *_bus, dgx_dsi_counters_t *counters)
 
 #if DGX_DSI_PPA_FILL
 /*
+ * The size of a picture the accelerator writes into, as it takes it: a
+ * multiple of a line of the cache, or it refuses the picture with an error
+ * in the log. A frame buffer is allocated from the start of a line, and the
+ * accelerator writes only the rectangle it is given, so the rest of the last
+ * line is not written; what the cache holds of it is written out first.
+ */
+static inline uint32_t dgx_dsi_ppa_size(size_t bytes)
+{
+    return (uint32_t)((bytes + DGX_DSI_CACHE_LINE - 1u) / DGX_DSI_CACHE_LINE * DGX_DSI_CACHE_LINE);
+}
+
+/*
  * Fill by the accelerator the columns x0..x1 of the rows y0..y1 of a picture
  * that has the rows of the panel, `rows` of them: a frame buffer, or the
  * memory dgx_dsi_bench() measures in. `behind_scan` makes it start when the
@@ -2145,6 +2208,7 @@ static bool dgx_dsi_ppa_fill(dgx_dsi_bus_t *bus, uint8_t *picture, uint32_t rows
         r = (color >> 16) & 0xffu, g = (color >> 8) & 0xffu, b = color & 0xffu;
     }
     const size_t pitch = (size_t)area->fb_width * bytes;
+    if (!dgx_dsi_dma_takes(bus, picture + (size_t)y0 * pitch, pitch, x0, x1 - x0 + 1u, y1 - y0 + 1u, bytes)) return false;
     uint8_t     *first = picture + (size_t)y0 * pitch + (size_t)x0 * bytes;
     const size_t span  = (size_t)(y1 - y0) * pitch + (size_t)(x1 - x0 + 1u) * bytes;
     /* what the cache holds of the place goes out before the wait for the scan, not after it */
@@ -2157,7 +2221,7 @@ static bool dgx_dsi_ppa_fill(dgx_dsi_bus_t *bus, uint8_t *picture, uint32_t rows
     const ppa_fill_oper_config_t fill = {
         .out = {
             .buffer         = picture,
-            .buffer_size    = (uint32_t)(pitch * rows),
+            .buffer_size    = dgx_dsi_ppa_size(pitch * rows),
             .pic_w          = area->fb_width,
             .pic_h          = rows,
             .block_offset_x = x0,
@@ -2209,6 +2273,8 @@ static bool dgx_dsi_write_ink(struct _dgx_bus_protocols_t *_bus, uint16_t left, 
      */
     if (bus->frames != 2) return false;
     if ((uint32_t)left + width > bus->area.fb_width || (uint32_t)top + height > bus->area.fb_height) return false;
+    /* the ink is read by the 2D DMA of the accelerator as well, the frame buffer is checked by the fill */
+    if (!dgx_dsi_dma_takes(bus, ink, pitch, 0, width, height, 1u)) return false;
     dgx_dsi_draw_ready(bus);
     if (dgx_dsi_late_busy(bus)) dgx_dsi_late_clear(bus, left, top, (uint16_t)(left + width - 1u), (uint16_t)(top + height - 1u));
     /* every pixel of the rectangle is written: of its tiles only what lies outside it is brought up to date */
@@ -2219,7 +2285,7 @@ static bool dgx_dsi_write_ink(struct _dgx_bus_protocols_t *_bus, uint16_t left, 
         return false;
     }
     /* then the ink into it */
-    const uint32_t                size = (uint32_t)bus->area.fb_width * bus->area.fb_height * 2u;
+    const uint32_t                size = dgx_dsi_ppa_size((size_t)bus->area.fb_width * bus->area.fb_height * 2u);
     const ppa_blend_oper_config_t mix = {
         .in_bg = {
             .buffer         = bus->area.fb,

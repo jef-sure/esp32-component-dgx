@@ -103,7 +103,8 @@ dgx_screen_t *lcd = dgx_jd9165_init(bus, GPIO_NUM_0, 16, DgxScreenRGB, DgxDsiTwo
 
 С `CONFIG_LCD_DSI_ISR_CACHE_SAFE` или `CONFIG_DMA2D_ISR_IRAM_SAFE`
 прерывания, которые запускают эту копию, работают и тогда, когда пишется
-флеш и его кэш выключен. Запустить 2D DMA они могут, только если
+флеш и его кэш выключен; так же и с `CONFIG_DW_GDMA_ISR_IRAM_SAFE`, которую
+включают и опции камеры, безопасные для кэша. Запустить 2D DMA они могут, только если
 `CONFIG_DMA2D_OPERATION_FUNC_IN_IRAM` кладёт его функции в IRAM; без этой
 опции весь остаток копируется, когда картинка закончена, как при 24 битах.
 

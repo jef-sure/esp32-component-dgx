@@ -139,6 +139,10 @@ static const dgx_lcd_init_cmd_t st_init_cmds[] = {
 
 // Initialize the display
 dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo) {
+    if (!bus) {
+        ESP_LOGE(TAG, "the bus of the display is not initialized");
+        return NULL;
+    }
     if (color_bits != 16 && color_bits != 18) {
         ESP_LOGE(TAG, "%u-bit color is not set up by this driver, only 16 and 18", (unsigned)color_bits);
         return NULL;

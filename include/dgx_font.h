@@ -164,7 +164,7 @@ int dgx_font_char_to_screen(             //
  * @param font   Font accessor.
  * @param ycorner Out: top Y offset relative to baseline.
  * @param height  Out: total height in pixels.
- * @return Total width in pixels.
+ * @return Total width in pixels, counted in 16 bits: up to 32767.
  */
 int dgx_font_string_bounds(const char *str, dgx_font_t *font, int16_t *ycorner, int16_t *height);
 

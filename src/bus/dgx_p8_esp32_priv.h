@@ -25,6 +25,8 @@ typedef struct _dgx_p8_bus_t {
     uint8_t                   command;
     bool                      command_pending;
     bool                      complained; /* data with no command has been refused, and the log told of it once */
+    uint8_t                  *even;       /* an odd number of bytes made even, on an ESP32, see dgx_p8_even() */
+    uint32_t                  even_len;
 } dgx_p8_bus_t;
 
 void dgx_p8_wait_pending(dgx_p8_bus_t *bus);

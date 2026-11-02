@@ -50,6 +50,9 @@ int main(void)
     CHECK(dgx_get_pixel(scr, W / 2, H / 2) == 0);
     CHECK(dgx_get_pixel(scr, W / 2, H / 2 + 35) == 0);
     CHECK(dgx_get_pixel(scr, W / 2, H / 2 - 35) == BACK);
+    /* and it is as thick as asked: 10 pixels from the radius of 30 on, up from the middle */
+    CHECK(dgx_get_pixel(scr, W / 2, H / 2 - 29) == 0 && dgx_get_pixel(scr, W / 2, H / 2 - 30) == BACK);
+    CHECK(dgx_get_pixel(scr, W / 2, H / 2 - 39) == BACK && dgx_get_pixel(scr, W / 2, H / 2 - 40) == 0);
 
     /* a value lights its steps, the rest of the ring stays; one update for all the steps that changed */
     updates = 0;

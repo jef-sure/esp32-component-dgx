@@ -37,6 +37,6 @@ size takes the patch too: see "Glyphs fixed by hand" in
 | `NotoMonoRegular28` | Noto Mono | NotoMono-Regular.ttf 1.00 of Google at 28 px | SIL Open Font License 1.1 |
 | `TerminusTTFMedium12` | Terminus (TTF) | Terminus (TTF) Medium 4.47 at 12 px | SIL Open Font License 1.1 |
 | `WeatherDotView25` | Weather Icons | derived from the Weather Icons font of Erik Flowers (weathericons-regular-webfont.ttf), the font of the author's clock | SIL Open Font License 1.1, as a derivative of Weather Icons |
-| `WeatherIconsRegular13` | Weather Icons | weathericons-regular-webfont.ttf 1.100 of Erik Flowers at 13 px | SIL Open Font License 1.1 |
+| `WeatherIconsRegular13` | Weather Icons | weathericons-regular-webfont.ttf 1.100 of Erik Flowers at 13 px, made into dots: the icons come out about 39 pixels tall and up to 40 wide | SIL Open Font License 1.1 |
 | `WeatherIconsRegular27` | Weather Icons | weathericons-regular-webfont.ttf 1.100 of Erik Flowers at 27 px | SIL Open Font License 1.1 |
 | `font0ss` | font0-ss | the handwritten font of DGX, drawn by Anton Petrusevich in the hw-fonts editor | MIT, as DGX |

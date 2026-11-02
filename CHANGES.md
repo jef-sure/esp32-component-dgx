@@ -1,5 +1,96 @@
 # Changes
 
+## 0.10.5 - 2026-11-02
+
+Fixed:
+
+- 18-bit color on the 8-bit parallel bus of an ESP32 drew nothing under
+  ESP-IDF 6.0 and later: those versions refuse an odd number of bytes there,
+  and an odd number of 18-bit pixels, a single one too, is one. DGX now sends
+  such a transfer with one byte more, which the panel drops.
+- A display added by `dgx_spi_init_on_bus()` or `dgx_qspi_init_on_bus()` to a
+  host that `dgx_spi_init()` or `dgx_qspi_init()` had set up waited for ever:
+  the display already there kept the bus. It now joins the host as a display
+  of DGX.
+- A host set up with `SPI_DMA_DISABLED` stopped the program at the first fill:
+  DGX cut pixels into pieces of 4000 bytes, and such a host takes 64.
+- A QSPI command with no parameters could still be on the wire when
+  `sync_write()` returned or the bus was let go of.
+- With two frame buffers on a DSI display, one frame interrupt late by about
+  150 us could let a batch draw into the frame buffer on the screen. The guard
+  against that measured from the time between the last two frames, which a
+  late interrupt stretches; it now takes the time a frame takes over many.
+- The copy that a DSI display with two frame buffers makes after the swap ran
+  from flash with the cache off during a flash write when a camera option
+  turned on `CONFIG_DW_GDMA_ISR_IRAM_SAFE`. DGX now leaves that copy out then,
+  as it does for the DSI and 2D-DMA options.
+- A DSI display no longer hands the 2D DMA or the accelerator what they cannot
+  take: memory in the TCM or the RAM of the low-power part, and, under flash
+  encryption, rectangles in PSRAM whose rows do not start and end on 16 bytes.
+  The processor moves those. The accelerator is given the size of a frame
+  buffer rounded up to a line of the cache, so it no longer refuses panels
+  whose frame is not such a multiple.
+- A piece of a picture the 2D DMA had not copied within a quarter of a second
+  was copied by the task, while the DMA could still copy it later. The task
+  now waits for it, and the log tells of the wait once.
+- The two-panel screen hung on a bus with no buffer, sent 16-bit rows to a
+  right panel of another depth, and left out the overlay layer of a panel when
+  whole rows went to both. Those cases now go the general way.
+- `set_area()` of a virtual screen past its edge kept the window before, and
+  the next pixels landed there. A window off the screen now takes nothing, and
+  one that goes past an edge is cut there, as on a display.
+- `dgx_vscreen_init()` and `dgx_vscreen_from_array()` refuse a depth other
+  than 1, 4, 8, 12, 16, 18, 24 or 32 bits and a size with no pixels. Depth 0
+  divided by zero, and other depths drew nothing.
+- `dgx_vscreen_array_set()` refused a screen whose overlay layer had been
+  taken away until the place it changed was taken; it now forgets that place,
+  as its documentation said.
+- A thick line of zero length was a dot of the wrong size for even widths.
+- The ring of `dgx_gauge_init()` was one pixel thicker than asked.
+- A texture put into a single pixel took the texel at the left edge of the
+  region instead of the middle one.
+- `decodeUTF8next()` took malformed UTF-8 for characters and showed wrong
+  glyphs. What is not UTF-8 is now U+FFFD.
+- `dgx_ssd1351_init()` with no bus crashed at 18 bits.
+- A `dgx_panel_t` whose upright picture has MY in its MADCTL scrolled wrongly,
+  and one with MV kept it in every orientation.
+
+Changes a program may see:
+
+- Soft dots of 5, 7, 9 and 11 pixels peaked at 204 to 231; now, like those of
+  every other size, they peak at 255. Fonts of dots look brighter.
+- The ring of a gauge is a pixel thinner, as thick as asked.
+
+Documentation:
+
+- A display alone on a host set up by `dgx_spi_init()` or `dgx_qspi_init()`
+  keeps the bus, and with it the power-management lock of ESP-IDF: with
+  `CONFIG_PM_ENABLE` there is no light sleep and no change of clocks while it
+  exists. The headers and the README say so, and how to avoid it.
+- The README says that 12-bit pixels on the 8-bit bus of an ESP32 or an
+  ESP32-S2 reach the display only in the first block of a window.
+- The headers give the ranges some functions are written for: a filled
+  rectangle whose x + w and y + h fit in an int, triangles whose corners lie
+  within 32767 pixels of each other, string widths up to 32767 pixels, the
+  turns of `dgx_rol_nbits()` and `dgx_ror_nbits()`. They say that thin lines
+  are walked off the screen too, and that thick lines with ends ten million
+  pixels away come out a pixel off.
+- The headers say that 12-bit pixels go to a display one by one, that
+  ellipses, arcs and sectors past int16 draw nothing, and what the glow radius
+  of `dgx_morph_glow` is. The notice of `TerminusTTFMedium12` gives the years
+  of the font file, and the list of fonts how large the icons of
+  `WeatherIconsRegular13` come out.
+
+Tests:
+
+- `test_spi`: a host with no DMA, a display put by `_init_on_bus()` on a host
+  of DGX, a QSPI command with no parameters. `test_p8_idf6`: the 8-bit bus
+  under ESP-IDF 6 on an ESP32. `test_fb_flip`: frame interrupts that come
+  late. Two-panel screens with no buffer and with an overlay layer, windows
+  off a virtual screen, refused depths and sizes, dots of thick lines, the
+  gauge ring, a one-pixel texture, UTF-8, soft dots, a panel with MY in its
+  upright MADCTL.
+
 ## 0.10.4 - 2026-11-01
 
 Fixed:

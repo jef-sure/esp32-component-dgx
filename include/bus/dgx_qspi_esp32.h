@@ -32,6 +32,8 @@ extern "C" {
  * does, and shares it with further displays on it that name the same lines.
  * To put a display on a host the program already uses, initialize the host
  * in the program with the four data lines and call dgx_qspi_init_on_bus().
+ * The only display on the host keeps it between its drawings, and the lock of
+ * power management with it, as dgx_spi_init() tells.
  *
  * @param host_id        SPI host (e.g. SPI2_HOST).
  * @param dma_chan       DMA channel (e.g. SPI_DMA_CH_AUTO).

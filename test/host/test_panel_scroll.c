@@ -134,11 +134,14 @@ static void bus_sync(struct _dgx_bus_protocols_t *bus)
     (void)bus;
 }
 
+/* the upright picture of the panel has MY in its MADCTL: its rows lie in memory from the bottom up */
+static bool upright_my;
+
 /* where a pixel of the screen is on the panel */
 static void on_panel(const dgx_screen_t *scr, int x, int y, int *row, int *col)
 {
     const int along = scr->swap_xy ? x : y, across = scr->swap_xy ? y : x;
-    *row = scr->dir_y == DgxScreenBottomTop ? PAGES - 1 - along : along;
+    *row = (scr->dir_y == DgxScreenBottomTop) != upright_my ? PAGES - 1 - along : along;
     *col = scr->dir_x == DgxScreenRightLeft ? COLUMNS - 1 - across : across;
 }
 
@@ -166,8 +169,23 @@ static int rnd(int lo, int hi)
     return lo + (int)(seed % (uint32_t)(hi - lo + 1));
 }
 
+static void run(const dgx_panel_t *panel);
+
 int main(void)
 {
+    run(&dgx_panel_ili9341);
+    /* the same panel whose upright picture lies the other way up in memory: MY in its MADCTL */
+    static dgx_panel_t turned;
+    turned        = dgx_panel_ili9341;
+    turned.madctl = MADCTL_BGR | MADCTL_MY;
+    upright_my    = true;
+    run(&turned);
+    CHECK_DONE();
+}
+
+static void run(const dgx_panel_t *panel)
+{
+    commands_sent = 0;
     dgx_bus_protocols_t bus = {.bus_type         = DGX_BUS_I2C, /* any that is not served apart: the window goes by the commands of the bus */
                                .write_command    = bus_command,
                                .write_data       = bus_data,
@@ -176,10 +194,10 @@ int main(void)
                                .buffer           = bus_buffer,
                                .buffer_len       = sizeof(bus_buffer)};
     /* the controller has no 12-bit pixels: no screen, and nothing is sent */
-    CHECK(dgx_ili9341_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 12, DgxScreenRGB) == NULL && commands_sent == 0);
-    dgx_screen_t *scr = dgx_ili9341_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 16, DgxScreenRGB);
+    CHECK(dgx_panel_init(&bus, panel, GPIO_NUM_NC, GPIO_NUM_NC, 12, DgxScreenRGB) == NULL && commands_sent == 0);
+    dgx_screen_t *scr = dgx_panel_init(&bus, panel, GPIO_NUM_NC, GPIO_NUM_NC, 16, DgxScreenRGB);
     CHECK(scr != NULL);
-    if (!scr) CHECK_DONE();
+    if (!scr) return;
     /* there is no backlight pin to switch */
     CHECK(dgx_ili9341_backlight(scr, true) == ESP_ERR_NOT_SUPPORTED);
     CHECK(!dgx_screen_is_readable(scr));
@@ -304,5 +322,4 @@ int main(void)
     CHECK(by_panel > 3000 && refused > 500 && cut_windows > 200);
     dgx_screen_destroy(&picture);
     free(scr);
-    CHECK_DONE();
 }

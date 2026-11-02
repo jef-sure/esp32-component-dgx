@@ -83,7 +83,13 @@ static void dgx_qspi_direct_send(dgx_qspi_bus_t *bus, uint8_t op, uint8_t cmd, c
     spi_ll_enable_mosi(hw, 0);
     spi_ll_apply_config(hw);
     spi_ll_user_start(hw);
-    bus->dev.direct = false; /* the next transfer sets the host again, its data with it */
+    /*
+     * Waited for here, as nothing else waits for it: the next transfer sets
+     * the host again, its data with it, and sync_write() and letting go of
+     * the bus find the wire quiet. A command alone is rare, and takes 32
+     * clocks.
+     */
+    dgx_spi_dev_direct_end(&bus->dev);
 }
 
 /* a command and its parameters on one line; the pixels on their way go first */
@@ -300,7 +306,11 @@ dgx_bus_protocols_t *dgx_qspi_init_on_bus_with(spi_host_device_t host_id, gpio_n
         ESP_LOGE(TAG, "SPI host %d does not exist", (int)host_id);
         return NULL;
     }
-    return dgx_qspi_attach(host_id, false, cs, clock_speed_hz, cpolpha_mode, options);
+    /* a host DGX has set up stays DGX's: see dgx_spi_init_on_bus_with() */
+    const bool dgx_host = dgx_spi_host_is_dgx(host_id);
+    dgx_bus_protocols_t *bus = dgx_qspi_attach(host_id, dgx_host, cs, clock_speed_hz, cpolpha_mode, options);
+    if (bus && dgx_host) dgx_spi_host_join(host_id);
+    return bus;
 }
 
 dgx_bus_protocols_t *dgx_qspi_init_on_bus(spi_host_device_t host_id, gpio_num_t cs, int clock_speed_hz, uint8_t cpolpha_mode)

@@ -9,7 +9,8 @@
  * of them gets a byte more. On an ESP32-S3 and an ESP32-P4 it is the LCD_CAM
  * peripheral, and a command of -1 sends no command. The model here does what
  * those drivers do; which of the two is chosen by TEST_LCDCAM, see
- * test_p8_lcdcam.c.
+ * test_p8_lcdcam.c. ESP-IDF 6.0 and later refuse an odd number of bytes of
+ * pixels on an ESP32 instead, see test_p8_idf6.c.
  *
  * The display is a controller of the MIPI display command set: 0x2A and 0x2B
  * set the window, 0x2C writes memory from the start of it, any other command
@@ -22,6 +23,9 @@
 
 #include "check.h"
 
+#ifndef TEST_LCDCAM
+#define CONFIG_IDF_TARGET_ESP32 1
+#endif
 #include "bus/p8_esp32.c"
 
 #include "dgx_draw.h"
@@ -53,6 +57,7 @@ static long     stray_bytes;                              /* data the display to
 static long     unknown_commands, written_pixels;
 static long     data_alone;                               /* transfers of data with no command, as the bus asked for them */
 static long     longest_transfer;
+static long     refused_odd;                              /* transfers of pixels refused for an odd number of bytes */
 
 static void panel_take_command(uint8_t command)
 {
@@ -172,6 +177,13 @@ esp_err_t esp_lcd_panel_io_tx_color(esp_lcd_panel_io_handle_t io, int lcd_cmd, c
 {
     CHECK(color && color_size && color_size <= io->max_transfer_bytes);
     if ((long)color_size > longest_transfer) longest_transfer = (long)color_size;
+#ifdef TEST_P8_IDF6
+    if (!lcdcam && (color_size & 1)) {
+        /* i2s_lcd_get_color_buffer_size() of ESP-IDF 6.0 and later: nothing is sent */
+        ++refused_odd;
+        return ESP_ERR_INVALID_ARG;
+    }
+#endif
     driver_command(lcd_cmd);
     panel_take_data(color, color_size);
     if (!lcdcam && (color_size & 1)) {
@@ -286,6 +298,7 @@ static void run(int bits, int rounds)
     CHECK(stray_bytes == 0);
     CHECK(unknown_commands == 0);
     CHECK(data_alone == 0);
+    CHECK(refused_odd == 0);
     CHECK(written_pixels > 0);
     /* a fill of the whole screen is more than a transfer takes: it went in several, each with its window */
     CHECK(longest_transfer <= 4000 && longest_transfer > 3000);

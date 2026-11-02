@@ -21,6 +21,12 @@
 /*
  * @brief Get Unicode codepoint from UTF-8 encoded string
  *
+ * What is not UTF-8 is U+FFFD, the replacement character: a byte that starts
+ * no character, a sequence cut short, one longer than its value needs, a
+ * surrogate, a value past U+10FFFF. A byte that is not a part of the
+ * sequence, the terminator above all, is left for the next call; every other
+ * byte is consumed, at least one, so a loop over a string ends.
+ *
  * @param chr UTF-8 encoded string
  * @param idx Pointer to index of the character in the string
  *        that will be incremented according to the number of bytes of the codepoint
@@ -28,33 +34,34 @@
  */
 uint32_t decodeUTF8next(const char *chr, size_t *idx)
 {
-    uint32_t c = (uint8_t)chr[*idx];
+    const uint8_t *s = (const uint8_t *)chr + *idx;
+    uint32_t       c = s[0];
     if (c < 0x80) {
         if (c) ++*idx;
         return c;
     }
-    ++*idx;
-    uint8_t len;
-    if ((c & 0xE0) == 0xC0) {
-        c &= 0x1f;
-        len = 2;
+    uint8_t  len;
+    uint32_t least;
+    if (c >= 0xC2 && c <= 0xDF) {
+        c &= 0x1f, len = 2, least = 0x80;
     } else if ((c & 0xF0) == 0xE0) {
-        c &= 0xf;
-        len = 3;
-    } else if ((c & 0xF8) == 0xF0) {
-        c &= 0x7;
-        len = 4;
+        c &= 0x0f, len = 3, least = 0x800;
+    } else if (c >= 0xF0 && c <= 0xF4) {
+        c &= 0x07, len = 4, least = 0x10000;
     } else {
-        return c;
-    }
-    while (--len) {
-        uint32_t nc = (uint8_t)chr[*idx];
-        // truncated sequence: leave the terminator or the next character unconsumed
-        if ((nc & 0xC0) != 0x80) break;
         ++*idx;
-        c <<= 6;
-        c |= nc & 0x3f;
+        return 0xFFFD;
     }
+    for (uint8_t i = 1; i < len; ++i) {
+        const uint8_t nc = s[i];
+        if ((nc & 0xC0) != 0x80) {
+            *idx += i;
+            return 0xFFFD;
+        }
+        c = c << 6 | (nc & 0x3f);
+    }
+    *idx += len;
+    if (c < least || (c >= 0xD800 && c <= 0xDFFF) || c > 0x10FFFF) return 0xFFFD;
     return c;
 }
 
@@ -144,8 +151,9 @@ void dgx_font_make_point8(dgx_screen_t *vpoint)
         dgx_set_pixel(vpoint, 3, 3, 96);
     } else {
         if (point_size % 2 == 1) {
+            /* the middle at full brightness, as in the dots of every other size */
             for (int16_t r = vpoint->width / 2; r >= 1; --r) {
-                uint8_t v = (vpoint->width / 2 - r + 1) * 510.0f / vpoint->width;
+                uint8_t v = (vpoint->width / 2 - r + 1) * 255.0f / (vpoint->width / 2);
                 dgx_solid_circle(vpoint, vpoint->width / 2, vpoint->height / 2, r, v);
             }
         } else {

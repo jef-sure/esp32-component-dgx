@@ -30,6 +30,12 @@ extern "C" {
  * a host the program uses for other devices, initialize the host in the
  * program and call dgx_spi_init_on_bus().
  *
+ * Kept, the host keeps the lock of power management ESP-IDF takes with it as
+ * well: with CONFIG_PM_ENABLE the chip neither goes into light sleep nor
+ * lowers its clocks while such a display exists. A program that wants them
+ * puts the display on a host of its own with dgx_spi_init_on_bus(): there
+ * the display holds the host only while it draws.
+ *
  * @param host_id        SPI host (e.g. SPI2_HOST, SPI3_HOST).
  * @param dma_chan       DMA channel (e.g. SPI_DMA_CH_AUTO).
  * @param mosi           MOSI / SDA data GPIO.
@@ -65,7 +71,9 @@ dgx_bus_protocols_t* dgx_spi_init(          //
  * 4736 bytes at 40 MHz, 9488 at 80 MHz. DGX adds its device to the host and removes it when the backend is disposed;
  * the host stays the program's to free, after the backend. The display holds
  * the host from a window to the end of its drawing, or of the batch around it;
- * the ESP-IDF driver takes turns between the devices outside that.
+ * the ESP-IDF driver takes turns between the devices outside that. A display
+ * put on a host dgx_spi_init() or dgx_qspi_init() has set up is one of their
+ * displays: it shares that host, which goes with the last of them.
  *
  * @param host_id        SPI host the program has initialized.
  * @param cs             Chip-select GPIO of the panel.

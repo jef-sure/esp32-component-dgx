@@ -15,19 +15,30 @@
 #include "dgx_draw.h"
 #include "dgx_screen_functions.h"
 #include "drivers/vscreen.h"
+#include "dgx_overlay_priv.h"
 #include "dgx_vscreen_priv.h"
 
 /* dgx_vscreen_t is defined publicly in drivers/vscreen.h; what moves pictures between screens is in transfer.c */
 
 static const char TAG[] = "DGX V-Screen";
 
+/*
+ * The window of write_area() and read_area(), cut by the screen as a display
+ * behind a bus cuts it. A window that lies off the screen is no window: what
+ * is written into it goes nowhere, not into the window before, and nothing
+ * is read from it. It is marked so by a left edge past the right one.
+ */
 static void dgx_vscreen_set_area(dgx_screen_t *_scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
 {
     dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
-    if (left >= scr->base.width || top >= scr->base.height || right >= scr->base.width || bottom >= scr->base.height) {
-        ESP_LOGE(TAG, "Set area failed");
+    if (left > right) DGX_INT_SWAP(left, right);
+    if (top > bottom) DGX_INT_SWAP(top, bottom);
+    if (left >= scr->base.width || top >= scr->base.height) {
+        scr->area.left = 1, scr->area.right = 0;
         return;
     }
+    if (right >= scr->base.width) right = (uint16_t)(scr->base.width - 1);
+    if (bottom >= scr->base.height) bottom = (uint16_t)(scr->base.height - 1);
     scr->area.left     = left;
     scr->area.right    = right;
     scr->area.top      = top;
@@ -55,6 +66,7 @@ static void dgx_vscreen_write_area(dgx_screen_t *_scr, uint8_t *data, uint32_t l
 {
     dgx_vscreen_t *scr   = (dgx_vscreen_t *)_scr;
     const uint8_t  bytes = dgx_vscreen_pixel_bytes(_scr->color_bits);
+    if (scr->area.left > scr->area.right) return; /* the window lies off the screen */
     if (bytes) {
         /* pixels of whole bytes lie in memory as they do in a buffer: what falls on a row of the window goes at once */
         for (uint32_t pixels = lenbits / (8u * bytes); pixels;) {
@@ -86,6 +98,7 @@ static uint32_t dgx_vscreen_read_area(dgx_screen_t *_scr, uint8_t *data, uint32_
     uint32_t       ret = 0;
     dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
     int            idx = 0;
+    if (scr->area.left > scr->area.right) return 0; /* the window lies off the screen */
     /* an 18-bit pixel takes three bytes in a buffer, as it does on the wire */
     uint32_t       pixel_bits = _scr->color_bits == 18 ? 24u : _scr->color_bits;
     while (lenbits >= pixel_bits) {
@@ -264,9 +277,34 @@ static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, 
     }
     dgx_screen_touch(_scr, x, x + w - 1, y, y + h - 1);
 }
+/* a depth the pixels of a virtual screen are kept in, and a size that has pixels */
+static bool dgx_vscreen_fits(int width, int height, uint8_t color_bits)
+{
+    switch (color_bits) {
+    case 1:
+    case 4:
+    case 8:
+    case 12:
+    case 16:
+    case 18:
+    case 24:
+    case 32:
+        break;
+    default:
+        ESP_LOGE(TAG, "a virtual screen of %u bits a pixel cannot be: 1, 4, 8, 12, 16, 18, 24 or 32", (unsigned)color_bits);
+        return false;
+    }
+    if (width <= 0 || height <= 0) {
+        ESP_LOGE(TAG, "a virtual screen of %dx%d has no pixels", width, height);
+        return false;
+    }
+    return true;
+}
+
 // A virtual screen with no pixels yet
 static dgx_vscreen_t *dgx_vscreen_without_array(int width, int height, uint8_t color_bits, dgx_color_order_t cbo)
 {
+    if (!dgx_vscreen_fits(width, height, color_bits)) return 0;
     dgx_vscreen_t *scr = (dgx_vscreen_t *)calloc(1, sizeof(dgx_vscreen_t));
     if (!scr) {
         ESP_LOGE(TAG, "Screen structure memory allocation failed");
@@ -329,11 +367,19 @@ dgx_screen_t *dgx_vscreen_from_array(void *v_array, int width, int height, uint8
 
 void dgx_vscreen_array_set(dgx_screen_t *_scr, void *pixels, int width, int height)
 {
-    /* another screen would lose its own memory; an overlay keeps where the pixels of its layer lie and their size */
-    if (_scr->destroy != dgx_vscreen_array_destroy || _scr->overlay || !pixels || width <= 0 || height <= 0) {
+    /*
+     * Another screen would lose its own memory. A layer over this screen,
+     * or this screen laid over another, keeps where the pixels lie and their
+     * size; a layer taken away has left only the place it changed, which is
+     * forgotten with the rest.
+     */
+    const dgx_overlay_t *overlay = _scr->overlay;
+    const bool           laid    = overlay && (overlay->display != _scr || overlay->layer);
+    if (_scr->destroy != dgx_vscreen_array_destroy || laid || !pixels || !dgx_vscreen_fits(width, height, _scr->color_bits)) {
         ESP_LOGE(TAG, "dgx_vscreen_array_set: not a free screen of dgx_vscreen_from_array(), no memory, or a size of no pixels");
         return;
     }
+    if (overlay) dgx_overlay_forget(_scr);
     dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
     scr->v_array       = (uint8_t *)pixels;
     _scr->width        = width;

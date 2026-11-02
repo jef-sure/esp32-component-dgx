@@ -547,8 +547,9 @@ void dgx_spi_release_host(spi_host_device_t host_id)
  * over `data_lines`, it is 4000 bytes at least, 32000 at most and no more
  * than the host takes in one transfer. A host with DMA takes 4092 bytes at
  * least: the driver rounds max_transfer_sz up to whole DMA descriptors of
- * 4092 bytes. `most`, when it is not 0, is the program's limit: no longer
- * than it, in whole words, and 4 bytes at least.
+ * 4092 bytes; one with no DMA takes SOC_SPI_MAXIMUM_BUFFER_SIZE, 64 bytes.
+ * `most`, when it is not 0, is the program's limit: no longer than it, in
+ * whole words, and 4 bytes at least.
  */
 static size_t dgx_spi_buffer_len(spi_host_device_t host_id, spi_device_handle_t dev, unsigned data_lines, size_t most)
 {
@@ -559,9 +560,10 @@ static size_t dgx_spi_buffer_len(spi_host_device_t host_id, spi_device_handle_t 
     uint64_t       bits    = (uint64_t)khz * data_lines * 2u * half_us / 1000u;
     uint64_t       len     = bits / 8u;
     if (len > DGX_SPI_MAX_TRANSFER) len = DGX_SPI_MAX_TRANSFER;
+    if (len < DGX_SPI_MIN_BUFFER) len = DGX_SPI_MIN_BUFFER;
+    /* the host last: what DGX takes at least is too much for a host with no DMA */
     size_t host_most = 0;
     if (spi_bus_get_max_transaction_len(host_id, &host_most) == ESP_OK && host_most && len > host_most) len = host_most;
-    if (len < DGX_SPI_MIN_BUFFER) len = DGX_SPI_MIN_BUFFER;
     /* the program's limit is the most, below the least DGX takes too; the length goes down to a multiple of 16
      * bytes, or of a word under 16, one word at least. The SPI driver asks nothing of a buffer it sends from
      * internal memory (alignment 1 for TX in IDF 5.5 and 6.1); 16 bytes is what DMA from PSRAM asks under flash
@@ -681,6 +683,11 @@ void dgx_spi_host_join(spi_host_device_t host_id)
     dgx_spi_host_t *h = &dgx_spi_hosts[host_id];
     ++h->users;
     if (h->keeper) dgx_spi_let_go(h->keeper);
+}
+
+bool dgx_spi_host_is_dgx(spi_host_device_t host_id)
+{
+    return dgx_spi_hosts[host_id].taken;
 }
 
 static void dgx_spi_host_leave(spi_host_device_t host_id)
@@ -809,7 +816,15 @@ dgx_bus_protocols_t *dgx_spi_init_on_bus_with(spi_host_device_t host_id, gpio_nu
         ESP_LOGE(TAG, "SPI host %d does not exist", (int)host_id);
         return NULL;
     }
-    return dgx_spi_attach(host_id, false, cs, dc, clock_speed_hz, cpolpha_mode, options);
+    /*
+     * A host DGX has set up stays DGX's, whichever constructor names it: the
+     * display joins it as one of dgx_spi_init() does, or the display that
+     * keeps the bus there would keep this one waiting for ever.
+     */
+    const bool dgx_host = dgx_spi_host_is_dgx(host_id);
+    dgx_bus_protocols_t *bus = dgx_spi_attach(host_id, dgx_host, cs, dc, clock_speed_hz, cpolpha_mode, options);
+    if (bus && dgx_host) dgx_spi_host_join(host_id);
+    return bus;
 }
 
 dgx_bus_protocols_t *dgx_spi_init_on_bus(spi_host_device_t host_id, gpio_num_t cs, gpio_num_t dc, int clock_speed_hz, uint8_t cpolpha_mode)

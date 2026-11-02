@@ -23,6 +23,7 @@ extern "C" {
  *
  * A negative width or height takes the rectangle to the left of x or up
  * from y: (x, y, -w, h) is (x - w, y, w, h). Every screen draws it so.
+ * x + w and y + h are to fit in an int.
  *
  * @param scr The screen to draw on.
  * @param x The x coordinate of the top-left corner of the rectangle.
@@ -99,6 +100,9 @@ void dgx_draw_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color);
 /**
  * @brief Draws a line on the screen.
  *
+ * The line is walked from end to end, off the screen as well: ends millions
+ * of pixels away take as many steps.
+ *
  * @param scr The screen to draw on.
  * @param x1 The x coordinate of the first point of the line.
  * @param y1 The y coordinate of the first point of the line.
@@ -128,6 +132,10 @@ void dgx_solid_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color);
  * for pixel. No pixel is further than half a pixel from the curve, along its
  * row or along its column, and a thin ellipse keeps its ends, which the walk
  * of the textbooks spoils. An ellipse with a radius of 0 is a line.
+ *
+ * The center and the radii are numbers of 16 bits: an ellipse whose center
+ * or a radius lies past 32767 either way draws nothing, and so do the arcs
+ * and the sectors below.
  *
  * @param scr   The screen to draw on.
  * @param x     The x coordinate of the center.
@@ -313,6 +321,9 @@ esp_err_t dgx_scroll_no_fill(dgx_screen_t *scr, int x, int y, int w, int h, int 
 /**
  * @brief Draws a filled triangle on the screen.
  *
+ * The corners lie within 32767 pixels of each other along each axis: the
+ * rows are found by sums of 32 bits, which go past their range beyond that.
+ *
  * @param scr The screen to draw on.
  * @param x0,y0 First vertex.
  * @param x1,y1 Second vertex.
@@ -347,7 +358,8 @@ void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
  * An even width has no middle pixel: the spare one goes to the right of the
  * way from (x1, y1) to (x2, y2), so the same line drawn the other way lies a
  * pixel aside. Draw the lines of one figure in one direction. An odd width
- * gives the same pixels either way.
+ * gives the same pixels either way. The sides are worked out in floats: ends
+ * ten million pixels and more away come out a pixel off.
  *
  * @param scr The screen to draw on.
  * @param x1,y1 Line start.

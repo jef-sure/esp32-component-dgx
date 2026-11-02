@@ -1634,9 +1634,17 @@ depends on the constructor:
   display on it keeps the host between its drawings, and a device added to
   it would wait for ever. A touch controller or an SD card beside the display
   goes on a host the program sets up, with `dgx_spi_init_on_bus()`.
+  The kept host keeps the lock of power management ESP-IDF takes with it:
+  with `CONFIG_PM_ENABLE` the chip neither goes into light sleep nor lowers
+  its clocks while that display exists. A program that wants them puts the
+  display on a host it sets up itself, with `dgx_spi_init_on_bus()` or
+  `dgx_qspi_init_on_bus()`, where the display holds the host only while it
+  draws.
 - `dgx_spi_init_on_bus()`, `dgx_qspi_init_on_bus()`, `dgx_i2c_init_on_bus()`
   and `dgx_p8_init_on_bus()` put the display on a bus the program has set up and owns. DGX adds its
   device and removes it on dispose; the program releases the bus afterwards.
+  Named an SPI host that `dgx_spi_init()` or `dgx_qspi_init()` has set up,
+  the first two add a display of DGX to it, as those constructors do.
   On SPI and QSPI the display holds the host from a window to the end of its
   drawing, or of a batch opened with `dgx_screen_progress_up()`: the other
   devices take it between drawings, and one used from inside such a batch,
@@ -1704,7 +1712,10 @@ command goes in one transfer with its data, and every block of pixels goes
 with the command that writes memory: a block that continues a window has the
 window set anew, to what is left of it. That is one or two short commands
 more for every 4000 bytes of pixels, and the same code for both kinds of
-chips.
+chips. 12-bit pixels share bytes and cannot be cut so: on an ESP32 and an
+ESP32-S2 only the first block of a window reaches the display, and the log
+says once that the rest was dropped. 12 bits on this bus are for an
+ESP32-S3 or an ESP32-P4.
 
 [include/bus/dgx_dsi_esp32.h](include/bus/dgx_dsi_esp32.h) also has what a
 driver of another DSI display is written with: `dgx_dsi_video_setup()` makes

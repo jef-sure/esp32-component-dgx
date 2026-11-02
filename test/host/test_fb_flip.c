@@ -39,6 +39,8 @@ static struct {
     uint32_t now;          /* microseconds */
     uint32_t period;
     uint32_t jitter;       /* a frame ends up to this much later than it should */
+    uint32_t late_one_in;  /* and one in so many ends `late_by` later still: its interrupt came late */
+    uint32_t late_by;
     uint32_t count_delay;  /* and is counted this much later than the display takes the frame buffer */
     bool     running;      /* frames are sent */
     uint32_t next_end;     /* when the frame being sent ends, without the jitter */
@@ -110,6 +112,7 @@ static void sim_advance(uint32_t by)
             }
             sim.next_end += sim.period;
             sim.next_take = sim.next_end + (sim.jitter ? rnd(0, sim.jitter) : 0u);
+            if (sim.late_one_in && rnd(1, sim.late_one_in) == 1) sim.next_take += sim.late_by;
         } else {
             break;
         }
@@ -128,7 +131,7 @@ static void sim_show(void *context, uint8_t frame)
     CHECK(context == &sim);
     CHECK(frame < 2);
     /* a word taken back is not tried when the frame is about to end: it would be given again at once, and both may come late */
-    if (frame != flip.drawn && sim.ended >= 2 && sim.now - sim.counted_at + flip.guard_us >= sim.measured + 100u) ++sim.late_words;
+    if (frame != flip.drawn && sim.ended >= 2 && sim.now - sim.counted_at + flip.guard_us >= sim.period + 100u) ++sim.late_words;
     sim_advance(sim_call_time());
     sim.told = frame;
     sim_advance(sim_call_time());
@@ -139,7 +142,8 @@ static bool sim_frames(void *context, uint32_t *ended, uint32_t *since_us, uint3
     CHECK(context == &sim);
     *ended     = sim.ended;
     *since_us  = sim.now - sim.counted_at;
-    *period_us = sim.measured;
+    /* the time a frame takes over many of them, as the DSI bus tells it, not the time between the last two ends */
+    *period_us = sim.period;
     const bool timed = !sim.untimed && sim.ended >= 2 && *since_us <= 2u * *period_us;
     sim_advance(sim_call_time());
     return timed;
@@ -612,6 +616,28 @@ static void test_any_timing(uint32_t jitter, uint32_t count_delay, bool at_switc
     }
 }
 
+/*
+ * One frame in four whose interrupt comes late, the frame buffer taken in
+ * it a moment before it is counted: a word given in that moment is too late
+ * for the frame. With the time a frame takes over many of them the guard
+ * holds while the lateness is less than it; with the time between the last
+ * two ends it lost twice the lateness, and from 150 us on something
+ * half-drawn was shown.
+ */
+static void test_late_interrupts(uint32_t late_by)
+{
+    for (int round = 0; round < 60; ++round) {
+        static const task_t tasks[] = {{500, 3000, 0, 2000}, {500, 3000, 0, 2000}, {200, 1000, 0, 500}};
+        sim_start(PERIOD, 0, 20, true, GUARD);
+        sim.late_one_in = 4;
+        sim.late_by     = late_by;
+        sim.call_most   = rnd(0, 40);
+        run(tasks, 3, 400 * PERIOD);
+        CHECK(sim.broken == 0);
+        CHECK(flip.flips > 10);
+    }
+}
+
 /* no frames are sent, as before a display is started: drawing goes on, a batch into one frame buffer and the next into the other */
 static void test_no_frames(void)
 {
@@ -670,6 +696,9 @@ int main(void)
     test_any_timing(0, 20, true, 0, 0);
     test_any_timing(30, 100, true, 0, 0);
     test_any_timing(30, 100, true, 5, 3000);
+    /* and with interrupts that come late now and then */
+    test_late_interrupts(160);
+    test_late_interrupts(250);
     /* and 12 rows of the display later, as on a chip of revision 3 and later with the older driver */
     test_any_timing(0, 310, false, 0, 0);
     test_any_timing(300, 310, false, 0, 0);

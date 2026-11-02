@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -140,8 +141,51 @@ static void check_turns(const char *name, dgx_font_t *font, const char *text, in
     dgx_screen_destroy(&upright);
 }
 
+/* what is not UTF-8 comes out as U+FFFD; every byte is consumed but the terminator, so a loop over a string ends */
+static void test_utf8(void)
+{
+    static const struct {
+        const char *text;
+        uint32_t    first;
+        size_t      after;
+    } cases[] = {
+        {"\xC3\xA4", 0xE4, 2},           {"\xE2\x88\x92", 0x2212, 3},    {"\xF0\x9F\x98\x80", 0x1F600, 4},
+        {"\xB0", 0xFFFD, 1},             {"\xC0\xAF", 0xFFFD, 1},         {"\xE0\x80\xAF", 0xFFFD, 3},
+        {"\xED\xA0\x80", 0xFFFD, 3},     {"\xF4\x90\x80\x80", 0xFFFD, 4}, {"\xE2\x88", 0xFFFD, 2},
+        {"\xF8\x88\x80", 0xFFFD, 1},     {"\xE2\x88" "A", 0xFFFD, 2},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+        size_t         idx = 0;
+        const uint32_t cp  = decodeUTF8next(cases[i].text, &idx);
+        if (cp != cases[i].first || idx != cases[i].after) fprintf(stderr, "case %u: U+%04X after %u\n", (unsigned)i, (unsigned)cp, (unsigned)idx);
+        CHECK(cp == cases[i].first && idx == cases[i].after);
+    }
+    size_t idx = 2;
+    CHECK(decodeUTF8next("\xE2\x88", &idx) == 0 && idx == 2); /* the terminator is not consumed */
+    idx = 2;
+    CHECK(decodeUTF8next("\xE2\x88" "A", &idx) == 'A' && idx == 3);
+}
+
+/* a soft dot of any size is at full brightness in its middle */
+static void test_soft_dots(void)
+{
+    for (int size = 1; size <= 12; ++size) {
+        dgx_screen_t *dot = dgx_vscreen_init(size, size, 8, DgxScreenRGB);
+        dgx_font_make_point8(dot);
+        uint32_t most = 0;
+        for (int y = 0; y < size; ++y)
+            for (int x = 0; x < size; ++x)
+                if (dgx_get_pixel(dot, x, y) > most) most = dgx_get_pixel(dot, x, y);
+        if (most != 255) fprintf(stderr, "a dot of %d: %u at most\n", size, (unsigned)most);
+        CHECK(most == 255);
+        dgx_screen_destroy(&dot);
+    }
+}
+
 int main(void)
 {
+    test_utf8();
+    test_soft_dots();
 #define FONT(f) check_metrics(#f, f())
     FONT(CasusDotView);
     FONT(DejaVuSansBook32);

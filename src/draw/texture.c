@@ -263,6 +263,8 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
         dgx_texture_edge_init(&e_prev, &vertices[i_min], &vertices[i_min], y_start, y_start, y_end);
         dgx_texture_edge_init(&e_next, &vertices[i_max], &vertices[i_max], y_start, y_start, y_end);
         e_prev.v = e_next.v = DGX_FP_FROM_INT(ty) + DGX_FP_FROM_INT(th) / 2;
+        /* and a single pixel through the middle of its columns too */
+        if (quad[i_min].x == quad[i_max].x) e_prev.u = e_next.u = DGX_FP_FROM_INT(tx) + DGX_FP_FROM_INT(tw) / 2;
         dgx_texture_span(&ctx, y_start, &e_prev, &e_next);
     } else {
         /* Two chains run from the top vertex to the bottom one, around both sides of the quad. */

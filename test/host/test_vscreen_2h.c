@@ -15,6 +15,8 @@
 #include "dgx_draw.h"
 #include "dgx_screen_functions.h"
 #include "dgx_screen_with_bus.h"
+#include "dgx_overlay.h"
+#include "drivers/vscreen.h"
 #include "drivers/vscreen_2h.h"
 #include "vscreen/vscreen_2h.c"
 
@@ -122,8 +124,50 @@ static int panel_wrong(const panel_t *p, dgx_screen_t *both, int x0)
     return wrong;
 }
 
+/* two panels of one size whose buses have no buffer: the rows go pixel by pixel, and all of them come */
+static void test_no_buffers(void)
+{
+    panel_t       lm, rm;
+    dgx_screen_t *left = panel_screen(&lm, 40, 30), *right = panel_screen(&rm, 40, 30);
+    lm.bus.buffer = rm.bus.buffer = NULL, lm.bus.buffer_len = rm.bus.buffer_len = 0;
+    lm.bus.wire = &lm, rm.bus.wire = &rm;
+    dgx_screen_t *both = dgx_vscreen_2h_init(left, right);
+    CHECK(both != NULL);
+    dgx_fill_rectangle(both, 0, 3, both->width, 5, 0x1234);
+    CHECK(panel_wrong(&lm, both, 0) == 0 && panel_wrong(&rm, both, left->width) == 0);
+    dgx_screen_destroy(&both);
+    free(left), free(right), free(lm.memory), free(rm.memory);
+}
+
+/* a layer over the left panel is mixed into the rows that go to it, whole rows across both too */
+static void test_layer_over_a_panel(void)
+{
+    panel_t       lm, rm;
+    dgx_screen_t *left = panel_screen(&lm, 40, 30), *right = panel_screen(&rm, 40, 30);
+    lm.bus.wire = &lm, rm.bus.wire = &rm;
+    dgx_screen_t *both  = dgx_vscreen_2h_init(left, right);
+    dgx_screen_t *layer = dgx_vscreen_init(10, 10, 8, DgxScreenRGB);
+    CHECK(both && layer);
+    static uint16_t lut[256];
+    lut[1] = 0xf800;
+    dgx_fill_rectangle(layer, 0, 0, 10, 10, 1);
+    CHECK(dgx_overlay_set(left, layer, 5, 5, lut, 255));
+    int x, y, w, h;
+    dgx_overlay_take_dirty(left, &x, &y, &w, &h);
+    dgx_fill_rectangle(both, 0, 0, both->width, both->height, 0x001f);
+    CHECK(lm.memory[7 + 7 * 40] == 0xf800); /* under the layer: its color */
+    CHECK(lm.memory[20 + 20 * 40] == 0x001f && rm.memory[7 + 7 * 40] == 0x001f);
+    dgx_overlay_clear(left);
+    dgx_overlay_take_dirty(left, &x, &y, &w, &h);
+    dgx_screen_destroy(&layer);
+    dgx_screen_destroy(&both);
+    free(left), free(right), free(lm.memory), free(rm.memory);
+}
+
 int main(void)
 {
+    test_no_buffers();
+    test_layer_over_a_panel();
     /* of one size, of one width and two heights the one way and the other, and of two widths */
     static const int sizes[][4] = {{40, 30, 40, 30}, {40, 30, 40, 40}, {40, 40, 40, 30}, {30, 30, 40, 30}};
     for (int run = 0; run < 8; ++run) {

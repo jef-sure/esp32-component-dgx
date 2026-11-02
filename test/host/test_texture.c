@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -344,8 +345,21 @@ static void test_panel_12(void)
     dgx_screen_destroy(&tex);
 }
 
+/* a quad of a single pixel takes the texel in the middle of the region, not one at its edge */
+static void test_single_pixel(void)
+{
+    dgx_screen_t        *tex = make_texture(16);
+    dgx_screen_t        *dst = dgx_vscreen_init(8, 8, 16, DgxScreenRGB);
+    const dgx_point_2d_t one[4] = {{3, 3}, {3, 3}, {3, 3}, {3, 3}};
+    dgx_draw_texture_quad(dst, one, tex, 2, 1, 6, 4);
+    CHECK(dgx_get_pixel(dst, 3, 3) == texel(2 + 3, 1 + 2));
+    dgx_screen_destroy(&dst);
+    dgx_screen_destroy(&tex);
+}
+
 int main(void)
 {
+    test_single_pixel();
     test_far();
     test_panel_12();
     test_copy_and_scale(8);

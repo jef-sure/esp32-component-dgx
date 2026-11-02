@@ -115,12 +115,49 @@ static void dgx_p8_send_commands(struct _dgx_bus_protocols_t *_bus, const uint8_
     dgx_p8_flush_command(bus);
 }
 
+/*
+ * The I2S peripheral of an ESP32 sends the bytes of pixels two at a time.
+ * ESP-IDF 6.0 and later refuse an odd number of them; 5.5 sent a byte more,
+ * read past the end. 18-bit pixels are three bytes each, so an odd number of
+ * them, a single one too, is an odd number of bytes. Such data goes here with
+ * a byte more, from a copy: every transfer starts with its command, and the
+ * display drops the byte that does not make a pixel when the next command
+ * comes. The driver copies the data into a buffer of its own before
+ * esp_lcd_panel_io_tx_color() returns, so one copy serves every transfer.
+ * Returns NULL with no memory for it.
+ */
+#if CONFIG_IDF_TARGET_ESP32
+static const uint8_t *dgx_p8_even(dgx_p8_bus_t *bus, const uint8_t *data, uint32_t byte_len)
+{
+    if (bus->even_len < byte_len + 1u) {
+        free(bus->even);
+        bus->even_len = 0;
+        bus->even     = (uint8_t *)malloc(byte_len + 1u);
+        if (!bus->even) {
+            ESP_LOGE(TAG, "no memory to send %u bytes, an odd number, as this chip takes them", (unsigned)byte_len);
+            return NULL;
+        }
+        bus->even_len = byte_len + 1u;
+    }
+    memcpy(bus->even, data, byte_len);
+    bus->even[byte_len] = 0;
+    return bus->even;
+}
+#endif
+
 static void dgx_p8_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len) {
     dgx_p8_bus_t *bus = (dgx_p8_bus_t *)_bus;
     uint32_t byte_len = (len + 7u) / 8u;
     int command;
     if (byte_len == 0) return;
     if (!dgx_p8_take_command(bus, &command)) return;
+#if CONFIG_IDF_TARGET_ESP32
+    if (byte_len & 1u) {
+        data = dgx_p8_even(bus, data, byte_len);
+        if (!data) return;
+        ++byte_len;
+    }
+#endif
     dgx_p8_wait_pending(bus);
     bus->transfer_pending = true;
     esp_err_t ret = esp_lcd_panel_io_tx_color(bus->io, command, data, byte_len);
@@ -205,6 +242,7 @@ static void dgx_p8_dispose_bus_func(struct _dgx_bus_protocols_t *_bus) {
     if (bus->io) esp_lcd_panel_io_del(bus->io);
     if (bus->owns_i80_bus) dgx_p8_release_made(dgx_p8_find_made(bus->i80_bus));
     if (bus->transfer_done_sem) vSemaphoreDelete(bus->transfer_done_sem);
+    free(bus->even);
     free(bus->protocols.buffer);
     free(bus);
 }

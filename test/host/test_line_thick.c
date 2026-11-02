@@ -194,8 +194,30 @@ static void far_ends(void)
     dgx_screen_destroy(&near);
 }
 
+/* a line from a point to itself is a dot as wide and as high as the line is wide, an even width too */
+static void dots(void)
+{
+    for (int width = 1; width <= 9; ++width) {
+        dgx_screen_t *s = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
+        dgx_draw_line_thick(s, 50, 60, 50, 60, width, 1);
+        int left = W, right = -1, top = H, bottom = -1;
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x)
+                if (dgx_get_pixel(s, x, y)) {
+                    if (x < left) left = x;
+                    if (x > right) right = x;
+                    if (y < top) top = y;
+                    if (y > bottom) bottom = y;
+                }
+        CHECK(right - left + 1 == width && bottom - top + 1 == width);
+        CHECK(dgx_get_pixel(s, 50, 60) != 0);
+        dgx_screen_destroy(&s);
+    }
+}
+
 int main(void)
 {
+    dots();
     rectangles();
     widths();
     thin();

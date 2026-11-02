@@ -48,6 +48,8 @@ esp_err_t dgx_spi_take_host(spi_host_device_t host_id, spi_dma_chan_t dma_chan, 
                             gpio_num_t quadhd);
 void dgx_spi_release_host(spi_host_device_t host_id);
 void dgx_spi_host_join(spi_host_device_t host_id);
+/* the host was set up by DGX: a display added to it by *_init_on_bus() joins it as well */
+bool dgx_spi_host_is_dgx(spi_host_device_t host_id);
 
 /*
  * The device of a display added to its host, for a bus whose protocols are

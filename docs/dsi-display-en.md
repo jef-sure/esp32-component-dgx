@@ -793,15 +793,20 @@ Details.
   at 24 bits the copy after the swap is off, and everything is copied at the
   end of the batch.
 - **Interrupts with the cache off.** The end-of-frame interrupt and the
-  copy-done handler start the 2D DMA. With `CONFIG_LCD_DSI_ISR_CACHE_SAFE` or
+  copy-done handler start the 2D DMA. With `CONFIG_LCD_DSI_ISR_CACHE_SAFE`,
+  `CONFIG_DW_GDMA_ISR_IRAM_SAFE` (the end of a frame is an interrupt of the
+  DW-GDMA, and the cache-safe options of the camera turn this one on too) or
   `CONFIG_DMA2D_ISR_IRAM_SAFE` they run also while the flash is written and
   its cache is off, and the functions of the 2D DMA are in IRAM only with
   `CONFIG_DMA2D_OPERATION_FUNC_IN_IRAM`. Without that option the copy after
   the swap is off, as at 24 bits. `CONFIG_DMA2D_ISR_IRAM_SAFE` wants that
   option for a put by the DMA as well: a put that waits for the channels of
   other users is started from the copy-done handler.
-- **A safeguard.** A piece not copied within a quarter of a second is copied
-  by the task, and a warning stays in the log. It never fired on the bench.
+- **No safeguard.** A piece not copied within a quarter of a second leaves a
+  warning in the log, and the task goes on waiting for it. Up to 0.10.4 the
+  task copied it itself, while the 2D DMA might still copy it later; a 2D DMA
+  that does not answer is a fault of the driver or of the chip, and a task
+  that stops on it shows the fault. The safeguard never fired on the bench.
 - **Memory.** The list of pieces, their descriptors and transfers take
   0.85 KB of internal RAM, only with two buffers and only when the 2D DMA
   is built, see `CONFIG_DGX_DSI_PRIVATE_DMA2D`.

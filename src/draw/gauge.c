@@ -34,10 +34,12 @@ static void dgx_gauge_step_quad(const dgx_gauge_t *gauge, int step, uint32_t col
     const float way           = gauge->sweep_degrees < 0 ? 1.0f : -1.0f;
     prev_angle                = gauge->start_angle + way * (float)(step - 1);
     angle                     = gauge->start_angle + way * (float)step;
+    /* both edges are drawn: the outer one lies width - 1 pixels out, and the ring is width pixels thick */
+    const int      outer_r    = gauge->inner_radius + (gauge->width > 1 ? gauge->width - 1 : 0);
     dgx_point_2d_t prev_inner = dgx_gauge_point(gauge->center_x, gauge->center_y, gauge->inner_radius, prev_angle);
-    dgx_point_2d_t prev_outer = dgx_gauge_point(gauge->center_x, gauge->center_y, gauge->inner_radius + gauge->width, prev_angle);
+    dgx_point_2d_t prev_outer = dgx_gauge_point(gauge->center_x, gauge->center_y, outer_r, prev_angle);
     dgx_point_2d_t inner      = dgx_gauge_point(gauge->center_x, gauge->center_y, gauge->inner_radius, angle);
-    dgx_point_2d_t outer      = dgx_gauge_point(gauge->center_x, gauge->center_y, gauge->inner_radius + gauge->width, angle);
+    dgx_point_2d_t outer      = dgx_gauge_point(gauge->center_x, gauge->center_y, outer_r, angle);
 
     dgx_draw_polygon4_solid(gauge->scr, prev_inner.x, prev_inner.y, inner.x, inner.y, outer.x, outer.y, prev_outer.x, prev_outer.y, color);
 }

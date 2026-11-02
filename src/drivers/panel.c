@@ -58,7 +58,7 @@ static uint8_t dgx_panel_madctl(const dgx_screen_with_bus_t *scr)
     uint8_t madctl = ((const dgx_panel_screen_t *)scr)->panel->madctl;
     if (scr->scr.dir_x == DgxScreenRightLeft) madctl ^= DGX_PANEL_MX;
     if (scr->scr.dir_y == DgxScreenBottomTop) madctl ^= DGX_PANEL_MY;
-    if (scr->scr.swap_xy) madctl |= DGX_PANEL_MV;
+    if (scr->scr.swap_xy) madctl ^= DGX_PANEL_MV;
     if (scr->scr.rgb_order == DgxScreenBGR) madctl ^= DGX_PANEL_BGR;
     return madctl;
 }
@@ -222,9 +222,11 @@ void dgx_panel_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orie
     /*
      * The rows of memory are the rows of the screen, or its columns when the
      * axes are swapped; MY turns the addresses along them round whichever
-     * they are.
+     * they are. MY and MV are those MADCTL gets, the upright picture's own
+     * turned by the orientation.
      */
-    if (panel->scroll_lines) dgx_screen_with_bus_scroll_way(&scr->base, swap_xy, dir_y == DgxScreenBottomTop);
+    const uint8_t sent = madctl[0];
+    if (panel->scroll_lines) dgx_screen_with_bus_scroll_way(&scr->base, (sent & DGX_PANEL_MV) != 0, (sent & DGX_PANEL_MY) != 0);
 }
 
 esp_err_t dgx_panel_backlight(dgx_screen_t *_scr, bool on)

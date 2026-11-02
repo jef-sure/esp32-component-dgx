@@ -137,7 +137,8 @@ static inline void dgx_fill_bits_msb(uint8_t *array, size_t idx, size_t len, boo
  * A pattern of `bits` bits, the lowest bits of `a`, turned round by `n`: to
  * the left (rol), its top bit coming to bit 0, or to the right (ror), bit 0
  * coming to the top. A dashed line turns its pattern so from pixel to pixel,
- * and rol undoes ror. Nothing above `bits` is in the result.
+ * and rol undoes ror. Nothing above `bits` is in the result. `bits` is from
+ * 1 to 32 and `n` from 1 to bits - 1.
  */
 static inline uint32_t dgx_rol_nbits(uint32_t a, uint8_t bits, uint8_t n)
 {

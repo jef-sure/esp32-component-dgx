@@ -98,8 +98,20 @@ static void screen(dgx_screen_t *filled, dgx_screen_t *model)
     one(filled, model, 5, -3, 1, H + 6, mask);
 }
 
+/* a virtual screen of a depth whose pixels are not kept, or of no pixels, is not made */
+static void test_refused_screens(void)
+{
+    CHECK(dgx_vscreen_init(10, 10, 0, DgxScreenRGB) == NULL);
+    CHECK(dgx_vscreen_init(10, 10, 2, DgxScreenRGB) == NULL);
+    CHECK(dgx_vscreen_init(10, 10, 7, DgxScreenRGB) == NULL);
+    CHECK(dgx_vscreen_init(0, 10, 16, DgxScreenRGB) == NULL);
+    static uint8_t memory[16];
+    CHECK(dgx_vscreen_from_array(memory, 4, 2, 0, DgxScreenRGB) == NULL);
+}
+
 int main(void)
 {
+    test_refused_screens();
     static const uint8_t depths[] = {1, 8, 12, 16, 18, 24};
     for (size_t d = 0; d < sizeof(depths); ++d) {
         dgx_screen_t *filled = dgx_vscreen_init(W, H, depths[d], DgxScreenRGB), *model = dgx_vscreen_init(W, H, depths[d], DgxScreenRGB);

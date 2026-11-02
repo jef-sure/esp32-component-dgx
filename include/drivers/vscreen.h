@@ -26,7 +26,8 @@ typedef struct _dgx_vscreen_t {
  * @param height     Height in pixels.
  * @param color_bits Pixel depth in bits (8, 12, 16, 18, 24).
  * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR).
- * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
+ * @return Newly allocated screen, or NULL on failure: no memory, a depth of other bits than 1, 4, 8, 12, 16, 18, 24 or 32,
+ *         or a size with no pixels. Its bytes are to fit in 32 bits. Free with dgx_screen_destroy().
  */
 dgx_screen_t* dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_color_order_t cbo);
 
@@ -54,8 +55,8 @@ dgx_screen_t* dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_co
  * @param height     Height in pixels.
  * @param color_bits Pixel depth in bits, as for dgx_vscreen_init().
  * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR).
- * @return Newly allocated screen, or NULL on failure, also when @p v_array is NULL or the size has no pixels. Free with
- *         dgx_screen_destroy().
+ * @return Newly allocated screen, or NULL on failure, also when @p v_array is NULL, or the depth or the size is one
+ *         dgx_vscreen_init() refuses. Free with dgx_screen_destroy().
  */
 dgx_screen_t *dgx_vscreen_from_array(void *v_array, int width, int height, uint8_t color_bits, dgx_color_order_t cbo);
 
@@ -73,7 +74,8 @@ dgx_screen_t *dgx_vscreen_from_array(void *v_array, int width, int height, uint8
  *
  * An error is logged and nothing changes for a screen of any other kind, and
  * for one laid over a display by dgx_overlay_set(), or with a layer over it:
- * dgx_overlay_clear() it first. The same for NULL or a size with no pixels.
+ * dgx_overlay_clear() it first, and the place the layer changed is forgotten
+ * here with the rest. The same for NULL or a size with no pixels.
  *
  * @param scr     A screen of dgx_vscreen_from_array().
  * @param pixels  The pixels.
@@ -116,7 +118,7 @@ dgx_screen_t *dgx_vscreen_clone(dgx_screen_t *_scr_src);
  *
  * @param scr           The screen.
  * @param x,y           Top-left corner of the rectangle.
- * @param width,height  Size of the rectangle; it must lie within the screen.
+ * @param width,height  Size of the rectangle; it must lie within the screen, and x + width and y + height fit in an int.
  * @param lut           256-entry RGB565 table for an 8-bit screen, or NULL.
  * @param dst           Where the colors go.
  * @param dst_stride    Pixels from the start of a row of @p dst to the start of the next, at least @p width.
@@ -203,8 +205,9 @@ bool dgx_vscreen_to_argb8888(dgx_screen_t *scr, int x, int y, int width, int hei
  * are not put.
  *
  * A display behind a bus gets the pixels through one window when nothing is
- * transparent; a transparent picture goes by the runs of pixels it puts, a
- * window each. A display whose bus takes rows of memory, a DSI display, gets
+ * transparent and a pixel takes whole bytes; a transparent picture goes by
+ * the runs of pixels it puts, a window each, and 12-bit pixels go one by
+ * one. A display whose bus takes rows of memory, a DSI display, gets
  * an upright picture as it is so. The overlay layer of a 16-bit
  * destination, dgx_overlay.h, is mixed in on the way.
  *

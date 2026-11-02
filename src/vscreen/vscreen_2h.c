@@ -3,6 +3,7 @@
 #include "dgx_arch.h"
 #include "dgx_bits.h"
 #include "dgx_halves_priv.h"
+#include "dgx_overlay_priv.h"
 #include "dgx_screen_functions.h"
 #include "drivers/dgx_lcd_init.h"
 #include "drivers/vscreen.h"
@@ -41,12 +42,16 @@ static void dgx_vscreen_2h_update_area(dgx_screen_t *_scr, int left, int right, 
      * rows to each: only when the panels are of one height, or the shorter one
      * would be sent rows its window has no room for, and the window would take
      * them from its top again. Each panel is sent through the halves of its
-     * bus buffer, a row to one and then a row to the other. Two panels on one
+     * bus buffer, a row to one and then a row to the other: both are 16-bit
+     * and behind a bus that has a buffer, and no layer lies over either,
+     * which only the way of one panel at a time mixes in. Two panels on one
      * host cannot go so: the bus held for one keeps the other waiting.
      */
-    if (scr->left_screen->screen_subtype == DgxPhysicalScreenWithBus && scr->right_screen->screen_subtype == DgxPhysicalScreenWithBus &&
-        scr->left_screen->color_bits == 16 && lw == rw && lw == scr->left_screen->width && rw == scr->right_screen->width &&
-        scr->left_screen->height == scr->right_screen->height && !dgx_vscreen_2h_one_wire(scr)) {
+    const int rows_top = DGX_MAX(0, top), rows_bottom = DGX_MIN(_scr->height - 1, bottom);
+    if (dgx_transfer_bus_takes(scr->left_screen, 2u) && dgx_transfer_bus_takes(scr->right_screen, 2u) && lw == rw && lw == scr->left_screen->width &&
+        rw == scr->right_screen->width && scr->left_screen->height == scr->right_screen->height && !dgx_vscreen_2h_one_wire(scr) &&
+        !dgx_overlay_over(scr->left_screen, 0, rows_top, lw - 1, rows_bottom) &&
+        !dgx_overlay_over(scr->right_screen, 0, rows_top, rw - 1, rows_bottom)) {
         top = DGX_MAX(0, top);
         bottom = DGX_MIN(_scr->height - 1, bottom);
         if (top > bottom) return;

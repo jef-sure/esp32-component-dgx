@@ -228,6 +228,9 @@ int main(void)
     dgx_bus_protocols_t untouched = {.bus_type = DGX_BUS_SPI, .write_command = bus_write_command, .write_data = bus_write_data};
     last_cmd                      = 0;
     CHECK(dgx_ssd1351_init(&untouched, GPIO_NUM_NC, 12, DgxScreenRGB) == NULL && last_cmd == 0);
+    /* no bus: no screen, at either depth */
+    CHECK(dgx_ssd1351_init(NULL, GPIO_NUM_NC, 16, DgxScreenRGB) == NULL);
+    CHECK(dgx_ssd1351_init(NULL, GPIO_NUM_NC, 18, DgxScreenRGB) == NULL);
     const enum dgx_bus_type types[] = {DGX_BUS_SPI, DGX_BUS_P8};
     for (int t = 0; t < 2; ++t) {
         run(types[t], 16, false, 512);

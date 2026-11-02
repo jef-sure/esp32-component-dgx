@@ -34,6 +34,13 @@ On the wire, 18 bits take half as long again as 16. A full 240x320 frame is
 153,600 bytes at 16 bits and 230,400 bytes at 18; at a 40 MHz SPI clock
 that is 30.7 ms and 46.1 ms of transfer alone.
 
+An odd number of pixels is an odd number of bytes at 18 bits. The 8-bit
+parallel bus of an ESP32, made of its I2S peripheral, sends bytes in pairs:
+ESP-IDF 6.0 and later refuse an odd number of them, and 5.5 sends one byte
+more. DGX sends such a transfer with a byte more from a copy of its own.
+Every transfer of that bus starts with a command, and the panel drops the
+byte that does not make a whole pixel when the next command comes.
+
 ## The SSD1351
 
 The SSD1351 is the exception. In its 262k-color mode, over SPI and the
@@ -99,6 +106,10 @@ Host tests check the bytes, not a panel:
 
 - `test/host/test_pixels.c` checks that `dgx_rgb_to_18()` puts each channel
   in the high six bits of its own byte on the wire.
+- `test/host/test_p8.c` draws at 24 bits, three bytes a pixel as at 18,
+  through the 8-bit bus against a model of the I2S driver of an ESP32;
+  `test_p8_idf6.c` does it with the driver of ESP-IDF 6, which refuses an
+  odd number of bytes.
 - `test/host/test_ssd1351.c` runs the driver against a model of the
   controller at 16 and 18 bits. In 262k mode the model takes three bytes per
   pixel and reads D5..D0. The test draws figures, text and rotated virtual

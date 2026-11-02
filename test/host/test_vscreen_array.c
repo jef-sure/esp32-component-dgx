@@ -250,14 +250,14 @@ static void test_overlay_keeps_its_hold(void)
         dgx_vscreen_array_set(display, display_other, 4, 2);
         CHECK(((dgx_vscreen_t *)display)->v_array == display_memory && display->width == 8);
 
-        /* taken away, the layer is a screen as any other; the display keeps what it has changed until that is taken */
+        /* taken away, the layer is a screen as any other; the display forgets the place it changed with its old memory */
         dgx_overlay_clear(display);
         dgx_vscreen_array_set(layer, other, 4, 2);
         CHECK(((dgx_vscreen_t *)layer)->v_array == other && layer->width == 4);
-        int x, y, width, height;
-        dgx_overlay_take_dirty(display, &x, &y, &width, &height);
         dgx_vscreen_array_set(display, display_other, 4, 2);
         CHECK(((dgx_vscreen_t *)display)->v_array == display_other && display->width == 4);
+        int x, y, width, height;
+        CHECK(!dgx_overlay_take_dirty(display, &x, &y, &width, &height) && !display->overlay);
 
         /* and one may be let go of while it lies over a screen */
         dgx_vscreen_array_set(layer, layer_memory, 8, 4);
