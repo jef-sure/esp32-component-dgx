@@ -332,13 +332,22 @@ static void dgx_spi_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *
         return;
     }
     dgx_spi_dev_direct_end(&bus->dev);
-    spi_transaction_t *trans = &bus->dev.trans_sync;
-    memset(trans, 0, sizeof(*trans));
-    trans->tx_buffer = data;
-    trans->length    = len;                      // Data length in bits
-    trans->user      = set_dc_pin(bus->dcio, 1); // DC = 1 when data
-    if (spi_device_transmit(bus->dev.spi, trans) != ESP_OK) {
-        ESP_LOGE(TAG, "dgx_spi_send_data failed");
+    /* in pieces no longer than the buffer, which the host takes: one with no DMA takes 64 bytes */
+    const uint32_t most = (uint32_t)_bus->buffer_len * 8u;
+    for (;;) {
+        const uint32_t     piece = len < most ? len : most;
+        spi_transaction_t *trans = &bus->dev.trans_sync;
+        memset(trans, 0, sizeof(*trans));
+        trans->tx_buffer = data;
+        trans->length    = piece;                    // Data length in bits
+        trans->user      = set_dc_pin(bus->dcio, 1); // DC = 1 when data
+        if (spi_device_transmit(bus->dev.spi, trans) != ESP_OK) {
+            ESP_LOGE(TAG, "dgx_spi_send_data failed");
+            return;
+        }
+        if (piece == len) return;
+        data += piece / 8u;
+        len -= piece;
     }
 }
 

@@ -899,6 +899,7 @@ idf.py flash monitor
 | [hw_font_demo](examples/hw_font_demo) | CYD | a text written by hand, stroke by stroke |
 | [hw_morph_demo](examples/hw_morph_demo) | CYD | handwritten words morphing one into another |
 | [hw_soft_pen_demo](examples/hw_soft_pen_demo) | CYD or JC1060P470 | handwriting with a soft pen, lines that move to make room |
+| [ssd1322_demo](examples/ssd1322_demo) | ESP32 with a 3.12" SSD1322 OLED on the 8-bit parallel bus | 16 grays, text in two fonts, lines and circles, a gray ramp |
 
 A CYD is an ESP32-2432S028R: an ESP32 with a 320x240 ILI9341 on SPI.
 
@@ -1033,6 +1034,7 @@ wire.
 | ST77916 | round color TFT, 360x360 | QSPI, SPI | `dgx_st77916_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_ST77916` |
 | GC9A01 | round color TFT | SPI, P8 | `dgx_gc9a01_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_GC9A01` |
 | SSD1351 | color OLED | SPI, P8 | `dgx_ssd1351_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SSD1351` |
+| SSD1322 | 16-gray OLED, 256x64, 240x128, 128x64 | P8, SPI | `dgx_ssd1322_init(bus, resolution, rst)` | `CONFIG_DGX_ENABLE_SSD1322` |
 | SSD1306 | mono OLED | SPI, I2C | `dgx_ssd1306_init(bus, resolution, is_ext_vcc, rst)` | `CONFIG_DGX_ENABLE_SSD1306` |
 | SSD1309 | mono OLED | SPI, I2C | `dgx_ssd1309_init(bus, resolution, rst)` | `CONFIG_DGX_ENABLE_SSD1309` |
 | SH1106 | mono OLED | SPI, I2C | `dgx_sh1106_init(bus, resolution, rst)` | `CONFIG_DGX_ENABLE_SH1106` |
@@ -1062,8 +1064,10 @@ Common parameters:
   If red and blue are exchanged on your module, pass the other value.
 - `resolution` (ST7789) — the panel: `ST7789_RESOLUTION_240x240`,
   `ST7789_RESOLUTION_240x320`, or `ST7789_RESOLUTION_320x240` for a 240x320
-  panel in landscape. On a 240x320 panel, swapping the axes in
-  `dgx_st7789_orientation()` makes the screen 320x240.
+  panel in landscape; `ST7789_RESOLUTION_76x284` or
+  `ST7789_RESOLUTION_284x76` for the 2.25" bar (an ST7789P3, colors in BGR
+  order, not yet tried on a module). Swapping the axes in
+  `dgx_st7789_orientation()` turns the screen between the two shapes.
 
 Color panels and ST7920 also expose an orientation setter
 (`dgx_<driver>_orientation(scr, dir_x, dir_y, swap_xy)`). A color controller
@@ -1141,7 +1145,7 @@ ST7735, ST7789, ILI9341, GC9A01, NV3041A and ST77916 are descriptions of
 their panels, `dgx_panel_t` of [include/drivers/dgx_panel.h](include/drivers/dgx_panel.h),
 and their constructors make a screen of one with `dgx_panel_init()`. Their
 headers have them under the names `dgx_panel_st7735`, `dgx_panel_st7789_240x240`,
-`dgx_panel_st7789_240x320`, `dgx_panel_ili9341`, `dgx_panel_gc9a01`,
+`dgx_panel_st7789_240x320`, `dgx_panel_st7789_76x284`, `dgx_panel_ili9341`, `dgx_panel_gc9a01`,
 `dgx_panel_nv3041a` and `dgx_panel_st77916`. A module of another glass is a
 copy of one with what the module has otherwise: the size of its glass and
 where the glass lies in the memory of the controller, the table of commands
@@ -1174,6 +1178,23 @@ has no supply argument: `dgx_ssd1309_init(bus, SSD1309_128X64, rst)`, or
 modules wire the first column of the glass to segment 2 of the controller
 and show the picture shifted right by two pixels: tell the driver with
 `dgx_ssd1309_column_offset(scr, 2)`.
+
+SSD1322 is the 16-gray OLED controller of the 256x64 modules (Newhaven
+NHD-3.12-25664 and the 3.12" clones): `dgx_ssd1322_init(bus, SSD1322_256X64,
+rst)`. Other modules wire their glass to other parts of its memory:
+`SSD1322_256X64_ZJY`, `SSD1322_240X128`, `SSD1322_240X128_TOPWIN` and
+`SSD1322_128X64` (Newhaven NHD-2.7-12864WDW3); their settings come from u8g2
+and have not been tried on a module. The controller writes its memory in
+groups of four pixels, so the driver keeps the picture in a 4-bit virtual
+screen (8 KB for 256x64) and sends what has changed. A color is a gray level, 0 (dark) to 15 (bright), in the high
+nibble: `15 << 4`. On the 8-bit parallel bus the controller needs a write
+cycle of 300 ns or longer, a clock of 3.3 MHz at most. The picture is turned
+by `dgx_ssd1322_orientation()` in software, as on the ST7920; brightness is
+set by `dgx_ssd1322_contrast()` (0..255) and `dgx_ssd1322_brightness()`
+(0..15), the gray levels by `dgx_ssd1322_grayscale(scr, levels)` (16 values,
+each above the one before and none above 180), and
+`dgx_ssd1322_display_mode()` turns the whole glass off, fully on, or inverts
+it.
 
 SH1106 is what most 1.3-inch 128x64 modules have, and they are often sold
 as SSD1306. The two are easy to confuse and easy to tell apart: an SH1106
@@ -1891,6 +1912,7 @@ with its transport: see [Getting started](#getting-started).
 | `CONFIG_DGX_ENABLE_SPI_GC9A01` | `drivers/gc9a01.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SPI_ILI_9341` | `drivers/ili9341.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SSD1351` | `drivers/ssd1351.c` | needs SPI or P8 |
+| `CONFIG_DGX_ENABLE_SSD1322` | `drivers/ssd1322.c` | needs SPI or P8; selects `VSCREEN` |
 | `CONFIG_DGX_ENABLE_NV3041A` | `drivers/nv3041a.c` | needs SPI (its QSPI bus) |
 | `CONFIG_DGX_ENABLE_ST77916` | `drivers/st77916.c` | needs SPI (its QSPI bus, or SPI for a panel of one data line) |
 | `CONFIG_DGX_ENABLE_SSD1306` | `drivers/ssd1306.c` | needs SPI or I2C; selects `V_BW_SCREEN` |

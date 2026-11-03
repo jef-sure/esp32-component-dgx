@@ -29,9 +29,10 @@ extern "C" {
  * PSRAM. For a panel driver the bus looks like a display with memory of its
  * own: it takes the window and the pixels that follow and puts them into the
  * frame buffer, in the byte order that buffer has. Other commands go to the
- * display as they are.
+ * display as they are. A virtual screen sent to the display is at most
+ * 16383 pixels wide: the 2D DMA keeps the length of a row in 14 bits.
  *
- * @param bus_id             DSI controller, 0 on ESP32-P4.
+ * @param bus_id            DSI controller, 0 on ESP32-P4.
  * @param data_lanes         Number of data lanes the display is wired with.
  * @param lane_bit_rate_mbps Bit rate of a lane in Mbit/s, as the display needs.
  * @param phy_ldo_chan       Channel of the chip's regulator that powers the DSI PHY

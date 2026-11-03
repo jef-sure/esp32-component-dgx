@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 
 #include "drivers/vscreen.h"
+#include "../vscreen/dgx_soft_turn_priv.h"
 
 /**
  * @brief chip information definition
@@ -148,40 +149,17 @@ static void dgx_st7920_set_gdram_address(dgx_st7920_t *scr, uint8_t y, uint8_t x
     dgx_st7920_send_command(scr, ST7920_CMD_EXT_SET_GRAPHIC_DISPLAY_RAM_ADDRESS | (x & 0x0f));
 }
 
-static void dgx_st7920_destroy(dgx_screen_t **_pscr)
-{
-    if (*_pscr) {
-        dgx_st7920_t *scr = (dgx_st7920_t *)(*_pscr);
-        // Free the virtual screen buffer (same as vscreen destroy does)
-        if (scr->base.v_array) {
-            free(scr->base.v_array);
-            scr->base.v_array = NULL;
-        }
-        free(*_pscr);
-        *_pscr = NULL;
-    }
-}
-
 /*
- * How the screen lies on the panel is carried out here, where the panel is
- * updated: the controller has no command for it. The memory of the screen is
+ * The controller cannot turn the picture: the screen is turned in software
+ * while it is sent, see dgx_soft_turn_priv.h. The memory of the screen is
  * always rows of the screen, 128 bits each or 64 with the axes swapped, and
- * a row of the panel is gathered from it bit by bit. As with the MX, MY and
- * MV bits of a color controller: dir_x counts the columns of the panel from
- * the right, dir_y its rows from the bottom, swap_xy makes x of the screen
- * run along the rows of the panel.
+ * a row of the panel is gathered from it bit by bit.
  */
-static inline bool dgx_st7920_turned(const dgx_screen_t *scr)
-{
-    return scr->swap_xy || scr->dir_x == DgxScreenRightLeft || scr->dir_y == DgxScreenBottomTop;
-}
-
-/* the pixel of the screen that the pixel (px, py) of the panel shows */
 static inline bool dgx_st7920_panel_pixel(const dgx_screen_t *scr, const uint8_t *bits, int px, int py)
 {
-    const int    ax = scr->dir_x == DgxScreenRightLeft ? ST7920_WIDTH - 1 - px : px;
-    const int    ay = scr->dir_y == DgxScreenBottomTop ? ST7920_HEIGHT - 1 - py : py;
-    const size_t at = scr->swap_xy ? (size_t)ax * (size_t)scr->width + (size_t)ay : (size_t)ay * (size_t)scr->width + (size_t)ax;
+    int sx, sy;
+    dgx_soft_turn_pixel(scr, ST7920_WIDTH, ST7920_HEIGHT, px, py, &sx, &sy);
+    const size_t at = (size_t)sy * (size_t)scr->width + (size_t)sx;
     return (bits[at >> 3] & (0x80u >> (at & 7))) != 0;
 }
 
@@ -193,24 +171,9 @@ static void dgx_st7920_update_screen(dgx_screen_t *_scr, int left, int right, in
 
     ESP_LOGD(TAG, "Updating screen: left=%d, right=%d, top=%d, bottom=%d", left, right, top, bottom);
 
-    // Clamp coordinates to display bounds
-    if (left < 0) left = 0;
-    if (top < 0) top = 0;
-    if (right >= _scr->width) right = _scr->width - 1;
-    if (bottom >= _scr->height) bottom = _scr->height - 1;
-
-    if (left > right || top > bottom) return;
-
-    const bool turned = dgx_st7920_turned(_scr);
-    if (turned) {
-        /* the same rectangle on the panel */
-        const int a0 = _scr->swap_xy ? top : left, a1 = _scr->swap_xy ? bottom : right;
-        const int b0 = _scr->swap_xy ? left : top, b1 = _scr->swap_xy ? right : bottom;
-        left   = _scr->dir_x == DgxScreenRightLeft ? ST7920_WIDTH - 1 - a1 : a0;
-        right  = _scr->dir_x == DgxScreenRightLeft ? ST7920_WIDTH - 1 - a0 : a1;
-        top    = _scr->dir_y == DgxScreenBottomTop ? ST7920_HEIGHT - 1 - b1 : b0;
-        bottom = _scr->dir_y == DgxScreenBottomTop ? ST7920_HEIGHT - 1 - b0 : b1;
-    }
+    // Clip to the screen and turn to the panel
+    if (!dgx_soft_turn_rect(_scr, ST7920_WIDTH, ST7920_HEIGHT, &left, &right, &top, &bottom)) return;
+    const bool turned = dgx_soft_turned(_scr);
 
     int     addr_start = left / ST7920_PIXELS_PER_ADDRESS;
     int     addr_end   = right / ST7920_PIXELS_PER_ADDRESS;
@@ -301,31 +264,14 @@ dgx_screen_t *dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
 
     // Wire up function pointers - only override what's needed
     // vscreen already provides: set_area, write_area, read_area, set_pixel, get_pixel,
-    //                            fill_rectangle, draw_line, circle, solid_circle, wait_buffer
+    //                            fill_rectangle, draw_line, circle, solid_circle, wait_buffer, destroy
     scr->base.base.update_screen = dgx_st7920_update_screen;
-    scr->base.base.destroy       = dgx_st7920_destroy;
 
     return (dgx_screen_t *)scr;
 }
 
 void dgx_st7920_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
-    dgx_st7920_t *scr = (dgx_st7920_t *)scr_;
-    const int     width = swap_xy ? ST7920_HEIGHT : ST7920_WIDTH, height = swap_xy ? ST7920_WIDTH : ST7920_HEIGHT;
-    scr_->dir_x   = dir_x;
-    scr_->dir_y   = dir_y;
-    scr_->swap_xy = swap_xy;
-    if (scr_->width != width) {
-        /*
-         * A screen of 64x128 takes as many bytes as one of 128x64, so the
-         * memory stays; but its rows are of another length now, and what
-         * was drawn in it is no picture any more.
-         */
-        memset(scr->base.v_array, 0, ST7920_WIDTH * ST7920_HEIGHT / 8);
-        scr_->width  = width;
-        scr_->height = height;
-    }
-    /* nothing of the old layout is left waiting, and the panel shows the screen as it lies now */
-    scr_->dirty_left = scr_->dirty_right = scr_->dirty_top = scr_->dirty_bottom = 0;
-    dgx_st7920_update_screen(scr_, 0, width - 1, 0, height - 1);
+    dgx_soft_turn_set(scr_, ST7920_WIDTH, ST7920_HEIGHT, dir_x, dir_y, swap_xy);
+    dgx_st7920_update_screen(scr_, 0, scr_->width - 1, 0, scr_->height - 1);
 }

@@ -121,6 +121,20 @@ static const dgx_lcd_init_cmd_t st7789_init_cmds[] = {
     {0,              0,                     0xff, 0,   {0}                     }  // Stop
 };
 
+/* the 2.25" bar of 76x284 has an ST7789P3 and shows the colors right without INVON */
+static const dgx_lcd_init_cmd_t st7789p3_init_cmds[] = {
+    {ST7789_SWRESET, 0,                     0,    150, {0}                     }, //
+    {ST7789_SLPOUT,  0,                     0,    255, {0}                     }, //
+    {ST7789_COLMOD,  dgx_panel_adj_colmod, 1,    10,  {0x55}                  }, //
+    {ST7789_MADCTL,  dgx_panel_adj_madctl, 1,    0,   {0x00 | 0x00}           }, //
+    {ST7789_CASET,   0,                     4,    0,   {0x00, 0x00, 0x00, 0xEF}}, //
+    {ST7789_RASET,   0,                     4,    0,   {0x00, 0x00, 0x01, 0x3F}}, //
+    {ST7789_INVOFF,  0,                     0,    10,  {0}                     }, //
+    {ST7789_NORON,   0,                     0,    10,  {0}                     }, //
+    {ST7789_DISPON,  0,                     0,    255, {0}                     }, //
+    {0,              0,                     0xff, 0,   {0}                     }  // Stop
+};
+
 const dgx_panel_t dgx_panel_st7789_240x320 = {
     .name           = "ST 7789",
     .width          = 240,
@@ -143,21 +157,49 @@ const dgx_panel_t dgx_panel_st7789_240x240 = {
     .init           = st7789_init_cmds,
 };
 
+/* the 76 columns of the 2.25" bar from column 82 of the 240, its 284 rows from row 18 of the 320: in the middle either way */
+const dgx_panel_t dgx_panel_st7789_76x284 = {
+    .name           = "ST 7789P3",
+    .width          = 76,
+    .height         = 284,
+    .memory_width   = 240,
+    .memory_height  = 320,
+    .x_offset       = 82,
+    .y_offset       = 18,
+    .colmod         = {0x33, 0x55, 0x66},
+    .reset_low_ms   = 100,
+    .reset_after_ms = 100,
+    .init           = st7789p3_init_cmds,
+};
+
 // Initialize the display
 dgx_screen_t *dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo, st7789_resolution_t resolution)
 {
-    if (resolution != ST7789_RESOLUTION_240x240 && resolution != ST7789_RESOLUTION_240x320 && resolution != ST7789_RESOLUTION_320x240) {
+    const dgx_panel_t *panel;
+    switch (resolution) {
+    case ST7789_RESOLUTION_240x240:
+        panel = &dgx_panel_st7789_240x240;
+        break;
+    case ST7789_RESOLUTION_240x320:
+    case ST7789_RESOLUTION_320x240:
+        panel = &dgx_panel_st7789_240x320;
+        break;
+    case ST7789_RESOLUTION_76x284:
+    case ST7789_RESOLUTION_284x76:
+        panel = &dgx_panel_st7789_76x284;
+        break;
+    default:
         ESP_LOGE(TAG, "Unsupported ST7789 resolution %d", (int)resolution);
         return NULL;
     }
-    const dgx_panel_t *panel = resolution == ST7789_RESOLUTION_240x240 ? &dgx_panel_st7789_240x240 : &dgx_panel_st7789_240x320;
-    dgx_screen_t      *scr   = dgx_panel_init(bus, panel, rst, GPIO_NUM_NC, color_bits, cbo);
+    dgx_screen_t *scr = dgx_panel_init(bus, panel, rst, GPIO_NUM_NC, color_bits, cbo);
     /*
      * landscape is a turn, MV with MX: MV alone would mirror the picture. It
      * comes after the functions of the screen, which take the screen as not
      * turned: the screen says how it lies, as the panel is told.
      */
-    if (scr && resolution == ST7789_RESOLUTION_320x240) dgx_panel_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    if (scr && (resolution == ST7789_RESOLUTION_320x240 || resolution == ST7789_RESOLUTION_284x76))
+        dgx_panel_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
     return scr;
 }
 

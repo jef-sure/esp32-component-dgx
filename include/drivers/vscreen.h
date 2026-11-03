@@ -24,7 +24,7 @@ typedef struct _dgx_vscreen_t {
  * @brief Create a color RAM-backed virtual screen.
  * @param width      Width in pixels.
  * @param height     Height in pixels.
- * @param color_bits Pixel depth in bits (8, 12, 16, 18, 24).
+ * @param color_bits Pixel depth in bits: 1, 4, 8, 12, 16, 18, 24 or 32.
  * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR).
  * @return Newly allocated screen, or NULL on failure: no memory, a depth of other bits than 1, 4, 8, 12, 16, 18, 24 or 32,
  *         or a size with no pixels. Its bytes are to fit in 32 bits. Free with dgx_screen_destroy().

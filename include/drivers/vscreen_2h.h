@@ -14,8 +14,8 @@ extern "C" {
  * the X coordinate, presenting both panels as a single wider surface.
  *
  * @param left_screen  Screen mapped to the left half.
- * @param right_screen Screen mapped to the right half.
- * @return Composite screen, or NULL on failure. Free with dgx_screen_destroy().
+ * @param right_screen Screen mapped to the right half, of the same color depth.
+ * @return Composite screen, or NULL when the two differ in depth or there is no memory. Free with dgx_screen_destroy().
  */
 dgx_screen_t *dgx_vscreen_2h_init(dgx_screen_t *left_screen, dgx_screen_t *right_screen);
 

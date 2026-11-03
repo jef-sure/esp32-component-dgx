@@ -1062,7 +1062,7 @@ static inline dma2d_trans_t *dgx_dsi_late_trans(const dgx_dsi_bus_t *bus, uint32
 
 static IRAM_ATTR void dgx_dsi_late_start(dgx_dsi_bus_t *bus, uint32_t piece)
 {
-    /* a piece the DMA does not take stays marked as not copied: the task that waits for it copies it itself */
+    /* a piece the DMA does not take stays marked as not copied: a task that waits for it waits on and says so, see dgx_dsi_late_step() */
     dma2d_enqueue(bus->dma_pool, &bus->late->config[piece], dgx_dsi_late_trans(bus, piece));
 }
 

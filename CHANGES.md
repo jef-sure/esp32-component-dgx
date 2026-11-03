@@ -1,5 +1,57 @@
 # Changes
 
+## 0.10.6 - 2026-11-03
+
+New:
+
+- The SSD1322 driver: the 16-gray OLED controller of the 256x64 modules
+  (Newhaven NHD-3.12-25664 and the 3.12" clones), on the 8-bit parallel
+  bus or SPI. The driver keeps the picture in a 4-bit virtual screen and
+  sends what has changed; `dgx_ssd1322_orientation()` turns it,
+  `dgx_ssd1322_grayscale()` sets the gray levels. `examples/ssd1322_demo`
+  runs on a 3.12" module on the parallel bus of an ESP32. The other modules
+  of u8g2 are there too, untried: 256x64 by ZJY, 240x128, 240x128 by
+  Topwin, and the 128x64 NHD-2.7-12864WDW3. All are checked against a model
+  of the controller in all eight orientations.
+- ST7789: the 2.25" bar of 76x284, `ST7789_RESOLUTION_76x284` and
+  `ST7789_RESOLUTION_284x76`, and its description `dgx_panel_st7789_76x284`.
+  Its ST7789P3 shows the glass from column 82 and row 18 of its memory and
+  needs no inversion of colors. The values are those other libraries use for
+  it; not yet tried on a module.
+
+Fixed:
+
+- A `dgx_panel_t` whose upright picture has MV in its MADCTL still mirrored
+  the wrong axis in four orientations of eight; 0.10.5 mended only the swap.
+  No panel DGX describes has MV there.
+- On an SPI host set up without DMA, `write_data()` of more than 64 bytes
+  was refused by the host, so the SSD1306, SSD1309, SH1106 and ST7565R drew
+  nothing there. It now goes in pieces the host takes.
+- A window of a black-and-white virtual screen that started off the screen
+  kept the window before it, and one over its edge was ignored the same
+  way; now, as on the other virtual screens, the first takes nothing and the
+  second is clipped.
+- `dgx_vscreen_2h_init()` took two screens of different depths, and the
+  right one got nothing of the picture; such a pair is now refused.
+- Comments: the depths `dgx_vscreen_init()` takes, and what happens to a
+  piece the 2D DMA of the DSI bus does not take. The DSI header says that a
+  virtual screen sent to the display is at most 16383 pixels wide.
+
+Tests:
+
+- `test_panel_scroll`: a panel described upright across its memory, MV in
+  its MADCTL. `test_spi`: a frame by `write_data()` on a host with no DMA.
+  `test_bw`: windows off the screen and over its edge. `test_vscreen_2h`:
+  two screens of different depths. `test_ssd1322`: the driver against a
+  model of the controller, every module. `test_st7789`: the windows of the
+  bar in all eight orientations.
+
+Inside DGX:
+
+- The ST7920 and SSD1322 drivers share the code that turns a picture in
+  software (`src/vscreen/dgx_soft_turn_priv.h`) and use the destructor of
+  the virtual screen.
+
 ## 0.10.5 - 2026-11-02
 
 Fixed:

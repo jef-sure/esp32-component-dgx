@@ -170,6 +170,7 @@ static int rnd(int lo, int hi)
 }
 
 static void run(const dgx_panel_t *panel);
+static void run_across(void);
 
 int main(void)
 {
@@ -180,7 +181,59 @@ int main(void)
     turned.madctl = MADCTL_BGR | MADCTL_MY;
     upright_my    = true;
     run(&turned);
+    run_across();
     CHECK_DONE();
+}
+
+/*
+ * A panel described upright across its memory, 320x240 with MV in its
+ * MADCTL: a column of the glass is a row of memory. The orientation counts
+ * the columns and rows of the glass as the description has them, so the
+ * pixel (gx, gy) of the glass is memory[gx][gy] and shows the screen as it
+ * lies on that glass, in all eight orientations.
+ */
+static void run_across(void)
+{
+    static dgx_panel_t across;
+    across              = dgx_panel_ili9341;
+    across.width        = PAGES;
+    across.height       = COLUMNS;
+    across.madctl       = MADCTL_BGR | MADCTL_MV;
+    across.scroll_lines = 0;
+    tfa = 0, vsa = PAGES, bfa = 0, vsp = 0;
+    dgx_bus_protocols_t bus = {.bus_type         = DGX_BUS_I2C,
+                               .write_command    = bus_command,
+                               .write_data       = bus_data,
+                               .write_data_async = bus_data,
+                               .sync_write       = bus_sync,
+                               .buffer           = bus_buffer,
+                               .buffer_len       = sizeof(bus_buffer)};
+    dgx_screen_t *scr = dgx_panel_init(&bus, &across, GPIO_NUM_NC, GPIO_NUM_NC, 16, DgxScreenRGB);
+    CHECK(scr && scr->width == PAGES && scr->height == COLUMNS);
+    if (!scr) return;
+    for (int turn = 0; turn < 8; ++turn) {
+        const bool swap = (turn & 4) != 0;
+        dgx_panel_orientation(scr, turn & 1 ? DgxScreenRightLeft : DgxScreenLeftRight, turn & 2 ? DgxScreenBottomTop : DgxScreenTopBottom, swap);
+        dgx_screen_t *ref = dgx_vscreen_init(scr->width, scr->height, 16, DgxScreenRGB);
+        /* a corner mark longer along x, and rectangles anywhere */
+        for (dgx_screen_t *s = scr; s; s = s == scr ? ref : NULL) {
+            dgx_fill_rectangle(s, 0, 0, s->width, s->height, 0);
+            dgx_fill_rectangle(s, 0, 0, 9, 3, 0xffff);
+            for (int i = 0; i < 12; ++i) dgx_fill_rectangle(s, 7 + 19 * i, 11 + 5 * i, 13, 7, (uint32_t)(0x1111 * (i + 1)));
+        }
+        int wrong = 0;
+        for (int y = 0; y < scr->height; ++y) {
+            for (int x = 0; x < scr->width; ++x) {
+                const int along = swap ? x : y, across_ = swap ? y : x;
+                const int gx = turn & 1 ? PAGES - 1 - across_ : across_, gy = turn & 2 ? COLUMNS - 1 - along : along;
+                wrong += memory[gx][gy] != (uint16_t)dgx_get_pixel(ref, x, y);
+            }
+        }
+        if (wrong) fprintf(stderr, "across: turn %d: %d pixels wrong\n", turn, wrong);
+        CHECK(wrong == 0);
+        dgx_screen_destroy(&ref);
+    }
+    dgx_screen_destroy(&scr);
 }
 
 static void run(const dgx_panel_t *panel)

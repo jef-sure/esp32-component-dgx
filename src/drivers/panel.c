@@ -52,12 +52,17 @@ static int dgx_panel_depth(uint8_t color_bits)
     }
 }
 
-/* MADCTL of the screen as it lies: the upright one with its axes turned and the order of its colors */
+/*
+ * MADCTL of the screen as it lies: the upright one with its axes turned and
+ * the order of its colors. MX and MY turn the columns and rows of memory;
+ * an upright picture with MV lies across them, its columns along the rows.
+ */
 static uint8_t dgx_panel_madctl(const dgx_screen_with_bus_t *scr)
 {
-    uint8_t madctl = ((const dgx_panel_screen_t *)scr)->panel->madctl;
-    if (scr->scr.dir_x == DgxScreenRightLeft) madctl ^= DGX_PANEL_MX;
-    if (scr->scr.dir_y == DgxScreenBottomTop) madctl ^= DGX_PANEL_MY;
+    uint8_t    madctl = ((const dgx_panel_screen_t *)scr)->panel->madctl;
+    const bool across = (madctl & DGX_PANEL_MV) != 0;
+    if (scr->scr.dir_x == DgxScreenRightLeft) madctl ^= across ? DGX_PANEL_MY : DGX_PANEL_MX;
+    if (scr->scr.dir_y == DgxScreenBottomTop) madctl ^= across ? DGX_PANEL_MX : DGX_PANEL_MY;
     if (scr->scr.swap_xy) madctl ^= DGX_PANEL_MV;
     if (scr->scr.rgb_order == DgxScreenBGR) madctl ^= DGX_PANEL_BGR;
     return madctl;

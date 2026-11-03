@@ -136,6 +136,17 @@ config DGX_ENABLE_ST7920
     select DGX_ENABLE_VSCREEN
     default n
 
+config DGX_ENABLE_SSD1322
+    bool "Enable SSD1322 controller"
+    depends on DGX_ENABLE_SPI || DGX_ENABLE_P8
+    select DGX_ENABLE_VSCREEN
+    default n
+    help
+        The 16-gray OLED controller of the 256x64, 240x128 and 128x64
+        modules, on a bus of dgx_p8_init() or dgx_spi_init(). The driver
+        keeps a 4-bit RAM buffer, 8 KB for 256x64, and sends what has
+        changed.
+
 config DGX_ENABLE_V_BW_SCREEN
     bool "Enable monochrome virtual/back screen"
     default n

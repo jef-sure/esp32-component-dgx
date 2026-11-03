@@ -1141,6 +1141,22 @@ static void test_no_dma_host(bool qspi)
     draw_and_compare(&s.scr, 16, 300);
     CHECK(stray_bytes == 0 && unknown_commands == 0);
     CHECK(longest_transfer <= SOC_SPI_MAXIMUM_BUFFER_SIZE);
+    if (!qspi) {
+        /* a whole frame by write_data(), as the black-and-white OLED drivers send theirs: it goes in pieces the host takes */
+        static uint8_t frame[PW * PH * 2];
+        for (size_t i = 0; i < sizeof(frame); ++i) frame[i] = (uint8_t)rnd(0, 255);
+        static const uint8_t cols[4] = {0, 0, 0, PW - 1}, rows[4] = {0, 0, 0, PH - 1};
+        bus->write_command(bus, 0x2A);
+        bus->write_data(bus, cols, 32);
+        bus->write_command(bus, 0x2B);
+        bus->write_data(bus, rows, 32);
+        bus->write_command(bus, 0x2C);
+        bus->write_data(bus, frame, sizeof(frame) * 8u);
+        int wrong = 0;
+        for (int i = 0; i < PW * PH; ++i) wrong += panel[i] != (uint32_t)(frame[2 * i] << 8 | frame[2 * i + 1]);
+        CHECK(wrong == 0);
+        CHECK(longest_transfer <= SOC_SPI_MAXIMUM_BUFFER_SIZE);
+    }
     bus->dispose(bus);
     CHECK(!model_hosts[SPI2_HOST].initialized);
 }

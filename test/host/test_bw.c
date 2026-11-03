@@ -92,6 +92,16 @@ static void test_bw_screen(void)
     s->write_area(s, ones, 64);
     CHECK(count_set(s) == 16);
 
+    /* a window off the screen takes nothing, not the window before it; one over the edge is clipped to it */
+    uint8_t zeros[8] = {0};
+    s->set_area(s, 40, 50, 0, 3);
+    s->write_area(s, zeros, 16);
+    dgx_bw_write_value(s, 0);
+    CHECK(count_set(s) == 16);
+    s->set_area(s, 28, 40, 0, 0);
+    s->write_area(s, ones, 4);
+    CHECK(count_set(s) == 20 && s->get_pixel(s, 28, 0) && s->get_pixel(s, 31, 0));
+
     dgx_screen_destroy(&s);
 }
 

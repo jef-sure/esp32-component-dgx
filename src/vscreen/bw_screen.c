@@ -1,5 +1,6 @@
 #include <string.h>
 
+#include "dgx_bits.h"
 #include "dgx_bw_screen.h"
 #include "dgx_screen_functions.h"
 #include "esp_heap_caps.h"
@@ -10,9 +11,15 @@ static const char TAG[] = "DGX BW-Screen";
 void dgx_bw_set_area(dgx_screen_t *_scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
 {
     dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)_scr;
-    if (left >= scr->base.width || top >= scr->base.height || right >= scr->base.width || bottom >= scr->base.height) {
+    if (left > right) DGX_INT_SWAP(left, right);
+    if (top > bottom) DGX_INT_SWAP(top, bottom);
+    /* a window off the screen takes nothing, rather than the pixels going into the window before it */
+    if (left >= scr->base.width || top >= scr->base.height) {
+        scr->area.left = 1, scr->area.right = 0;
         return;
     }
+    if (right >= scr->base.width) right = (uint16_t)(scr->base.width - 1);
+    if (bottom >= scr->base.height) bottom = (uint16_t)(scr->base.height - 1);
     scr->area.left     = left;
     scr->area.right    = right;
     scr->area.top      = top;
@@ -38,8 +45,8 @@ static inline void _dgx_move_to_next_area_pixel_v(dgx_screen_t *_scr)
 
 void dgx_bw_write_data(dgx_screen_t *scr_, uint8_t *data, uint32_t lenbits)
 {
-    if (!lenbits) return;
     dgx_bw_vscreen_t *scr    = (dgx_bw_vscreen_t *)scr_;
+    if (!lenbits || scr->area.left > scr->area.right) return; /* nothing, or the window lies off the screen */
     const uint16_t    left   = scr->area.left;
     const uint16_t    right  = scr->area.right;
     const uint16_t    top    = scr->area.top;
@@ -97,6 +104,7 @@ void dgx_bw_write_data(dgx_screen_t *scr_, uint8_t *data, uint32_t lenbits)
 void dgx_bw_write_value(dgx_screen_t *scr_, uint32_t value)
 {
     dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)scr_;
+    if (scr->area.left > scr->area.right) return; /* the window lies off the screen */
     uint16_t          x   = scr->area.x_offset;
     uint16_t          y   = scr->area.y_offset;
     /* dgx_bw_write_data() leaves the position past the right edge until the next pixel arrives */

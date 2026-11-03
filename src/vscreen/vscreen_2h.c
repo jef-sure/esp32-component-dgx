@@ -77,6 +77,11 @@ static void dgx_vscreen_2h_update_area(dgx_screen_t *_scr, int left, int right, 
 }
 
 dgx_screen_t *dgx_vscreen_2h_init(dgx_screen_t *left_screen, dgx_screen_t *right_screen) {
+    /* the picture is kept in one depth for both: a panel of another one would get nothing */
+    if (!left_screen || !right_screen || left_screen->color_bits != right_screen->color_bits) {
+        ESP_LOGE(TAG, "two screens of one depth are needed");
+        return NULL;
+    }
     dgx_vscreen_t *vscr = (dgx_vscreen_t *)dgx_vscreen_init(1, 1, left_screen->color_bits, left_screen->rgb_order);
     if (!vscr) {
         ESP_LOGE(TAG, "Screen structure memory allocation failed");

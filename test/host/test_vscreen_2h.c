@@ -164,8 +164,19 @@ static void test_layer_over_a_panel(void)
     free(left), free(right), free(lm.memory), free(rm.memory);
 }
 
+/* a right panel of another depth would get nothing of the picture: the pair is refused */
+static void test_depths_differ(void)
+{
+    panel_t       lm, rm;
+    dgx_screen_t *left = panel_screen(&lm, 40, 30), *right = panel_screen(&rm, 40, 30);
+    right->color_bits  = 18;
+    CHECK(dgx_vscreen_2h_init(left, right) == NULL);
+    free(left), free(right), free(lm.memory), free(rm.memory);
+}
+
 int main(void)
 {
+    test_depths_differ();
     test_no_buffers();
     test_layer_over_a_panel();
     /* of one size, of one width and two heights the one way and the other, and of two widths */
