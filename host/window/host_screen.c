@@ -18,6 +18,15 @@
  *  through here (-Wl,--wrap of DGX_HOST_WINDOW_LDLIBS) and is counted; the
  *  window's own memory and SDL's are not.
  *
+ *  The same file is the window of a program built by ESP-IDF for its linux
+ *  target (ESP_PLATFORM): CMakeLists.txt of DGX builds it then, and the
+ *  linker sends vTaskDelay() and app_main() here as well as malloc. The
+ *  program has tasks there, each a thread of the computer, and SDL is called
+ *  from one of them: the task that made the first window shows them all, in
+ *  its waits and while it sends pixels. A wait of another task ends the
+ *  passes of the buses that task has sent to. The memory counted is that of
+ *  ESP-IDF on the computer too.
+ *
  *  Variables of the environment, for runs with nobody at the computer and
  *  for a board with less memory:
  *    DGX_HOST_QUIT_MS    the program ends so many ms after the first window was made;
@@ -48,6 +57,10 @@
 #include "drivers/dgx_panel.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#ifdef ESP_PLATFORM
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#endif
 
 static const char TAG[] = "DGX HOST";
 
@@ -68,6 +81,8 @@ static const char TAG[] = "DGX HOST";
 #define HOST_SHOW_BUSY_US 50000
 /* the title told anew so often */
 #define HOST_TITLE_US 500000
+/* the stack the task that makes the windows has left at least, for SDL, on the linux target of ESP-IDF */
+#define HOST_TASK_STACK (48u * 1024u)
 
 /*
  * The buffer of the bus as dgx_spi_buffer_len() makes it on the board: a
@@ -95,8 +110,8 @@ __attribute__((constructor)) static void clock_start(void)
     started_us = clock_us();
 }
 
-/* the timer of the board: microseconds since the program began, as since the chip did */
-int64_t esp_timer_get_time(void)
+/* the timer of the board: microseconds since the program began, as since the chip did; the linux target of ESP-IDF declares it and has none */
+__attribute__((weak)) int64_t esp_timer_get_time(void)
 {
     return clock_us() - started_us;
 }
@@ -127,28 +142,67 @@ static bool heap_lets(size_t size, size_t freed)
 
 static void *heap_refuse(size_t size)
 {
-    ++heap.refused;
+    __atomic_add_fetch(&heap.refused, 1, __ATOMIC_RELAXED);
     fprintf(stderr, "W %s: no memory for %zu bytes: %zu held, DGX_HOST_HEAP_MAX %zu, DGX_HOST_BLOCK_MAX %zu\n", TAG, size, heap.now,
             heap.limit, heap.block_limit);
     return NULL;
 }
 
+#ifdef ESP_PLATFORM
+/*
+ * What FreeRTOS takes for its tasks, queues and semaphores is not counted:
+ * on the computer a word of a stack is 8 bytes, and every stack 8 times
+ * what the same task has on the board. The C library is reached through
+ * pvPortMalloc() and vPortFree() then, in the thread of the task.
+ */
+static __thread int in_freertos;
+
+void *__real_pvPortMalloc(size_t size);
+void  __real_vPortFree(void *p);
+
+void *__wrap_pvPortMalloc(size_t size)
+{
+    ++in_freertos;
+    void *p = __real_pvPortMalloc(size);
+    --in_freertos;
+    return p;
+}
+
+void __wrap_vPortFree(void *p)
+{
+    ++in_freertos;
+    __real_vPortFree(p);
+    --in_freertos;
+}
+#define HEAP_COUNTED() (!in_freertos)
+#else
+#define HEAP_COUNTED() 1
+#endif
+
+/* atomic: the tasks of a program for the linux target of ESP-IDF are threads, and one may be stopped in the middle for another */
 static void heap_took(void *p, size_t size)
 {
     if (!p) return;
-    heap.now += malloc_usable_size(p);
-    if (heap.now > heap.most) heap.most = heap.now;
-    if (size > heap.block) heap.block = size;
+    const size_t now  = __atomic_add_fetch(&heap.now, malloc_usable_size(p), __ATOMIC_RELAXED);
+    size_t       most = __atomic_load_n(&heap.most, __ATOMIC_RELAXED);
+    while (now > most && !__atomic_compare_exchange_n(&heap.most, &most, now, true, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+    }
+    size_t block = __atomic_load_n(&heap.block, __ATOMIC_RELAXED);
+    while (size > block && !__atomic_compare_exchange_n(&heap.block, &block, size, true, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+    }
 }
 
 /* memory let go of; a block the C library gave by itself, as strdup() does, was never counted */
 static void heap_gave(size_t size)
 {
-    heap.now -= size < heap.now ? size : heap.now;
+    size_t now = __atomic_load_n(&heap.now, __ATOMIC_RELAXED);
+    while (!__atomic_compare_exchange_n(&heap.now, &now, now - (size < now ? size : now), true, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+    }
 }
 
 void *__wrap_malloc(size_t size)
 {
+    if (!HEAP_COUNTED()) return __real_malloc(size);
     if (!heap_lets(size, 0)) return heap_refuse(size);
     void *p = __real_malloc(size);
     heap_took(p, size);
@@ -157,6 +211,7 @@ void *__wrap_malloc(size_t size)
 
 void *__wrap_calloc(size_t n, size_t size)
 {
+    if (!HEAP_COUNTED()) return __real_calloc(n, size);
     if (size && n > SIZE_MAX / size) return NULL;
     if (!heap_lets(n * size, 0)) return heap_refuse(n * size);
     void *p = __real_calloc(n, size);
@@ -166,6 +221,7 @@ void *__wrap_calloc(size_t n, size_t size)
 
 void *__wrap_realloc(void *p, size_t size)
 {
+    if (!HEAP_COUNTED()) return __real_realloc(p, size);
     const size_t had = p ? malloc_usable_size(p) : 0;
     if (!heap_lets(size, had)) return heap_refuse(size);
     void *q = __real_realloc(p, size);
@@ -177,9 +233,27 @@ void *__wrap_realloc(void *p, size_t size)
 
 void __wrap_free(void *p)
 {
-    if (p) heap_gave(malloc_usable_size(p));
+    if (p && HEAP_COUNTED()) heap_gave(malloc_usable_size(p));
     __real_free(p);
 }
+
+/* ---- the task that talks to SDL ---- */
+
+#ifdef ESP_PLATFORM
+/* the task that made the first window shows them all */
+typedef TaskHandle_t host_task_t;
+static host_task_t   this_task(void)
+{
+    return xTaskGetCurrentTaskHandle();
+}
+#else
+/* one thread, the program's */
+typedef int        host_task_t;
+static host_task_t this_task(void)
+{
+    return 0;
+}
+#endif
 
 /* ---- a window: the panel of a display behind its bus, and what the bus has sent ---- */
 
@@ -209,6 +283,7 @@ typedef struct host_window_t {
     uint64_t  most_bytes, most_transfers;
     uint32_t  recent;           /* and those since the title was told */
     double    recent_sum_us, recent_most_us;
+    host_task_t sender;         /* the task that sent the last bytes: its wait ends the pass */
     /* the window on the computer */
     SDL_Window   *window;
     SDL_Renderer *renderer;
@@ -227,6 +302,7 @@ static host_window_t *windows;
 static int            made;     /* windows made so far */
 static int64_t        pumped_us, titled_us, quit_us;
 static bool           waited;   /* the program has come to its first wait: the windows are shown from then on */
+static host_task_t    owner;    /* the task that made the windows and shows them */
 static const char    *shot;
 
 static int pixel_bytes(const host_window_t *w)
@@ -461,11 +537,55 @@ static void show(int64_t every_us)
     if (quit_us && now >= quit_us) exit(EXIT_SUCCESS);
 }
 
-/* the wait of the program: vTaskDelay() and dgx_delay() of host/stubs with DGX_HOST_WINDOW; it ends a pass on every bus */
+/* a wait of a task: the passes of the buses it has sent to end; from the first wait of the owner on the windows are shown */
+static void wait_begins(void)
+{
+    const host_task_t task = this_task();
+    for (host_window_t *w = windows; w; w = w->next)
+        if (w->sender == task) pass_end(w);
+    if (task == owner) waited = true;
+}
+
+#ifdef ESP_PLATFORM
+void __real_vTaskDelay(const TickType_t ticks);
+void __real_app_main(void);
+
+/* vTaskDelay() of the program, of DGX and of ESP-IDF: the owner of the windows shows them while it waits, a few ms at a time */
+void __wrap_vTaskDelay(const TickType_t ticks)
+{
+    wait_begins();
+    if (!windows || this_task() != owner) {
+        __real_vTaskDelay(ticks);
+        return;
+    }
+    const TickType_t step = pdMS_TO_TICKS(4) ? pdMS_TO_TICKS(4) : 1;
+    TickType_t       left = ticks;
+    do {
+        show(HOST_SHOW_US);
+        const TickType_t now = left < step ? left : step;
+        __real_vTaskDelay(now);
+        left -= now;
+    } while (left);
+}
+
+/* app_main() as ESP-IDF calls it in its main task, then the windows kept open until one is closed, as with make */
+void __wrap_app_main(void)
+{
+    __real_app_main();
+    if (!windows || this_task() != owner) return;
+    for (;;) __wrap_vTaskDelay(pdMS_TO_TICKS(100) ? pdMS_TO_TICKS(100) : 1);
+}
+
+/* the pad of a pin of host/esp-idf/include/driver/gpio.h: the linux target declares it and does not have it */
+__attribute__((weak)) void esp_rom_gpio_pad_select_gpio(uint32_t iopad_num)
+{
+    (void)iopad_num;
+}
+#else
+/* the wait of the program: vTaskDelay() and dgx_delay() of host/stubs with DGX_HOST_WINDOW */
 void dgx_host_delay(uint32_t ms)
 {
-    waited = true;
-    for (host_window_t *w = windows; w; w = w->next) pass_end(w);
+    wait_begins();
     const int64_t until = clock_us() + (int64_t)ms * 1000;
     for (;;) {
         show(HOST_SHOW_US);
@@ -476,14 +596,17 @@ void dgx_host_delay(uint32_t ms)
         nanosleep(&t, NULL);
     }
 }
+#endif
 
 /* ---- the bus ---- */
 
 static void sent(host_window_t *w, uint32_t bytes)
 {
+    const host_task_t task = this_task();
+    w->sender              = task;
     w->bytes += bytes;
     ++w->transfers;
-    if (waited && clock_us() - pumped_us >= HOST_SHOW_BUSY_US) show(HOST_SHOW_BUSY_US);
+    if (waited && task == owner && clock_us() - pumped_us >= HOST_SHOW_BUSY_US) show(HOST_SHOW_BUSY_US);
 }
 
 static void bus_command(struct _dgx_bus_protocols_t *bus, uint8_t command)
@@ -600,7 +723,26 @@ dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, co
         ESP_LOGE(TAG, "a glass of %dx%d pixels: 1 to 4096 a side", width, height);
         return NULL;
     }
+    if (windows && this_task() != owner) {
+        ESP_LOGE(TAG, "the windows are made by the task that made the first one: it shows them");
+        return NULL;
+    }
+#ifdef ESP_PLATFORM
+    /*
+     * SDL goes deep into the graphics driver of the computer, in the stack of
+     * the task: 32 KB took the program down in the driver of an NVIDIA card,
+     * 64 KB did not. Refused here rather than there.
+     */
+    const size_t stack = (size_t)uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t);
+    if (stack < HOST_TASK_STACK) {
+        ESP_LOGE(TAG, "the task that makes the windows has %zu bytes of stack left, SDL needs %u: give it more, "
+                      "CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384 for app_main (a word of a stack is 8 bytes on the computer)",
+                 stack, (unsigned)HOST_TASK_STACK);
+        return NULL;
+    }
+#endif
     if (!host_start()) return NULL;
+    if (!windows) owner = this_task();
     host_window_t *w = (host_window_t *)__real_calloc(1, sizeof(*w));
     if (!w) {
         ESP_LOGE(TAG, "no memory for a window");
@@ -670,10 +812,12 @@ dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, co
     return scr;
 }
 
+#ifndef ESP_PLATFORM
 /*
  * The program's app_main, as a board runs it, and then the windows kept open
  * until one is closed: a board whose app_main has returned leaves its picture
- * on the displays. A program with a main() of its own has that one.
+ * on the displays. A program with a main() of its own has that one; under
+ * ESP-IDF the main() is its own.
  */
 extern void app_main(void) __attribute__((weak));
 
@@ -687,3 +831,4 @@ __attribute__((weak)) int main(void)
     if (!windows) return EXIT_FAILURE;
     for (;;) dgx_host_delay(100);
 }
+#endif

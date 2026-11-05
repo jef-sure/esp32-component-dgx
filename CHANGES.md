@@ -1,5 +1,20 @@
 # Changes
 
+## 0.10.8 - 2026-11-05
+
+New:
+
+- The window on the computer under ESP-IDF too, built for its `linux`
+  target (host-esp-idf): the project as it is, with FreeRTOS, its tasks and
+  queues, runs on a PC. DGX builds the window there in place of its buses
+  and drivers, with `driver/gpio.h` from `host/esp-idf/include`, defines
+  `DGX_HOST_WINDOW` and links SDL2. The task that made the first window
+  shows them in its `vTaskDelay()`; a task with too little stack for SDL is
+  refused with a message. FreeRTOS's own memory is not counted: its stacks
+  are 8 times those of the board there. `examples/morph_demo` builds for
+  that target, with `sdkconfig.defaults.linux`. Built and run under
+  ESP-IDF 5.5.4 and 6.1.
+
 ## 0.10.7 - 2026-11-05
 
 New:

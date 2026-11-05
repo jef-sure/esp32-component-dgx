@@ -34,3 +34,13 @@ make run
 The title of the window shows how long each pass of the loop would keep the
 SPI bus of the CYD busy, and how much memory the demo holds. See
 "An effect on the computer" in the README of DGX.
+
+It builds for the linux target of ESP-IDF as well, with FreeRTOS as on the
+board; `CMakeLists.txt` takes only what `main` needs there, and
+`sdkconfig.defaults.linux` gives `app_main` the stack SDL needs:
+
+```sh
+idf.py --preview set-target linux
+idf.py build
+./build/dgx_morph_word_demo.elf
+```

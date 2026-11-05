@@ -1,0 +1,3 @@
+# the linux target of ESP-IDF (the window on the computer): SDL needs a deep stack in the task that makes the
+# windows, and a word of a stack is 8 bytes there: 128 KB
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384

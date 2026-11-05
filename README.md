@@ -946,6 +946,52 @@ The same figures for the whole run are printed when the program ends.
 With `SDL_VIDEODRIVER=dummy` no window opens. The panel of the window takes
 16 and 18 bits and has no scroll of its own.
 
+#### The linux target of ESP-IDF (host-esp-idf)
+
+The same window comes with a build by ESP-IDF itself for its `linux`
+target. The program is then the ESP-IDF project as it is, with FreeRTOS,
+its tasks, queues and log; DGX builds the window in place of its buses and
+drivers, defines `DGX_HOST_WINDOW` for the program, and links SDL2, found
+by `pkg-config`. The project takes only what `main` needs, as not every
+component of ESP-IDF builds for that target, and the task that makes the
+windows needs a deep stack for SDL:
+
+```cmake
+# CMakeLists.txt of the project, before project.cmake
+if(IDF_TARGET STREQUAL "linux")
+    set(COMPONENTS main)
+endif()
+```
+
+```
+# sdkconfig.defaults.linux: a word of a stack is 8 bytes there, so this is 128 KB
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+```
+
+```sh
+idf.py --preview set-target linux
+idf.py build
+./build/<project>.elf
+```
+
+The task that makes the first window shows them all, in its `vTaskDelay()`
+and while it sends pixels; it makes the other windows too, and
+`dgx_host_screen_init()` refuses a task with less than 48 KB of stack left.
+A `vTaskDelay()` of another task ends the passes of the buses that task has
+sent to. The memory counted is that of the program, DGX and the components
+of ESP-IDF; what FreeRTOS takes for tasks and queues is not, as a stack
+there is 8 times that of the board. The linux target has no
+`esp_timer_get_time()` of its own, and the window gives it.
+
+If CMake finds the C compiler broken, with `ld: unrecognised emulation mode:
+elf_x86_64`, the activated shell has put the inner `bin` directories of the
+ESP toolchains, which have an `ld` of their own, in `PATH`. Leave them out
+for this build:
+
+```sh
+PATH=$(printf %s "$PATH" | tr : '\n' | grep -v -- '-elf/[^/]*-elf/bin$' | paste -sd:) idf.py build
+```
+
 ## Examples
 
 Each example is an ESP-IDF project with its own README. Each names
@@ -973,7 +1019,7 @@ idf.py flash monitor
 | [sprite_palette_demo](examples/sprite_palette_demo) | CYD | sprites of 1, 4 and 8 bits in maps of colors, mirrored, turned and clipped; day, night, lightning and a fade by the color table alone |
 | [pixel_scale_demo](examples/pixel_scale_demo) | CYD, JC1060P470 or JC8012P4A1C | a small picture two, three and four times as large by squares, Scale2x and Scale3x, Scale2xSFX and Scale3xSFX, each timed |
 | [flip_clock_demo](examples/flip_clock_demo) | CYD | a split-flap clock built on textured quads |
-| [morph_demo](examples/morph_demo) | CYD | words morphing letter by letter; also on the computer, `make run` ([An effect on the computer](#an-effect-on-the-computer)) |
+| [morph_demo](examples/morph_demo) | CYD | words morphing letter by letter; also on the computer, by `make run` or for the linux target of ESP-IDF ([An effect on the computer](#an-effect-on-the-computer)) |
 | [glyph_morph_demo](examples/glyph_morph_demo) | CYD | one large symbol morphing into the next |
 | [weather_morph_demo](examples/weather_morph_demo) | CYD | the weather symbols of a clock morphing in the order weather takes |
 | [life_morph_demo](examples/life_morph_demo) | CYD | Conway's Game of Life with morphing generations |

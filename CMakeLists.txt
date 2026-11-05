@@ -25,6 +25,18 @@ set(srcs
 
 list(APPEND srcs ${dgx_font_sources})
 
+# The linux target of ESP-IDF: the program runs on the computer, and its displays are windows of SDL2
+# (host/window). The buses and the panels of a board are not built for it; the panel of a window is, with
+# driver/gpio.h, which that target lacks, from host/esp-idf/include.
+idf_build_get_property(dgx_target IDF_TARGET)
+if(dgx_target STREQUAL "linux")
+	set(dgx_linux TRUE)
+	list(APPEND srcs "src/drivers/panel.c" "host/window/host_screen.c")
+else()
+	set(dgx_linux FALSE)
+endif()
+
+if(NOT dgx_linux)
 if(CONFIG_DGX_ENABLE_SPI)
 	list(APPEND srcs "src/bus/spi_esp32.c" "src/bus/qspi_esp32.c")
 endif()
@@ -106,6 +118,7 @@ endif()
 if(CONFIG_DGX_ENABLE_SH1106)
 	list(APPEND srcs "src/drivers/sh1106.c")
 endif()
+endif() # NOT dgx_linux
 
 if(CONFIG_DGX_ENABLE_V_BW_SCREEN)
 	list(APPEND srcs "src/vscreen/bw_screen.c")
@@ -126,30 +139,38 @@ if(CONFIG_DGX_ENABLE_MORPH)
 	endif()
 endif()
 
+set(dgx_include_dirs "include")
+if(dgx_linux)
+	# esp_rom_sys.h and esp_timer.h are there; FreeRTOS, the log and heap_caps every component has
+	set(dgx_requires esp_rom esp_timer)
+	set(dgx_priv_requires "")
+	list(APPEND dgx_include_dirs "host/window" "host/esp-idf/include")
 # IDF 5.3 split "driver" into esp_driver_*; since IDF 6 "driver" no longer re-exports them.
-if(IDF_VERSION_MAJOR GREATER 5 OR (IDF_VERSION_MAJOR EQUAL 5 AND IDF_VERSION_MINOR GREATER_EQUAL 3))
+elseif(IDF_VERSION_MAJOR GREATER 5 OR (IDF_VERSION_MAJOR EQUAL 5 AND IDF_VERSION_MINOR GREATER_EQUAL 3))
 	set(dgx_requires esp_driver_gpio esp_driver_spi esp_driver_i2c)
 else()
 	set(dgx_requires driver)
 endif()
-# include/bus/dgx_p8_esp32.h includes the headers of esp_lcd, so a component that includes it needs them too
-list(APPEND dgx_requires esp_lcd)
+if(NOT dgx_linux)
+	# include/bus/dgx_p8_esp32.h includes the headers of esp_lcd, so a component that includes it needs them too
+	list(APPEND dgx_requires esp_lcd)
 
-# the 2D DMA that copies between the frame buffers of a DSI display has its own component since IDF 6
-set(dgx_priv_requires esp_mm esp_timer)
-if(IDF_VERSION_MAJOR GREATER 5)
-	list(APPEND dgx_priv_requires esp_driver_dma)
-endif()
-# the accelerator that fills rectangles of a DSI display, a component since IDF 5.3
-if(IDF_VERSION_MAJOR GREATER 5 OR (IDF_VERSION_MAJOR EQUAL 5 AND IDF_VERSION_MINOR GREATER_EQUAL 3))
-	list(APPEND dgx_priv_requires esp_driver_ppa)
+	# the 2D DMA that copies between the frame buffers of a DSI display has its own component since IDF 6
+	set(dgx_priv_requires esp_mm esp_timer)
+	if(IDF_VERSION_MAJOR GREATER 5)
+		list(APPEND dgx_priv_requires esp_driver_dma)
+	endif()
+	# the accelerator that fills rectangles of a DSI display, a component since IDF 5.3
+	if(IDF_VERSION_MAJOR GREATER 5 OR (IDF_VERSION_MAJOR EQUAL 5 AND IDF_VERSION_MINOR GREATER_EQUAL 3))
+		list(APPEND dgx_priv_requires esp_driver_ppa)
+	endif()
 endif()
 
 # Code kept in IRAM by request, past the flash cache: see docs/pen-en.md. A linker fragment has to name the
 # archive, and the archive is named after the component, that is after its directory or by the component
 # manager; so the fragment is written here.
 set(dgx_ldfragments "")
-if(NOT CMAKE_BUILD_EARLY_EXPANSION AND (CONFIG_DGX_HW_FONT_IN_IRAM OR CONFIG_DGX_BEZIER_IN_IRAM))
+if(NOT CMAKE_BUILD_EARLY_EXPANSION AND NOT dgx_linux AND (CONFIG_DGX_HW_FONT_IN_IRAM OR CONFIG_DGX_BEZIER_IN_IRAM))
 	set(dgx_iram_entries "")
 	if(CONFIG_DGX_HW_FONT_IN_IRAM)
 		string(APPEND dgx_iram_entries "    hw_font (noflash_text)\n")
@@ -167,9 +188,25 @@ idf_component_register(
 	SRCS "${srcs}"
 	REQUIRES ${dgx_requires}
 	PRIV_REQUIRES ${dgx_priv_requires}
-	INCLUDE_DIRS "include"
+	INCLUDE_DIRS ${dgx_include_dirs}
 	LDFRAGMENTS ${dgx_ldfragments}
 )
+
+# The window on the linux target: SDL2 from pkg-config; DGX_HOST_WINDOW for the program, which makes its screens
+# so there; the linker sends malloc and its kin, pvPortMalloc() and vPortFree() of FreeRTOS, vTaskDelay() and
+# app_main() of every component to the window.
+if(dgx_linux AND NOT CMAKE_BUILD_EARLY_EXPANSION)
+	find_package(PkgConfig REQUIRED)
+	pkg_check_modules(DGX_SDL2 REQUIRED IMPORTED_TARGET GLOBAL sdl2)
+	# the math of the C library of a chip is a library of its own on the computer
+	target_link_libraries(${COMPONENT_LIB} PUBLIC PkgConfig::DGX_SDL2 m)
+	target_compile_definitions(${COMPONENT_LIB} PUBLIC DGX_HOST_WINDOW)
+	target_link_options(${COMPONENT_LIB} INTERFACE
+		"LINKER:--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free,--wrap=pvPortMalloc,--wrap=vPortFree"
+		"LINKER:--wrap=vTaskDelay,--wrap=app_main"
+		# app_main() of main is then wanted only by the window, whose library ESP-IDF 5.5 links after that of main
+		"LINKER:--undefined=app_main")
+endif()
 
 # The driver of a DSI display got a new name for the moment a frame buffer is free, in IDF 5.5.5, 6.0.3 and 6.1:
 # told by the header, for the release branches got it at different times.

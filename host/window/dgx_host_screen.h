@@ -19,8 +19,9 @@
  *  one wait of the program to the next, and how much memory the program and
  *  DGX hold. See "An effect on the computer" in README.md.
  *
- *  Built with host/dgx_host.mk, its group DGX_HOST_WINDOW; never under
- *  ESP-IDF. A program tells the two builds apart by DGX_HOST_WINDOW.
+ *  Built with host/dgx_host.mk, its group DGX_HOST_WINDOW, or by ESP-IDF
+ *  for its linux target, never for a chip. A program tells the builds apart
+ *  by DGX_HOST_WINDOW.
  */
 
 #include <stdint.h>
