@@ -20,3 +20,17 @@ Build and flash from this directory:
 idf.py set-target esp32
 idf.py flash monitor
 ```
+
+## On the computer
+
+The same `main/main.c` runs on a PC in a window that stands for the CYD;
+only the lines that make the screen differ, under `DGX_HOST_WINDOW`. It
+needs SDL2 and a shell without ESP-IDF activated:
+
+```sh
+make run
+```
+
+The title of the window shows how long each pass of the loop would keep the
+SPI bus of the CYD busy, and how much memory the demo holds. See
+"An effect on the computer" in the README of DGX.

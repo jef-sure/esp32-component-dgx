@@ -2,14 +2,22 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "driver/gpio.h"
-#include "driver/spi_common.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#ifdef DGX_HOST_WINDOW
+/* on the computer, in a window: make in this directory */
+#include "dgx_host_screen.h"
+#else
+#include "driver/gpio.h"
+#include "driver/spi_common.h"
+
 #include "bus/dgx_spi_esp32.h"
+#include "drivers/ili9341.h"
+#endif
+
 #include "dgx_bits.h"
 #include "dgx_colors.h"
 #include "dgx_draw.h"
@@ -19,12 +27,10 @@
 #include "dgx_morph_render.h"
 #include "dgx_morph_sources.h"
 #include "dgx_screen.h"
-#include "drivers/ili9341.h"
 #include "fonts/TerminusTTFMedium12.h"
 
 static const char *TAG = "dgx_morph_demo";
 
-#define EXAMPLE_LCD_HOST SPI2_HOST
 #define DEMO_MAX_LETTERS 16
 #define WORD_COUNT 4
 /* Durations are in microseconds. */
@@ -32,6 +38,8 @@ static const char *TAG = "dgx_morph_demo";
 #define LETTER_STAGGER_US 250000LL
 #define WORD_PAUSE_US 2000000LL
 
+#ifndef DGX_HOST_WINDOW
+#define EXAMPLE_LCD_HOST SPI2_HOST
 static const int EXAMPLE_LCD_PIN_NUM_MOSI = 13;
 static const int EXAMPLE_LCD_PIN_NUM_MISO = 12;
 static const int EXAMPLE_LCD_PIN_NUM_CLK = 14;
@@ -40,6 +48,7 @@ static const int EXAMPLE_LCD_PIN_NUM_DC = 2;
 static const int EXAMPLE_LCD_PIN_NUM_RST = GPIO_NUM_NC;
 static const int EXAMPLE_LCD_PIN_NUM_BACKLIGHT = 21;
 static const int EXAMPLE_LCD_SPI_CLOCK_MHZ = 40;
+#endif
 
 static const char *const words[WORD_COUNT] = {
     /* The first state is blank; shorter words are padded with spaces. */
@@ -155,6 +164,14 @@ static void release_resources(void)
 void app_main(void)
 {
     ESP_LOGI(TAG, "Starting sequential word morph demo on CYD");
+#ifdef DGX_HOST_WINDOW
+    /* the CYD turned as below: 320x240, its SPI at 40 MHz */
+    dgx_screen_t *screen = dgx_host_screen_init(320, 240, 16, NULL);
+    if (!screen) {
+        ESP_LOGE(TAG, "dgx_host_screen_init failed");
+        return;
+    }
+#else
     dgx_bus_protocols_t *bus = dgx_spi_init(
         EXAMPLE_LCD_HOST, SPI_DMA_CH_AUTO,
         (gpio_num_t)EXAMPLE_LCD_PIN_NUM_MOSI, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_MISO,
@@ -173,6 +190,7 @@ void app_main(void)
         return;
     }
     dgx_ili9341_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
+#endif
 
     font = TerminusTTFMedium12();
     if (!count_letters() || !choose_cell_width(screen)) {

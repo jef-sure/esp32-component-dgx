@@ -1,5 +1,5 @@
 ## IDF Component Manager Manifest File
-version: "0.10.6"
+version: "0.10.7"
 description: "Display and graphics component for ESP32 with SPI, QSPI, I2C, parallel and MIPI-DSI display buses, virtual screens, drawing primitives, fonts, handwritten text and morphing"
 url: https://github.com/jef-sure/esp32-component-dgx
 repository: https://github.com/jef-sure/esp32-component-dgx.git
@@ -66,6 +66,10 @@ files:
     # the platform-independent part built on a PC: dgx_host.mk and the stubs
     - "host/dgx_host.mk"
     - "host/stubs/**/*.h"
+    # the window on the computer in place of the display of a board
+    - "host/window/*.c"
+    - "host/window/*.h"
+    - "host/window/stubs/*.h"
     # by name: the directory also holds working notes, and the pictures of the
     # README, which are taken from GitHub
     - "docs/18-bit-pixels-??.md"
@@ -81,6 +85,8 @@ files:
     - "docs/pen-??.md"
     # one level each, so that nothing comes from the build directories of the examples
     - "examples/*/CMakeLists.txt"
+    # the build of an example for the window on the computer
+    - "examples/*/Makefile"
     - "examples/*/README.md"
     - "examples/*/fonts.rules"
     - "examples/*/sdkconfig.defaults*"

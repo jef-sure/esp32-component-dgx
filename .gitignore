@@ -1,5 +1,6 @@
 # Build directories
 build/
+build-host/
 dist/
 *.o
 *.a

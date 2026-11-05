@@ -44,6 +44,7 @@ Every picture in this README was drawn by DGX's own code, run on a PC.
   - [Rotate the screen](#rotate-the-screen)
   - [Draw from several tasks](#draw-from-several-tasks)
   - [An Arduino sketch](#an-arduino-sketch)
+  - [An effect on the computer](#an-effect-on-the-computer)
 - [Examples](#examples)
 - [How fast](#how-fast)
 - [Supported panels](#supported-panels)
@@ -865,6 +866,86 @@ the sketch, is the only one to add.
 
 Example: [examples/arduino_demo](examples/arduino_demo).
 
+### An effect on the computer
+
+An effect can be written and watched on a PC before it goes to a board.
+`host/window` puts a window of SDL2 in place of the display. The screen it
+gives is made by `dgx_panel_init()`, as the screen of an ILI9341 is, so
+whatever is drawn on it goes through the window of the panel and the buffer
+of the bus as it does on the board. Only the lines that make the screen
+differ:
+
+```c
+#ifdef DGX_HOST_WINDOW
+#include "dgx_host_screen.h"
+#else
+#include "bus/dgx_spi_esp32.h"
+#include "drivers/ili9341.h"
+#endif
+
+void app_main(void)
+{
+#ifdef DGX_HOST_WINDOW
+    dgx_screen_t *scr = dgx_host_screen_init(320, 240, 16, NULL);   // a CYD in landscape, SPI at 40 MHz
+#else
+    dgx_bus_protocols_t *bus = dgx_spi_init(SPI2_HOST, SPI_DMA_CH_AUTO, 13, 12, 14, 15, 2, 40000000, 0);
+    dgx_screen_t *scr = dgx_ili9341_init(bus, GPIO_NUM_NC, 21, 16, DgxScreenRGB);
+    dgx_ili9341_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
+#endif
+    for (;;) {
+        // draw a frame of the effect
+        vTaskDelay(1);
+    }
+}
+```
+
+A Makefile beside `main/` builds it; [examples/morph_demo](examples/morph_demo)
+has one to copy, with an object file for every source:
+
+```make
+include path/to/dgx/host/dgx_host.mk
+CPPFLAGS += $(DGX_HOST_CPPFLAGS) $(DGX_HOST_WINDOW_CPPFLAGS)
+CFLAGS   += $(DGX_HOST_CFLAGS)
+LDLIBS   += $(DGX_HOST_LDLIBS) $(DGX_HOST_WINDOW_LDLIBS)
+effect: main/main.c $(DGX_HOST_SRCS) $(DGX_HOST_WINDOW_SRCS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $^ -o $@ $(LDLIBS)
+```
+
+It needs SDL2 (`sdl2-config`) and a shell without ESP-IDF activated. The
+program's `app_main()` runs as on the board, and `esp_timer_get_time()`,
+`vTaskDelay()` and `dgx_delay()` keep real time; the window is shown and
+its events are read during the waits. Closing the window ends the program.
+Tasks, queues and the rest of ESP-IDF are not there.
+
+Every call of `dgx_host_screen_init()` makes a window with a bus of its
+own, so a board with two displays is two windows; those made before the
+first wait are put side by side.
+
+A PC draws much faster than the chip and has far more memory, so the title
+of the window shows what the board would make of the effect:
+
+- `bus`: how long the bytes sent from one wait of the program to the next
+  would take on the wire of the board, on average and at most over the
+  last half second. That is the wire alone; the time the chip spends
+  drawing comes on top of it and can only be measured on the board. Two
+  displays on one SPI host share its wire: add their times.
+- `heap`: the memory the program and DGX hold now, and the most they have
+  held at once. The window's own memory and SDL's are not counted.
+
+The same figures for the whole run are printed when the program ends.
+`dgx_host_screen_options_t` gives another clock and number of data lines,
+4 for a QSPI display. Variables of the environment:
+
+| Variable | What it does |
+| --- | --- |
+| `DGX_HOST_HEAP_MAX` | bytes the program and DGX may hold at once; an allocation over it gets NULL, as on the board |
+| `DGX_HOST_BLOCK_MAX` | the largest block they may get, what `heap_caps_get_largest_free_block()` says on the board |
+| `DGX_HOST_QUIT_MS` | the program ends so many milliseconds after the first window was made |
+| `DGX_HOST_SHOT` | the glass is written to that file, as a PPM, when the program ends; a second window's to the same name with `-2` before the extension |
+
+With `SDL_VIDEODRIVER=dummy` no window opens. The panel of the window takes
+16 and 18 bits and has no scroll of its own.
+
 ## Examples
 
 Each example is an ESP-IDF project with its own README. Each names
@@ -892,7 +973,7 @@ idf.py flash monitor
 | [sprite_palette_demo](examples/sprite_palette_demo) | CYD | sprites of 1, 4 and 8 bits in maps of colors, mirrored, turned and clipped; day, night, lightning and a fade by the color table alone |
 | [pixel_scale_demo](examples/pixel_scale_demo) | CYD, JC1060P470 or JC8012P4A1C | a small picture two, three and four times as large by squares, Scale2x and Scale3x, Scale2xSFX and Scale3xSFX, each timed |
 | [flip_clock_demo](examples/flip_clock_demo) | CYD | a split-flap clock built on textured quads |
-| [morph_demo](examples/morph_demo) | CYD | words morphing letter by letter |
+| [morph_demo](examples/morph_demo) | CYD | words morphing letter by letter; also on the computer, `make run` ([An effect on the computer](#an-effect-on-the-computer)) |
 | [glyph_morph_demo](examples/glyph_morph_demo) | CYD | one large symbol morphing into the next |
 | [weather_morph_demo](examples/weather_morph_demo) | CYD | the weather symbols of a clock morphing in the order weather takes |
 | [life_morph_demo](examples/life_morph_demo) | CYD | Conway's Game of Life with morphing generations |
@@ -1999,10 +2080,11 @@ are tested there too, each against a model of what is on its wires: the
 8-bit parallel bus with both drivers of IDF under it, the SPI and QSPI buses
 with the SPI master driver of IDF under them, the ST7920 and ST7789 drivers
 in all their orientations, the ILI9341 driver with the scroll of its panel,
-and the SSD1309, SH1106 and SSD1351 drivers against models of their
-controllers. What every color driver sends, through a bus that records it,
-is kept in `test/host/panel_streams.txt`, and a driver that sends a byte
-more, less or in another place fails:
+the SSD1309, SH1106 and SSD1351 drivers against models of their
+controllers, and the window on the computer against a virtual screen. What
+every color driver sends, through a bus that records it, is kept in
+`test/host/panel_streams.txt`, and a driver that sends a byte more, less or
+in another place fails:
 
 ```sh
 make -C test/host
@@ -2024,8 +2106,9 @@ game: main.c $(DGX_HOST_SRCS)
 
 `DGX_HOST_SRCS` is the sum of the groups `DGX_HOST_SRCS_SCREEN`, `_DRAW`,
 `_VSCREEN`, `_TEXT`, `_MORPH`, `_FB` and `_FONTS`; `DGX_HOST_DIR` is the
-directory of the file. A window shows a virtual screen through
-`dgx_vscreen_to_argb8888()`.
+directory of the file. A window of the program's own shows a virtual screen
+through `dgx_vscreen_to_argb8888()`; the window of DGX is in
+[An effect on the computer](#an-effect-on-the-computer).
 
 The fonts made at build time have a test of their own, `make -C test/fonts`:
 it runs the tool on the needs in that directory, checks the characters and
@@ -2068,7 +2151,8 @@ font2c/                  offline TTF/BDF -> C font generator, and dgx_fonts.py, 
 font-editor/             the editor of the glyphs of a font2c font, in the browser; its fixes are patches for font2c
 project_include.cmake    dgx_font_need() and the other font functions for a program's CMakeLists
 examples/                one project per example, see "Examples"
-host/                    dgx_host.mk and ESP-IDF stubs: the platform-independent part built on a PC
+host/                    dgx_host.mk and ESP-IDF stubs: the platform-independent part built on a PC;
+                         window/ holds the window that stands for the display of a board
 test/host/               host tests
 test/fonts/              the test of the fonts made at build time
 docs/                    morphing articles, handwritten text guides, fonts made at build time (English and Russian),

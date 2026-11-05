@@ -36,3 +36,18 @@ DGX_HOST_SRCS := $(DGX_HOST_SRCS_SCREEN) $(DGX_HOST_SRCS_DRAW) $(DGX_HOST_SRCS_V
 DGX_HOST_CPPFLAGS := -I$(DGX_HOST_DIR)/stubs -I$(DGX_ROOT)/include -include $(DGX_HOST_DIR)/stubs/esp_log.h
 DGX_HOST_CFLAGS   := -std=gnu11
 DGX_HOST_LDLIBS   := -lm
+
+# A window of SDL2 on the computer in place of the display of a board, for a program written for the board:
+# host/window/dgx_host_screen.h. Added to the above:
+#
+#   CPPFLAGS += $(DGX_HOST_WINDOW_CPPFLAGS)
+#   LDLIBS   += $(DGX_HOST_WINDOW_LDLIBS)
+#   effect: main.c $(DGX_HOST_SRCS) $(DGX_HOST_WINDOW_SRCS)
+#
+# DGX_HOST_WINDOW is defined in every file then, and vTaskDelay() and dgx_delay() wait. The linker sends malloc,
+# calloc, realloc and free of the program and of DGX through the window, which counts them. Needs sdl2-config.
+DGX_HOST_WINDOW_SRCS     := $(DGX_HOST_DIR)/window/host_screen.c $(addprefix $(DGX_ROOT)/src/drivers/, panel.c dgx_lcd_init.c)
+# the drivers take their pins and waits from dgx_arch_esp32.h on the chip, from the stub of driver/gpio.h here
+DGX_HOST_WINDOW_CPPFLAGS  = -DDGX_HOST_WINDOW -I$(DGX_HOST_DIR)/window -I$(DGX_HOST_DIR)/window/stubs \
+                            -include $(DGX_HOST_DIR)/stubs/driver/gpio.h $(shell sdl2-config --cflags)
+DGX_HOST_WINDOW_LDLIBS    = $(shell sdl2-config --libs) -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free

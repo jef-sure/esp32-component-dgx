@@ -1,5 +1,30 @@
 # Changes
 
+## 0.10.7 - 2026-11-05
+
+New:
+
+- A window on the computer in place of the display of a board, for writing
+  an effect without flashing one: `host/window`, the group
+  `DGX_HOST_WINDOW` of `host/dgx_host.mk`, needs SDL2.
+  `dgx_host_screen_init()` gives a screen made by `dgx_panel_init()` behind
+  a bus whose panel is the window, so what is drawn goes through the window
+  of the panel and the buffer of the bus as it does on a CYD. Every call
+  makes a window with a bus of its own, for a board with two displays. The
+  program's own `app_main()` runs; `esp_timer_get_time()`, `vTaskDelay()`
+  and `dgx_delay()` keep real time. The title of a window shows how long
+  the bytes sent between two waits take on the wire of the board, and the
+  memory the program and DGX hold; limits of memory, a timed end and a
+  picture of the glass are set by variables of the environment.
+  `examples/morph_demo` builds for it with `make`.
+
+Tests:
+
+- `test_host_screen`, where SDL2 is installed: the same drawing on a
+  window and on a virtual screen, pixel for pixel, at 16 and 18 bits in
+  all eight orientations; two windows, each with its glass and its bus;
+  the bytes of a pass; the memory counted and its limits.
+
 ## 0.10.6 - 2026-11-03
 
 New:

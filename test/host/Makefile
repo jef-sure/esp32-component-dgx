@@ -34,6 +34,15 @@ $(BUILD)/test_panel_streams: LIB_SRCS := $(DGX_HOST_SRCS) $(PANEL_DRIVERS)
 $(BUILD)/test_panel_streams: CFLAGS += -include panel_record.h
 $(BUILD)/test_panel_streams: panel_record.h
 
+# the window on the computer, where SDL2 is: host/window/host_screen.c included as it is, the panel's driver beside it
+ifneq ($(shell command -v sdl2-config),)
+TESTS += test_host_screen
+$(BUILD)/test_host_screen: LIB_SRCS := $(DGX_HOST_SRCS) $(filter-out %/host_screen.c, $(DGX_HOST_WINDOW_SRCS))
+$(BUILD)/test_host_screen: CPPFLAGS += $(DGX_HOST_WINDOW_CPPFLAGS)
+$(BUILD)/test_host_screen: LDLIBS += $(DGX_HOST_WINDOW_LDLIBS)
+$(BUILD)/test_host_screen: $(wildcard $(DGX_HOST_DIR)/window/*.[ch] $(DGX_HOST_DIR)/window/stubs/*.h)
+endif
+
 # the headers, and the drivers and buses some tests include as they are: a change of any of them builds the tests again
 DEPS := $(wildcard $(ROOT)/include/*.h $(ROOT)/include/*/*.h $(ROOT)/src/*/*.h $(ROOT)/src/drivers/*.c $(ROOT)/src/bus/*.c) $(wildcard *.h $(DGX_HOST_DIR)/stubs/*.h $(DGX_HOST_DIR)/stubs/*/*.h) $(DGX_HOST_DIR)/dgx_host.mk
 
