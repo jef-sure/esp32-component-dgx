@@ -204,6 +204,9 @@ if(dgx_linux AND NOT CMAKE_BUILD_EARLY_EXPANSION)
 	target_link_options(${COMPONENT_LIB} INTERFACE
 		"LINKER:--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free,--wrap=pvPortMalloc,--wrap=vPortFree"
 		"LINKER:--wrap=vTaskDelay,--wrap=app_main"
+		# what the program is told of the memory left: the limits of the window, not a constant
+		"LINKER:--wrap=heap_caps_get_free_size,--wrap=heap_caps_get_minimum_free_size,--wrap=heap_caps_get_largest_free_block"
+		"LINKER:--wrap=esp_get_free_heap_size,--wrap=esp_get_minimum_free_heap_size"
 		# app_main() of main is then wanted only by the window, whose library ESP-IDF 5.5 links after that of main
 		"LINKER:--undefined=app_main")
 endif()

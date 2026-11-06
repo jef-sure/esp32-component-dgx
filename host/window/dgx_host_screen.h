@@ -32,11 +32,19 @@
 extern "C" {
 #endif
 
-/** @brief The board the host screen stands for, as far as its bus goes. */
+/** @brief The board the host screen stands for, as far as its bus goes, and how it is held. */
 typedef struct {
-    uint32_t    bus_hz;    /**< The clock of the bus of the board; 0 for 40 MHz, as on the CYD. */
-    uint8_t     bus_lines; /**< The data lines it sends over: 1 for SPI, 4 for QSPI; 0 for 1. */
-    const char *title;     /**< The title of the window; NULL for "DGX", "DGX 2" for the second one and so on. */
+    /** The clock the bus of the board runs at, as spi_device_get_actual_freq() tells it there; 0 for 40 MHz, as on the CYD. */
+    uint32_t    bus_hz;
+    uint8_t     bus_lines;   /**< The data lines it sends pixels over: 1 for SPI, 4 for QSPI; 0 for 1. */
+    const char *title;       /**< The title of the window; NULL for "DGX", "DGX 2" for the second one and so on. */
+    uint32_t    buffer_max;  /**< As dgx_spi_options_t::buffer_max: the longest buffer of the bus; 0 for no limit. */
+    /** What a transfer by the registers of the host costs above its bits, in us; 0 for 0.75, as on the CYD; below 0 for nothing. */
+    float       transfer_us;
+    /** What a piece of pixels by DMA costs to start, in us; 0 for 25, DGX_SPI_PIECE_COST_US; below 0 for nothing. */
+    float       piece_us;
+    /** The glass turned clockwise as the board is held, in degrees: 0, 90, 180 or 270. */
+    uint16_t    turn;
 } dgx_host_screen_options_t;
 
 /**
@@ -44,13 +52,14 @@ typedef struct {
  *
  * Every call makes a window of its own, with a bus of its own: a program for
  * a board with two displays has two windows. The windows are shown from the
- * first wait of the program on, vTaskDelay() or dgx_delay(), and in its waits
- * and while pixels go after that; those made before a wait are put side by
- * side, each glass the same whole number of times as large, and may be
- * stretched. Each counts what its own bus sends: two displays on one SPI
- * host of the board share its wire, and their times add up there. A closed
- * window ends the program. bus->dispose() of the screen's bus closes the
- * window.
+ * first wait of the program on, vTaskDelay() or dgx_delay(), or once no
+ * window has been made for 50 ms, and in its waits and while pixels go after
+ * that; those made before are put side by side, each glass the same whole
+ * number of times as large, and may be stretched. The panel scrolls itself
+ * along the rows of the glass upright, as the ILI9341 does. Each window
+ * counts what its own bus sends: two displays on one SPI host of the board
+ * share its wire, and their times add up there. A closed window ends the
+ * program. bus->dispose() of the screen's bus closes the window.
  *
  * @param width,height The glass, upright; dgx_panel_orientation() turns the screen on it as on a board.
  * @param color_bits   16 or 18.

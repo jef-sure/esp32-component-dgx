@@ -872,12 +872,13 @@ An effect can be written and watched on a PC before it goes to a board.
 `host/window` puts a window of SDL2 in place of the display. The screen it
 gives is made by `dgx_panel_init()`, as the screen of an ILI9341 is, so
 whatever is drawn on it goes through the window of the panel and the buffer
-of the bus as it does on the board. Only the lines that make the screen
-differ:
+of the bus as it does on the board, and the panel scrolls itself as the
+ILI9341 does. Only the lines that make the screen differ:
 
 ```c
 #ifdef DGX_HOST_WINDOW
 #include "dgx_host_screen.h"
+#include "drivers/dgx_panel.h"
 #else
 #include "bus/dgx_spi_esp32.h"
 #include "drivers/ili9341.h"
@@ -886,7 +887,10 @@ differ:
 void app_main(void)
 {
 #ifdef DGX_HOST_WINDOW
-    dgx_screen_t *scr = dgx_host_screen_init(320, 240, 16, NULL);   // a CYD in landscape, SPI at 40 MHz
+    // the glass of the CYD upright, SPI at 40 MHz; the board held turned, as the screen lies on it below
+    const dgx_host_screen_options_t cyd = {.turn = 270};
+    dgx_screen_t *scr = dgx_host_screen_init(240, 320, 16, &cyd);
+    dgx_panel_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
 #else
     dgx_bus_protocols_t *bus = dgx_spi_init(SPI2_HOST, SPI_DMA_CH_AUTO, 13, 12, 14, 15, 2, 40000000, 0);
     dgx_screen_t *scr = dgx_ili9341_init(bus, GPIO_NUM_NC, 21, 16, DgxScreenRGB);
@@ -914,8 +918,11 @@ effect: main/main.c $(DGX_HOST_SRCS) $(DGX_HOST_WINDOW_SRCS)
 It needs SDL2 (`sdl2-config`) and a shell without ESP-IDF activated. The
 program's `app_main()` runs as on the board, and `esp_timer_get_time()`,
 `vTaskDelay()` and `dgx_delay()` keep real time; the window is shown and
-its events are read during the waits. Closing the window ends the program.
-Tasks, queues and the rest of ESP-IDF are not there.
+its events are read during the waits, and while pixels go. A program that
+never waits gets its window once it has made no window for 50 ms. Closing
+the window ends the program. Ticks are 1000 a second: a board with the 100
+of ESP-IDF builds with `-DCONFIG_FREERTOS_HZ=100`, and `vTaskDelay(1)`
+waits 10 ms then. Tasks, queues and the rest of ESP-IDF are not there.
 
 Every call of `dgx_host_screen_init()` makes a window with a bus of its
 own, so a board with two displays is two windows; those made before the
@@ -924,17 +931,33 @@ first wait are put side by side.
 A PC draws much faster than the chip and has far more memory, so the title
 of the window shows what the board would make of the effect:
 
-- `bus`: how long the bytes sent from one wait of the program to the next
-  would take on the wire of the board, on average and at most over the
-  last half second. That is the wire alone; the time the chip spends
+- `bus`: how long what is sent from one wait of the program to the next
+  would keep the bus of the board busy, on average and at most over the
+  last half second, and in how many transfers. The window cuts and sends
+  it as the SPI and QSPI buses of DGX do: on QSPI every transfer starts
+  with an opcode and an address on one line, and its parameters go on one
+  line too, only its pixels on four. To the time of the bits it adds what
+  starting a transfer costs: 0.75 us by the registers of the host, as on
+  the CYD, 25 us for a piece of pixels by DMA. The time the chip spends
   drawing comes on top of it and can only be measured on the board. Two
   displays on one SPI host share its wire: add their times.
 - `heap`: the memory the program and DGX hold now, and the most they have
   held at once. The window's own memory and SDL's are not counted.
 
-The same figures for the whole run are printed when the program ends.
-`dgx_host_screen_options_t` gives another clock and number of data lines,
-4 for a QSPI display. Variables of the environment:
+The same figures for the whole run are printed when the program ends, the
+wire and the transfers apart. `dgx_host_screen_options_t` says what the
+board has:
+
+| Field | What it is |
+| --- | --- |
+| `bus_hz` | the clock the bus runs at, which `spi_device_get_actual_freq()` tells on the board: it may be below the one asked for; 0 for 40 MHz |
+| `bus_lines` | 1 for SPI, 4 for QSPI |
+| `buffer_max` | as in `dgx_spi_options_t`: the buffer of the bus, and so its pieces, no longer than this |
+| `transfer_us`, `piece_us` | what starting a transfer by the registers and a piece by DMA cost; 0 for 0.75 and 25 us, below 0 for nothing |
+| `turn` | how the board is held: the glass turned clockwise by 0, 90, 180 or 270 degrees in the window |
+| `title` | the title of the window |
+
+Variables of the environment:
 
 | Variable | What it does |
 | --- | --- |
@@ -943,8 +966,10 @@ The same figures for the whole run are printed when the program ends.
 | `DGX_HOST_QUIT_MS` | the program ends so many milliseconds after the first window was made |
 | `DGX_HOST_SHOT` | the glass is written to that file, as a PPM, when the program ends; a second window's to the same name with `-2` before the extension |
 
-With `SDL_VIDEODRIVER=dummy` no window opens. The panel of the window takes
-16 and 18 bits and has no scroll of its own.
+`heap_caps_get_free_size()`, `heap_caps_get_largest_free_block()`,
+`esp_get_free_heap_size()` and their minimums tell the program what these
+limits leave, and of a gigabyte without them. With `SDL_VIDEODRIVER=dummy`
+no window opens. The panel of the window takes 16 and 18 bits.
 
 #### The linux target of ESP-IDF (host-esp-idf)
 

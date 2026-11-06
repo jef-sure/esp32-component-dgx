@@ -8,8 +8,9 @@
 #include "freertos/task.h"
 
 #ifdef DGX_HOST_WINDOW
-/* on the computer, in a window: make in this directory */
+/* on the computer, in a window: make in this directory, or ESP-IDF for its linux target */
 #include "dgx_host_screen.h"
+#include "drivers/dgx_panel.h"
 #else
 #include "driver/gpio.h"
 #include "driver/spi_common.h"
@@ -165,12 +166,14 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "Starting sequential word morph demo on CYD");
 #ifdef DGX_HOST_WINDOW
-    /* the CYD turned as below: 320x240, its SPI at 40 MHz */
-    dgx_screen_t *screen = dgx_host_screen_init(320, 240, 16, NULL);
+    /* the glass of the CYD, 240x320, its SPI at 40 MHz, the screen turned on it as below and the board held so */
+    const dgx_host_screen_options_t cyd    = {.turn = 270};
+    dgx_screen_t                   *screen = dgx_host_screen_init(240, 320, 16, &cyd);
     if (!screen) {
         ESP_LOGE(TAG, "dgx_host_screen_init failed");
         return;
     }
+    dgx_panel_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
 #else
     dgx_bus_protocols_t *bus = dgx_spi_init(
         EXAMPLE_LCD_HOST, SPI_DMA_CH_AUTO,

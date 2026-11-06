@@ -1,5 +1,39 @@
 # Changes
 
+## 0.10.9 - 2026-11-06
+
+Changes a program may see, in the window on the computer:
+
+- The time on the bus counts transfers as the SPI and QSPI buses of DGX
+  make them. On QSPI the opcode and address of every transfer and its
+  parameters go on one line and only the pixels on four; 4 lines took
+  every byte four times too fast before, a point of 3x3 at 58 clocks
+  instead of 196. Starting a transfer costs 0.75 us by the registers and
+  25 us for a piece of pixels by DMA, settable by `transfer_us` and
+  `piece_us`; the title shows the transfers of a pass, the report at the
+  end the wire and the transfers apart.
+- The panel scrolls itself, as the ILI9341: `dgx_scroll()` moves the
+  picture with a few commands and the windows the scroll cuts are drawn as
+  on the board. It returned `ESP_ERR_NOT_SUPPORTED` before and drew
+  nothing, as the panel of the window is not read.
+- `heap_caps_get_free_size()`, `heap_caps_get_largest_free_block()`,
+  `esp_get_free_heap_size()` and their minimums tell what
+  `DGX_HOST_HEAP_MAX` and `DGX_HOST_BLOCK_MAX` leave. Built with make, the
+  largest block was a gigabyte whatever the limits, and the others were
+  missing.
+- The ticks of a build with make follow `CONFIG_FREERTOS_HZ`, 1000 unless
+  the program defines it: `pdMS_TO_TICKS()` and `vTaskDelay()` as on a
+  board with 100.
+- A program that never waits gets its windows once it has made none for
+  50 ms; they were never shown before.
+
+New:
+
+- `dgx_host_screen_options_t` has `buffer_max`, as `dgx_spi_options_t`,
+  and `turn`: the glass turned in the window as the board is held.
+  `examples/morph_demo` makes the screen as on the CYD, the glass 240x320
+  with the screen turned on it, and is shown upright.
+
 ## 0.10.8 - 2026-11-05
 
 New:

@@ -12,4 +12,13 @@ static inline void *heap_caps_malloc(size_t size, unsigned caps) { (void)caps; r
 static inline void *heap_caps_calloc(size_t n, size_t size, unsigned caps) { (void)caps; return calloc(n, size); }
 static inline void *heap_caps_realloc(void *p, size_t size, unsigned caps) { (void)caps; return realloc(p, size); }
 static inline void heap_caps_free(void *p) { free(p); }
+#ifdef DGX_HOST_WINDOW
+/* the memory left as the limits of the window have it: host/window/host_screen.c */
+#include <stdint.h>
+size_t heap_caps_get_free_size(uint32_t caps);
+size_t heap_caps_get_minimum_free_size(uint32_t caps);
+size_t heap_caps_get_largest_free_block(uint32_t caps);
+#else
+static inline size_t heap_caps_get_free_size(unsigned caps) { (void)caps; return (size_t)1 << 30; }
 static inline size_t heap_caps_get_largest_free_block(unsigned caps) { (void)caps; return (size_t)1 << 30; }
+#endif

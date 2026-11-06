@@ -55,7 +55,9 @@
 #include "driver/gpio.h"
 #include "drivers/dgx_lcd_init.h"
 #include "drivers/dgx_panel.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -64,12 +66,16 @@
 
 static const char TAG[] = "DGX HOST";
 
+#define HOST_SWRESET 0x01u
 #define HOST_CASET  0x2Au
 #define HOST_RASET  0x2Bu
 #define HOST_RAMWR  0x2Cu
 #define HOST_MADCTL 0x36u
 #define HOST_COLMOD 0x3Au
 #define HOST_RAMWRC 0x3Cu
+
+#define HOST_VSCRDEF  0x33u
+#define HOST_VSCRSADD 0x37u
 
 #define HOST_MY  0x80u
 #define HOST_MX  0x40u
@@ -93,6 +99,30 @@ static const char TAG[] = "DGX HOST";
 #define HOST_HALF_US     475u
 #define HOST_MIN_BUFFER  4000u
 #define HOST_MAX_TRANSFER 32000u
+
+/*
+ * What the bus of the board does with what it is given while the display
+ * holds it, as src/bus/spi_esp32.c and qspi_esp32.c do. By the registers of
+ * the host go a command, its parameters up to HOST_SPI_SHORT bytes on SPI
+ * and HOST_QSPI_SHORT on QSPI, and pixels up to HOST_DIRECT_MOST bytes, in
+ * transfers of HOST_DIRECT_PIECE; longer pixels go in pieces by DMA, longer
+ * parameters through the driver. A QSPI transfer starts with an opcode and
+ * an address, HOST_QSPI_HEAD bits on one line; its parameters go on one
+ * line too, only its pixels on four.
+ */
+#define HOST_SPI_SHORT    4u
+#define HOST_QSPI_SHORT   64u
+#define HOST_DIRECT_MOST  256u
+#define HOST_DIRECT_PIECE 60u
+#define HOST_QSPI_HEAD    32u
+/*
+ * What starting a transfer costs above its bits, by default: by the
+ * registers, 0.75 us, as on the CYD (one byte took 0.95 us at 40 MHz, see
+ * docs/benchmarks-en.md); a piece by DMA, 25 us, DGX_SPI_PIECE_COST_US of
+ * the SPI bus, measured on an ESP32-S3.
+ */
+#define HOST_TRANSFER_US 0.75
+#define HOST_PIECE_US    25.0
 
 /* ---- the clock ---- */
 
@@ -237,6 +267,68 @@ void __wrap_free(void *p)
     __real_free(p);
 }
 
+/* ---- what the program is told of the memory left ---- */
+
+/*
+ * As the limits have it: what DGX_HOST_HEAP_MAX leaves of what is held, the
+ * largest block no larger than DGX_HOST_BLOCK_MAX. With no limit the program
+ * is told of a gigabyte.
+ */
+#define HOST_HEAP_PLENTY ((size_t)1 << 30)
+
+static size_t heap_left(size_t held)
+{
+    const size_t whole = heap.limit ? heap.limit : HOST_HEAP_PLENTY;
+    return held < whole ? whole - held : 0;
+}
+
+static size_t heap_largest(void)
+{
+    const size_t left = heap_left(__atomic_load_n(&heap.now, __ATOMIC_RELAXED));
+    return heap.block_limit && heap.block_limit < left ? heap.block_limit : left;
+}
+
+static uint32_t heap_u32(size_t size)
+{
+    return size > UINT32_MAX ? UINT32_MAX : (uint32_t)size;
+}
+
+#ifdef ESP_PLATFORM
+/* the linux target of ESP-IDF answers a constant: the linker sends these to the window (CMakeLists.txt) */
+#define HOST_ASKED(name) __wrap_##name
+#else
+/* declared by host/stubs/esp_heap_caps.h and host/window/stubs/esp_system.h with DGX_HOST_WINDOW */
+#define HOST_ASKED(name) name
+#endif
+
+size_t HOST_ASKED(heap_caps_get_free_size)(uint32_t caps)
+{
+    (void)caps;
+    return heap_left(__atomic_load_n(&heap.now, __ATOMIC_RELAXED));
+}
+
+size_t HOST_ASKED(heap_caps_get_minimum_free_size)(uint32_t caps)
+{
+    (void)caps;
+    return heap_left(__atomic_load_n(&heap.most, __ATOMIC_RELAXED));
+}
+
+size_t HOST_ASKED(heap_caps_get_largest_free_block)(uint32_t caps)
+{
+    (void)caps;
+    return heap_largest();
+}
+
+uint32_t HOST_ASKED(esp_get_free_heap_size)(void)
+{
+    return heap_u32(heap_left(__atomic_load_n(&heap.now, __ATOMIC_RELAXED)));
+}
+
+uint32_t HOST_ASKED(esp_get_minimum_free_heap_size)(void)
+{
+    return heap_u32(heap_left(__atomic_load_n(&heap.most, __ATOMIC_RELAXED)));
+}
+
 /* ---- the task that talks to SDL ---- */
 
 #ifdef ESP_PLATFORM
@@ -262,33 +354,43 @@ typedef struct host_window_t {
     struct host_window_t *next;
     int                   number;      /* 1 for the first window of the program */
     dgx_panel_t           description; /* what dgx_panel_init() makes the screen from */
-    /* the controller, as far as the window, MADCTL and COLMOD go; its memory is the glass */
+    /* the controller, as far as the window, the scroll, MADCTL and COLMOD go */
     int       width, height;    /* the glass upright, and the memory as large */
-    uint32_t *glass;            /* ARGB8888, as the window takes it */
+    uint32_t *glass;            /* the memory, ARGB8888 as the window takes it, its rows those of the glass */
+    uint32_t *view;             /* the glass as the scroll shows the memory, once it is scrolled */
     uint8_t   command;          /* the last command */
-    uint8_t   params[4];
+    uint8_t   params[6];
     int       params_n;
     uint16_t  sc, ec, sp, ep;   /* the window of the controller: its columns and pages */
     uint16_t  column, page;     /* the address of the next pixel */
+    uint16_t  tfa, vsa, vsp;    /* the scroll: rows of memory above its area, rows in it, the row its first row shows */
     uint8_t   madctl, colmod;
     uint8_t   part[3];          /* the bytes of a pixel so far */
     int       part_n;
     bool      changed;          /* since the glass was shown */
-    /* the bus of the board and what it has sent */
+    /* the bus of the board */
     uint32_t  bus_hz;
     uint8_t   bus_lines;
-    uint64_t  bytes, transfers; /* of the pass going on */
-    uint64_t  passes;           /* the passes that sent something */
-    double    sum_us, most_us;
-    uint64_t  most_bytes, most_transfers;
-    uint32_t  recent;           /* and those since the title was told */
-    double    recent_sum_us, recent_most_us;
+    double    transfer_us, piece_us; /* what a transfer by the registers and a piece by DMA cost above the wire */
+    int       held;             /* QSPI: the command held back until its data come, -1 for none */
+    /* the pass going on: from one wait of the task that sends to the next */
+    double    us, wire_us;
+    uint64_t  bytes, transfers, pieces;
     host_task_t sender;         /* the task that sent the last bytes: its wait ends the pass */
+    /* the passes that sent something */
+    uint64_t  passes, sum_transfers, sum_pieces;
+    double    sum_us, sum_wire_us, most_us;
+    uint64_t  most_bytes, most_transfers;
+    /* and those since the title was told */
+    uint32_t  recent;
+    uint64_t  recent_transfers;
+    double    recent_sum_us, recent_most_us;
     /* the window on the computer */
     SDL_Window   *window;
     SDL_Renderer *renderer;
     SDL_Texture  *texture;
     uint32_t      id;
+    int           turn;         /* the glass turned clockwise as the board is held, in degrees */
     bool          placed;       /* sized and put beside the others */
     char          title[64];
     int64_t       shown_us;
@@ -300,8 +402,8 @@ typedef struct host_window_t {
  */
 static host_window_t *windows;
 static int            made;     /* windows made so far */
-static int64_t        pumped_us, titled_us, quit_us;
-static bool           waited;   /* the program has come to its first wait: the windows are shown from then on */
+static int64_t        pumped_us, titled_us, quit_us, made_us;
+static bool           waited;   /* the owner has come to its first wait */
 static host_task_t    owner;    /* the task that made the windows and shows them */
 static const char    *shot;
 
@@ -352,6 +454,18 @@ static void panel_command(host_window_t *w, uint8_t command)
     w->params_n = 0;
     w->part_n   = 0;
     if (command == HOST_RAMWR) w->column = w->sc, w->page = w->sp;
+    if (command == HOST_SWRESET) {
+        /* as the ILI9341 starts: no turn, 18 bits, the whole memory one area of the scroll, shown from its first row; the memory as it was */
+        w->madctl = 0, w->colmod = 0x66;
+        w->tfa = 0, w->vsa = (uint16_t)w->height, w->vsp = 0;
+        w->sc = w->sp = 0, w->ec = (uint16_t)(w->width - 1), w->ep = (uint16_t)(w->height - 1);
+        w->changed = true;
+    }
+}
+
+static uint16_t param16(const host_window_t *w, int at)
+{
+    return (uint16_t)(w->params[at] << 8 | w->params[at + 1]);
 }
 
 static void panel_data(host_window_t *w, const uint8_t *data, uint32_t bytes)
@@ -368,49 +482,153 @@ static void panel_data(host_window_t *w, const uint8_t *data, uint32_t bytes)
         if (w->params_n < (int)sizeof(w->params)) w->params[w->params_n] = data[i];
         const int n = ++w->params_n;
         if (w->command == HOST_CASET && n == 4) {
-            w->sc = (uint16_t)(w->params[0] << 8 | w->params[1]);
-            w->ec = (uint16_t)(w->params[2] << 8 | w->params[3]);
+            w->sc = param16(w, 0), w->ec = param16(w, 2);
         } else if (w->command == HOST_RASET && n == 4) {
-            w->sp = (uint16_t)(w->params[0] << 8 | w->params[1]);
-            w->ep = (uint16_t)(w->params[2] << 8 | w->params[3]);
+            w->sp = param16(w, 0), w->ep = param16(w, 2);
         } else if (w->command == HOST_MADCTL && n == 1) {
             w->madctl = w->params[0];
         } else if (w->command == HOST_COLMOD && n == 1) {
             w->colmod = w->params[0];
+        } else if (w->command == HOST_VSCRDEF && n == 6) {
+            w->tfa = param16(w, 0), w->vsa = param16(w, 2);
+            w->changed = true;
+        } else if (w->command == HOST_VSCRSADD && n == 2) {
+            w->vsp     = param16(w, 0);
+            w->changed = true;
         }
     }
 }
 
-/* ---- passes and the wire ---- */
-
-static double wire_us(const host_window_t *w, uint64_t bytes)
+/*
+ * The glass as the panel shows its memory: a row of the scroll area shows
+ * the row of memory so far on from the one the area is told to start with,
+ * the rows that leave at its end coming in at its start. The rows of memory
+ * are those of the glass upright, whatever MADCTL turns.
+ */
+static const uint32_t *visible(host_window_t *w)
 {
-    return (double)bytes * 8.0 * 1e6 / ((double)w->bus_hz * w->bus_lines);
+    const int first = w->tfa, count = w->vsa;
+    if (count <= 0 || first + count > w->height) return w->glass;
+    int shift = ((int)w->vsp - first) % count;
+    if (shift < 0) shift += count;
+    if (!shift) return w->glass;
+    const size_t row = (size_t)w->width * sizeof(*w->glass);
+    if (!w->view) w->view = (uint32_t *)__real_malloc(row * w->height);
+    if (!w->view) return w->glass;
+    memcpy(w->view, w->glass, row * w->height);
+    for (int r = 0; r < count; ++r)
+        memcpy(w->view + (size_t)(first + r) * w->width, w->glass + (size_t)(first + (r + shift) % count) * w->width, row);
+    return w->view;
 }
+
+/* the size of the glass as the board is held */
+static int turned_width(const host_window_t *w)
+{
+    return w->turn % 180 ? w->height : w->width;
+}
+
+static int turned_height(const host_window_t *w)
+{
+    return w->turn % 180 ? w->width : w->height;
+}
+
+/* the glass turned clockwise as the board is held, as the window shows it */
+static void turn_glass(const host_window_t *w, const uint32_t *from, uint32_t *to)
+{
+    const int W = w->width, H = w->height, tw = turned_width(w), th = turned_height(w);
+    for (int y = 0; y < th; ++y)
+        for (int x = 0; x < tw; ++x) {
+            int gx = x, gy = y;
+            if (w->turn == 90) gx = y, gy = H - 1 - x;
+            else if (w->turn == 180) gx = W - 1 - x, gy = H - 1 - y;
+            else if (w->turn == 270) gx = W - 1 - y, gy = x;
+            to[(size_t)y * tw + x] = from[(size_t)gy * W + gx];
+        }
+}
+
+/* ---- the wire of the board ---- */
+
+/*
+ * A transfer: so many bits on one line, so many on all the data lines, by
+ * the registers of the host or as a piece by DMA. Its time is that of its
+ * bits at the clock of the bus and what starting it costs.
+ */
+static void transfer(host_window_t *w, uint32_t one_line, uint64_t all_lines, bool piece)
+{
+    const double wire = ((double)one_line + (double)all_lines / w->bus_lines) * 1e6 / w->bus_hz;
+    w->wire_us += wire;
+    w->us += wire + (piece ? w->piece_us : w->transfer_us);
+    w->bytes += (one_line + all_lines) / 8;
+    if (piece) ++w->pieces;
+    else ++w->transfers;
+}
+
+static bool quad(const host_window_t *w)
+{
+    return w->bus_lines == 4;
+}
+
+/* QSPI: a command held back that has no data goes alone, its opcode and address */
+static void flush_held(host_window_t *w)
+{
+    if (w->held < 0) return;
+    w->held = -1;
+    transfer(w, HOST_QSPI_HEAD, 0, false);
+}
+
+/* pixels as dgx_spi_send_pieces() cuts them by the buffer of the bus; a QSPI piece takes a command held along */
+static void transfer_pixels(host_window_t *w, uint32_t bytes)
+{
+    const uint32_t head   = quad(w) ? HOST_QSPI_HEAD : 0;
+    const size_t   buffer = w->protocols.buffer_len;
+    uint32_t       piece  = bytes <= buffer ? bytes : (uint32_t)(buffer - buffer % 12u);
+    if (!piece) piece = 12u;
+    w->held = -1;
+    while (bytes) {
+        const uint32_t now = bytes < piece ? bytes : piece;
+        if (now <= HOST_DIRECT_MOST) {
+            for (uint32_t left = now; left;) {
+                const uint32_t part = left > HOST_DIRECT_PIECE ? HOST_DIRECT_PIECE : left;
+                transfer(w, head, (uint64_t)part * 8u, false);
+                left -= part;
+            }
+        } else {
+            transfer(w, head, (uint64_t)now * 8u, true);
+        }
+        bytes -= now;
+    }
+}
+
+/* ---- passes ---- */
 
 static void pass_end(host_window_t *w)
 {
-    if (!w->bytes) return;
-    const double us = wire_us(w, w->bytes);
+    if (!w->transfers && !w->pieces) return;
     ++w->passes;
-    w->sum_us += us;
-    if (us > w->most_us) w->most_us = us, w->most_bytes = w->bytes, w->most_transfers = w->transfers;
+    w->sum_us += w->us;
+    w->sum_wire_us += w->wire_us;
+    w->sum_transfers += w->transfers;
+    w->sum_pieces += w->pieces;
+    if (w->us > w->most_us) w->most_us = w->us, w->most_bytes = w->bytes, w->most_transfers = w->transfers + w->pieces;
     ++w->recent;
-    w->recent_sum_us += us;
-    if (us > w->recent_most_us) w->recent_most_us = us;
-    w->bytes = w->transfers = 0;
+    w->recent_sum_us += w->us;
+    w->recent_transfers += w->transfers + w->pieces;
+    if (w->us > w->recent_most_us) w->recent_most_us = w->us;
+    w->us = w->wire_us = 0;
+    w->bytes = w->transfers = w->pieces = 0;
 }
 
 static void stats_clear(host_window_t *w)
 {
-    w->bytes = w->transfers = w->passes = w->most_bytes = w->most_transfers = 0;
-    w->sum_us = w->most_us = w->recent_sum_us = w->recent_most_us = 0;
-    w->recent                                                     = 0;
+    w->us = w->wire_us = w->sum_us = w->sum_wire_us = w->most_us = w->recent_sum_us = w->recent_most_us = 0;
+    w->bytes = w->transfers = w->pieces = w->passes = w->sum_transfers = w->sum_pieces = 0;
+    w->most_bytes = w->most_transfers = w->recent_transfers = 0;
+    w->recent                                               = 0;
 }
 
 /* ---- the windows on the computer ---- */
 
-static void write_shot(const host_window_t *w)
+static void write_shot(host_window_t *w)
 {
     /* the first window to the file named, the others beside it: shot-2.ppm */
     char        path[4096];
@@ -419,17 +637,22 @@ static void write_shot(const host_window_t *w)
     if (w->number == 1) snprintf(path, sizeof(path), "%s", shot);
     else if (dot && (!slash || dot > slash)) snprintf(path, sizeof(path), "%.*s-%d%s", (int)(dot - shot), shot, w->number, dot);
     else snprintf(path, sizeof(path), "%s-%d", shot, w->number);
-    FILE *f = fopen(path, "wb");
+    const size_t n    = (size_t)w->width * w->height;
+    uint32_t    *seen = (uint32_t *)__real_malloc(n * sizeof(*seen));
+    FILE        *f    = seen ? fopen(path, "wb") : NULL;
     if (!f) {
         ESP_LOGE(TAG, "no picture to %s", path);
+        __real_free(seen);
         return;
     }
-    fprintf(f, "P6\n%d %d\n255\n", w->width, w->height);
-    for (size_t i = 0; i < (size_t)w->width * w->height; ++i) {
-        const uint8_t rgb[3] = {(uint8_t)(w->glass[i] >> 16), (uint8_t)(w->glass[i] >> 8), (uint8_t)w->glass[i]};
+    turn_glass(w, visible(w), seen);
+    fprintf(f, "P6\n%d %d\n255\n", turned_width(w), turned_height(w));
+    for (size_t i = 0; i < n; ++i) {
+        const uint8_t rgb[3] = {(uint8_t)(seen[i] >> 16), (uint8_t)(seen[i] >> 8), (uint8_t)seen[i]};
         fwrite(rgb, 1, 3, f);
     }
     fclose(f);
+    __real_free(seen);
 }
 
 static void tell_title(host_window_t *w)
@@ -437,15 +660,16 @@ static void tell_title(host_window_t *w)
     char text[256];
     int  n = snprintf(text, sizeof(text), "%s %dx%d", w->title, w->width, w->height);
     if (w->recent)
-        n += snprintf(text + n, sizeof(text) - n, "  |  bus %.1f ms a pass, %.1f at most", w->recent_sum_us / w->recent / 1000.0,
-                      w->recent_most_us / 1000.0);
+        n += snprintf(text + n, sizeof(text) - n, "  |  bus %.1f ms a pass, %.1f at most, %.0f transfers", w->recent_sum_us / w->recent / 1000.0,
+                      w->recent_most_us / 1000.0, (double)w->recent_transfers / w->recent);
     else
         n += snprintf(text + n, sizeof(text) - n, "  |  bus idle");
     snprintf(text + n, sizeof(text) - n, "  |  heap %.1f KB, %.1f at most", heap.now / 1024.0, heap.most / 1024.0);
     SDL_SetWindowTitle(w->window, text);
-    w->recent         = 0;
-    w->recent_sum_us  = 0;
-    w->recent_most_us = 0;
+    w->recent           = 0;
+    w->recent_transfers = 0;
+    w->recent_sum_us    = 0;
+    w->recent_most_us   = 0;
 }
 
 /* what the program has done, when it ends */
@@ -454,12 +678,15 @@ static void host_end(void)
     for (host_window_t *w = windows; w; w = w->next) {
         pass_end(w);
         if (shot && *shot) write_shot(w);
+        const double passes = w->passes ? (double)w->passes : 1.0;
         fprintf(stderr,
-                "I %s: window %d, %dx%d: the bus at %.1f MHz over %u line%s, passes that sent something: %llu; on the wire %.2f ms a pass "
-                "on average, %.2f at most (%llu bytes in %llu transfers)\n",
-                TAG, w->number, w->width, w->height, w->bus_hz / 1e6, w->bus_lines, w->bus_lines == 1 ? "" : "s",
-                (unsigned long long)w->passes, w->passes ? w->sum_us / w->passes / 1000.0 : 0.0, w->most_us / 1000.0,
-                (unsigned long long)w->most_bytes, (unsigned long long)w->most_transfers);
+                "I %s: window %d, %dx%d, %s at %.1f MHz: passes that sent something: %llu; a pass %.2f ms on average, %.2f on the wire, "
+                "%.1f transfers by the registers at %.2f us and %.1f pieces by DMA at %.1f us; %.2f ms at most (%llu bytes in %llu "
+                "transfers)\n",
+                TAG, w->number, w->width, w->height, quad(w) ? "QSPI" : "SPI", w->bus_hz / 1e6, (unsigned long long)w->passes,
+                w->sum_us / passes / 1000.0, w->sum_wire_us / passes / 1000.0, w->sum_transfers / passes, w->transfer_us,
+                w->sum_pieces / passes, w->piece_us, w->most_us / 1000.0, (unsigned long long)w->most_bytes,
+                (unsigned long long)w->most_transfers);
     }
     fprintf(stderr, "I %s: memory: %zu bytes held now, %zu at most at once, the largest block %zu", TAG, heap.now, heap.most, heap.block);
     if (heap.refused) fprintf(stderr, "; %u allocations refused", heap.refused);
@@ -468,9 +695,9 @@ static void host_end(void)
 }
 
 /*
- * The windows made since the last wait, side by side in the middle of the
- * screen of the computer, the glass of each the same whole number of times
- * as large, as large as they all fit. Those made earlier stay where they are.
+ * The windows not shown yet, side by side in the middle of the screen of
+ * the computer, the glass of each the same whole number of times as large,
+ * as large as they all fit. Those shown before stay where they are.
  */
 static void place(void)
 {
@@ -478,8 +705,8 @@ static void place(void)
     int       total = 0, high = 0, n = 0;
     for (host_window_t *w = windows; w; w = w->next) {
         if (w->placed) continue;
-        total += w->width;
-        if (w->height > high) high = w->height;
+        total += turned_width(w);
+        if (turned_height(w) > high) high = turned_height(w);
         ++n;
     }
     if (!n) return;
@@ -490,11 +717,12 @@ static void place(void)
     int x = usable.x + (usable.w - total * zoom - gap * (n - 1)) / 2;
     for (host_window_t *w = windows; w; w = w->next) {
         if (w->placed) continue;
-        SDL_SetWindowSize(w->window, w->width * zoom, w->height * zoom);
-        SDL_SetWindowPosition(w->window, x, usable.y + (usable.h - w->height * zoom) / 2);
+        const int tw = turned_width(w) * zoom, th = turned_height(w) * zoom;
+        SDL_SetWindowSize(w->window, tw, th);
+        SDL_SetWindowPosition(w->window, x, usable.y + (usable.h - th) / 2);
         SDL_ShowWindow(w->window);
-        ESP_LOGI(TAG, "window %d: the glass %d times as large, %dx%d", w->number, zoom, w->width * zoom, w->height * zoom);
-        x += w->width * zoom + gap;
+        ESP_LOGI(TAG, "window %d: the glass %d times as large, %dx%d", w->number, zoom, tw, th);
+        x += tw + gap;
         w->placed  = true;
         w->changed = true;
     }
@@ -522,9 +750,15 @@ static void show(int64_t every_us)
     const int64_t now = clock_us();
     for (host_window_t *w = windows; w; w = w->next) {
         if (!w->changed || now - w->shown_us < every_us) continue;
-        SDL_UpdateTexture(w->texture, NULL, w->glass, w->width * (int)sizeof(*w->glass));
+        SDL_UpdateTexture(w->texture, NULL, visible(w), w->width * (int)sizeof(*w->glass));
         SDL_RenderClear(w->renderer);
-        SDL_RenderCopy(w->renderer, w->texture, NULL, NULL);
+        if (w->turn) {
+            /* the glass turned about the middle of the window, which has its sides the other way at 90 and 270 */
+            const SDL_Rect to = {(turned_width(w) - w->width) / 2, (turned_height(w) - w->height) / 2, w->width, w->height};
+            SDL_RenderCopyEx(w->renderer, w->texture, NULL, &to, w->turn, NULL, SDL_FLIP_NONE);
+        } else {
+            SDL_RenderCopy(w->renderer, w->texture, NULL, NULL);
+        }
         SDL_RenderPresent(w->renderer);
         w->shown_us = now;
         w->changed  = false;
@@ -600,34 +834,82 @@ void dgx_host_delay(uint32_t ms)
 
 /* ---- the bus ---- */
 
-static void sent(host_window_t *w, uint32_t bytes)
+/*
+ * Something sent by the task: its wait ends the pass. The windows are shown
+ * while pixels go, by the owner, once it has waited or once no window has
+ * been made for a while: a program that never waits still has its windows.
+ */
+static void sent(host_window_t *w)
 {
     const host_task_t task = this_task();
     w->sender              = task;
-    w->bytes += bytes;
-    ++w->transfers;
-    if (waited && task == owner && clock_us() - pumped_us >= HOST_SHOW_BUSY_US) show(HOST_SHOW_BUSY_US);
+    if (task != owner) return;
+    const int64_t now = clock_us();
+    if (now - pumped_us >= HOST_SHOW_BUSY_US && (waited || now - made_us >= HOST_SHOW_BUSY_US)) show(HOST_SHOW_BUSY_US);
 }
 
 static void bus_command(struct _dgx_bus_protocols_t *bus, uint8_t command)
 {
     host_window_t *w = (host_window_t *)bus;
     panel_command(w, command);
-    sent(w, 1);
+    if (quad(w)) {
+        flush_held(w);
+        w->held = command;
+    } else {
+        transfer(w, 8, 0, false);
+    }
+    sent(w);
 }
 
+/* SPI: the bytes in one transfer of the driver; QSPI: every byte a command of its own */
 static void bus_commands(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t len)
 {
     host_window_t *w = (host_window_t *)bus;
-    for (uint32_t i = 0; i < len / 8; ++i) panel_command(w, data[i]);
-    sent(w, len / 8);
+    for (uint32_t i = 0; i < len / 8; ++i) {
+        panel_command(w, data[i]);
+        if (quad(w)) flush_held(w), w->held = data[i];
+    }
+    if (quad(w)) flush_held(w);
+    else transfer(w, len, 0, true);
+    sent(w);
 }
 
+/*
+ * Parameters, or pixels sent and waited for. SPI: up to four bytes by the
+ * registers, more through the driver, in pieces of the buffer. QSPI: with
+ * the command held back, all on one line, by the registers up to 64 bytes;
+ * with no command they are dropped, as on the board.
+ */
 static void bus_data(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t len)
+{
+    host_window_t *w     = (host_window_t *)bus;
+    const uint32_t bytes = len / 8;
+    if (quad(w)) {
+        if (w->held < 0) return;
+        w->held = -1;
+        panel_data(w, data, bytes);
+        transfer(w, HOST_QSPI_HEAD + len, 0, bytes > HOST_QSPI_SHORT);
+    } else {
+        panel_data(w, data, bytes);
+        if (bytes <= HOST_SPI_SHORT) {
+            transfer(w, len, 0, false);
+        } else {
+            for (uint32_t left = bytes; left;) {
+                const uint32_t piece = left < w->protocols.buffer_len ? left : (uint32_t)w->protocols.buffer_len;
+                transfer(w, piece * 8u, 0, true);
+                left -= piece;
+            }
+        }
+    }
+    sent(w);
+}
+
+static void bus_data_async(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t len)
 {
     host_window_t *w = (host_window_t *)bus;
     panel_data(w, data, len / 8);
-    sent(w, len / 8);
+    transfer_pixels(w, len / 8);
+    sent(w);
 }
 
 static uint32_t bus_read(struct _dgx_bus_protocols_t *bus, uint8_t *data, uint32_t len)
@@ -637,9 +919,11 @@ static uint32_t bus_read(struct _dgx_bus_protocols_t *bus, uint8_t *data, uint32
     return 0;
 }
 
+/* QSPI: a command held back goes alone now, but for the memory write, which waits for its pixels */
 static void bus_sync(struct _dgx_bus_protocols_t *bus)
 {
-    (void)bus;
+    host_window_t *w = (host_window_t *)bus;
+    if (quad(w) && w->held >= 0 && w->held != HOST_RAMWR) flush_held(w);
 }
 
 /* pixels in internal memory go by DMA where they lie on the board; on an ESP32 all of it can */
@@ -666,6 +950,7 @@ static void window_free(host_window_t *w)
     if (w->renderer) SDL_DestroyRenderer(w->renderer);
     if (w->window) SDL_DestroyWindow(w->window);
     free(w->protocols.buffer);
+    __real_free(w->view);
     __real_free(w->glass);
     __real_free(w);
 }
@@ -675,17 +960,23 @@ static void bus_dispose(struct _dgx_bus_protocols_t *bus)
     window_free((host_window_t *)bus);
 }
 
-static size_t bus_buffer_len(const host_window_t *w)
+/* the buffer as dgx_spi_buffer_len() makes it, the program's limit too: in whole words, a multiple of 16 bytes when it can */
+static size_t bus_buffer_len(const host_window_t *w, uint32_t most)
 {
     uint64_t len = (uint64_t)w->bus_hz / 1000u * w->bus_lines * 2u * HOST_HALF_US / 1000u / 8u;
     if (len > HOST_MAX_TRANSFER) len = HOST_MAX_TRANSFER;
     if (len < HOST_MIN_BUFFER) len = HOST_MIN_BUFFER;
-    return (size_t)(len & ~(uint64_t)15);
+    if (most && len > most) len = most;
+    const uint64_t words = len & ~(uint64_t)3;
+    len &= ~(uint64_t)15;
+    if (!len) len = words ? words : 4u;
+    return (size_t)len;
 }
 
 /* ---- the screen ---- */
 
 static const dgx_lcd_init_cmd_t host_init[] = {
+    {HOST_SWRESET, 0,                   0,    0, {0}   },
     {HOST_COLMOD, dgx_panel_adj_colmod, 1,    0, {0x55}},
     {HOST_MADCTL, dgx_panel_adj_madctl, 1,    0, {0}   },
     {0,           0,                    0xff, 0, {0}   }
@@ -717,10 +1008,26 @@ static bool host_start(void)
     return true;
 }
 
+/* a cost of the options: 0 for the default, below 0 for none */
+static double cost_of(float asked, double otherwise)
+{
+    return asked > 0 ? asked : asked < 0 ? 0.0 : otherwise;
+}
+
 dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, const dgx_host_screen_options_t *options)
 {
+    const dgx_host_screen_options_t none = {0};
+    if (!options) options = &none;
     if (width < 1 || height < 1 || width > 4096 || height > 4096) {
         ESP_LOGE(TAG, "a glass of %dx%d pixels: 1 to 4096 a side", width, height);
+        return NULL;
+    }
+    if (options->bus_lines > 1 && options->bus_lines != 4) {
+        ESP_LOGE(TAG, "a bus of %u data lines: 1 for SPI, 4 for QSPI", (unsigned)options->bus_lines);
+        return NULL;
+    }
+    if (options->turn % 90 || options->turn >= 360) {
+        ESP_LOGE(TAG, "the glass turned by %u degrees: 0, 90, 180 or 270", (unsigned)options->turn);
         return NULL;
     }
     if (windows && this_task() != owner) {
@@ -751,19 +1058,24 @@ dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, co
     /* in the list from the start, so that window_free() takes it out whatever has been made of it */
     host_window_t **end = &windows;
     while (*end) end = &(*end)->next;
-    *end         = w;
-    w->number    = ++made;
-    w->width     = width;
-    w->height    = height;
-    w->colmod    = 0x55;
-    w->bus_hz    = options && options->bus_hz ? options->bus_hz : 40000000u;
-    w->bus_lines = options && options->bus_lines ? options->bus_lines : 1u;
-    if (options && options->title) snprintf(w->title, sizeof(w->title), "%s", options->title);
+    *end           = w;
+    made_us        = clock_us(); /* and again once it is made: its panel starts with no window shown */
+    w->number      = ++made;
+    w->width       = width;
+    w->height      = height;
+    w->colmod      = 0x55;
+    w->held        = -1;
+    w->bus_hz      = options->bus_hz ? options->bus_hz : 40000000u;
+    w->bus_lines   = options->bus_lines ? options->bus_lines : 1u;
+    w->transfer_us = cost_of(options->transfer_us, HOST_TRANSFER_US);
+    w->piece_us    = cost_of(options->piece_us, HOST_PIECE_US);
+    w->turn        = options->turn;
+    if (options->title) snprintf(w->title, sizeof(w->title), "%s", options->title);
     else if (w->number == 1) snprintf(w->title, sizeof(w->title), "DGX");
     else snprintf(w->title, sizeof(w->title), "DGX %d", w->number);
 
-    /* hidden until the first wait, when the windows made by then are put side by side */
-    w->window = SDL_CreateWindow(w->title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height,
+    /* hidden until it is shown first, when the windows made by then are put side by side */
+    w->window = SDL_CreateWindow(w->title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, turned_width(w), turned_height(w),
                                  SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_HIDDEN);
     if (w->window) w->renderer = SDL_CreateRenderer(w->window, -1, 0);
     if (w->window && !w->renderer) w->renderer = SDL_CreateRenderer(w->window, -1, SDL_RENDERER_SOFTWARE);
@@ -777,38 +1089,43 @@ dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, co
     w->id = SDL_GetWindowID(w->window);
     SDL_SetTextureBlendMode(w->texture, SDL_BLENDMODE_NONE);
     /* the glass stretched with the window, its proportions kept */
-    SDL_RenderSetLogicalSize(w->renderer, width, height);
+    SDL_RenderSetLogicalSize(w->renderer, turned_width(w), turned_height(w));
     for (size_t i = 0; i < (size_t)width * height; ++i) w->glass[i] = 0xFF000000u;
     w->changed = true;
 
     dgx_bus_protocols_t *bus = &w->protocols;
-    bus->bus_type            = DGX_BUS_SPI;
-    bus->bus_name            = "Host";
+    bus->bus_type            = quad(w) ? DGX_BUS_QSPI : DGX_BUS_SPI;
+    bus->bus_name            = quad(w) ? "Host QSPI" : "Host SPI";
     bus->write_command       = bus_command;
     bus->write_commands      = bus_commands;
     bus->write_data          = bus_data;
     bus->read_data           = bus_read;
-    bus->write_data_async    = bus_data;
+    bus->write_data_async    = bus_data_async;
     bus->sync_write          = bus_sync;
     bus->sends_from          = bus_sends_from;
     bus->memory_allocator    = bus_memory;
     bus->dispose             = bus_dispose;
-    bus->buffer_len          = bus_buffer_len(w);
+    bus->buffer_len          = bus_buffer_len(w, options->buffer_max);
     bus->buffer              = bus->memory_allocator((uint32_t)bus->buffer_len);
-    w->description           = (dgx_panel_t){.name   = "Host",
-                                             .width  = (uint16_t)width,
-                                             .height = (uint16_t)height,
-                                             .colmod = {0, 0x55, 0x66},
-                                             .madctl = 0,
-                                             .init   = host_init};
+    /* the scroll of the panel along the rows of its memory, the rows of the glass, as the ILI9341 has it */
+    w->description = (dgx_panel_t){.name             = "Host",
+                                   .width            = (uint16_t)width,
+                                   .height           = (uint16_t)height,
+                                   .colmod           = {0, 0x55, 0x66},
+                                   .madctl           = 0,
+                                   .scroll_lines     = (uint16_t)height,
+                                   .scroll_area_cmd  = HOST_VSCRDEF,
+                                   .scroll_start_cmd = HOST_VSCRSADD,
+                                   .init             = host_init};
     dgx_screen_t *scr = bus->buffer ? dgx_panel_init(bus, &w->description, GPIO_NUM_NC, GPIO_NUM_NC, color_bits, DgxScreenRGB) : NULL;
     if (!scr) {
         window_free(w);
         return NULL;
     }
     stats_clear(w); /* the commands that started the panel are not the program's */
-    ESP_LOGI(TAG, "window %d: a glass of %dx%d, %u bits; the bus of the board %.1f MHz over %u line%s, its buffer %zu bytes", w->number, width,
-             height, (unsigned)color_bits, w->bus_hz / 1e6, w->bus_lines, w->bus_lines == 1 ? "" : "s", bus->buffer_len);
+    made_us = clock_us();
+    ESP_LOGI(TAG, "window %d: a glass of %dx%d, %u bits; the bus of the board %s at %.1f MHz, its buffer %zu bytes", w->number, width, height,
+             (unsigned)color_bits, quad(w) ? "QSPI" : "SPI", w->bus_hz / 1e6, bus->buffer_len);
     return scr;
 }
 
