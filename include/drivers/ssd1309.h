@@ -38,6 +38,25 @@ void dgx_ssd1309_contrast(dgx_screen_t *scr, uint8_t contrast);
 void dgx_ssd1309_column_offset(dgx_screen_t *scr, uint8_t offset);
 
 /**
+ * @brief Set how the screen lies on the panel (rotation/mirroring).
+ *
+ * The driver turns the picture in software as it sends it, as on the
+ * ST7920: the controller mirrors by its segments and rows only as a module
+ * wires its glass. With @p swap_xy the screen has its sides exchanged, 64x128
+ * for 128x64, and what was drawn before the call is cleared, for its rows are of
+ * another length; without a change of size the picture stays and is sent
+ * again as it lies now. A turned screen is gathered bit by bit as it is
+ * sent. (DgxScreenLeftRight, DgxScreenTopBottom, false) is the picture the
+ * driver starts with.
+ *
+ * @param scr     Screen created by dgx_ssd1309_init().
+ * @param dir_x   DgxScreenLeftRight or DgxScreenRightLeft.
+ * @param dir_y   DgxScreenTopBottom or DgxScreenBottomTop.
+ * @param swap_xy Swap the X and Y axes.
+ */
+void dgx_ssd1309_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
+
+/**
  * @brief Create an SSD1309 monochrome OLED screen on top of a bus (SPI or I2C).
  *
  * The controller is the SSD1306 with a larger charge-pump-free glass driver

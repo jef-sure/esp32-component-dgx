@@ -1,5 +1,26 @@
 # Changes
 
+## 0.10.12 - 2026-11-06
+
+New:
+
+- SSD1306, SSD1309 and SH1106 turn and mirror the screen:
+  `dgx_ssd1306_orientation()`, `dgx_ssd1309_orientation()` and
+  `dgx_sh1106_orientation()`, with the arguments of the other drivers. As on
+  the ST7920 and the SSD1322, the driver turns the picture in software where
+  it sends it: the controllers mirror by their segments and rows only as a
+  module wires its glass. With the axes swapped the screen of a 128x64 panel
+  is 64x128, and what was drawn is cleared. Checked by eye in all eight
+  orientations on the 72x40 SSD1306 of an ESP32-C3 board, by a letter F
+  and the axes drawn by the screen against labels and an F placed by the
+  panel; SH1106 and SSD1309 by the host tests only.
+
+Fixed:
+
+- `drivers/ssd1306.h` included `dgx_arch_esp32.h` itself, so a program for
+  the computer could not include it; it includes `dgx_arch.h`, as the
+  headers of the other drivers do.
+
 ## 0.10.11 - 2026-11-06
 
 New, in the window on the computer, asked for by boards and DGX-GE:

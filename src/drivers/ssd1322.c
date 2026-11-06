@@ -309,6 +309,6 @@ dgx_screen_t *dgx_ssd1322_init(dgx_bus_protocols_t *bus, ssd1322_resolution_t re
 void dgx_ssd1322_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
     dgx_ssd1322_t *scr = (dgx_ssd1322_t *)_scr;
-    dgx_soft_turn_set(_scr, scr->module->width, scr->module->height, dir_x, dir_y, swap_xy);
+    dgx_soft_turn_set(_scr, scr->base.v_array, scr->module->width, scr->module->height, dir_x, dir_y, swap_xy);
     dgx_ssd1322_update_screen(_scr, 0, _scr->width - 1, 0, _scr->height - 1);
 }

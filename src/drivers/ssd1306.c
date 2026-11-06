@@ -8,6 +8,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "../vscreen/dgx_soft_turn_priv.h"
+
 // Control byte
 #define SSD1306_CONTROL_BYTE_CMD_SINGLE  0x80
 #define SSD1306_CONTROL_BYTE_CMD_STREAM  0x00
@@ -99,11 +101,10 @@ void dgx_ssd1306_update_screen(dgx_screen_t *scr_, int left, int right, int top,
         top    = bottom;
         bottom = t;
     }
-    if (right < 0 || bottom < 0 || left >= scr_->width || top >= scr_->height) return;
-    if (left < 0) left = 0;
-    if (top < 0) top = 0;
-    if (right >= scr_->width) right = scr_->width - 1;
-    if (bottom >= scr_->height) bottom = scr_->height - 1;
+    // clipped to the screen and turned to the panel: from here on the columns and rows are those of the panel
+    int pw, ph;
+    dgx_soft_turn_panel(scr_, &pw, &ph);
+    if (!dgx_soft_turn_rect(scr_, pw, ph, &left, &right, &top, &bottom)) return;
     uint8_t page_s    = (uint16_t)top >> 3;
     uint8_t page_e    = (uint16_t)bottom >> 3;
     /*
@@ -112,7 +113,7 @@ void dgx_ssd1306_update_screen(dgx_screen_t *scr_, int left, int right, int top,
      * middle, a 96x16 starts at the first one, as Adafruit_SSD1306 and u8g2
      * address them.
      */
-    uint8_t seg_shift = scr_->width == 96 ? 0 : (uint8_t)((128 - scr_->width) >> 1);
+    uint8_t seg_shift = pw == 96 ? 0 : (uint8_t)((128 - pw) >> 1);
     uint8_t clo       = left + seg_shift;
     uint8_t chi       = right + seg_shift;
     uint8_t crset[6]  = {
@@ -124,16 +125,33 @@ void dgx_ssd1306_update_screen(dgx_screen_t *scr_, int left, int right, int top,
         page_e                        //
     };
     scr->bus->write_commands(scr->bus, crset, 6 * 8u);
-    if (left == 0 && right == (scr_->width - 1) && page_s == 0 && page_e == ((uint16_t)(scr_->height - 1) >> 3)) {
+    if (dgx_soft_turned(scr_)) {
+        // the screen turned: every page of the panel gathered bit by bit
+        uint8_t bytes[128];
+        for (; page_s <= page_e; ++page_s) {
+            dgx_soft_turn_page(scr_, scr->base.v_array, pw, ph, page_s, left, right, bytes);
+            scr->bus->write_data(scr->bus, bytes, (right - left + 1) * 8u);
+        }
+    } else if (left == 0 && right == (pw - 1) && page_s == 0 && page_e == ((uint16_t)(ph - 1) >> 3)) {
         uint8_t *pb    = scr->base.v_array;
-        uint32_t bsize = scr_->width * (page_e + 1);
+        uint32_t bsize = pw * (page_e + 1);
         scr->bus->write_data(scr->bus, pb, bsize * 8u);
     } else {
         for (; page_s <= page_e; ++page_s) {
-            uint8_t *pb = scr->base.v_array + page_s * scr_->width + left;
+            uint8_t *pb = scr->base.v_array + page_s * pw + left;
             scr->bus->write_data(scr->bus, pb, (right - left + 1) * 8u);
         }
     }
+}
+
+void dgx_ssd1306_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+{
+    dgx_ssd1306_t *scr = (dgx_ssd1306_t *)scr_;
+    int            pw, ph;
+    dgx_soft_turn_panel(scr_, &pw, &ph);
+    dgx_soft_turn_set(scr_, scr->base.v_array, pw, ph, dir_x, dir_y, swap_xy);
+    dgx_bw_set_area(scr_, 0, (uint16_t)(scr_->width - 1), 0, (uint16_t)(scr_->height - 1));
+    dgx_ssd1306_update_screen(scr_, 0, scr_->width - 1, 0, scr_->height - 1);
 }
 
 void dgx_ssd1306_contrast(dgx_screen_t *scr_, uint8_t contrast)

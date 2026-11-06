@@ -125,13 +125,25 @@ static void bus_write_data(struct _dgx_bus_protocols_t *bus, const uint8_t *data
     }
 }
 
-/* the picture on the glass against the screen, the glass wired from segment `offset`: its columns past the last segment show nothing */
+/* where a pixel of the screen lies on the panel: as the MX, MY and MV bits of a color controller put it */
+static void on_panel(const dgx_screen_t *scr, int x, int y, int *px, int *py)
+{
+    const int pw = scr->swap_xy ? scr->height : scr->width, ph = scr->swap_xy ? scr->width : scr->height;
+    const int ax = scr->swap_xy ? y : x, ay = scr->swap_xy ? x : y;
+    *px = scr->dir_x == DgxScreenRightLeft ? pw - 1 - ax : ax;
+    *py = scr->dir_y == DgxScreenBottomTop ? ph - 1 - ay : ay;
+}
+
+/* the picture on the glass against the screen as it lies on it, the glass wired from segment `offset`: its columns past the last segment show nothing */
 static int mismatches(dgx_screen_t *scr, int offset)
 {
     int wrong = 0;
     for (int y = 0; y < scr->height; ++y) {
-        for (int x = 0; x + offset < SEGMENTS && x < scr->width; ++x) {
-            const int shown = (gddram[y >> 3][x + offset] >> (y & 7)) & 1;
+        for (int x = 0; x < scr->width; ++x) {
+            int px, py;
+            on_panel(scr, x, y, &px, &py);
+            if (px + offset >= SEGMENTS) continue;
+            const int shown = (gddram[py >> 3][px + offset] >> (py & 7)) & 1;
             wrong += shown != (dgx_get_pixel(scr, x, y) != 0);
         }
     }
@@ -178,6 +190,49 @@ static void scribble(dgx_screen_t *scr, int offset, int rounds)
         CHECK(wrong == 0);
         if (wrong) break;
     }
+}
+
+/*
+ * All eight orientations of a panel pw x ph: what the glass shows is the
+ * screen as it lies on it. What was drawn stays when the size does, and is
+ * cleared when the axes are swapped; a corner mark tells the orientations
+ * apart; a pixel still costs one byte.
+ */
+static void turns(dgx_screen_t *scr, int pw, int ph, int offset)
+{
+    for (int turn = 0; turn < 8; ++turn) {
+        const dgx_orientation_t dir_x = turn & 1 ? DgxScreenRightLeft : DgxScreenLeftRight;
+        const dgx_orientation_t dir_y = turn & 2 ? DgxScreenBottomTop : DgxScreenTopBottom;
+        const bool              swap  = (turn & 4) != 0;
+        dgx_fill_rectangle(scr, 0, 0, scr->width, scr->height, 0);
+        dgx_fill_rectangle(scr, 3, 5, 20, 9, 1);
+        dgx_draw_line(scr, 0, 0, scr->width - 1, scr->height - 1, 1);
+        const bool resized = (scr->width == pw) == swap;
+        dgx_ssd1309_orientation(scr, dir_x, dir_y, swap);
+        CHECK(scr->width == (swap ? ph : pw) && scr->height == (swap ? pw : ph));
+        CHECK(mismatches(scr, offset) == 0);
+        int lit = 0;
+        for (int y = 0; y < scr->height; ++y) {
+            for (int x = 0; x < scr->width; ++x) lit += dgx_get_pixel(scr, x, y) != 0;
+        }
+        CHECK(resized ? lit == 0 : lit > 180);
+
+        dgx_fill_rectangle(scr, 0, 0, 5, 2, 1);
+        int px, py;
+        on_panel(scr, 0, 0, &px, &py);
+        CHECK(px == ((turn & 1) ? pw - 1 : 0) && py == ((turn & 2) ? ph - 1 : 0));
+        /* the mark is 5 pixels long along x of the screen: along the rows of the panel, or down its columns when the axes are swapped */
+        on_panel(scr, 4, 0, &px, &py);
+        CHECK(swap ? py == ((turn & 2) ? ph - 5 : 4) : px == ((turn & 1) ? pw - 5 : 4));
+        CHECK(px + offset >= SEGMENTS || (gddram[py >> 3][px + offset] >> (py & 7) & 1));
+
+        scribble(scr, offset, 150);
+        const long before = data_bytes;
+        dgx_set_pixel(scr, scr->width / 2, scr->height / 2, 1);
+        CHECK(data_bytes - before == 1 && mismatches(scr, offset) == 0);
+    }
+    dgx_ssd1309_orientation(scr, DgxScreenLeftRight, DgxScreenTopBottom, false);
+    CHECK(scr->width == pw && scr->height == ph && mismatches(scr, offset) == 0);
 }
 
 static void run(ssd1309_resolution_t resolution, int width, int height)
@@ -238,6 +293,17 @@ static void run(ssd1309_resolution_t resolution, int width, int height)
     dgx_ssd1309_column_offset(scr, 200);
     CHECK(mismatches(scr, 127) == 0);
     dgx_ssd1309_column_offset(scr, 0);
+    CHECK(mismatches(scr, 0) == 0);
+
+    turns(scr, width, height, 0);
+    /* turned, on a glass wired from segment 2: the turned picture is sent again there, cut at the last segment */
+    dgx_ssd1309_orientation(scr, DgxScreenRightLeft, DgxScreenBottomTop, true);
+    dgx_font_string_utf8_screen(scr, 2, 30, "SSD", 1, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+    dgx_ssd1309_column_offset(scr, 2);
+    CHECK(mismatches(scr, 2) == 0);
+    scribble(scr, 2, 100);
+    dgx_ssd1309_column_offset(scr, 0);
+    dgx_ssd1309_orientation(scr, DgxScreenLeftRight, DgxScreenTopBottom, false);
     CHECK(mismatches(scr, 0) == 0);
 
     /* the contrast is two command bytes and no data */

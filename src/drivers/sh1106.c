@@ -23,6 +23,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "../vscreen/dgx_soft_turn_priv.h"
+
 // Control byte of the I2C protocol, the same as the SSD1306
 #define SH1106_CONTROL_BYTE_CMD_SINGLE  0x80
 #define SH1106_CONTROL_BYTE_CMD_STREAM  0x00
@@ -114,17 +116,18 @@ void dgx_sh1106_update_screen(dgx_screen_t *scr_, int left, int right, int top, 
         top    = bottom;
         bottom = t;
     }
-    if (right < 0 || bottom < 0 || left >= scr_->width || top >= scr_->height) return;
-    if (left < 0) left = 0;
-    if (top < 0) top = 0;
-    if (right >= scr_->width) right = scr_->width - 1;
-    if (bottom >= scr_->height) bottom = scr_->height - 1;
+    // clipped to the screen and turned to the panel: from here on the columns and rows are those of the panel
+    int pw, ph;
+    dgx_soft_turn_panel(scr_, &pw, &ph);
+    if (!dgx_soft_turn_rect(scr_, pw, ph, &left, &right, &top, &bottom)) return;
     // what the offset pushes past the last segment is not shown
     int clo = left + scr->col_offset;
     if (clo >= SH1106_SEGMENTS) return;
     if (right + scr->col_offset >= SH1106_SEGMENTS) right = SH1106_SEGMENTS - 1 - scr->col_offset;
-    uint8_t page_s = (uint16_t)top >> 3;
-    uint8_t page_e = (uint16_t)bottom >> 3;
+    uint8_t    page_s = (uint16_t)top >> 3;
+    uint8_t    page_e = (uint16_t)bottom >> 3;
+    const bool turned = dgx_soft_turned(scr_);
+    uint8_t    bytes[SH1106_SEGMENTS];
     // the page addressing mode: the column goes back to where it was set only with the next page command
     for (; page_s <= page_e; ++page_s) {
         uint8_t prset[3] = {
@@ -133,9 +136,24 @@ void dgx_sh1106_update_screen(dgx_screen_t *scr_, int left, int right, int top, 
             (uint8_t)(SH1106_CMD_SET_COLUMN_HI | (clo >> 4))      //
         };
         scr->bus->write_commands(scr->bus, prset, 3 * 8u);
-        uint8_t *pb = scr->base.v_array + page_s * scr_->width + left;
+        const uint8_t *pb = scr->base.v_array + page_s * pw + left;
+        if (turned) {
+            // the screen turned: the page of the panel gathered bit by bit
+            dgx_soft_turn_page(scr_, scr->base.v_array, pw, ph, page_s, left, right, bytes);
+            pb = bytes;
+        }
         scr->bus->write_data(scr->bus, pb, (right - left + 1) * 8u);
     }
+}
+
+void dgx_sh1106_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+{
+    dgx_sh1106_t *scr = (dgx_sh1106_t *)scr_;
+    int           pw, ph;
+    dgx_soft_turn_panel(scr_, &pw, &ph);
+    dgx_soft_turn_set(scr_, scr->base.v_array, pw, ph, dir_x, dir_y, swap_xy);
+    dgx_bw_set_area(scr_, 0, (uint16_t)(scr_->width - 1), 0, (uint16_t)(scr_->height - 1));
+    dgx_sh1106_update_screen(scr_, 0, scr_->width - 1, 0, scr_->height - 1);
 }
 
 void dgx_sh1106_contrast(dgx_screen_t *scr_, uint8_t contrast)

@@ -272,6 +272,6 @@ dgx_screen_t *dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
 
 void dgx_st7920_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
-    dgx_soft_turn_set(scr_, ST7920_WIDTH, ST7920_HEIGHT, dir_x, dir_y, swap_xy);
+    dgx_soft_turn_set(scr_, ((dgx_st7920_t *)scr_)->base.v_array, ST7920_WIDTH, ST7920_HEIGHT, dir_x, dir_y, swap_xy);
     dgx_st7920_update_screen(scr_, 0, scr_->width - 1, 0, scr_->height - 1);
 }

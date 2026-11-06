@@ -6,11 +6,13 @@
  *      Author: Anton Petrusevich
  *
  *  Orientation in software, for drivers that keep the picture in a virtual
- *  screen and whose controller cannot turn it (ST7920, SSD1322). The screen
- *  is drawn as it lies and turned while its rows are copied to the panel.
- *  As with the MX, MY and MV bits of a color controller: dir_x counts the
- *  panel columns from the right, dir_y its rows from the bottom, and swap_xy
- *  runs x of the screen down the panel columns.
+ *  screen and send it to the panel: those whose controller cannot turn it
+ *  (ST7920, SSD1322), and the page controllers (SSD1306, SH1106, SSD1309),
+ *  whose mirroring by segments and rows depends on how a module wires its
+ *  glass. The screen is drawn as it lies and turned while it is copied to
+ *  the panel. As with the MX, MY and MV bits of a color controller: dir_x
+ *  counts the panel columns from the right, dir_y its rows from the bottom,
+ *  and swap_xy runs x of the screen down the panel columns.
  */
 
 #include <stdbool.h>
@@ -22,6 +24,13 @@
 static inline bool dgx_soft_turned(const dgx_screen_t *scr)
 {
     return scr->swap_xy || scr->dir_x == DgxScreenRightLeft || scr->dir_y == DgxScreenBottomTop;
+}
+
+/* the panel a screen lies on, pw x ph: the screen with its axes swapped back */
+static inline void dgx_soft_turn_panel(const dgx_screen_t *scr, int *pw, int *ph)
+{
+    *pw = scr->swap_xy ? scr->height : scr->width;
+    *ph = scr->swap_xy ? scr->width : scr->height;
 }
 
 /* the screen pixel shown at (px, py) of a panel pw x ph */
@@ -55,19 +64,42 @@ static inline bool dgx_soft_turn_rect(const dgx_screen_t *scr, int pw, int ph, i
 }
 
 /*
- * Sets the orientation of a screen over a panel pw x ph; the driver then
- * sends the whole screen. With the axes swapped the screen is ph x pw: its
- * memory stays the same size, but the rows change length, so the picture
- * is cleared. Whatever was waiting to be sent is dropped.
+ * The bytes of a page of a page controller, of a panel pw x ph: a byte
+ * holds 8 rows of a panel column, the top one in bit 0, and the page rows
+ * page * 8 to page * 8 + 7. They are gathered for the columns left to right
+ * from a screen in the page layout of dgx_bw_init(), whose memory is pages
+ * as wide as the screen, turned on the panel.
  */
-static inline void dgx_soft_turn_set(dgx_screen_t *scr, int pw, int ph, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+static inline void dgx_soft_turn_page(const dgx_screen_t *scr, const uint8_t *pages, int pw, int ph, int page, int left, int right,
+                                      uint8_t *bytes)
+{
+    for (int px = left; px <= right; ++px) {
+        uint8_t byte = 0;
+        for (int bit = 0; bit < 8 && page * 8 + bit < ph; ++bit) {
+            int sx, sy;
+            dgx_soft_turn_pixel(scr, pw, ph, px, page * 8 + bit, &sx, &sy);
+            if (pages[(size_t)(sy >> 3) * (size_t)scr->width + (size_t)sx] >> (sy & 7) & 1u) byte |= (uint8_t)(1u << bit);
+        }
+        *bytes++ = byte;
+    }
+}
+
+/*
+ * Sets the orientation of a screen over a panel pw x ph, its picture in
+ * memory; the driver then sends the whole screen. With the axes swapped the
+ * screen is ph x pw: its memory stays the same size, but the rows change
+ * length, so the picture is cleared. Whatever was waiting to be sent is
+ * dropped.
+ */
+static inline void dgx_soft_turn_set(dgx_screen_t *scr, uint8_t *memory, int pw, int ph, dgx_orientation_t dir_x, dgx_orientation_t dir_y,
+                                     bool swap_xy)
 {
     const int width = swap_xy ? ph : pw, height = swap_xy ? pw : ph;
     scr->dir_x   = dir_x;
     scr->dir_y   = dir_y;
     scr->swap_xy = swap_xy;
     if (scr->width != width) {
-        memset(((dgx_vscreen_t *)scr)->v_array, 0, (size_t)pw * (size_t)ph * scr->color_bits / 8u);
+        memset(memory, 0, (size_t)pw * (size_t)ph * scr->color_bits / 8u);
         scr->width  = width;
         scr->height = height;
     }

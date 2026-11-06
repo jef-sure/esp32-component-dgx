@@ -1260,11 +1260,13 @@ Common parameters:
   order, not yet tried on a module). Swapping the axes in
   `dgx_st7789_orientation()` turns the screen between the two shapes.
 
-Color panels and ST7920 also expose an orientation setter
-(`dgx_<driver>_orientation(scr, dir_x, dir_y, swap_xy)`). A color controller
-is told its scan direction. An ST7920 has no command for that: its driver
-turns the picture where it sends it to the panel, and with `swap_xy` the
-screen is 64x128. A few drivers add extras: ILI9341 has
+Color panels, ST7920, SSD1306, SSD1309 and SH1106 also expose an
+orientation setter (`dgx_<driver>_orientation(scr, dir_x, dir_y, swap_xy)`).
+A color controller is told its scan direction. An ST7920 has no command for
+that, and the OLED controllers mirror by their segments and rows only as a
+module wires its glass: these drivers turn the picture where they send it to
+the panel, and with `swap_xy` the screen of a 128x64 panel is 64x128. A few
+drivers add extras: ILI9341 has
 `dgx_ili9341_backlight()`, NV3041A and ST77916 have `dgx_nv3041a_backlight()` and `dgx_st77916_backlight()`,
 GC9A01 has `dgx_gc9a01_display_off()` /
 `dgx_gc9a01_display_on()`, SSD1351 has `dgx_ssd1351_brightness()`, SSD1306
