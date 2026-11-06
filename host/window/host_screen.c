@@ -30,6 +30,8 @@
  *  Variables of the environment, for runs with nobody at the computer and
  *  for a board with less memory:
  *    DGX_HOST_QUIT_MS    the program ends so many ms after the first window was made;
+ *    DGX_HOST_SCRIPT     a file of the keys and the mouse button pressed and let go of, and when: see
+ *                        script_read() below;
  *    DGX_HOST_SHOT       the glass written to that file when the program ends (a PPM), that
  *                        of a second window to the same name with -2 before its extension;
  *    DGX_HOST_HEAP_MAX   bytes the program and DGX may hold at once: an allocation over it gets NULL;
@@ -43,6 +45,9 @@
 #include "dgx_host_screen.h"
 
 #include <SDL2/SDL.h>
+#include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 #include <malloc.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -396,7 +401,9 @@ typedef struct host_window_t {
     int64_t       shown_us;
     /* the mouse as a finger on the glass: x, y and whether it lies there, in one word, for any task to read whole */
     uint64_t      finger;
-    bool          pressed;      /* the left button went down on this window and is held */
+    bool          pressed;      /* the left button of the computer went down on this window and is held */
+    bool          scripted;     /* the button of the script is down on this window */
+    bool          no_bus;       /* the display of the board is on no bus the window stands for: nothing is counted */
 } host_window_t;
 
 /*
@@ -405,6 +412,13 @@ typedef struct host_window_t {
  */
 static host_window_t *windows;
 static int            made;     /* windows made so far */
+/*
+ * The keys held, a bit a key by its SDL_Scancode: one keyboard, as a board
+ * has one set of buttons, whatever window has it. Those of the computer, let
+ * go of when the keyboard leaves the windows, and those of the script.
+ */
+static uint64_t       keys_typed[SDL_NUM_SCANCODES / 64], keys_scripted[SDL_NUM_SCANCODES / 64];
+static int64_t        begun_us; /* when the first window was made: the time of DGX_HOST_QUIT_MS and DGX_HOST_SCRIPT counts from it */
 static int64_t        pumped_us, titled_us, quit_us, made_us;
 static bool           waited;   /* the owner has come to its first wait */
 static host_task_t    owner;    /* the task that made the windows and shows them */
@@ -566,6 +580,7 @@ static void turn_glass(const host_window_t *w, const uint32_t *from, uint32_t *t
  */
 static void transfer(host_window_t *w, uint32_t one_line, uint64_t all_lines, bool piece)
 {
+    if (w->no_bus) return;
     const double wire = ((double)one_line + (double)all_lines / w->bus_lines) * 1e6 / w->bus_hz;
     w->wire_us += wire;
     w->us += wire + (piece ? w->piece_us : w->transfer_us);
@@ -670,7 +685,9 @@ static void tell_title(host_window_t *w)
 {
     char text[256];
     int  n = snprintf(text, sizeof(text), "%s %dx%d", w->title, w->width, w->height);
-    if (w->recent)
+    if (w->no_bus) {
+        /* nothing of a bus the board does not have */
+    } else if (w->recent)
         n += snprintf(text + n, sizeof(text) - n, "  |  bus %.1f ms a pass, %.1f at most, %.0f transfers", w->recent_sum_us / w->recent / 1000.0,
                       w->recent_most_us / 1000.0, (double)w->recent_transfers / w->recent);
     else
@@ -683,12 +700,22 @@ static void tell_title(host_window_t *w)
     w->recent_most_us   = 0;
 }
 
-/* what the program has done, when it ends */
+/*
+ * What the program has done, when it ends. SDL is not quit: the system takes
+ * the windows away with the program, and by the time exit() comes to this,
+ * the graphics driver of the computer may have unloaded parts of itself in a
+ * handler of its own, registered later and so run earlier. SDL_Quit() then
+ * calls into them: the EGL of NVIDIA does that under SDL_VIDEODRIVER=offscreen.
+ */
 static void host_end(void)
 {
     for (host_window_t *w = windows; w; w = w->next) {
         pass_end(w);
         if (shot && *shot) write_shot(w);
+        if (w->no_bus) {
+            fprintf(stderr, "I %s: window %d, %dx%d, no bus counted\n", TAG, w->number, w->width, w->height);
+            continue;
+        }
         const double passes = w->passes ? (double)w->passes : 1.0;
         fprintf(stderr,
                 "I %s: window %d, %dx%d, %s at %.1f MHz: passes that sent something: %llu; a pass %.2f ms on average, %.2f on the wire, "
@@ -702,7 +729,6 @@ static void host_end(void)
     fprintf(stderr, "I %s: memory: %zu bytes held now, %zu at most at once, the largest block %zu", TAG, heap.now, heap.most, heap.block);
     if (heap.refused) fprintf(stderr, "; %u allocations refused", heap.refused);
     fputc('\n', stderr);
-    SDL_Quit();
 }
 
 /*
@@ -747,29 +773,54 @@ static host_window_t *window_of_id(uint32_t id)
     return NULL;
 }
 
-/*
- * The mouse on a window, at x, y of the glass as the window shows it: SDL
- * gives the events of a window with a logical size in its pixels, the
- * stretch and the bars beside it taken away. Outside the glass it is
- * pressed to its edge; the pixel under it is that of the glass upright.
- */
-static void finger_at(host_window_t *w, int x, int y)
+/* the finger of a window on the pixel gx, gy of the glass upright; outside the glass, on its edge nearest to it */
+static void finger_put(host_window_t *w, int gx, int gy)
 {
-    const int tw = turned_width(w), th = turned_height(w);
-    x = x < 0 ? 0 : x >= tw ? tw - 1 : x;
-    y = y < 0 ? 0 : y >= th ? th - 1 : y;
-    int gx, gy;
-    unturned(w, x, y, &gx, &gy);
+    gx = gx < 0 ? 0 : gx >= w->width ? w->width - 1 : gx;
+    gy = gy < 0 ? 0 : gy >= w->height ? w->height - 1 : gy;
     __atomic_store_n(&w->finger, (uint64_t)1 << 32 | (uint64_t)(uint16_t)gy << 16 | (uint16_t)gx, __ATOMIC_RELEASE);
 }
 
-static void finger_off(host_window_t *w)
+/*
+ * The mouse on a window, at x, y of the glass as the window shows it: SDL
+ * gives the events of a window with a logical size in its pixels, the
+ * stretch and the bars beside it taken away.
+ */
+static void finger_at(host_window_t *w, int x, int y)
 {
-    w->pressed = false;
-    __atomic_store_n(&w->finger, 0, __ATOMIC_RELEASE);
+    int gx, gy;
+    unturned(w, x, y, &gx, &gy);
+    finger_put(w, gx, gy);
 }
 
-/* the events of the windows read: the mouse, and a closed window, which ends the program, as there is one board */
+/* the finger gone once neither the mouse of the computer nor the script holds it */
+static void finger_off(host_window_t *w)
+{
+    if (!w->pressed && !w->scripted) __atomic_store_n(&w->finger, 0, __ATOMIC_RELEASE);
+}
+
+/* a key down or up; held on, as the computer repeats it, it stays down */
+static void key_set(uint64_t *keys, unsigned code, bool down)
+{
+    if (code >= SDL_NUM_SCANCODES) return;
+    const uint64_t bit = (uint64_t)1 << (code % 64);
+    if (down) __atomic_or_fetch(&keys[code / 64], bit, __ATOMIC_RELEASE);
+    else __atomic_and_fetch(&keys[code / 64], ~bit, __ATOMIC_RELEASE);
+}
+
+/* whether a window of the program has the keyboard now */
+static bool keyboard_here(void)
+{
+    SDL_Window *focus = SDL_GetKeyboardFocus();
+    return focus && window_of_id(SDL_GetWindowID(focus));
+}
+
+/*
+ * The events of the windows read: the mouse, the keys, and a closed window,
+ * which ends the program, as there is one board. A window that loses the
+ * keyboard to another of the program keeps the keys held: they go up on
+ * that one. Shown, a window may take the keyboard by itself.
+ */
 static void pump(void)
 {
     SDL_Event event;
@@ -781,8 +832,17 @@ static void pump(void)
         case SDL_WINDOWEVENT:
             if (event.window.event == SDL_WINDOWEVENT_CLOSE) exit(EXIT_SUCCESS);
             if (!(w = window_of_id(event.window.windowID))) break;
-            if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) finger_off(w);
+            if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                w->pressed = false;
+                finger_off(w);
+                if (!keyboard_here())
+                    for (size_t i = 0; i < sizeof(keys_typed) / sizeof(*keys_typed); ++i) __atomic_store_n(&keys_typed[i], 0, __ATOMIC_RELEASE);
+            }
             w->changed = true; /* uncovered, stretched: drawn again */
+            break;
+        case SDL_KEYDOWN:
+        case SDL_KEYUP:
+            key_set(keys_typed, event.key.keysym.scancode, event.type == SDL_KEYDOWN);
             break;
         case SDL_MOUSEBUTTONDOWN:
             if (event.button.button != SDL_BUTTON_LEFT || !(w = window_of_id(event.button.windowID))) break;
@@ -796,10 +856,187 @@ static void pump(void)
             /* let go wherever the button is: the window it went down on may not have it now */
             if (event.button.button != SDL_BUTTON_LEFT) break;
             for (w = windows; w; w = w->next)
-                if (w->pressed) finger_off(w);
+                if (w->pressed) w->pressed = false, finger_off(w);
             break;
         default:
             break;
+        }
+    }
+}
+
+/* ---- the script: the keys and the mouse, and when, for runs with nobody at the computer ---- */
+
+enum { STEP_KEY_DOWN, STEP_KEY_UP, STEP_MOUSE_DOWN, STEP_MOUSE_MOVE, STEP_MOUSE_UP };
+
+typedef struct {
+    int64_t  ms;     /* after the first window was made */
+    int      window; /* the number of the window of the mouse: 1 for the first */
+    int      line;   /* of the file */
+    uint8_t  what;
+    uint16_t key;    /* SDL_Scancode */
+    int16_t  x, y;   /* the pixel of the glass upright the mouse is on */
+} host_step_t;
+
+static host_step_t *steps;
+static int          steps_n, steps_done;
+static const char  *script_name;
+
+static void skip_blanks(char **s)
+{
+    while (isspace((unsigned char)**s)) ++*s;
+}
+
+/* the word at *s taken, and the blanks after it, if it is the one asked for */
+static bool word(char **s, const char *w)
+{
+    const size_t n = strlen(w);
+    if (strncmp(*s, w, n) || ((*s)[n] && !isspace((unsigned char)(*s)[n]))) return false;
+    *s += n;
+    skip_blanks(s);
+    return true;
+}
+
+/* a whole number at *s taken, and the blanks after it */
+static bool number(char **s, long lo, long hi, long *v)
+{
+    char *end;
+    errno        = 0;
+    const long n = strtol(*s, &end, 10);
+    if (end == *s || errno || n < lo || n > hi || (*end && !isspace((unsigned char)*end))) return false;
+    *v = n, *s = end;
+    skip_blanks(s);
+    return true;
+}
+
+/*
+ * The steps of a script, a line each, in the order they come:
+ *
+ *   # Right, then Shift with it; a line of # and a blank one are nothing
+ *   500 key down Right
+ *   900 key up Right
+ *   900 key down Left Shift
+ *   1000 mouse down 120 40
+ *   1100 mouse move 140 40
+ *   1200 mouse up
+ *   1500 window 2 mouse down 5 5
+ *
+ * The number first is the time, in ms after the first window was made, as
+ * that of DGX_HOST_QUIT_MS; a line comes no earlier than the one above it.
+ * A key has the name SDL gives it. The keys are those of the program, as
+ * the keyboard is, whatever window has it. The mouse is on the first window
+ * unless another is named, at a pixel of the glass upright, as the fingers
+ * are told; outside the glass the finger lies on its edge. It moves and goes
+ * up on the window it went down on. NULL for a script that is right, else
+ * what is wrong with it, and the line in *line.
+ */
+static const char *script_read(FILE *f, int *line)
+{
+    char  text[256];
+    long  last = 0, x = 0, y = 0;
+    int   down = 0; /* the window the button is down on, 0 for none */
+    *line      = 0;
+    while (fgets(text, sizeof(text), f)) {
+        ++*line;
+        if (!strchr(text, '\n') && !feof(f)) return "a line longer than 254 characters";
+        char *s = text;
+        skip_blanks(&s);
+        for (char *e = s + strlen(s); e > s && isspace((unsigned char)e[-1]);) *--e = 0;
+        if (!*s || *s == '#') continue;
+        host_step_t step = {.window = 0, .line = *line};
+        long        v;
+        if (!number(&s, 0, LONG_MAX / 1000 - 1, &v)) return "first the time: ms after the first window was made";
+        if (v < last) return "a time earlier than that of the line above";
+        step.ms = last = v;
+        if (word(&s, "window")) {
+            if (!number(&s, 1, INT_MAX, &v)) return "window and its number: 1 for the first one";
+            step.window = (int)v;
+        }
+        if (word(&s, "key")) {
+            if (step.window) return "a key goes down for the program, on no window";
+            if (word(&s, "down")) step.what = STEP_KEY_DOWN;
+            else if (word(&s, "up")) step.what = STEP_KEY_UP;
+            else return "key down or key up, then the name of the key";
+            const SDL_Scancode code = *s ? SDL_GetScancodeFromName(s) : SDL_SCANCODE_UNKNOWN;
+            if (code == SDL_SCANCODE_UNKNOWN) return "no key of that name: the names are SDL's, as Left, Space, A, Left Shift";
+            step.key = (uint16_t)code;
+        } else if (word(&s, "mouse")) {
+            if (!step.window) step.window = 1;
+            if (word(&s, "down")) step.what = STEP_MOUSE_DOWN;
+            else if (word(&s, "move")) step.what = STEP_MOUSE_MOVE;
+            else if (word(&s, "up")) step.what = STEP_MOUSE_UP;
+            else return "mouse down, mouse move or mouse up";
+            if (step.what == STEP_MOUSE_DOWN && down) return "mouse down with the button down";
+            if (step.what != STEP_MOUSE_DOWN && !down) return "mouse move or mouse up with the button up";
+            if (step.what != STEP_MOUSE_DOWN && step.window != down) return "mouse move or mouse up on another window than the button went down on";
+            if (step.what != STEP_MOUSE_UP && (!number(&s, INT16_MIN, INT16_MAX, &x) || !number(&s, INT16_MIN, INT16_MAX, &y)))
+                return "mouse down and mouse move take x and y, a pixel of the glass upright";
+            if (*s) return "something after the mouse";
+            if (step.what != STEP_MOUSE_MOVE) down = step.what == STEP_MOUSE_DOWN ? step.window : 0;
+            step.x = (int16_t)x, step.y = (int16_t)y;
+        } else {
+            return "key or mouse after the time";
+        }
+        if (!(steps_n & (steps_n + 1))) {
+            /* room for 1, 3, 7... */
+            host_step_t *more = (host_step_t *)__real_realloc(steps, sizeof(*steps) * (size_t)(steps_n * 2 + 2));
+            if (!more) return "no memory for the script";
+            steps = more;
+        }
+        steps[steps_n++] = step;
+    }
+    return ferror(f) ? strerror(errno) : NULL;
+}
+
+/* DGX_HOST_SCRIPT read: a script that is wrong ends the program, as a run with nobody at the computer goes wrong without it */
+static void script_load(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        ESP_LOGE(TAG, "DGX_HOST_SCRIPT %s: %s", path, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    int         line;
+    const char *wrong = script_read(f, &line);
+    fclose(f);
+    if (wrong) {
+        ESP_LOGE(TAG, "DGX_HOST_SCRIPT %s:%d: %s", path, line, wrong);
+        exit(EXIT_FAILURE);
+    }
+    script_name = path;
+    ESP_LOGI(TAG, "DGX_HOST_SCRIPT %s: %d steps", path, steps_n);
+}
+
+static host_window_t *window_numbered(int number)
+{
+    for (host_window_t *w = windows; w; w = w->next)
+        if (w->number == number) return w;
+    return NULL;
+}
+
+/*
+ * The steps whose time has come, read as those of the keyboard and the
+ * mouse of the computer are, in the same waits. They are the script's: a
+ * window that loses the keyboard or the mouse lets go of none of them.
+ */
+static void script_play(int64_t now)
+{
+    while (steps_done < steps_n && now >= begun_us + steps[steps_done].ms * 1000) {
+        const host_step_t *s = &steps[steps_done++];
+        if (s->what == STEP_KEY_DOWN || s->what == STEP_KEY_UP) {
+            key_set(keys_scripted, s->key, s->what == STEP_KEY_DOWN);
+            continue;
+        }
+        host_window_t *w = window_numbered(s->window);
+        if (!w) {
+            ESP_LOGE(TAG, "DGX_HOST_SCRIPT %s:%d: no window %d at %lld ms", script_name, s->line, s->window, (long long)s->ms);
+            exit(EXIT_FAILURE);
+        }
+        if (s->what == STEP_MOUSE_UP) {
+            w->scripted = false;
+            finger_off(w);
+        } else {
+            w->scripted = true;
+            finger_put(w, s->x, s->y);
         }
     }
 }
@@ -809,6 +1046,7 @@ static void show(int64_t every_us)
 {
     if (!windows) return;
     place();
+    script_play(clock_us());
     pump();
     const int64_t now = clock_us();
     for (host_window_t *w = windows; w; w = w->next) {
@@ -1064,8 +1302,11 @@ static bool host_start(void)
     heap.limit       = env_size("DGX_HOST_HEAP_MAX");
     heap.block_limit = env_size("DGX_HOST_BLOCK_MAX");
     shot             = getenv("DGX_HOST_SHOT");
+    begun_us         = clock_us();
     const char *q    = getenv("DGX_HOST_QUIT_MS");
-    if (q && *q) quit_us = clock_us() + (int64_t)atol(q) * 1000;
+    if (q && *q) quit_us = begun_us + (int64_t)atol(q) * 1000;
+    const char *script = getenv("DGX_HOST_SCRIPT");
+    if (script && *script) script_load(script);
     atexit(host_end);
     started = true;
     return true;
@@ -1133,6 +1374,7 @@ dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, co
     w->transfer_us = cost_of(options->transfer_us, HOST_TRANSFER_US);
     w->piece_us    = cost_of(options->piece_us, HOST_PIECE_US);
     w->turn        = options->turn;
+    w->no_bus      = options->no_bus;
     if (options->title) snprintf(w->title, sizeof(w->title), "%s", options->title);
     else if (w->number == 1) snprintf(w->title, sizeof(w->title), "DGX");
     else snprintf(w->title, sizeof(w->title), "DGX %d", w->number);
@@ -1187,20 +1429,41 @@ dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, co
     }
     stats_clear(w); /* the commands that started the panel are not the program's */
     made_us = clock_us();
-    ESP_LOGI(TAG, "window %d: a glass of %dx%d, %u bits; the bus of the board %s at %.1f MHz, its buffer %zu bytes", w->number, width, height,
-             (unsigned)color_bits, quad(w) ? "QSPI" : "SPI", w->bus_hz / 1e6, bus->buffer_len);
+    if (w->no_bus)
+        ESP_LOGI(TAG, "window %d: a glass of %dx%d, %u bits; no bus of the board counted", w->number, width, height, (unsigned)color_bits);
+    else
+        ESP_LOGI(TAG, "window %d: a glass of %dx%d, %u bits; the bus of the board %s at %.1f MHz, its buffer %zu bytes", w->number, width,
+                 height, (unsigned)color_bits, quad(w) ? "QSPI" : "SPI", w->bus_hz / 1e6, bus->buffer_len);
     return scr;
+}
+
+/* the window of a screen of dgx_host_screen_init(), NULL for another screen */
+static host_window_t *window_of_screen(const dgx_screen_t *scr)
+{
+    if (!scr || scr->screen_subtype != DgxPhysicalScreenWithBus) return NULL;
+    dgx_bus_protocols_t *bus = ((const dgx_screen_with_bus_t *)scr)->bus;
+    return bus && bus->dispose == bus_dispose ? (host_window_t *)bus : NULL;
 }
 
 int dgx_host_screen_fingers(const dgx_screen_t *scr, dgx_host_finger_t *fingers, int max)
 {
-    if (!scr || !fingers || max < 1 || scr->screen_subtype != DgxPhysicalScreenWithBus) return 0;
-    const dgx_bus_protocols_t *bus = ((const dgx_screen_with_bus_t *)scr)->bus;
-    if (!bus || bus->dispose != bus_dispose) return 0; /* not the screen of a window */
-    const uint64_t finger = __atomic_load_n(&((const host_window_t *)bus)->finger, __ATOMIC_ACQUIRE);
+    host_window_t *w = window_of_screen(scr);
+    if (!w || !fingers || max < 1) return 0;
+    const uint64_t finger = __atomic_load_n(&w->finger, __ATOMIC_ACQUIRE);
     if (!(finger >> 32 & 1u)) return 0;
     fingers[0] = (dgx_host_finger_t){.x = (int16_t)(finger & 0xFFFFu), .y = (int16_t)(finger >> 16 & 0xFFFFu), .id = 0};
     return 1;
+}
+
+int dgx_host_keys(uint16_t *keys, int max)
+{
+    if (!keys) return 0;
+    int n = 0;
+    for (int i = 0; i < SDL_NUM_SCANCODES / 64 && n < max; ++i) {
+        uint64_t held = __atomic_load_n(&keys_typed[i], __ATOMIC_ACQUIRE) | __atomic_load_n(&keys_scripted[i], __ATOMIC_ACQUIRE);
+        for (; held && n < max; held &= held - 1) keys[n++] = (uint16_t)(i * 64 + __builtin_ctzll(held));
+    }
+    return n;
 }
 
 #ifndef ESP_PLATFORM

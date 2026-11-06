@@ -1,5 +1,33 @@
 # Changes
 
+## 0.10.11 - 2026-11-06
+
+New, in the window on the computer, asked for by boards and DGX-GE:
+
+- The keyboard of the computer stands for the buttons of the board:
+  `dgx_host_keys()` gives the keys held down by their numbers in USB HID,
+  which are those of `SDL_Scancode`. The keyboard is the program's, as a
+  board has one set of buttons: a key goes down on whatever window has it,
+  and is let go of when it goes up or when the keyboard leaves the windows.
+  Any task may ask.
+- `DGX_HOST_SCRIPT`: a file of keys and mouse presses and the times they
+  come, for runs with nobody at the computer. They are read as the
+  keyboard and the mouse are, in the waits of the program, and a window
+  that loses the keyboard or the mouse lets go of none of them. A script
+  that is wrong ends the program and names its line.
+- `no_bus` in `dgx_host_screen_options_t`, for a display on no bus the
+  window stands for, as one on MIPI-DSI: no time on a wire is counted, and
+  the title and the report no longer speak of an SPI bus the board does
+  not have.
+
+Fixed:
+
+- With `SDL_VIDEODRIVER=offscreen` on a computer with the EGL of NVIDIA, a
+  program crashed as it ended, after its report: the driver unloads parts
+  of itself in a handler of its own, which runs before that of the window,
+  and quitting SDL there called into them. The window no longer quits SDL
+  at the end; the windows go with the program.
+
 ## 0.10.10 - 2026-11-06
 
 New:

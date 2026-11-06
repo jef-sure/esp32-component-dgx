@@ -24,6 +24,7 @@
  *  by DGX_HOST_WINDOW.
  */
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "dgx_screen.h"
@@ -45,6 +46,12 @@ typedef struct {
     float       piece_us;
     /** The glass turned clockwise as the board is held, in degrees: 0, 90, 180 or 270. */
     uint16_t    turn;
+    /**
+     * The display of the board is on no bus the window stands for, as one on
+     * MIPI-DSI is: the window counts no time on a wire, and the fields of the
+     * bus above mean nothing.
+     */
+    bool        no_bus;
 } dgx_host_screen_options_t;
 
 /**
@@ -78,9 +85,11 @@ typedef struct dgx_host_finger_t {
  * @brief The fingers on the glass of the window of a host screen, as the window last read its events.
  *
  * The mouse is a finger while its left button, pressed on this window, is
- * held; outside the glass it lies on the edge nearest to it. The window
- * reads its events in the waits of the program and while pixels go, as it
- * shows the glass. Any task may ask, while the screen lives.
+ * held, and while the mouse of DGX_HOST_SCRIPT is down on it; outside the
+ * glass the finger lies on the edge nearest to it. The window reads its
+ * events in the waits of the program and while pixels go, as it shows the
+ * glass, and plays the script then. Any task may ask, while the screen
+ * lives.
  *
  * @param scr     A screen of dgx_host_screen_init(); any other has no fingers.
  * @param fingers Where they are written.
@@ -88,6 +97,27 @@ typedef struct dgx_host_finger_t {
  * @return How many were written: 0 or 1, the mouse alone.
  */
 int dgx_host_screen_fingers(const dgx_screen_t *scr, dgx_host_finger_t *fingers, int max);
+
+/**
+ * @brief The keys held down: those of the computer and those of DGX_HOST_SCRIPT.
+ *
+ * The keyboard is the program's, as a board has one set of buttons: a key
+ * goes down while any window of the program has the keyboard, and is held
+ * until it goes up, or until the keyboard leaves the windows of the
+ * program. The windows read their events in the waits of the program and
+ * while pixels go: a key pressed and let go of between two of them is
+ * missed, as a button of the board read no more often would be. Any task
+ * may ask.
+ *
+ * @param keys Where they are written, in ascending order: the numbers of the
+ *             keys on the keyboard as USB HID has them, which SDL_Scancode
+ *             is: 4 to 29 the letters A to Z, 40 Enter, 41 Escape, 44 the
+ *             space bar, 79 to 82 the arrows right, left, down and up, 224 to
+ *             231 Ctrl, Shift, Alt and GUI on the left, then on the right.
+ * @param max  How many fit there.
+ * @return How many were written.
+ */
+int dgx_host_keys(uint16_t *keys, int max);
 
 #ifdef __cplusplus
 }

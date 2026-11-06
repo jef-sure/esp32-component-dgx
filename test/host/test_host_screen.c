@@ -6,8 +6,9 @@
  * the panel and windows it cuts; two windows, each with its glass and its
  * bus, SPI and QSPI; what a pass costs on the wire of the board and in
  * transfers; the glass turned as the board is held; a window shown with no
- * wait; the mouse as a finger on the glass; the memory counted, its limits
- * and what the program is told of it; windows let go of.
+ * wait; the mouse as a finger on the glass; the keys; a script of keys and
+ * the mouse; a display on no bus; the memory counted, its limits and what
+ * the program is told of it; windows let go of.
  */
 #include <math.h>
 #include <stdint.h>
@@ -189,6 +190,60 @@ static void mouse(const host_window_t *w, Uint32 type, int x, int y)
     CHECK(SDL_PushEvent(&e) == 1);
 }
 
+/* a key on a window, as SDL would give it */
+static void key(const host_window_t *w, Uint32 type, SDL_Scancode code, int repeat)
+{
+    SDL_Event e = {0};
+    e.type = type, e.key.windowID = w->id, e.key.state = type == SDL_KEYDOWN ? SDL_PRESSED : SDL_RELEASED, e.key.repeat = (Uint8)repeat;
+    e.key.keysym.scancode = code;
+    CHECK(SDL_PushEvent(&e) == 1);
+}
+
+/* the keys held, as many as fit in 8 */
+static int held(uint16_t keys[8])
+{
+    return dgx_host_keys(keys, 8);
+}
+
+/* a window told it has lost the keyboard and the mouse, as SDL tells it, wherever the keyboard is */
+static void focus_lost(const host_window_t *w)
+{
+    SDL_Event e = {0};
+    e.type = SDL_WINDOWEVENT, e.window.windowID = w->id, e.window.event = SDL_WINDOWEVENT_FOCUS_LOST;
+    CHECK(SDL_PushEvent(&e) == 1);
+}
+
+/* the keyboard taken from the windows, read so, and given back: SDL's dummy driver gives it to a window shown and takes it from one hidden */
+static void keyboard_away(void)
+{
+    SDL_Window *had = SDL_GetKeyboardFocus();
+    CHECK(had != NULL);
+    if (!had) return;
+    SDL_HideWindow(had);
+    dgx_host_delay(0);
+    CHECK(SDL_GetKeyboardFocus() == NULL);
+    SDL_ShowWindow(had);
+}
+
+/* a script read from the text, in place of the steps before, its times from now on: NULL, or what is wrong and its line */
+static const char *script(const char *text, int *line)
+{
+    steps_n = steps_done = 0;
+    FILE *f              = fmemopen((void *)text, strlen(text), "r");
+    CHECK(f != NULL);
+    const char *wrong = f ? script_read(f, line) : "no file";
+    if (f) fclose(f);
+    begun_us = clock_us();
+    return wrong;
+}
+
+/* the line of a script that is wrong */
+static int wrong_at(const char *text)
+{
+    int line = 0;
+    return script(text, &line) ? line : 0;
+}
+
 /* the one finger a screen has now, or -1, -1 */
 static void finger(dgx_screen_t *scr, int *x, int *y)
 {
@@ -283,6 +338,115 @@ void app_main(void)
         dgx_screen_destroy(&v);
     }
 
+    /*
+     * The keys: the program's, whatever window has the keyboard, held until
+     * they go up, held on as the computer repeats them, written in ascending
+     * order; let go of when the keyboard leaves the windows.
+     */
+    {
+        uint16_t k[8];
+        CHECK(held(k) == 0);
+        key(one, SDL_KEYDOWN, SDL_SCANCODE_LEFT, 0);
+        key(one, SDL_KEYDOWN, SDL_SCANCODE_A, 0);
+        key(one, SDL_KEYDOWN, SDL_SCANCODE_LEFT, 1);
+        key(two, SDL_KEYDOWN, SDL_SCANCODE_RSHIFT, 0);
+        dgx_host_delay(0);
+        CHECK(held(k) == 3 && k[0] == SDL_SCANCODE_A && k[1] == SDL_SCANCODE_LEFT && k[2] == SDL_SCANCODE_RSHIFT && SDL_SCANCODE_RSHIFT == 229);
+        CHECK(dgx_host_keys(k, 1) == 1 && k[0] == SDL_SCANCODE_A && dgx_host_keys(k, 0) == 0 && dgx_host_keys(NULL, 8) == 0);
+        key(two, SDL_KEYUP, SDL_SCANCODE_A, 0); /* up on the other window */
+        dgx_host_delay(0);
+        CHECK(held(k) == 2 && k[0] == SDL_SCANCODE_LEFT && k[1] == SDL_SCANCODE_RSHIFT);
+        CHECK(SDL_GetKeyboardFocus() == two->window); /* shown last */
+        focus_lost(one);                               /* the keyboard on another window of the program: the keys stay */
+        dgx_host_delay(0);
+        CHECK(held(k) == 2);
+        keyboard_away();
+        CHECK(held(k) == 0);
+    }
+
+    /*
+     * A script: its steps played when their time comes. Its keys are held
+     * with those of the computer, and the keyboard leaving the windows lets go
+     * of the computer's alone. Its mouse lies on the pixel of the glass named,
+     * through the turn of a window, until the script lets it go, whatever the
+     * window loses. A script that is wrong tells its line.
+     */
+    {
+        int      line = 0, x, y;
+        uint16_t k[8];
+        CHECK(!script("# keys\n\n  0 key down Left Shift\r\n0 key down space\n1000000 key up Left Shift\n", &line) && steps_n == 3);
+        CHECK(steps[1].key == SDL_SCANCODE_SPACE && steps[1].line == 4 && steps[2].ms == 1000000);
+        key(one, SDL_KEYDOWN, SDL_SCANCODE_UP, 0);
+        key(one, SDL_KEYDOWN, SDL_SCANCODE_SPACE, 0);
+        dgx_host_delay(0);
+        CHECK(held(k) == 3 && k[0] == SDL_SCANCODE_SPACE && k[1] == SDL_SCANCODE_UP && k[2] == SDL_SCANCODE_LSHIFT && steps_done == 2);
+        keyboard_away();
+        CHECK(held(k) == 2 && k[0] == SDL_SCANCODE_SPACE && k[1] == SDL_SCANCODE_LSHIFT);
+        CHECK(!script("0 key up left shift\n0 key up Space\n50 key down Z\n", &line));
+        nanosleep(&(struct timespec){.tv_sec = 0, .tv_nsec = 10 * 1000 * 1000}, NULL);
+        dgx_host_delay(0);
+        CHECK(held(k) == 0); /* Z not yet */
+        nanosleep(&(struct timespec){.tv_sec = 0, .tv_nsec = 50 * 1000 * 1000}, NULL);
+        dgx_host_delay(0);
+        CHECK(held(k) == 1 && k[0] == SDL_SCANCODE_Z);
+        CHECK(!script("0 key up z\n", &line));
+        dgx_host_delay(0);
+        CHECK(held(k) == 0);
+
+        CHECK(!script("0 mouse down 10 20\n1000000 mouse up\n", &line));
+        dgx_host_delay(0);
+        finger(host, &x, &y);
+        CHECK(x == 10 && y == 20);
+        focus_lost(one);
+        mouse(one, SDL_MOUSEBUTTONUP, 0, 0);
+        dgx_host_delay(0);
+        finger(host, &x, &y);
+        CHECK(x == 10 && y == 20);
+        CHECK(!script("0 mouse down 0 0\n0 mouse move -5 900\n1000000 mouse up\n", &line));
+        dgx_host_delay(0);
+        finger(host, &x, &y);
+        CHECK(x == 0 && y == H - 1);
+        CHECK(!script("0 mouse down 3 3\n0 mouse up\n", &line));
+        dgx_host_delay(0);
+        finger(host, &x, &y);
+        CHECK(x == -1);
+        /* the second window shows its 32x16 glass turned by 90 degrees: the script names the pixel of the glass upright */
+        CHECK(!script("0 window 2 mouse down 5 12\n0 window 2 mouse move 31 15\n1000000 window 2 mouse up\n", &line));
+        dgx_host_delay(0);
+        finger(bar, &x, &y);
+        CHECK(x == 31 && y == 15);
+        finger(host, &x, &y);
+        CHECK(x == -1);
+        CHECK(!script("0 window 2 mouse down 0 0\n0 window 2 mouse up\n", &line));
+        dgx_host_delay(0);
+        finger(bar, &x, &y);
+        CHECK(x == -1);
+        /* the mouse of the computer and that of the script on one window: the finger lies where the last put it, until both let go */
+        const int zoom = one_w / W;
+        mouse(one, SDL_MOUSEBUTTONDOWN, 10 * zoom + zoom / 2, 20 * zoom + zoom / 2);
+        dgx_host_delay(0);
+        CHECK(!script("0 mouse down 1 2\n0 mouse up\n", &line));
+        dgx_host_delay(0);
+        finger(host, &x, &y);
+        CHECK(x == 1 && y == 2);
+        mouse(one, SDL_MOUSEBUTTONUP, 0, 0);
+        dgx_host_delay(0);
+        finger(host, &x, &y);
+        CHECK(x == -1);
+
+        CHECK(wrong_at("abc\n") == 1 && wrong_at("# c\n\n10 key down NoSuchKey\n") == 3 && wrong_at("10 key down\n") == 1);
+        CHECK(wrong_at("10 key sideways A\n") == 1 && wrong_at("20 key down A\n10 key up A\n") == 2 && wrong_at("10 window 2 key down A\n") == 1);
+        CHECK(wrong_at("10 window 0 mouse down 1 1\n") == 1 && wrong_at("10 mouse down 5\n") == 1 && wrong_at("10 mouse down 1 2 3\n") == 1);
+        CHECK(wrong_at("10 mouse up\n") == 1 && wrong_at("10 mouse move 1 1\n") == 1 && wrong_at("1 mouse down 1 2\n2 mouse down 3 4\n") == 2);
+        CHECK(wrong_at("1 mouse down 1 2\n2 window 2 mouse move 3 4\n") == 2 && wrong_at("1 mouse down 40000 2\n") == 1);
+        CHECK(wrong_at("-1 key down A\n") == 1 && wrong_at("5 jump\n") == 1 && wrong_at("5 window 2\n") == 1);
+        char long_line[300];
+        memset(long_line, 'x', sizeof(long_line) - 2);
+        long_line[sizeof(long_line) - 2] = '\n', long_line[sizeof(long_line) - 1] = 0;
+        CHECK(wrong_at(long_line) == 1);
+        steps_n = steps_done = 0;
+    }
+
     dgx_host_delay(0); /* a wait with nothing sent is no pass */
     CHECK(one->passes == 1 && near(one->most_us, fill_wire + 5 * 0.75 + 2 * 25.0) && one->us == 0 && two->passes == 0);
 
@@ -336,6 +500,21 @@ void app_main(void)
     CHECK(three->placed);
     dgx_screen_destroy(&late);
     three->protocols.dispose(&three->protocols);
+    CHECK(windows == one && one->next == two && !two->next);
+
+    /* a display on no bus the window stands for: drawn, nothing counted, and its title says nothing of a bus */
+    dgx_screen_t *dsi = dgx_host_screen_init(8, 8, 16, &(dgx_host_screen_options_t){.no_bus = true});
+    CHECK(dsi != NULL);
+    if (!dsi) exit(EXIT_FAILURE);
+    host_window_t *four = window_of(dsi);
+    dgx_fill_rectangle(dsi, 0, 0, 8, 8, dgx_rgb_to_16(0, 0, 255));
+    CHECK(four->glass[0] == 0xFF0000FFu && four->transfers + four->pieces + four->bytes == 0 && four->us == 0);
+    dgx_host_delay(0);
+    tell_title(four);
+    tell_title(one);
+    CHECK(!strstr(SDL_GetWindowTitle(four->window), "bus") && strstr(SDL_GetWindowTitle(one->window), "bus") && four->passes == 0);
+    dgx_screen_destroy(&dsi);
+    four->protocols.dispose(&four->protocols);
     CHECK(windows == one && one->next == two && !two->next);
 
     /* the memory: what is held and let go of, the largest block, and the limits */
