@@ -394,6 +394,9 @@ typedef struct host_window_t {
     bool          placed;       /* sized and put beside the others */
     char          title[64];
     int64_t       shown_us;
+    /* the mouse as a finger on the glass: x, y and whether it lies there, in one word, for any task to read whole */
+    uint64_t      finger;
+    bool          pressed;      /* the left button went down on this window and is held */
 } host_window_t;
 
 /*
@@ -533,16 +536,24 @@ static int turned_height(const host_window_t *w)
 }
 
 /* the glass turned clockwise as the board is held, as the window shows it */
+/* the pixel of the glass seen at x, y of the glass turned */
+static void unturned(const host_window_t *w, int x, int y, int *gx, int *gy)
+{
+    const int W = w->width, H = w->height;
+    *gx = x, *gy = y;
+    if (w->turn == 90) *gx = y, *gy = H - 1 - x;
+    else if (w->turn == 180) *gx = W - 1 - x, *gy = H - 1 - y;
+    else if (w->turn == 270) *gx = W - 1 - y, *gy = x;
+}
+
 static void turn_glass(const host_window_t *w, const uint32_t *from, uint32_t *to)
 {
-    const int W = w->width, H = w->height, tw = turned_width(w), th = turned_height(w);
+    const int tw = turned_width(w), th = turned_height(w);
     for (int y = 0; y < th; ++y)
         for (int x = 0; x < tw; ++x) {
-            int gx = x, gy = y;
-            if (w->turn == 90) gx = y, gy = H - 1 - x;
-            else if (w->turn == 180) gx = W - 1 - x, gy = H - 1 - y;
-            else if (w->turn == 270) gx = W - 1 - y, gy = x;
-            to[(size_t)y * tw + x] = from[(size_t)gy * W + gx];
+            int gx, gy;
+            unturned(w, x, y, &gx, &gy);
+            to[(size_t)y * tw + x] = from[(size_t)gy * w->width + gx];
         }
 }
 
@@ -729,15 +740,67 @@ static void place(void)
 }
 
 /* the events of the windows read: a closed window ends the program, as there is one board */
+static host_window_t *window_of_id(uint32_t id)
+{
+    for (host_window_t *w = windows; w; w = w->next)
+        if (w->id == id) return w;
+    return NULL;
+}
+
+/*
+ * The mouse on a window, at x, y of the glass as the window shows it: SDL
+ * gives the events of a window with a logical size in its pixels, the
+ * stretch and the bars beside it taken away. Outside the glass it is
+ * pressed to its edge; the pixel under it is that of the glass upright.
+ */
+static void finger_at(host_window_t *w, int x, int y)
+{
+    const int tw = turned_width(w), th = turned_height(w);
+    x = x < 0 ? 0 : x >= tw ? tw - 1 : x;
+    y = y < 0 ? 0 : y >= th ? th - 1 : y;
+    int gx, gy;
+    unturned(w, x, y, &gx, &gy);
+    __atomic_store_n(&w->finger, (uint64_t)1 << 32 | (uint64_t)(uint16_t)gy << 16 | (uint16_t)gx, __ATOMIC_RELEASE);
+}
+
+static void finger_off(host_window_t *w)
+{
+    w->pressed = false;
+    __atomic_store_n(&w->finger, 0, __ATOMIC_RELEASE);
+}
+
+/* the events of the windows read: the mouse, and a closed window, which ends the program, as there is one board */
 static void pump(void)
 {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        if (event.type == SDL_QUIT) exit(EXIT_SUCCESS);
-        if (event.type != SDL_WINDOWEVENT) continue;
-        if (event.window.event == SDL_WINDOWEVENT_CLOSE) exit(EXIT_SUCCESS);
-        for (host_window_t *w = windows; w; w = w->next) /* uncovered, stretched: drawn again */
-            if (w->id == event.window.windowID) w->changed = true;
+        host_window_t *w;
+        switch (event.type) {
+        case SDL_QUIT:
+            exit(EXIT_SUCCESS);
+        case SDL_WINDOWEVENT:
+            if (event.window.event == SDL_WINDOWEVENT_CLOSE) exit(EXIT_SUCCESS);
+            if (!(w = window_of_id(event.window.windowID))) break;
+            if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) finger_off(w);
+            w->changed = true; /* uncovered, stretched: drawn again */
+            break;
+        case SDL_MOUSEBUTTONDOWN:
+            if (event.button.button != SDL_BUTTON_LEFT || !(w = window_of_id(event.button.windowID))) break;
+            w->pressed = true;
+            finger_at(w, event.button.x, event.button.y);
+            break;
+        case SDL_MOUSEMOTION:
+            if ((w = window_of_id(event.motion.windowID)) && w->pressed) finger_at(w, event.motion.x, event.motion.y);
+            break;
+        case SDL_MOUSEBUTTONUP:
+            /* let go wherever the button is: the window it went down on may not have it now */
+            if (event.button.button != SDL_BUTTON_LEFT) break;
+            for (w = windows; w; w = w->next)
+                if (w->pressed) finger_off(w);
+            break;
+        default:
+            break;
+        }
     }
 }
 
@@ -1127,6 +1190,17 @@ dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, co
     ESP_LOGI(TAG, "window %d: a glass of %dx%d, %u bits; the bus of the board %s at %.1f MHz, its buffer %zu bytes", w->number, width, height,
              (unsigned)color_bits, quad(w) ? "QSPI" : "SPI", w->bus_hz / 1e6, bus->buffer_len);
     return scr;
+}
+
+int dgx_host_screen_fingers(const dgx_screen_t *scr, dgx_host_finger_t *fingers, int max)
+{
+    if (!scr || !fingers || max < 1 || scr->screen_subtype != DgxPhysicalScreenWithBus) return 0;
+    const dgx_bus_protocols_t *bus = ((const dgx_screen_with_bus_t *)scr)->bus;
+    if (!bus || bus->dispose != bus_dispose) return 0; /* not the screen of a window */
+    const uint64_t finger = __atomic_load_n(&((const host_window_t *)bus)->finger, __ATOMIC_ACQUIRE);
+    if (!(finger >> 32 & 1u)) return 0;
+    fingers[0] = (dgx_host_finger_t){.x = (int16_t)(finger & 0xFFFFu), .y = (int16_t)(finger >> 16 & 0xFFFFu), .id = 0};
+    return 1;
 }
 
 #ifndef ESP_PLATFORM

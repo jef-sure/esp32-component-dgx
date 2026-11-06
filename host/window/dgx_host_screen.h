@@ -68,6 +68,27 @@ typedef struct {
  */
 dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, const dgx_host_screen_options_t *options);
 
+/** @brief A finger on the glass of a window. */
+typedef struct dgx_host_finger_t {
+    int16_t x, y; /**< In pixels of the glass upright: before the turn of the window and before dgx_panel_orientation(). */
+    uint8_t id;   /**< 0: the mouse. */
+} dgx_host_finger_t;
+
+/**
+ * @brief The fingers on the glass of the window of a host screen, as the window last read its events.
+ *
+ * The mouse is a finger while its left button, pressed on this window, is
+ * held; outside the glass it lies on the edge nearest to it. The window
+ * reads its events in the waits of the program and while pixels go, as it
+ * shows the glass. Any task may ask, while the screen lives.
+ *
+ * @param scr     A screen of dgx_host_screen_init(); any other has no fingers.
+ * @param fingers Where they are written.
+ * @param max     How many fit there.
+ * @return How many were written: 0 or 1, the mouse alone.
+ */
+int dgx_host_screen_fingers(const dgx_screen_t *scr, dgx_host_finger_t *fingers, int max);
+
 #ifdef __cplusplus
 }
 #endif

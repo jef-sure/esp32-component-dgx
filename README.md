@@ -926,7 +926,11 @@ waits 10 ms then. Tasks, queues and the rest of ESP-IDF are not there.
 
 Every call of `dgx_host_screen_init()` makes a window with a bus of its
 own, so a board with two displays is two windows; those made before the
-first wait are put side by side.
+first wait are put side by side. The mouse stands for a finger on the
+touch panel: `dgx_host_screen_fingers()` gives it while its left button,
+pressed on the window, is held, in pixels of the glass upright, before
+`turn` and before the orientation of the screen, as a touch controller
+reports them. Any task may ask.
 
 A PC draws much faster than the chip and has far more memory, so the title
 of the window shows what the board would make of the effect:

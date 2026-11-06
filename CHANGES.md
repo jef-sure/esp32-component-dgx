@@ -1,5 +1,16 @@
 # Changes
 
+## 0.10.10 - 2026-11-06
+
+New:
+
+- The mouse on a window on the computer is a finger on its glass:
+  `dgx_host_screen_fingers()` gives it while the left button, pressed on
+  the window, is held, in pixels of the glass upright, as a touch
+  controller reports them; the turn of the window, its stretch and the bars
+  beside the glass are taken away. Any task may ask. Asked for by DGX-DI,
+  which reads it as a touch panel.
+
 ## 0.10.9 - 2026-11-06
 
 Changes a program may see, in the window on the computer:

@@ -6,8 +6,8 @@
  * the panel and windows it cuts; two windows, each with its glass and its
  * bus, SPI and QSPI; what a pass costs on the wire of the board and in
  * transfers; the glass turned as the board is held; a window shown with no
- * wait; the memory counted, its limits and what the program is told of it;
- * windows let go of.
+ * wait; the mouse as a finger on the glass; the memory counted, its limits
+ * and what the program is told of it; windows let go of.
  */
 #include <math.h>
 #include <stdint.h>
@@ -175,6 +175,29 @@ static void check_turn(host_window_t *w, int turn, int tl_x, int tl_y, int tr_x,
     w->turn = keep;
 }
 
+/* the mouse on a window, at pixels of the window, as SDL would give it */
+static void mouse(const host_window_t *w, Uint32 type, int x, int y)
+{
+    SDL_Event e = {0};
+    e.type      = type;
+    if (type == SDL_MOUSEMOTION) {
+        e.motion.windowID = w->id, e.motion.x = x, e.motion.y = y, e.motion.state = SDL_BUTTON_LMASK;
+    } else {
+        e.button.windowID = w->id, e.button.button = SDL_BUTTON_LEFT, e.button.x = x, e.button.y = y, e.button.clicks = 1;
+        e.button.state = type == SDL_MOUSEBUTTONDOWN ? SDL_PRESSED : SDL_RELEASED;
+    }
+    CHECK(SDL_PushEvent(&e) == 1);
+}
+
+/* the one finger a screen has now, or -1, -1 */
+static void finger(dgx_screen_t *scr, int *x, int *y)
+{
+    dgx_host_finger_t f[2] = {{-1, -1, 9}, {-1, -1, 9}};
+    const int         n    = dgx_host_screen_fingers(scr, f, 2);
+    CHECK(n == 0 || (n == 1 && f[0].id == 0));
+    *x = n ? f[0].x : -1, *y = n ? f[0].y : -1;
+}
+
 void app_main(void)
 {
     setenv("SDL_VIDEODRIVER", "dummy", 1);
@@ -212,6 +235,54 @@ void app_main(void)
     SDL_GetWindowSize(one->window, &one_w, &one_h);
     SDL_GetWindowSize(two->window, &two_w, &two_h);
     CHECK(one->placed && two->placed && one_w > W && one_w * H == one_h * W && two_w * W == one_w * 16 && two_h * W == one_w * 32);
+
+    /*
+     * The mouse: pressed on a window it is a finger, at the pixel of the glass
+     * under it; moved with the button held, it follows, pressed to the edge
+     * outside; let go, or the window left, it is gone. A turned window gives
+     * the pixel of the glass upright.
+     */
+    {
+        const int zoom = one_w / W;
+        int       x, y;
+        finger(host, &x, &y);
+        CHECK(x == -1);
+        mouse(one, SDL_MOUSEBUTTONDOWN, 10 * zoom + zoom / 2, 20 * zoom + zoom / 2);
+        dgx_host_delay(0);
+        finger(host, &x, &y);
+        CHECK(x == 10 && y == 20);
+        finger(bar, &x, &y);
+        CHECK(x == -1);
+        mouse(one, SDL_MOUSEMOTION, -50, 5000);
+        dgx_host_delay(0);
+        finger(host, &x, &y);
+        CHECK(x == 0 && y == H - 1);
+        mouse(one, SDL_MOUSEBUTTONUP, 0, 0);
+        dgx_host_delay(0);
+        finger(host, &x, &y);
+        CHECK(x == -1);
+        mouse(one, SDL_MOUSEMOTION, 10 * zoom, 10 * zoom); /* no button: no finger */
+        dgx_host_delay(0);
+        finger(host, &x, &y);
+        CHECK(x == -1);
+        /* the second window shows its 32x16 glass turned by 90 degrees: what is seen at 3, 5 is the pixel 5, 15 - 3 */
+        mouse(two, SDL_MOUSEBUTTONDOWN, 3 * zoom + zoom / 2, 5 * zoom + zoom / 2);
+        dgx_host_delay(0);
+        finger(bar, &x, &y);
+        CHECK(x == 5 && y == 12);
+        SDL_Event lost = {0};
+        lost.type = SDL_WINDOWEVENT, lost.window.windowID = two->id, lost.window.event = SDL_WINDOWEVENT_FOCUS_LOST;
+        CHECK(SDL_PushEvent(&lost) == 1);
+        dgx_host_delay(0);
+        finger(bar, &x, &y);
+        CHECK(x == -1);
+        /* a screen that is not a window has none */
+        dgx_screen_t     *v = dgx_vscreen_init(8, 8, 16, DgxScreenRGB);
+        dgx_host_finger_t f;
+        CHECK(v && dgx_host_screen_fingers(v, &f, 1) == 0 && dgx_host_screen_fingers(NULL, &f, 1) == 0 && dgx_host_screen_fingers(host, &f, 0) == 0);
+        dgx_screen_destroy(&v);
+    }
+
     dgx_host_delay(0); /* a wait with nothing sent is no pass */
     CHECK(one->passes == 1 && near(one->most_us, fill_wire + 5 * 0.75 + 2 * 25.0) && one->us == 0 && two->passes == 0);
 
