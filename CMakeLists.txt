@@ -20,7 +20,7 @@ set(srcs
 	"src/screen/screen.c" "src/screen/screen_bus.c" "src/screen/pixels.c" "src/screen/bitmap.c"
 	"src/draw/draw.c" "src/draw/lines.c" "src/draw/circles.c" "src/draw/polygons.c"
 	"src/text/font.c" "src/text/hw_font.c" "src/draw/bezier.c" "src/text/hw_morph.c" "src/text/font_morph.c"
-	"src/draw/gauge.c" "src/draw/texture.c" "src/draw/ellipse.c" "src/draw/scroll.c" "src/draw/rectangles.c"
+	"src/draw/gauge.c" "src/draw/texture.c" "src/draw/ellipse.c" "src/draw/scroll.c" "src/draw/rectangles.c" "src/draw/segment.c"
 	"src/vscreen/lut.c" "src/vscreen/scale.c" "src/vscreen/overlay.c")
 
 list(APPEND srcs ${dgx_font_sources})
@@ -179,6 +179,7 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION AND NOT dgx_linux AND (CONFIG_DGX_HW_FONT_IN_
 	endif()
 	if(CONFIG_DGX_BEZIER_IN_IRAM)
 		string(APPEND dgx_iram_entries "    bezier (noflash_text)\n")
+		string(APPEND dgx_iram_entries "    segment (noflash_text)\n")
 	endif()
 	set(dgx_ldfragments "${CMAKE_CURRENT_BINARY_DIR}/dgx_iram.lf")
 	file(WRITE "${dgx_ldfragments}" "[mapping:dgx_iram]\narchive: lib${COMPONENT_NAME}.a\nentries:\n${dgx_iram_entries}")

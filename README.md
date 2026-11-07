@@ -1477,6 +1477,8 @@ Declared in [include/dgx_draw.h](include/dgx_draw.h):
 | `dgx_screen_is_readable(scr)` | `true` when the screen gives back the pixels drawn on it, `false` for a display that keeps them in the panel behind a bus. |
 | `dgx_draw_line(scr, x1, y1, x2, y2, color)` | Single-pixel line by Bresenham's algorithm; the same pixels whichever end it is given from. |
 | `dgx_draw_line_thick(scr, x1, y1, x2, y2, width, color)` | Thick line: the rectangle of `width` around the way, its ends cut square; as wide at every angle, and of width 1 the line of `dgx_draw_line()`. |
+| `dgx_draw_thick_segment(scr, x1, y1, x2, y2, width, color)` | Straight segment by the pen of the curves, its ends in `float`. `DGX_PEN_SOFT | width` gives it a soft edge, `DGX_PEN_START_DISC` and `DGX_PEN_END_DISC` round ends; without them an end is cut straight and sharp, and the next segment goes on from it without a seam. |
+| `dgx_draw_thick_segment_part(scr, x1, y1, x2, y2, width, color, part)` | Draw the same segment on as far as the pen has got along it, `part->t` 0 .. 1, in a `dgx_segment_part_t` filled with zeros before the first call; only what is new is drawn. A disc is drawn when a call first asks for it: `DGX_PEN_START_DISC` at the start, `DGX_PEN_END_DISC` where the pen is. Returns `true` when the pen has reached the end. |
 | `dgx_draw_bezier3(scr, points, pieces, width, color)` | Thick quadratic Bezier curve by three `dgx_point_2d_t` points, drawn by `pieces` straight pieces; 0 finds their number from the points, within half a pixel of the curve. `DGX_PEN_SOFT | width` gives it a soft edge. |
 | `dgx_draw_bezier4(scr, points, pieces, width, color)` | Thick cubic Bezier curve by four points. |
 | `dgx_bezier3_begin(b, scr, points, pieces, width, color)`, `dgx_bezier4_begin(...)` | Prepare the same curves in a `dgx_bezier_t` for drawing part by part, to animate writing. |
@@ -1574,7 +1576,9 @@ on an ESP32 is in [docs/pen-en.md](docs/pen-en.md)
 ([Russian](docs/pen-ru.md)).
 
 The pen of a curve is its `width` and `color`, and its edge is hard: a pixel
-is the line or is not. `DGX_PEN_SOFT` added to the width asks for a soft
+is the line or is not. A straight segment by the same pen is
+`dgx_draw_thick_segment()`, with a round end or a straight one at either
+end. `DGX_PEN_SOFT` added to the width asks for a soft
 edge, `DGX_PEN_SOFT | 2`: a pixel on the edge of the line gets the share of
 `color` the pen covers of it, a pixel keeps the larger of what it has and
 what it is given, and a soft pen with color 0 takes the ink off every pixel

@@ -372,10 +372,10 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int 
 /**
  * @brief Added to the width of a pen, it asks for a soft edge: `DGX_PEN_SOFT | 2`.
  *
- * It is for whatever draws a curve by a pen of a width: dgx_draw_bezier3(),
- * dgx_draw_bezier4(), dgx_bezier3_begin(), dgx_bezier4_begin() and what is
- * built on them, an arc of dgx_draw_arc(), a handwritten text, its writing
- * and its morphs.
+ * It is for whatever draws by a pen of a width: dgx_draw_thick_segment(),
+ * dgx_draw_thick_segment_part(), dgx_draw_bezier3(), dgx_draw_bezier4(),
+ * dgx_bezier3_begin(), dgx_bezier4_begin() and what is built on them, an arc
+ * of dgx_draw_arc(), a handwritten text, its writing and its morphs.
  *
  * A soft pen leaves ink by the share of a pixel it covers. The color of the
  * curve is then an amount of ink, that of a pixel the pen covers whole, and a
@@ -404,6 +404,111 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int 
  * other screen a pen asked to be soft draws as a hard one of the same width.
  */
 #define DGX_PEN_SOFT 0x40000000
+
+/**
+ * @brief Added to the width of a pen, it puts a disc as wide as the pen at
+ * the start of a segment: `DGX_PEN_START_DISC | DGX_PEN_END_DISC | 3`.
+ *
+ * It is for dgx_draw_thick_segment() and dgx_draw_thick_segment_part(). A
+ * curve and an arc always have round ends and take no notice of it.
+ */
+#define DGX_PEN_START_DISC 0x20000000
+
+/**
+ * @brief Added to the width of a pen, it puts a disc as wide as the pen at
+ * the end of a segment; see DGX_PEN_START_DISC.
+ */
+#define DGX_PEN_END_DISC 0x10000000
+
+/**
+ * @brief Draws a straight segment by a pen of a width.
+ *
+ * The line is @p width wide with the way from (x1, y1) to (x2, y2) in its
+ * middle. Its ends are cut straight across the way, unless
+ * DGX_PEN_START_DISC or DGX_PEN_END_DISC added to @p width puts a disc as
+ * wide as the pen there. A straight end is cut sharply even by a soft pen,
+ * so another segment can go on from it without a seam: along the same way,
+ * or at an angle with a disc at the joint; at an angle without a disc the
+ * outer side of the joint is left notched. A segment whose ends are one
+ * point is a dot, the disc of the pen, when it asks for a disc at either
+ * end, and nothing otherwise.
+ *
+ * It is the pen of the curves, dgx_draw_bezier3(), on one straight piece.
+ * With DGX_PEN_SOFT added to @p width its edge is soft where the screen can
+ * hold it, see there, and the ends are taken as they are. A hard pen brings
+ * the ends to whole pixels first. A pen of an even width runs half a pixel
+ * to the right and down of whole points, between pixels, as on a curve. A
+ * hard pen of 1 draws the pixels of the way, both ends among them, with a
+ * disc or without. A segment between two whole points with a disc at either
+ * end is, pixel for pixel, the curve of one piece between them.
+ *
+ * The ends are taken within -32767 .. 32767, where the points of a curve
+ * lie; a segment with an end outside that, or one that is not a number, is
+ * not drawn.
+ *
+ * @param scr   The screen to draw on.
+ * @param x1,y1 The start.
+ * @param x2,y2 The end.
+ * @param width Line thickness in pixels (>= 1), with DGX_PEN_SOFT for a soft
+ *              edge and DGX_PEN_START_DISC, DGX_PEN_END_DISC for round ends.
+ * @param color Line color; the amount of ink for a soft pen.
+ */
+void dgx_draw_thick_segment(dgx_screen_t *scr, float x1, float y1, float x2, float y2, int width, uint32_t color);
+
+/**
+ * @brief How far a straight segment is drawn, for dgx_draw_thick_segment_part().
+ *
+ * Set @c t before every call. The other members are the segment's own: the
+ * call reads and writes them, a program does not. A context filled with
+ * zeros is a segment not begun, `dgx_segment_part_t part = {0};`, and it is
+ * filled so again for the next segment.
+ */
+typedef struct dgx_segment_part_t {
+    float t;     /**< How far the pen has gone along the segment, 0 .. 1 of its length. */
+    float drawn; /* the share drawn by the calls before; 1: the segment is finished */
+    int   discs; /* the discs drawn: DGX_PEN_START_DISC at the start, DGX_PEN_END_DISC where the pen stands */
+} dgx_segment_part_t;
+
+/**
+ * @brief Draws a straight segment on, as far as the pen has got along it.
+ *
+ * It is the segment of dgx_draw_thick_segment() drawn by calls with a growing
+ * @c t of @p part: 0 is nothing, 1 the whole segment. Only what is not drawn
+ * yet is drawn, the way from where the pen stopped at the call before to where
+ * it is now, and it reaches the screen before the call returns. A @c t not
+ * greater than the one before moves nothing; a segment is not drawn back.
+ *
+ * The discs are asked for by every call anew, and a disc is drawn when it is
+ * asked for and is not there yet. DGX_PEN_START_DISC puts the disc at the
+ * start, once, whenever it is first asked for, before the pen has gone too.
+ * DGX_PEN_END_DISC puts a disc where the pen is: on the way it is two pixels
+ * smaller than the pen, so that the tip stays within the finished line, and at
+ * the end it is the disc of the pen. A call that asks for it and does not move
+ * the pen draws it where the pen stands, if none is there. Without it the line
+ * ends straight where the pen is. So the discs may be asked for at the ends
+ * alone: DGX_PEN_START_DISC in the first call, DGX_PEN_END_DISC in the last,
+ * and the tip on the way is straight and costs less.
+ *
+ * Drawn to 1 in any number of calls that ask for the same discs, a segment is
+ * byte for byte the segment drawn at once with them. A disc at the start
+ * asked for after the pen has gone may differ from that by 1 of 255 where the
+ * bar drawn before it begins.
+ *
+ * The ends, the width and the color are the same in every call of one
+ * segment.
+ *
+ * @param scr   The screen to draw on.
+ * @param x1,y1 The start.
+ * @param x2,y2 The end.
+ * @param width Line thickness in pixels with the bits of the pen, see
+ *              dgx_draw_thick_segment().
+ * @param color Line color; the amount of ink for a soft pen.
+ * @param part  How far the segment is drawn and which discs it has; @c t says
+ *              how far to draw it now.
+ * @return true when the pen has reached the end, or the segment cannot be
+ *         drawn at all.
+ */
+bool dgx_draw_thick_segment_part(dgx_screen_t *scr, float x1, float y1, float x2, float y2, int width, uint32_t color, dgx_segment_part_t *part);
 
 /**
  * @brief Draws a quadratic Bezier curve as a thick line with round ends.

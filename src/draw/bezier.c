@@ -22,7 +22,11 @@
 #define DGX_STROKE_MEMORY 0
 #endif
 
-/* the thick polyline of a curve, drawn one piece at a time */
+/*
+ * The thick polyline of a curve, drawn one piece at a time. segment.c draws a straight segment by a copy
+ * of the figures here: drawn by the figures there, the curves came out slower on an ESP32 from flash, and
+ * their pictures are the same either way. A fix of a figure is a fix of both.
+ */
 typedef dgx_bezier_t dgx_stroke_t;
 
 #define DGX_STROKE_FAR  1e6f
@@ -278,10 +282,10 @@ static inline float dgx_stroke_one_over(float v)
 /* along a piece and across it pixels are counted in whole numbers, so much to a pixel */
 #define DGX_STROKE_Q     13
 #define DGX_STROKE_ONE   (1 << DGX_STROKE_Q)
-/* the rows of a bar are looked at this much wider than they are found to be */
-#define DGX_STROKE_GUARD (1.0f / 16)
 /* to find where a row of a bar begins and ends pays when it saves looking at so many pixels beside it */
+#ifndef DGX_STROKE_BESIDE
 #define DGX_STROKE_BESIDE 5.0f
+#endif
 
 static inline int dgx_stroke_fixed(float v)
 {
@@ -314,6 +318,121 @@ static inline void dgx_stroke_put(uint8_t *p, int ink, bool erase)
     }
 }
 
+/* the pixels of a row of a bar from the column `left` to `right`, the counts of the first of them given */
+static inline __attribute__((always_inline)) void dgx_stroke_bar_run(uint8_t *line, int left, int right, int along, int across, int uxi, int uyi, int from,
+                                                                     uint32_t span, int soft, bool stopped, int to, int ink_all, bool erase)
+{
+    const int half = DGX_STROKE_ONE / 2;
+    for (uint8_t *p = line + left, *stop = line + right; p <= stop; ++p, along += uxi, across += uyi) {
+        if ((uint32_t)(along - from) > span) continue;
+        int share = soft - (across < 0 ? -across : across);
+        if (stopped && half + (to - along) < share) share = half + (to - along);
+        if (share <= 0) continue;
+        dgx_stroke_put(p, share >= DGX_STROKE_ONE ? ink_all : (share * ink_all + half) >> DGX_STROKE_Q, erase);
+    }
+}
+
+/*
+ * The least or the most column of a row where a count stays within a limit: a whole number of steps of
+ * the count, the numerator over the step kept as its whole part and what is left, 0 <= r < d. A row down
+ * the numerator moves by the same amount, so the bound is moved by additions, exactly.
+ */
+typedef struct {
+    int q, r;   /* the whole part and what is left */
+    int d;      /* the step of the count along the row, made positive */
+    int dq, dr; /* how the two move a row down */
+} dgx_stroke_bound_t;
+
+static void dgx_stroke_bound_set(dgx_stroke_bound_t *b, int n, int d, int move)
+{
+    b->d = d;
+    b->q = n / d, b->r = n % d;
+    if (b->r < 0) b->r += d, --b->q;
+    b->dq = move / d, b->dr = move % d;
+    if (b->dr < 0) b->dr += d, --b->dq;
+}
+
+static inline void dgx_stroke_bound_next(dgx_stroke_bound_t *b)
+{
+    b->q += b->dq, b->r += b->dr;
+    if (b->r >= b->d) b->r -= b->d, ++b->q;
+}
+
+/*
+ * The columns k of a row where lo <= count + k * step <= hi, step not 0, the count moving by `move` a row
+ * down: from the least, the numerator over the step brought up, to the most, brought down.
+ */
+static void dgx_stroke_bounds(dgx_stroke_bound_t *least, dgx_stroke_bound_t *most, int count, int move, int step, int lo, int hi)
+{
+    if (step > 0) {
+        dgx_stroke_bound_set(least, lo - count, step, -move);
+        dgx_stroke_bound_set(most, hi - count, step, -move);
+    } else {
+        dgx_stroke_bound_set(least, count - hi, -step, move);
+        dgx_stroke_bound_set(most, count - lo, -step, move);
+    }
+}
+
+/* what the rows of a long bar are found and drawn with, see dgx_stroke_bar() */
+typedef struct {
+    dgx_screen_t *scr;
+    uint8_t      *line;                         /* the row `top` of the memory of the screen */
+    int           width, top, bottom, most_left, most_right;
+    int           along_row, across_row;        /* the counts of the column most_left in the row `top` */
+    int           uxi, uyi, from, to, soft, ink_all;
+    uint32_t      span;
+    bool          stopped, erase;
+} dgx_stroke_rows_t;
+
+/*
+ * The rows of a long bar. A pixel has ink when along lies from `from` to the end of the bar, and before the
+ * place the pen has stopped at, and across within soft either way. Both counts are straight functions of
+ * the column, so each of the four limits gives the least or the most column of a row. A function of its own:
+ * in the function of the bar what finds the rows takes registers from the loop of the whole box, which is
+ * what nearly all pieces of a small text are drawn by.
+ */
+static __attribute__((noinline)) void dgx_stroke_bar_rows(const dgx_stroke_rows_t *r)
+{
+    const int      uxi = r->uxi, uyi = r->uyi, from = r->from, to = r->to, soft = r->soft, ink_all = r->ink_all, width = r->width;
+    const int      most_left = r->most_left, most_right = r->most_right, half = DGX_STROKE_ONE / 2;
+    const uint32_t span = r->span;
+    const bool     stopped = r->stopped, erase = r->erase;
+    const int      stop = half + to, along_last = stopped && stop - 1 < from + (int)span ? stop - 1 : from + (int)span;
+    const int      columns = most_right - most_left;
+    uint8_t       *line = r->line;
+    int            along_row = r->along_row, across_row = r->across_row;
+    /* along_row moves by uyi a row and across_row by -uxi; a count that does not change along a row is within or not for all of it */
+    dgx_stroke_bound_t along_least, along_most, across_least, across_most;
+    if (uxi) dgx_stroke_bounds(&along_least, &along_most, along_row, uyi, uxi, from, along_last);
+    if (uyi) dgx_stroke_bounds(&across_least, &across_most, across_row, -uxi, uyi, 1 - soft, soft - 1);
+    int touched_left = most_right, touched_right = most_left;
+    for (int row = r->top; row <= r->bottom; ++row, line += width, along_row += uyi, across_row -= uxi) {
+        int k_lo = 0, k_hi = columns;
+        if (uxi) {
+            const int least = along_least.q + (along_least.r != 0), most = along_most.q;
+            if (least > k_lo) k_lo = least;
+            if (most < k_hi) k_hi = most;
+            dgx_stroke_bound_next(&along_least), dgx_stroke_bound_next(&along_most);
+        } else if (along_row < from || along_row > along_last) {
+            k_hi = -1;
+        }
+        if (uyi) {
+            const int least = across_least.q + (across_least.r != 0), most = across_most.q;
+            if (least > k_lo) k_lo = least;
+            if (most < k_hi) k_hi = most;
+            dgx_stroke_bound_next(&across_least), dgx_stroke_bound_next(&across_most);
+        } else if (across_row <= -soft || across_row >= soft) {
+            k_hi = -1;
+        }
+        if (k_lo > k_hi) continue;
+        const int left = most_left + k_lo, right = most_left + k_hi;
+        if (left < touched_left) touched_left = left;
+        if (right > touched_right) touched_right = right;
+        dgx_stroke_bar_run(line, left, right, along_row + k_lo * uxi, across_row + k_lo * uyi, uxi, uyi, from, span, soft, stopped, to, ink_all, erase);
+    }
+    if (touched_left <= touched_right) dgx_screen_touch(r->scr, touched_left, touched_right, r->top, r->bottom);
+}
+
 /*
  * A piece: a bar as wide as the pen from (ax, ay) along (ux, uy), a vector
  * of length 1. It runs from `start` to `pen`, or to `end` when the pen has
@@ -327,9 +446,17 @@ static inline void dgx_stroke_put(uint8_t *p, int ink, bool erase)
  * share of a pixel depends on the piece and the pixel alone, not on the part
  * being drawn, but for the soft end of a part. A part begins behind the
  * place the part before it has stopped at, where that part has put its whole
- * shares, and so the parts together give what the piece gives at once. Where
- * the rows of a long bar begin and end is found roughly, row after row; it
- * only says which pixels are looked at.
+ * shares, and so the parts together give what the piece gives at once.
+ *
+ * Of a long bar not the whole box it lies in is looked at but its rows, and
+ * where a row begins and ends is found from the counts themselves, not from
+ * the bar as the floats have it: the counts are what gives a pixel its ink,
+ * and over a long way they drift a little from it. A count is a straight
+ * function of the column, and each of its limits gives a bound of the row: a
+ * numerator over the step of the count, brought up or down to a whole column.
+ * It is kept as a whole number and what is left and moved from row to row by
+ * additions. So a row has the pixels the whole box would give it, no more and
+ * no fewer, and no row costs a float.
  */
 static void dgx_stroke_bar(dgx_stroke_t *s, float ax, float ay, float ux, float uy, float len, float start, float pen, float end)
 {
@@ -359,57 +486,29 @@ static void dgx_stroke_bar(dgx_stroke_t *s, float ax, float ay, float ux, float 
     const int   uxi = dgx_stroke_fixed(ux), uyi = dgx_stroke_fixed(uy);
     const int   along0 = (int)((bx * ux + by * uy) * DGX_STROKE_ONE), across0 = (int)((bx * uy - by * ux) * DGX_STROKE_ONE);
     const int   from = (int)(start * DGX_STROKE_ONE), to = (int)(pen * DGX_STROKE_ONE), soft = (int)(edge * DGX_STROKE_ONE);
-    const int   ink_all = erase ? 255 : (int)(s->color & 0xff), half = DGX_STROKE_ONE / 2;
+    const int   ink_all = erase ? 255 : (int)(s->color & 0xff);
     const uint32_t span = (uint32_t)((int)(reach * DGX_STROKE_ONE) - from);
     /*
      * A row of the bar is so many pixels long: as long as the bar is thick along a row, or as long as
-     * it is itself. When the columns the whole bar lies between are few more than that, every row is
-     * looked at from the first of them to the last: to find where a row begins and ends would cost
-     * more than to look at the pixels beside it. A bar along a row or a column is always so.
+     * it is itself, whichever is shorter. When the columns the whole bar lies between are few more than
+     * that, every row is looked at from the first of them to the last: to find where a row begins and
+     * ends would cost more than to look at the pixels beside it. A bar along a row or a column is
+     * always so.
      */
     const float box = most_hi - most_lo;
-    const bool  rows = (box - DGX_STROKE_BESIDE) * wy > 2 * edge && (box - DGX_STROKE_BESIDE) * wx > reach - start;
-    /* between which columns a row of the bar lies: by its ends and by its sides, and how they move with a row */
-    float       end_lo = 0, end_hi = 0, end_step = 0, side_lo = 0, side_hi = 0, side_step = 0;
-    if (rows) {
-        /* 1 / ux and 1 / uy by one division */
-        const float both = dgx_stroke_one_over(ux * uy), ix = uy * both, iy = ux * both, down = top - ay;
-        const float e0 = ax + (start - down * uy) * ix, e1 = ax + (reach - down * uy) * ix;
-        const float f0 = ax + (down * ux - edge) * iy, f1 = ax + (down * ux + edge) * iy;
-        end_lo = e0 < e1 ? e0 : e1, end_hi = e0 < e1 ? e1 : e0;
-        end_step = -uy * ix;
-        side_lo = f0 < f1 ? f0 : f1, side_hi = f0 < f1 ? f1 : f0;
-        side_step = ux * iy;
-    }
-    int      touched_left = most_right, touched_right = most_left;
+    const bool  rows = (box - DGX_STROKE_BESIDE) * wy > 2 * edge || (box - DGX_STROKE_BESIDE) * wx > reach - start;
     uint8_t *line = ((dgx_vscreen_t *)s->scr)->v_array + (size_t)top * (size_t)width;
     /* the count for the first of the columns in the row `top`; a row down, the counts move by uyi and by -uxi */
     int      along_row = (most_left - ox) * uxi + (top - oy) * uyi - along0, across_row = (most_left - ox) * uyi - (top - oy) * uxi - across0;
-    for (int row = top; row <= bottom; ++row, line += width, along_row += uyi, across_row -= uxi) {
-        int left = most_left, right = most_right;
-        if (rows) {
-            /* the first pixel not left of lo and the last one not right of hi, a little more of both */
-            const float lo = (end_lo > side_lo ? end_lo : side_lo) + (1 - DGX_STROKE_GUARD);
-            const float hi = (end_hi < side_hi ? end_hi : side_hi) + DGX_STROKE_GUARD;
-            end_lo += end_step, end_hi += end_step, side_lo += side_step, side_hi += side_step;
-            if (hi < most_left) continue;
-            if (lo > most_left + 1) left = (int)lo;
-            if (hi < most_right) right = (int)hi;
-            if (left > right) continue;
-            if (left < touched_left) touched_left = left;
-            if (right > touched_right) touched_right = right;
-        }
-        int along = along_row + (left - most_left) * uxi, across = across_row + (left - most_left) * uyi;
-        for (uint8_t *p = line + left, *stop = line + right; p <= stop; ++p, along += uxi, across += uyi) {
-            if ((uint32_t)(along - from) > span) continue;
-            int share = soft - (across < 0 ? -across : across);
-            if (stopped && half + (to - along) < share) share = half + (to - along);
-            if (share <= 0) continue;
-            dgx_stroke_put(p, share >= DGX_STROKE_ONE ? ink_all : (share * ink_all + half) >> DGX_STROKE_Q, erase);
-        }
+    if (rows) {
+        const dgx_stroke_rows_t r = {s->scr, line, width, top, bottom, most_left, most_right, along_row, across_row, uxi, uyi, from,
+                                     to, soft, ink_all, span, stopped, erase};
+        dgx_stroke_bar_rows(&r);
+        return;
     }
-    if (!rows) touched_left = most_left, touched_right = most_right;
-    if (touched_left <= touched_right) dgx_screen_touch(s->scr, touched_left, touched_right, top, bottom);
+    for (int row = top; row <= bottom; ++row, line += width, along_row += uyi, across_row -= uxi)
+        dgx_stroke_bar_run(line, most_left, most_right, along_row, across_row, uxi, uyi, from, span, soft, stopped, to, ink_all, erase);
+    dgx_screen_touch(s->scr, most_left, most_right, top, bottom);
 }
 
 /*
@@ -608,8 +707,9 @@ static int dgx_bezier_pieces(float bend)
 static void dgx_bezier_begin(dgx_bezier_t *b, dgx_screen_t *scr, dgx_point_2d_t end, int pieces, int width, uint32_t color)
 {
     /* the kind of the pen comes with its width; a width below 1 is no pen at all, whatever bits it has */
+    /* a curve always has round ends: the bits of the discs are a segment's */
     const bool asked = width > 0 && (width & DGX_PEN_SOFT);
-    if (width > 0) width &= ~DGX_PEN_SOFT;
+    if (width > 0) width &= ~(DGX_PEN_SOFT | DGX_PEN_START_DISC | DGX_PEN_END_DISC);
     b->scr = scr;
     b->color = color;
     b->width = width > INT16_MAX ? INT16_MAX : width;

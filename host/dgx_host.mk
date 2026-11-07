@@ -16,8 +16,8 @@ DGX_ROOT     := $(patsubst %/,%,$(dir $(DGX_HOST_DIR)))
 
 # what every screen does: the window of a display behind a bus, pixel runs, 1-bit bitmaps
 DGX_HOST_SRCS_SCREEN  := $(addprefix $(DGX_ROOT)/src/screen/, screen.c screen_bus.c pixels.c bitmap.c)
-# lines, circles, polygons, ellipses and arcs, Bezier curves and the pen, textures, scrolling, the gauge
-DGX_HOST_SRCS_DRAW    := $(addprefix $(DGX_ROOT)/src/draw/, draw.c lines.c circles.c polygons.c ellipse.c bezier.c texture.c \
+# lines, circles, polygons, ellipses and arcs, Bezier curves and straight segments by the pen, textures, scrolling, the gauge
+DGX_HOST_SRCS_DRAW    := $(addprefix $(DGX_ROOT)/src/draw/, draw.c lines.c circles.c polygons.c ellipse.c bezier.c segment.c texture.c \
                            scroll.c gauge.c rectangles.c)
 # virtual screens and their transfers, scaling and smoothing, the overlay, sprites, tables of colors, the page screen
 DGX_HOST_SRCS_VSCREEN := $(addprefix $(DGX_ROOT)/src/vscreen/, vscreen.c transfer.c bw_screen.c image.c lut.c scale.c overlay.c)

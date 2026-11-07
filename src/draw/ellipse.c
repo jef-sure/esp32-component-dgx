@@ -508,8 +508,10 @@ static void dgx_arc_part(dgx_screen_t *scr, int x, int y, int rx, int ry, float 
 
 void dgx_draw_arc(dgx_screen_t *scr, int x, int y, int rx, int ry, float from, float to, int width, uint32_t color)
 {
-    if (width < 1 || (width & ~DGX_PEN_SOFT) < 1) return;
-    const int   pen = width & ~DGX_PEN_SOFT;
+    /* of the bits of a pen an arc takes the soft edge only: its ends are always round */
+    const int   bits = DGX_PEN_SOFT | DGX_PEN_START_DISC | DGX_PEN_END_DISC;
+    if (width < 1 || (width & ~bits) < 1) return;
+    const int   pen = width & ~bits;
     dgx_wedge_t w;
     if (!dgx_ellipse_fits(scr, x, y, rx, ry, pen > INT16_MAX ? INT16_MAX : pen) || !dgx_wedge_set(&w, from, to)) return;
     /* what the pen will be on this screen is told by the pen: one asked to be soft is hard where a pixel is not ink */

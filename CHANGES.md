@@ -1,5 +1,53 @@
 # Changes
 
+## 0.10.13 - 2026-11-07
+
+New:
+
+- Straight segments by the pen of the curves, with its soft edge too:
+  `dgx_draw_thick_segment()`, and `dgx_draw_thick_segment_part()`, which
+  draws a segment on as far as the pen has got along it. Its context,
+  `dgx_segment_part_t`, filled with zeros before the first call, takes the
+  share `t` and keeps how far the segment is drawn and which discs it has,
+  so a call draws only what is new; drawn to 1 in any number of calls, a
+  segment is the segment drawn at once. Every call asks for the discs anew,
+  and a disc is drawn when it is first asked for: a program may ask for the
+  disc at the start in its first call and for the one at the end in its
+  last, and the tip on the way is then straight. The ends are `float`: a
+  soft segment starts and ends where it is told, between pixels as well.
+  `DGX_PEN_START_DISC` and `DGX_PEN_END_DISC`, added to the width as
+  `DGX_PEN_SOFT` is, give it a round end at the start or at the end. Without
+  them an end is cut straight across the line, sharply even by a soft pen,
+  so that the next segment goes on from it without a seam. Curves and arcs
+  take no notice of the two: their ends are round as before. The figures are
+  those of the curves, in a copy of their own in `src/draw/segment.c`.
+  `CONFIG_DGX_BEZIER_IN_IRAM` keeps it in IRAM too, 10.5 KB in a program that
+  draws segments.
+
+Faster:
+
+- A long piece of a curve by a soft pen is looked at by its rows, not over
+  the whole box around it. The code for the rows was there since 0.5.4, but
+  the choice between the two never took it, and its bounds, worked out in
+  floats, could leave a pixel out; the bounds now come from the counts of the
+  pixels in whole numbers, and the pictures are the same byte for byte. On a
+  CYD, with the code in IRAM: a curve of one piece of 110 pixels by a pen of 2
+  takes 110 µs instead of 358, of 40 pixels 48 instead of 70; a text at a
+  scale of 1 is drawn 3–5% faster, a small one, the name of the place in the
+  clock, as before. `src/draw/bezier.c` takes 1 KB more of flash, and of IRAM
+  with `CONFIG_DGX_BEZIER_IN_IRAM`.
+
+Tests:
+
+- `test/host/test_segment.c`: a segment with a disc at either end is the
+  curve of one piece between its ends on screens of 8, 16 and 24 bits, a
+  segment drawn on in uneven parts is the segment drawn at once and is not
+  drawn back, two segments along one way have no seam, the ends lie where
+  they are given, a soft pen of color 0 takes a segment off.
+- `test/host/test_bar_rows.c` and `test/host/test_curve_rows.c`: the soft
+  bar of a segment and of a curve looked at by rows has the pixels of its
+  whole box, byte for byte.
+
 ## 0.10.12 - 2026-11-06
 
 New:

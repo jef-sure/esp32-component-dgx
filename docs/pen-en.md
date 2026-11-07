@@ -2,10 +2,12 @@
 
 [Русская версия](pen-ru.md)
 
-A technical note on how `src/draw/bezier.c` draws a curve with a pen: what figures
-it puts on a screen, what it counts with, what it calls and what that costs
-on an ESP32. How to use a pen is in [handwriting-en.md](handwriting-en.md);
-here is only how it is built.
+A technical note on how a pen draws a curve and a straight segment: what
+figures it puts on a screen, what it counts with, what it calls and what that
+costs on an ESP32. A curve is drawn by `src/draw/bezier.c`, a straight segment
+by `src/draw/segment.c`, which has a copy of the same figures of its own. How
+to use a pen is in [handwriting-en.md](handwriting-en.md); here is only how it
+is built.
 
 It describes the code of version 0.5.4. Every number is either
 measured on the board or marked as calculated or as counted on the host. A KB
@@ -18,6 +20,7 @@ is 1024 bytes.
 - [Two pens](#two-pens)
 - [The hard pen](#the-hard-pen)
 - [The soft pen](#the-soft-pen)
+- [A straight segment](#a-straight-segment)
 - [What a pen calls](#what-a-pen-calls)
 - [The flash cache](#the-flash-cache)
 - [What costs what](#what-costs-what)
@@ -331,10 +334,28 @@ belongs to a part of a piece when `along` lies between its start and its end;
 both bounds are checked by one unsigned comparison,
 `(uint32_t)(along − start) > length`.
 
-For the bar of a long piece the bounds of a row are found as for a bullet,
-from four straight lines. For a short one, and at small sizes nearly all are
-short, a row is looked at from the first column of the bar to the last: to
-find its bounds costs more than to look at five pixels beside it.
+A row of a bar is as long as the shorter of two: the thickness of the bar
+along the row, or its length along the row. When the columns of the whole bar
+are no more than five wider than that, every row is looked at from the first
+of them to the last: to find the bounds of a row costs more than to look at
+five pixels beside it. At small sizes nearly all pieces are so.
+
+Any other bar is looked at by rows, and the bounds of a row come from the
+counts themselves, not from the bar as the floats have it. The counts decide
+which pixel gets ink, and over a long way they drift from the bar of the
+floats: across a long, nearly level bar by up to half a pixel. Each count is a
+straight function of the column, and each of its limits gives the first or the
+last column of a row: a numerator over the step of the count, rounded up or
+down to a whole column. It is kept as a whole number and a remainder and moved
+from row to row by additions. So a row has exactly the pixels the whole box
+would give it, and no row costs a `float`: on this chip a few operations in
+`float` in a row cost about a microsecond, as they do in the hard pen. The
+rows are a function of their own: in the function of the bar they took
+registers from the loop of the whole box, and a short piece paid a microsecond
+for them. Host tests draw 12 000 random curves and 20 000 random segments by
+rows always, by the whole box always and as the code chooses, and compare them
+byte for byte. Of a long piece what is left is the work of its pixels: about
+0.2 µs for a pixel that gets ink, 31 instructions of the loop.
 
 A disc is counted in whole numbers of 1/64 of a pixel. Its cuts are the
 straight lines past which the disc is not needed: the end of its own piece
@@ -352,6 +373,95 @@ number does not depend on where the count began. Every next part of a piece
 begins 2 pixels before the place the pen stopped at and covers the soft end
 of the part before; with the rule of the larger of the two the overlap
 changes nothing.
+
+## A straight segment
+
+`dgx_draw_thick_segment()` draws one straight piece by itself, with nothing
+to join it to. `segment.c` has the figures of the curves as a copy of its own:
+the curves keep theirs in `bezier.c`. Drawn by the figures of `segment.c` the
+curves came out slower from flash on the CYD: in four builds the hard pen by
+10–32% on the average over the texts, while the curves by their own code, the
+same instructions as before, came out 1% and 7% slower in two other builds.
+With the code in IRAM there was no difference, within half a percent. It is
+where the code falls in the flash cache, see
+[«The flash cache»](#the-flash-cache), but it could not be shown that the
+curves would be no slower. The two copies are the same code.
+
+By the soft pen a segment is a bar from end to end. The ends are taken as they
+are given, in `float`; a pen of an even width runs half a pixel to the right
+and down of them, as on a curve. `DGX_PEN_START_DISC` adds the half of the
+disc of the pen that lies behind the start, `DGX_PEN_END_DISC` the half past
+the end: the figures of the ends of a curve. By the hard pen the ends are
+first brought to whole pixels; the disc at the start is the dot of the hard
+pen, and the rest is a bullet with the disc at its end, or its rectangle alone
+without one. With a disc at either end a segment between whole points is the
+curve of one piece between them, pixel for pixel; a host test compares them on
+screens of 8, 16 and 24 bits.
+
+An end without a disc is cut straight across and sharply, by the soft pen too:
+two soft ends put together give less than an unbroken line, as the first soft
+pen showed. The cut lies 1/64 of a pixel past the end. Two segments count a
+pixel on their seam each from its own start, and the two counts may differ by
+so much: without the margin a pixel right on the seam would be given by
+neither. Two segments along one way, the second from where the first ends,
+differ from the one segment near the seam by no more than 2 of 255 on 2000
+random pairs. A disc and a bar count a pixel on their seam each its own way
+too, the disc within a hundredth of a pixel: with a disc a segment may have up
+to 2 of 255 less in a pixel there than without.
+
+`dgx_draw_thick_segment_part()` draws a segment on as a curve is drawn on by
+its pen, and its context, `dgx_segment_part_t`, keeps how far it has been
+drawn and which discs it has. A call draws the part from where the call
+before has stopped to where the pen is now. The hard pen draws the rectangle
+of that part; the soft pen begins it 2 pixels behind the stop, where the part
+before has put its whole shares, and a pixel keeps the larger of the two.
+Where the pen is, the bar ends softly, as a curve does where its pen has
+stopped.
+
+Every call asks for the discs anew, and a disc that is asked for and is not
+there yet is drawn, once: the disc at the start whenever it is first asked
+for, before the pen has gone too, and a disc where the pen is, two pixels
+smaller than the pen on the way and the disc of the pen at the end. A call
+that asks for that one and does not move the pen draws it where the pen
+stands. The tip disc stays within the finished line; without a disc at the
+start, drawn or asked for, it is cut where the segment starts. By the hard
+pen a tip disc where the pen stands is drawn with the last pixel of the way
+before it, which is the line's anyway, so that the figure cuts it at the start
+as it cuts the disc of a pen on its way. A program that wants round ends and
+no round tip asks for the disc at the start in its first call and for the one
+at the end in its last.
+
+What a call puts is never more than the segment drawn at once with the discs
+the calls have asked for, so calls with a growing share and the same discs
+end as that segment, byte for byte: a host test checks it on 2000 random
+segments for each pen and each pair of ends, in steps of uneven length, with a
+share that does not grow among them. A disc at the start asked for after the
+pen has gone differs from that by 1 of 255 at the most, where the bar drawn
+before it begins 1/64 of a pixel behind the start.
+
+Microseconds a segment on the CYD, the mean of 800 segments (160 of 110
+pixels) at eight angles on an 8-bit screen of 320×120, with the code of the
+pen in IRAM, `CONFIG_DGX_BEZIER_IN_IRAM`: from flash the same calls came out
+up to a third slower in some builds of the bench and not in others, by where
+the code fell in the cache. «Discs» is a disc at either end:
+
+| Length | Hard 2, discs | Hard 2 | Soft 2, discs | Soft 2 | Soft 9, discs | Soft 9 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 8 px | 14.9 | 11.5 | 18.5 | 13.2 | 44.1 | 23.1 |
+| 40 px | 29.2 | 25.9 | 47.0 | 42.1 | 106.9 | 85.5 |
+| 110 px | 60.2 | 57.2 | 109.6 | 104.5 | 246.4 | 225.7 |
+
+Ends a fraction of a pixel aside cost the soft pen up to 2 µs more, for the
+row of the soft edge they add, and the hard pen nothing: the ends in `float`
+cost nothing beside the work of a figure, which counts in whole numbers. A
+segment with a disc at either end takes the time of the curve of one piece
+between the same points, or up to a microsecond less, and a hard segment
+without discs the time of `dgx_draw_line_thick()`. A segment of 278 pixels by
+a soft pen of 3 drawn on in 50 calls of `dgx_draw_thick_segment_part()` takes
+14.9 µs a call on the average and 21 µs at the most, 0.74 ms in all, and 223
+µs at once; without discs 11.7 µs a call. Every call begins a figure anew, and
+the soft pen draws 2 pixels of the way again at every stop: the parts together
+cost three times the segment at once.
 
 ## What a pen calls
 
@@ -488,7 +598,7 @@ only:
 | Setting | What goes to IRAM | IRAM taken |
 | --- | --- | --- |
 | `CONFIG_DGX_HW_FONT_IN_IRAM` | `hw_font.c` and the two functions of `font.c` that find a glyph | 4.1 KB |
-| `CONFIG_DGX_BEZIER_IN_IRAM` | `bezier.c`, both pens | 9.3 KB |
+| `CONFIG_DGX_BEZIER_IN_IRAM` | `bezier.c`, both pens, and `segment.c` where a program draws segments | 10.3 KB, and 10.5 KB for the segments |
 
 Together 13.3 KB in this firmware and 13.9 KB in the example
 `hw_soft_pen_demo`: what goes to IRAM is what a program uses of the two
@@ -653,6 +763,17 @@ screen and the cut of its tip. A build without the virtual screen has
   get other pixels on the edge, 1027 pixels of 38 million, and 64 trial texts
   3 pixels of 700 thousand. The guess «a good part of the microsecond of a
   row» did not hold.
+- **The bounds of the rows of a long bar from four straight lines in floats**,
+  as a bullet has them, from version 0.5.4. The pixels are decided by the
+  counts in whole numbers, and over a long way the two parted: a pixel at the
+  side of a long, nearly level bar got ink by its counts and lay outside the
+  bounds of its row, in 8 of 12 000 random curves and segments. The choice
+  between the rows and the box took the longer of the two lengths of a row
+  instead of the shorter, so the rows were never used and the fault never
+  showed: of 40 000 random curves and segments not one bar was looked at by
+  rows. A long soft piece paid for the whole box around it: 358 µs for 110
+  pixels by a pen of 2, against 110 µs by the rows of
+  [«Counting in whole numbers»](#counting-in-whole-numbers).
 - **Softness as a property of a screen.** See [«Two pens»](#two-pens).
 - **The symbols of a font in the order of the frequency of letters.** A glyph
   is found by the code of its symbol, but its symbol and its curves may lie
