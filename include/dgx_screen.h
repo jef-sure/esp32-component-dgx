@@ -161,6 +161,14 @@ typedef struct _dgx_screen_t
     dgx_scr_screen_wait_buffer_func wait_buffer;
     dgx_scr_draw_pixel_func         set_pixel;
     dgx_scr_read_pixel_func         get_pixel;
+    /*
+     * Sends what has changed, left .. right and top .. bottom inclusive, to where the screen is shown;
+     * dgx_screen_flush() calls it. A program may give its own to a virtual screen it shows itself, one of
+     * dgx_vscreen_init() or dgx_vscreen_from_array(), whose own does nothing, and keep what it needs in
+     * user_data. A screen of a driver sends its picture to the display by it: do not replace it there.
+     * dgx_overlay_set() takes over the one of a layer and calls the one before it after its own work:
+     * give yours before that call.
+     */
     dgx_scr_update_area_func        update_screen;
     dgx_scr_screen_destroy_func     destroy;
     /* optimized functions */
@@ -170,6 +178,11 @@ typedef struct _dgx_screen_t
     dgx_scr_solid_circle_func   solid_circle;
     /* the overlay layer of the screen, or of the screen this one is the layer of; NULL when none: see dgx_overlay.h */
     struct _dgx_overlay_t *overlay;
+    /*
+     * The program's own: what its functions given to the screen need, such as an update_screen of its
+     * own. DGX neither reads nor writes it, and it is NULL when the screen is made.
+     */
+    void *user_data;
 } dgx_screen_t;
 
 typedef struct dgx_point_2d
@@ -225,9 +238,18 @@ static inline void dgx_screen_flush(dgx_screen_t *_scr)
  *
  * For a screen that is shown by its owner, such as a virtual screen copied
  * to a display: open a batch with dgx_screen_progress_up(), draw, take the
- * area that has changed and send only it. Outside a batch there is nothing
- * to take, since every change is flushed at once. After it the closing
- * dgx_screen_progress_down() has nothing left to send.
+ * area that has changed and send only it.
+ *
+ * The batch must be open from before the first drawing call until the area
+ * is taken, around all the drawing, including functions that open batches of
+ * their own. Any batch that closes at depth 0 passes the area to
+ * update_screen(), and that of a virtual screen does nothing: the area is
+ * lost, and there is nothing to take. A program that shows the screen all
+ * the time opens one batch before it draws anything and leaves it open, as
+ * examples/hw_soft_pen_demo does. One that would rather be called at each
+ * change gives the screen an update_screen() of its own, see user_data.
+ * After the area is taken, the closing dgx_screen_progress_down() has
+ * nothing left to send.
  *
  * @param _scr          Screen that was drawn on.
  * @param left,top      Out: the top-left corner of the area.

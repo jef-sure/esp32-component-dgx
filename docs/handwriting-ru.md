@@ -270,7 +270,10 @@ dgx_hw_draw_text(band, x, y, font, text, scale, DGX_PEN_SOFT | 2, 255, true);
 количеством чернил. Такой пиксель — байт 8-битного виртуального экрана: 0 —
 бумага, `color` — пиксель, который перо накрыло целиком, а пиксель на краю
 получает долю `color`. В цвет дисплея чернила переводит таблица при переносе,
-`dgx_vscreen8_to_screen16()`. У 16-битного пикселя нет количества, которое
+`dgx_vscreen8_to_screen16()`: `uint16_t lut[256]` в RGB565, которую делает
+`dgx_lut_gradient(lut, 0, 256, бумага, чернила)` из двух цветов вида
+`0xRRGGBB`, см. [Tables for 8-bit screens](../README.md#tables-for-8-bit-screens).
+У 16-битного пикселя нет количества, которое
 можно сравнить с прежним, а дисплей за шиной не читается вовсе: там перо,
 которое просили мягким, рисует как резкое той же толщины.
 
@@ -586,6 +589,9 @@ dgx_hw_morph_text_t *text = dgx_hw_morph_text_create(font, "привет", "уч
 ```c
 /* полоса на 8 бит шириной с экран; цвет 0 — бумага, 255 — чернила */
 dgx_screen_t *band = dgx_vscreen_init(screen->width, height, 8, DgxScreenRGB);
+/* цвета дисплея для них, от бумаги к чернилам, в виде 0xRRGGBB */
+static uint16_t lut[256];
+dgx_lut_gradient(lut, 0, 256, 0xfaf6e8, 0x182478);
 
 for (;;) {
     float t = progress(start, esp_timer_get_time(), duration);

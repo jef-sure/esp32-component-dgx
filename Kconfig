@@ -195,7 +195,8 @@ config DGX_BEZIER_IN_IRAM
     help
         The same for src/draw/bezier.c, the hard pen and the soft one: 10.3
         KB of IRAM, and 10.5 KB more for src/draw/segment.c in a program that
-        draws straight segments by dgx_draw_thick_segment(). The time of
+        draws straight segments by dgx_draw_thick_segment(), or 2.3 KB in one
+        that draws filled circles, for their soft edge. The time of
         drawing a handwritten text does not depend on the place of the font
         then, within 2%. With DGX_HW_FONT_IN_IRAM too, neither the drawing
         nor the going through does. See docs/pen-en.md.

@@ -707,9 +707,9 @@ static int dgx_bezier_pieces(float bend)
 static void dgx_bezier_begin(dgx_bezier_t *b, dgx_screen_t *scr, dgx_point_2d_t end, int pieces, int width, uint32_t color)
 {
     /* the kind of the pen comes with its width; a width below 1 is no pen at all, whatever bits it has */
-    /* a curve always has round ends: the bits of the discs are a segment's */
+    /* a curve always has round ends: the bits of the discs are a segment's, DGX_PEN_MAX a circle's */
     const bool asked = width > 0 && (width & DGX_PEN_SOFT);
-    if (width > 0) width &= ~(DGX_PEN_SOFT | DGX_PEN_START_DISC | DGX_PEN_END_DISC);
+    if (width > 0) width &= ~(DGX_PEN_SOFT | DGX_PEN_START_DISC | DGX_PEN_END_DISC | DGX_PEN_MAX);
     b->scr = scr;
     b->color = color;
     b->width = width > INT16_MAX ? INT16_MAX : width;

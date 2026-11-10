@@ -55,6 +55,13 @@ void dgx_draw_circle_runs(dgx_screen_t *scr, int x, int y, int r, uint32_t color
 /* a solid circle by the same walk, by rows: see circles.c */
 void dgx_draw_solid_circle_rows(dgx_screen_t *scr, int x, int y, int r, uint32_t color);
 
+/*
+ * A solid circle with the soft edge of a pen, the dot of a soft pen of the width 2r + 1, on a virtual
+ * screen of a byte a pixel; `cover` but for DGX_PEN_MAX. False where there is no soft edge, nothing drawn:
+ * the hard circle is for it then. See segment.c.
+ */
+bool dgx_soft_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color, bool cover);
+
 #ifdef __cplusplus
 // @formatter:off
 }

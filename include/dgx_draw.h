@@ -115,10 +115,22 @@ void dgx_draw_line(dgx_screen_t *scr, int x1, int y1, int x2, int y2, uint32_t c
 /**
  * @brief Draws a filled circle on the screen.
  *
+ * With DGX_PEN_SOFT added to @p r its edge is soft where the screen can
+ * have it, a virtual screen of 8 bits a pixel: the edge of the dot of a soft
+ * pen of the width 2r + 1, spread half a pixel either way from where the
+ * edge of the hard circle lies. The soft circle covers what is under it, as
+ * the hard one does: a pixel inside it gets the ink whatever it had, darker
+ * or lighter, and a pixel of the edge goes from what it had towards the ink
+ * by the share of it the circle covers. Color 0 is then a circle of paper
+ * with a soft edge. DGX_PEN_MAX added as well gives the circle the rule of
+ * the pen instead. On every other screen, and with a radius over 16383, a
+ * circle asked to be soft is the hard one of the same radius.
+ *
  * @param scr The screen to draw on.
  * @param x The x coordinate of the center of the circle.
  * @param y The y coordinate of the center of the circle.
- * @param r The radius of the circle.
+ * @param r The radius of the circle, with DGX_PEN_SOFT for a soft edge and
+ *          DGX_PEN_MAX for the rule of the pen: `DGX_PEN_SOFT | 10`.
  * @param color The color of the circle.
  */
 void dgx_solid_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color);
@@ -375,7 +387,9 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int 
  * It is for whatever draws by a pen of a width: dgx_draw_thick_segment(),
  * dgx_draw_thick_segment_part(), dgx_draw_bezier3(), dgx_draw_bezier4(),
  * dgx_bezier3_begin(), dgx_bezier4_begin() and what is built on them, an arc
- * of dgx_draw_arc(), a handwritten text, its writing and its morphs.
+ * of dgx_draw_arc(), a handwritten text, its writing and its morphs. Added to
+ * the radius of dgx_solid_circle(), it gives the circle the edge of a soft
+ * pen.
  *
  * A soft pen leaves ink by the share of a pixel it covers. The color of the
  * curve is then an amount of ink, that of a pixel the pen covers whole, and a
@@ -402,6 +416,10 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int 
  * at 0 to the color of the ink. A pixel of colors has nothing to take the
  * larger of, and a display behind a bus cannot be read at all: on every
  * other screen a pen asked to be soft draws as a hard one of the same width.
+ *
+ * A soft pen is written for widths up to 1436 pixels. The round ends of a
+ * wider one are counted coarser and their edge is uneven, and from 1577 a
+ * pixel on it may be left with no ink.
  */
 #define DGX_PEN_SOFT 0x40000000
 
@@ -419,6 +437,21 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int 
  * the end of a segment; see DGX_PEN_START_DISC.
  */
 #define DGX_PEN_END_DISC 0x10000000
+
+/**
+ * @brief Added to the radius of dgx_solid_circle() with DGX_PEN_SOFT, the
+ * soft circle keeps the rule of the soft pen: `DGX_PEN_SOFT | DGX_PEN_MAX | 10`.
+ *
+ * Every pixel keeps the larger of its ink and that of the circle, and color 0
+ * takes the ink off every pixel the circle touches. The circle is then the
+ * dot of a soft pen of the width 2r + 1 byte for byte, what
+ * dgx_draw_thick_segment() from (x, y) to (x, y) with DGX_PEN_START_DISC
+ * draws, and it meets the lines of the pen as they meet each other. On a
+ * paper with ink of its own the part of the soft edge with less ink than the
+ * paper is lost, and the edge looks hard there: over a background a circle
+ * is drawn without it. A hard circle and a pen take no notice of it.
+ */
+#define DGX_PEN_MAX 0x08000000
 
 /**
  * @brief Draws a straight segment by a pen of a width.

@@ -1,5 +1,40 @@
 # Changes
 
+## 0.10.14 - 2026-11-10
+
+New:
+
+- A filled circle with the soft edge of a pen: on a virtual screen of 8 bits
+  a pixel, `dgx_solid_circle(scr, x, y, DGX_PEN_SOFT | r, ink)` draws a circle
+  with the edge of the dot of a soft pen 2r + 1 wide, spread half a pixel
+  either way from the edge of the hard circle. It covers what is under it, as
+  the hard circle does, and its edge is mixed with what was there by the
+  share of each pixel it covers. With `DGX_PEN_MAX` added, a pixel keeps the
+  larger ink instead, as under the pen, and the circle is the dot of the pen
+  byte for byte. The inside is filled a row at a time, and only the pixels of
+  the edge are worked out one by one. On other screens the circle is the hard
+  one. The pens ignore `DGX_PEN_MAX`.
+- `dgx_screen_t` has `user_data`, a pointer that belongs to the program: DGX
+  neither reads nor writes it, and it is `NULL` when a screen is made. A
+  program that shows a virtual screen itself through an `update_screen()` of
+  its own keeps there what that needs, the display and the table of colors,
+  in place of global variables. The header and the README say which screens
+  may have their `update_screen()` replaced.
+
+Documentation:
+
+- The API reference says how the table of colors of an 8-bit screen is made:
+  `uint16_t lut[256]` holds RGB565, while the functions of `dgx_lut.h` take
+  RGB888, one color as `0xRRGGBB` and a palette as `{r, g, b}` bytes, and a
+  color in RGB565 gives wrong colors. The rows that take a table point there,
+  the recipes of the soft pen show the line that makes their table, and every
+  function of `dgx_lut.h` names the format of its colors.
+- `dgx_screen_take_dirty()` and the README say why the batch around the
+  drawing must be opened before anything is drawn and left open: any batch
+  that closes at depth 0, including one a drawing function opens for itself,
+  passes the changed area to the `update_screen()` of a virtual screen, which
+  does nothing, and the area is lost.
+
 ## 0.10.13 - 2026-11-07
 
 New:

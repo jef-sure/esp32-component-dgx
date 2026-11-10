@@ -152,10 +152,13 @@ for (int x = 0; x < scr->width; ++x) {
 ```
 
 To send only what has changed, keep a batch open on the virtual screen and
-ask it for the changed rectangle:
+ask it for the changed rectangle. Open the batch once, before anything is
+drawn, and leave it open. Any batch that closes at depth 0, including one a
+drawing function opens for itself, passes the changes to the virtual
+screen's `update_screen()`, which does nothing, and they are lost.
 
 ```c
-dgx_screen_progress_up(frame);          // once: changes are collected while a batch is open
+dgx_screen_progress_up(frame);          // once, before anything is drawn, and left open
 
 draw_something(frame);
 int left, top, width, height;
@@ -689,7 +692,10 @@ Every stroke is a Bezier curve, so one text can turn into another. Each frame
 is a new picture: draw it into a virtual screen and send that to the display.
 
 ```c
-// the band holds amounts of ink, 0 to 255; lut[] holds the screen colors for them
+// the band holds amounts of ink, 0 to 255; lut[] holds the screen colors for them,
+// from the paper at 0 to the ink at 255, given as 0xRRGGBB
+static uint16_t lut[256];
+dgx_lut_gradient(lut, 0, 256, 0xffffff, 0x182478);
 dgx_screen_t *band = dgx_vscreen_init(scr->width, 100, 8, DgxScreenRGB);
 dgx_hw_morph_t *morph = dgx_hw_morph_create(font0ss(), "hello", "world", true);
 
@@ -1490,7 +1496,7 @@ Declared in [include/dgx_draw.h](include/dgx_draw.h):
 | `dgx_draw_round_rectangle(scr, x, y, w, h, r, color)` | Outline of a rectangle with round corners: each a quarter of `dgx_draw_circle()` of radius `r`, so a square of 2r + 1 is that circle and `r` 0 the plain outline; a radius too large is cut to (the shorter side - 1) / 2. |
 | `dgx_fill_round_rectangle(scr, x, y, w, h, r, color)` | The same rectangle filled, its corners quarters of `dgx_solid_circle()`. |
 | `dgx_draw_circle(scr, x, y, r, color)` | Circle outline by the midpoint algorithm. |
-| `dgx_solid_circle(scr, x, y, r, color)` | Filled circle, the same outline filled by rows. |
+| `dgx_solid_circle(scr, x, y, r, color)` | Filled circle, the same outline filled by rows. `DGX_PEN_SOFT \| r` gives it the soft edge of a pen, see below the table. |
 | `dgx_draw_ellipse(scr, x, y, rx, ry, color)` | Ellipse outline, a pixel wide, by the rule of the midpoint algorithm: with equal radii it is `dgx_draw_circle()` pixel for pixel. |
 | `dgx_draw_arc(scr, x, y, rx, ry, from, to, width, color)` | Arc of an ellipse, of a circle with equal radii, between two angles in degrees, by a pen of `width`; `DGX_PEN_SOFT | width` gives it a soft edge. A hard pen of 1 draws the pixels of the outline between the rays. |
 | `dgx_solid_sector(scr, x, y, rx, ry, from, to, color)` | Filled sector of an ellipse between two angles; a whole turn is the ellipse filled. |
@@ -1585,13 +1591,25 @@ what it is given, and a soft pen with color 0 takes the ink off every pixel
 it touches. That takes a pixel that is an amount of ink, a byte of a virtual
 screen of 8 bits a pixel; the table such a screen is sent to the display
 through, `dgx_vscreen8_to_screen16()`, runs then from the color of the paper
-at 0 to the color of the ink. A display that mixes two colors itself, a DSI
-display of an ESP32-P4 with two frame buffers, takes such a table as its
-first and its last color and mixes the rest, within a step of a channel of
-the table; `DGX_VSCREEN_EXACT` for the last argument of the call asks for the
+at 0 to the color of the ink: `dgx_lut_gradient(lut, 0, 256, paper, ink)`, the
+two colors as `0xRRGGBB`, see
+[Tables for 8-bit screens](#tables-for-8-bit-screens). A display that mixes
+two colors itself, a DSI display of an ESP32-P4 with two frame buffers, takes
+such a table as its first and its last color and mixes the rest, within a
+step of a channel of the table; `DGX_VSCREEN_EXACT` for the last argument of the call asks for the
 colors of the table to the last bit. On any other screen a pen asked to be
 soft draws as a hard one; see
 [A soft edge](docs/handwriting-en.md#a-soft-edge).
+
+A filled circle takes the same bit in its radius:
+`dgx_solid_circle(scr, x, y, DGX_PEN_SOFT | r, ink)` has the edge of the dot of
+a soft pen 2r + 1 wide. It covers what is under it, as the hard circle does:
+the inside gets the ink, lighter or darker than the paper, and the edge is
+mixed with what was there; color 0 draws a circle of paper with a soft edge.
+`DGX_PEN_SOFT | DGX_PEN_MAX | r` draws by the rule of the pen instead, a pixel
+keeping the larger ink, and is then the dot of the pen byte for byte. That
+rule is for ink on clean paper: on a paper with ink of its own it loses the
+part of the edge lighter than the paper, and the edge looks hard.
 
 `quad` is four `dgx_point_2d_t` vertices in the order of the region's corners:
 top-left, top-right, bottom-right, bottom-left. The texture needs the same
@@ -1749,13 +1767,29 @@ For most ESP32 TFT panels here, `DGX_RGB_16` is the right choice.
 
 #### Tables for 8-bit screens
 
-[include/dgx_lut.h](include/dgx_lut.h) fills the `uint16_t lut[256]` of RGB565
-colors that `dgx_vscreen8_to_screen16()` and
-`dgx_vscreen8_region_to_screen16()` take. Each function fills the entries
-`first .. first + count - 1` only; entries past 255 are skipped. A palette is
-RGB888 (`const uint8_t (*rgb)[3]`, may be in flash), its entry `k` going to
-`lut[first + k]`; a single color is `0xRRGGBB`. Mixing rounds to the nearest,
-and `t = 0` and `t = 255` give the two ends exactly.
+A pixel of an 8-bit virtual screen is an index, or an amount of ink, and it
+gets its color on the way to the display: `dgx_vscreen8_to_screen16()`,
+`dgx_vscreen8_region_to_screen16()` and `dgx_overlay_set()` take a table of
+256 colors, `uint16_t lut[256]`, in RGB565.
+[include/dgx_lut.h](include/dgx_lut.h) fills it, and its functions take the
+colors in RGB888: one color as a number `0xRRGGBB`, as `dgx_rgb_to_24(r, g, b)`
+and `DGX_SKYBLUE(dgx_rgb_to_24)` make it, a palette as `const uint8_t
+rgb[][3]`. A color in RGB565, such as `DGX_SKYBLUE(dgx_rgb_to_16)`, compiles
+and gives wrong colors. The colors are mixed in RGB888 and only the result is
+turned into RGB565, so a fade in many steps gathers no rounding errors.
+
+```c
+static uint16_t lut[256];
+// paper at 0, ink at 255, as a soft pen and a soft circle want
+dgx_lut_gradient(lut, 0, 256, 0x000000, dgx_rgb_to_24(150, 215, 240));
+dgx_vscreen8_to_screen16(lcd, 0, 0, band, lut, 0);
+```
+
+Each function fills the entries `first .. first + count - 1` only; entries
+past 255 are skipped. Entry `k` of a palette goes to `lut[first + k]`, and a
+palette may be in flash. Mixing rounds to the nearest, and `t = 0` and
+`t = 255` give the two ends exactly. A palette, a fade and a flash step by
+step: [A palette, a fade and a flash](#a-palette-a-fade-and-a-flash).
 
 | Function | Description |
 | --- | --- |
@@ -1782,7 +1816,7 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_vscreen_copy(dst, src)` | Copy a whole same-sized screen. |
 | `dgx_vscreen_to_screen(dst, x, y, src, flags)` | Put a RAM screen on a screen of the same depth: a display or another RAM screen. |
 | `dgx_vscreen_region_to_screen(dst, x, y, src, x_src, y_src, w, h, flags)` | The same for a sub-region; `x`, `y` are where the corner of the region goes, scaled and turned as the flags ask. |
-| `dgx_vscreen8_to_screen16(dst, x, y, src, lut, flags)` | Expand an 8-bit indexed screen into 16-bit through a LUT. |
+| `dgx_vscreen8_to_screen16(dst, x, y, src, lut, flags)` | Expand an 8-bit indexed screen into 16-bit through a LUT, `uint16_t lut[256]` of RGB565 colors: see [Tables for 8-bit screens](#tables-for-8-bit-screens). |
 | `dgx_vscreen8_region_to_screen16(dst, x, y, src, x_src, y_src, w, h, lut, flags)` | The same for a sub-region. |
 | `dgx_vscreen_to_argb8888(scr, x, y, w, h, lut, dst, dst_stride)` | Read a rectangle of a screen as 0xAARRGGBB colors, the layout of `SDL_PIXELFORMAT_ARGB8888`: for a window on a PC. An 8-bit screen goes through `lut`, or as grey without one. |
 | `dgx_overlay_set(display, layer, x, y, lut, alpha)` | Lay an 8-bit virtual screen over a 16-bit screen at `x`, `y` (`dgx_overlay.h`), or move it, or give it other colors: index 0 empty, the others the colors of `lut` mixed with what lies under them by `alpha` (0 to 255, in 32 steps). One layer a screen. Mixed into what comes from virtual screens: `dgx_vscreen8_to_screen16()`, `dgx_vscreen8_region_to_screen16()`, `dgx_vscreen_to_screen()`, `dgx_vscreen_region_to_screen()`, with all their flags; not into what is drawn straight on the screen. |
@@ -1981,7 +2015,7 @@ Declared in [include/dgx_screen.h](include/dgx_screen.h):
 | `dgx_screen_progress_down(scr)` | Close a batch; at depth `0` commits the pending dirty area. Returns the new depth. |
 | `dgx_screen_touch(scr, left, right, top, bottom)` | Mark an area as changed (inclusive, clipped). For code that writes pixels directly, e.g. into `v_array`. |
 | `dgx_screen_flush(scr)` | Commit the pending dirty area now. |
-| `dgx_screen_take_dirty(scr, &left, &top, &width, &height)` | Take the pending dirty area and clear it without committing; `false` when nothing has changed. For a virtual screen shown by parts: there is something to take only while a batch is open. |
+| `dgx_screen_take_dirty(scr, &left, &top, &width, &height)` | Take the pending dirty area and clear it without committing; `false` when nothing has changed. For a virtual screen shown by parts: open a batch before anything is drawn and keep it open, see [Animation without flicker](#animation-without-flicker). |
 | `dgx_screen_destroy(&scr)` | Destroy a screen allocated by a driver or virtual screen constructor. |
 
 ```c
@@ -1991,6 +2025,46 @@ dgx_draw_line(scr, x1, y1, x2, y2, fg);
 dgx_font_string_utf8_screen(scr, x, y, "42", fg, DgxOutputNormal, 1, font, NULL, NULL);
 dgx_screen_progress_down(scr);   // one update_screen() for everything above
 ```
+
+A virtual screen of `dgx_vscreen_init()` or `dgx_vscreen_from_array()` has an
+`update_screen()` that does nothing. A program that shows such a screen itself
+may give it one of its own, and keep what that needs in `user_data`, a
+pointer that belongs to the program: DGX neither reads nor writes it, and it is
+`NULL` when a screen is made. Then whatever draws on the screen, in batches of
+its own or not, sends the changed area by itself:
+
+```c
+typedef struct {
+    dgx_screen_t   *display;
+    const uint16_t *lut;
+} shown_t;
+
+/* left, right, top, bottom: both ends inclusive */
+static void show(dgx_screen_t *band, int left, int right, int top, int bottom)
+{
+    const shown_t *s = band->user_data;
+    dgx_vscreen8_region_to_screen16(s->display, left, top, band, left, top, right - left + 1, bottom - top + 1, s->lut, 0);
+}
+
+static shown_t shown;
+shown.display       = lcd;
+shown.lut           = lut;
+band->user_data     = &shown;
+band->update_screen = show;
+```
+
+A screen of a driver sends its picture to the display by its `update_screen()`:
+do not replace it there. `dgx_overlay_set()` takes over the `update_screen()`
+of a layer and calls the one before it after its own work, so give yours
+before that call.
+
+The other way is to take the changed area when the program wants it, once a
+frame, with `dgx_screen_take_dirty()`, as
+[Animation without flicker](#animation-without-flicker) does. Then a batch
+must stay open around all the drawing, including functions that open batches
+of their own: any batch that closes at depth 0 passes the area to the
+`update_screen()` that does nothing, and the area is lost. Open one batch
+before anything is drawn and leave it open.
 
 Guidelines:
 

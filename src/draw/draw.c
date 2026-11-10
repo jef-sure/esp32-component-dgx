@@ -7,6 +7,7 @@
  */
 
 #include "dgx_draw.h"
+#include "dgx_draw_priv.h"
 #include "esp_log.h"
 
 static const char TAG[] = "DGX DRAW";
@@ -65,18 +66,25 @@ void dgx_draw_line(dgx_screen_t *scr, int x1, int y1, int x2, int y2, uint32_t c
 }
 
 /*
- * Draws a circle on the screen.
+ * Draws a filled circle on the screen; with DGX_PEN_SOFT in the radius, with a soft edge where the
+ * screen can have it. The bits of a pen never reach a screen's solid_circle: there they would be a
+ * radius of a billion.
  *
  * @param scr The screen to draw on.
  * @param x The x coordinate of the center of the circle.
  * @param y The y coordinate of the center of the circle.
- * @param r The radius of the circle.
+ * @param r The radius of the circle, with DGX_PEN_SOFT and DGX_PEN_MAX.
  * @param color The color of the circle.
 */
 void dgx_solid_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color) {
     if (!scr->solid_circle) {
         ESP_LOGE(TAG, "solid_circle is not implemented");
         return;
+    }
+    if (r > 0) {
+        const bool soft = r & DGX_PEN_SOFT, cover = !(r & DGX_PEN_MAX);
+        r &= ~(DGX_PEN_SOFT | DGX_PEN_START_DISC | DGX_PEN_END_DISC | DGX_PEN_MAX);
+        if (soft && dgx_soft_circle(scr, x, y, r, color, cover)) return;
     }
     scr->solid_circle(scr, x, y, r, color);
 }

@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "dgx_draw.h"
+#include "dgx_draw_priv.h"
 #include "drivers/vscreen.h"
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
@@ -36,7 +37,7 @@
 #endif
 
 /* what may come in the width of a pen besides the width */
-#define DGX_PEN_BITS (DGX_PEN_SOFT | DGX_PEN_START_DISC | DGX_PEN_END_DISC)
+#define DGX_PEN_BITS (DGX_PEN_SOFT | DGX_PEN_START_DISC | DGX_PEN_END_DISC | DGX_PEN_MAX)
 
 /* the state of a pen: that of a curve, whose pen this is; a segment fills what its figures use */
 typedef dgx_bezier_t dgx_stroke_t;
@@ -675,6 +676,166 @@ static void dgx_stroke_disc(dgx_stroke_t *s, float cx, float cy, int d, const fl
         }
     }
     dgx_screen_touch(s->scr, left, right, top, bottom);
+}
+
+/* a soft circle whose radius is larger is drawn hard: so is a pen wider than INT16_MAX not drawn wider */
+#define DGX_SOFT_CIRCLE_MOST (INT16_MAX / 2)
+
+typedef uint32_t __attribute__((may_alias)) dgx_soft_circle_word_t;
+
+/*
+ * The larger of each of the four bytes of x and the ink, in the four bytes of ink4, with no branch. A
+ * byte with its top bit set less the low 7 bits of the ink borrows from nothing, and its top bit is
+ * then whether the low 7 bits of the byte are no fewer than those of the ink. With the top bits of
+ * the two that tells whether the byte is no less than the ink: when the ink is under 128, either the
+ * byte has its top bit or its low bits are no fewer; from 128, both. The bytes that are less get the
+ * ink.
+ */
+static inline __attribute__((always_inline)) uint32_t dgx_soft_circle_max4(uint32_t x, uint32_t ink4, bool high)
+{
+    const uint32_t top = 0x80808080u;
+    const uint32_t low = (x | top) - (ink4 & ~top);
+    const uint32_t less = ((high ? x & low : x | low) & top) ^ top;
+    const uint32_t mask = (less - (less >> 7)) | less;
+    return x ^ ((x ^ ink4) & mask);
+}
+
+/*
+ * The words of a row from p, the larger ink of each byte. On a clean paper, where a circle is mostly
+ * drawn, four words of 0 take the ink at once: a branch for every word would cost more than the word.
+ */
+static inline __attribute__((always_inline)) void dgx_soft_circle_words(dgx_soft_circle_word_t *w, int words, uint32_t ink4, bool high)
+{
+    int i = 0;
+    for (; i + 4 <= words; i += 4) {
+        const uint32_t a = w[i], b = w[i + 1], c = w[i + 2], d = w[i + 3];
+        if (__builtin_expect((a | b | c | d) == 0, 1)) {
+            w[i] = w[i + 1] = w[i + 2] = w[i + 3] = ink4;
+        } else {
+            w[i] = dgx_soft_circle_max4(a, ink4, high);
+            w[i + 1] = dgx_soft_circle_max4(b, ink4, high);
+            w[i + 2] = dgx_soft_circle_max4(c, ink4, high);
+            w[i + 3] = dgx_soft_circle_max4(d, ink4, high);
+        }
+    }
+    for (; i < words; ++i) {
+        const uint32_t x = w[i];
+        w[i] = __builtin_expect(x == 0, 1) ? ink4 : dgx_soft_circle_max4(x, ink4, high);
+    }
+}
+
+/*
+ * n pixels from p get all the ink of the circle: the inside of a row of it. Where the larger ink stays,
+ * each pixel is compared, four at once in a word, the bytes at either end of a row that do not fill a
+ * word one by one.
+ */
+static inline void dgx_soft_circle_inside(uint8_t *p, int n, int ink, bool keep_larger)
+{
+    if (keep_larger && ink != 255) {
+        uint8_t *const stop = p + n;
+        for (; p < stop && ((uintptr_t)p & 3u); ++p)
+            if (ink > *p) *p = (uint8_t)ink;
+        const int      words = (int)((stop - p) >> 2);
+        const uint32_t ink4 = (uint32_t)ink * 0x01010101u;
+        if (ink & 0x80) dgx_soft_circle_words((dgx_soft_circle_word_t *)p, words, ink4, true);
+        else dgx_soft_circle_words((dgx_soft_circle_word_t *)p, words, ink4, false);
+        for (p += (size_t)words * 4; p < stop; ++p)
+            if (ink > *p) *p = (uint8_t)ink;
+    } else if (n < DGX_STROKE_SHORT) {
+        for (uint8_t *stop = p + n; p < stop; ++p) *p = (uint8_t)ink;
+    } else {
+        memset(p, ink, (size_t)n);
+    }
+}
+
+/*
+ * A solid circle with the soft edge of a pen, dgx_solid_circle() with DGX_PEN_SOFT: the dot of a soft
+ * pen of the width 2r + 1 around the pixel (x, y), the disc of dgx_stroke_disc(), drawn by rows. The
+ * disc looks at every pixel of its box. A circle may be large, and all of its inside is ink: a row of
+ * the inside is filled at once, and only the pixels of the edge are counted one by one. With the
+ * centre on a pixel that is all in whole pixels: a pixel has all the ink when it is no further than r
+ * from the centre, and some when it is nearer than r + 1. Each row has as many of either as the row
+ * before it give or take a few, so they are found by steps, without a root. The ink of the edge is
+ * counted as the disc counts it, and up to a radius of 717 the circle by the rule of the pen is the dot
+ * byte for byte: a fix of one is a fix of both. Past it the circle counts closer than the disc, see
+ * below.
+ *
+ * With `cover` the circle covers what is under it, as the hard one does: the inside gets the ink
+ * whatever it had, and a pixel of the edge goes from what it had towards the ink by the share the
+ * circle covers. Without it, DGX_PEN_MAX, a pixel keeps the larger ink, as under the pen.
+ *
+ * False where there is no soft edge, and the hard circle is to be drawn: not a virtual screen of a byte
+ * a pixel, or a radius too large.
+ */
+bool dgx_soft_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color, bool cover)
+{
+    if (!DGX_STROKE_SOFT || r < 0 || r > DGX_SOFT_CIRCLE_MOST || scr->color_bits != 8 || !dgx_vscreen_is_linear(scr)) return false;
+    const int top = y - r < 0 ? 0 : y - r, bottom = y + r >= scr->height ? scr->height - 1 : y + r;
+    const int first = x - r < 0 ? 0 : x - r, last = x + r >= scr->width ? scr->width - 1 : x + r;
+    if (top > bottom || first > last) return true;
+    const int  given = (int)(color & 0xff);
+    const bool erase = !cover && given == 0;
+    /* the ink of the edge is that of the pixels inside; covering, it is the share of a pixel the circle covers */
+    const int  ink_all = cover ? 255 : erase ? 255 : given;
+    const int  inside = cover ? given : erase ? 0 : given;
+    /* the constants of dgx_stroke_disc() for the diameter d = 2r + 1 around a pixel */
+    const float dr = (2 * r + 1) * 0.5f, reach = dr + 0.5f;
+    int         q = 6;
+    while (q > 0 && reach * (float)(1 << q) > 46000.0f) --q;
+    const int   one = 1 << q;
+    const float unit = (float)one, back = (float)(1 << (6 - q)) * (1.0f / 64), full = (float)ink_all;
+    /*
+     * The disc takes the series in place of the root at 64 to a pixel only, past a radius of 717 it
+     * takes the root, and the root is within 5 millionths of the way: 0.08 of a pixel at a radius of
+     * 16383, and a pixel just past r may get one more ink than all of it. With the centre on a pixel the
+     * squares are whole at any measure, and the series stays within 1 / (16 r²) of a pixel: here it is
+     * taken at every radius from 2. Up to 717 that is what the disc does. A pixel past r lies at least
+     * 1 / (2r + 1) of a pixel past it, so the series never gives more than all the ink, and covering
+     * never takes a share over 255.
+     */
+    const bool  wide = dr >= 2.5f;
+    const float mid = dr * unit, over_mid = wide ? dgx_stroke_one_over(mid) : 0;
+    const int   mid2 = (int)(mid * mid);
+    const float half_ink = 0.5f * full + 0.5f, ring1 = 0.5f * over_mid * back * full, ring2 = 0.125f * over_mid * over_mid * over_mid * back * full;
+    /* a pixel dx, dy from the centre has all the ink when dx² + dy² <= in2, and some when it is below out2 */
+    const int   in2 = r * r, out2 = (r + 1) * (r + 1);
+    int         all = -1, some = -1; /* how far to each side of the centre a row has pixels with all the ink, with some */
+    uint8_t    *line = ((dgx_vscreen_t *)scr)->v_array + (size_t)top * (size_t)scr->width;
+    for (int row = top; row <= bottom; ++row, line += scr->width) {
+        const int dy = row - y, dy2 = dy * dy;
+        while (all >= 0 && all * all + dy2 > in2) --all;
+        while ((all + 1) * (all + 1) + dy2 <= in2) ++all;
+        while (some >= 0 && some * some + dy2 >= out2) --some;
+        while ((some + 1) * (some + 1) + dy2 < out2) ++some;
+        int lo = x - all < first ? first : x - all, hi = x + all > last ? last : x + all;
+        if (lo <= hi) dgx_soft_circle_inside(line + lo, hi - lo + 1, inside, !cover && !erase);
+        /* the edge: the pixels from all + 1 to some to the left of the centre and to the right */
+        const int down = dy * one, down2 = down * down;
+        for (int side = -1; side <= 1; side += 2) {
+            for (int dx = all + 1; dx <= some; ++dx) {
+                const int column = x + side * dx;
+                if (column < first || column > last) continue;
+                const int off = dx * one, d2 = off * off + down2;
+                int       ink;
+                if (wide) {
+                    const float more = (float)(d2 - mid2);
+                    ink = (int)(half_ink - more * (ring1 - more * ring2));
+                } else {
+                    const float square = (float)d2;
+                    ink = (int)((reach - square * dgx_stroke_rsqrt(square) * back) * full + 0.5f);
+                }
+                if (ink <= 0) continue;
+                uint8_t *p = line + column;
+                if (cover) {
+                    *p = (uint8_t)(((int)*p * (255 - ink) + given * ink + 127) / 255);
+                } else {
+                    dgx_stroke_put(p, ink, erase);
+                }
+            }
+        }
+    }
+    dgx_screen_touch(scr, first, last, top, bottom);
+    return true;
 }
 
 /*

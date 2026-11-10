@@ -276,7 +276,10 @@ A soft pen leaves ink by shares of a pixel, and for that a pixel has to be an
 amount of ink. Such a pixel is a byte of an 8-bit virtual screen: 0 is paper,
 `color` is a pixel the pen has covered whole, and a pixel on the edge gets a
 share of `color`. The table the screen is sent through,
-`dgx_vscreen8_to_screen16()`, turns ink into the colors of the display. A
+`dgx_vscreen8_to_screen16()`, turns ink into the colors of the display:
+`uint16_t lut[256]` of RGB565, made by `dgx_lut_gradient(lut, 0, 256, paper,
+ink)` from the two colors as `0xRRGGBB`, see
+[Tables for 8-bit screens](../README.md#tables-for-8-bit-screens). A
 16-bit pixel has no amount to compare with what was there, and a display
 behind a bus cannot be read at all: there a pen asked to be soft draws as a
 hard one of the same width.
@@ -598,6 +601,9 @@ a moment.
 ```c
 /* an 8-bit band as wide as the screen; color 0 is paper, 255 is ink */
 dgx_screen_t *band = dgx_vscreen_init(screen->width, height, 8, DgxScreenRGB);
+/* the colors of the display for them, from the paper to the ink, given as 0xRRGGBB */
+static uint16_t lut[256];
+dgx_lut_gradient(lut, 0, 256, 0xfaf6e8, 0x182478);
 
 for (;;) {
     float t = progress(start, esp_timer_get_time(), duration);

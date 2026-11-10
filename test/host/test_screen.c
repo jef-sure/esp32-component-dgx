@@ -21,6 +21,38 @@ static bool last_is(int l, int r, int t, int b)
     return last_l == l && last_r == r && last_t == t && last_b == b;
 }
 
+/* user_data: the program's own, NULL on a new screen, given back to its update_screen as it was put */
+typedef struct {
+    int calls;
+    int left, right, top, bottom;
+} shown_t;
+
+static void show(dgx_screen_t *scr, int left, int right, int top, int bottom)
+{
+    shown_t *s = scr->user_data;
+    ++s->calls;
+    s->left = left, s->right = right, s->top = top, s->bottom = bottom;
+}
+
+static void test_user_data(void)
+{
+    dgx_screen_t *a = dgx_vscreen_init(30, 20, 8, DgxScreenRGB), *b = dgx_vscreen_init(30, 20, 16, DgxScreenRGB);
+    CHECK(a && b && a->user_data == NULL && b->user_data == NULL);
+    shown_t sa = {0}, sb = {0};
+    a->user_data = &sa, a->update_screen = show;
+    b->user_data = &sb, b->update_screen = show;
+    dgx_fill_rectangle(a, 3, 4, 5, 2, 9);
+    CHECK(sa.calls == 1 && sa.left == 3 && sa.right == 7 && sa.top == 4 && sa.bottom == 5 && sb.calls == 0);
+    /* a batch of its own, as code that draws makes one, sends by itself at its end */
+    dgx_screen_progress_up(b);
+    dgx_set_pixel(b, 1, 2, 0xffff);
+    dgx_set_pixel(b, 20, 15, 0xffff);
+    dgx_screen_progress_down(b);
+    CHECK(sb.calls == 1 && sb.left == 1 && sb.right == 20 && sb.top == 2 && sb.bottom == 15 && sa.calls == 1);
+    CHECK(a->user_data == &sa && b->user_data == &sb);
+    dgx_screen_destroy(&a), dgx_screen_destroy(&b);
+}
+
 int main(void)
 {
     dgx_screen_t *s = dgx_vscreen_init(20, 10, 16, DgxScreenRGB);
@@ -78,5 +110,6 @@ int main(void)
     CHECK(turned == 0x5u);
 
     dgx_screen_destroy(&s);
+    test_user_data();
     CHECK_DONE();
 }

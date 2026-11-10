@@ -21,6 +21,7 @@ is 1024 bytes.
 - [The hard pen](#the-hard-pen)
 - [The soft pen](#the-soft-pen)
 - [A straight segment](#a-straight-segment)
+- [A soft circle](#a-soft-circle)
 - [What a pen calls](#what-a-pen-calls)
 - [The flash cache](#the-flash-cache)
 - [What costs what](#what-costs-what)
@@ -462,6 +463,88 @@ a soft pen of 3 drawn on in 50 calls of `dgx_draw_thick_segment_part()` takes
 µs at once; without discs 11.7 µs a call. Every call begins a figure anew, and
 the soft pen draws 2 pixels of the way again at every stop: the parts together
 cost three times the segment at once.
+
+## A soft circle
+
+`dgx_solid_circle()` takes `DGX_PEN_SOFT` in its radius: `DGX_PEN_SOFT | r`.
+On an 8-bit virtual screen the circle then has the edge of the dot of a soft
+pen 2r + 1 wide. A pixel no further than r from the centre gets all the ink, a
+pixel nearer than r + 1 gets a share, and half the ink falls at r + 0.5, where
+the edge of the hard circle of the same radius lies. On any other screen the
+circle is the hard one.
+
+The soft circle covers what is under it, as the hard one does: the inside gets
+the ink, darker or lighter than the paper, and a pixel of the edge becomes
+(old × (255 − s) + ink × s + 127) / 255, where s is the share of the pixel the
+circle covers. Color 0 is a circle of paper with a soft edge.
+
+`DGX_PEN_SOFT | DGX_PEN_MAX | r` draws by the rule of the pen instead: a pixel
+keeps the larger of its ink and the ink of the circle, and color 0 takes the
+ink off every pixel the circle touches. The circle is then the dot of the pen
+byte for byte, what `dgx_draw_thick_segment()` from (x, y) to (x, y) with
+`DGX_PEN_START_DISC` draws, and it meets the lines of the pen as they meet
+each other. That rule is made for ink on clean paper. On a paper with ink of
+its own the part of the edge with less ink than the paper is lost: a circle of
+ink 255 on a paper of 120 keeps only the inner half of its soft edge, one of
+180 a third of it, one of 60 leaves no trace, and one of 0 cuts a hole with a
+hard edge. The pens take no notice of `DGX_PEN_MAX`: a pen draws the joints of
+its pieces twice, and the larger ink is what keeps them from getting darker.
+
+The disc of a pen looks at every pixel of its box, the corners too. The circle
+goes by rows instead. The inside of a row is all ink. It is filled at once by
+`memset()` where the circle covers what is under it, or by `DGX_PEN_MAX` with
+ink 255 or 0. Otherwise each pixel keeps the larger ink, and the pixels are
+compared four at a time, a word with no branch: a byte that has its top bit
+set, less the low 7 bits of the ink, borrows from nothing, and its top bit
+tells whether the low bits of the pixel are no fewer than those of the ink.
+Four words of clean paper take the ink at once. Only the pixels of the edge
+are worked out one by one. With the centre on a pixel everything is in whole
+numbers: a row has all the ink out to the largest dx with dx² + dy² ≤ r², and
+some ink out to the largest dx with dx² + dy² < (r + 1)². Each row reaches as
+far as the row before it give or take a few pixels, so both limits are found
+by steps, without a root. The share of the edge is worked out as the disc
+does it, by a series in place of the root, and up to a radius of 717 the
+circle by `DGX_PEN_MAX` is the dot of the pen byte for byte: a host test
+compares them.
+
+Past a radius of 717 the disc counts at fewer than 64 steps to a pixel, and
+there it takes the root in place of the series. The root is within 5
+millionths of the distance, 0.08 of a pixel at a radius of 16383, so the edge
+of such a disc is uneven by up to 20 of 255. From a radius of 788 a pixel just
+past r may get 256, which is 0 in a byte: a black dot on the edge. A soft pen
+is written for widths up to 1436, and the pen is left as it is. The centre of
+the circle is on a pixel, its squares are whole at any scale, and it keeps the
+series at every radius. A host test checks it against the share worked out
+exactly, within 1 of 255, at radii up to 16383. A soft circle with a radius
+over 16383 is drawn as the hard one, as a pen is never wider than 32767.
+
+Microseconds a circle on the CYD, code from flash, on an 8-bit screen of
+320×240 with the centre in the middle, the ink 200. «Soft» covers a paper of
+100. «Max» is `DGX_PEN_MAX` on clean paper, «max on ink» on a paper of 100,
+where every word has to be compared, and «max, ink 255» fills the inside by
+`memset()`. The dot of the pen is `dgx_draw_thick_segment()` 2r + 1 wide, the
+same pixels as «max»:
+
+| r | Hard | Soft | Max | Max on ink | Max, ink 255 | Dot of the pen |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 4.0 | 6.6 | 6.8 | 6.3 | 6.5 | 7.9 |
+| 3 | 8.0 | 14.0 | 13.8 | 14.0 | 13.6 | 14.4 |
+| 8 | 17.5 | 35.7 | 36.8 | 40.7 | 34.5 | 51.3 |
+| 20 | 34.2 | 80.2 | 89.3 | 107.5 | 77.4 | 234.1 |
+| 60 | 107.5 | 258.6 | 313.9 | 473.1 | 248.6 | 1847.5 |
+| 119 | 233.8 | 534.5 | 721.6 | 1348.6 | 515.8 | 7017.1 |
+
+A soft circle costs 1.6 to 2.4 times the hard one, most of it at the edge: the
+hard circle is rows filled by `memset()`, and the soft one works out every
+pixel of its edge. The dot of the pen takes up to 10 times as long as the
+circle by `DGX_PEN_MAX`, for the box it looks at pixel by pixel. Compared a
+byte at a time with a branch, as at first, the circle by `DGX_PEN_MAX` of 119
+on clean paper took 1495 µs; by words with a check of each for 0, 1099 µs, as
+the branch for every word cost more than the word.
+
+The circle is 2.3 KB of code on an ESP32 and on an ESP32-P4, in
+`src/draw/segment.c`; with `CONFIG_DGX_BEZIER_IN_IRAM` it is in IRAM in a
+program that draws filled circles.
 
 ## What a pen calls
 
