@@ -272,7 +272,7 @@ dgx_hw_draw_text(band, x, y, font, text, scale, DGX_PEN_SOFT | 2, 255, true);
 получает долю `color`. В цвет дисплея чернила переводит таблица при переносе,
 `dgx_vscreen8_to_screen16()`: `uint16_t lut[256]` в RGB565, которую делает
 `dgx_lut_gradient(lut, 0, 256, бумага, чернила)` из двух цветов вида
-`0xRRGGBB`, см. [Tables for 8-bit screens](../README.md#tables-for-8-bit-screens).
+`0xRRGGBB`, см. [Tables for 8-bit screens](api-en.md#tables-for-8-bit-screens).
 У 16-битного пикселя нет количества, которое
 можно сравнить с прежним, а дисплей за шиной не читается вовсе: там перо,
 которое просили мягким, рисует как резкое той же толщины.

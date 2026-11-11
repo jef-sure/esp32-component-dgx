@@ -17,7 +17,9 @@ alone.
 
 1. **Open .c**: a font font2c wrote (one of `src/fonts/*.c`, or one of a
    program). Handwritten (`DGX_FONT_HW`) and dots (`DGX_FONT_DOTS`) fonts
-   are not edited here.
+   are not edited here, nor fonts of 2 or 4 bits a pixel
+   (`DGX_FONT_BITMAP_DEPTH2`, `DGX_FONT_BITMAP_DEPTH4`, `font2c -b`): the
+   editor draws one bit a pixel.
 2. **Fix glyphs**: pixels with Draw/Line/Rect, moved with the arrows over
    the grid, the metrics (advance, offsets, width and height) beside it;
    **Ctrl or Shift held erases**, for every tool, told beside the tools. The

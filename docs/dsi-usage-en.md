@@ -291,7 +291,7 @@ This mode is a compromise:
 
 Tasks have to draw on a screen one at a time, on a DSI display as on any
 other; see "Drawing from several tasks" in the
-[README](../README.md#drawing-from-several-tasks).
+[API reference](api-en.md#drawing-from-several-tasks).
 
 With two frame buffers the bus does one thing for several tasks, see
 [Two frame buffers](#two-frame-buffers). It does not know which task draws
@@ -299,7 +299,7 @@ and does not care. Which task draws when, how
 often and how evenly is up to the program; `dgx_dsi_frame_us()` and
 `dgx_dsi_frame_ended()` give it what it needs to know about the display.
 
-The two ways of the README, every task drawing under a mutex and messages to
+The two ways of the API reference, every task drawing under a mutex and messages to
 one task that draws, measured on a JC1060P470 (ESP32-P4, JD9165 of
 1024x600) with two frame buffers: three sources, 10 seconds. A cell tells how
 many times the next picture of a source came after one, two and three frames

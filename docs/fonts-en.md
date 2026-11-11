@@ -109,6 +109,7 @@ The keywords of a need:
 | `EXCEPT "<characters>"` | Characters of the texts the font does not need: the braces of placeholders like `{0}` in a game's strings, for example. |
 | `SIZE <n>pt`, `<n>mm`, `<n>px` | The size: in points of the frame, in millimeters, or in pixels (see below). A bare number means points. |
 | `MONO` | Only a monospaced face. |
+| `BITS 4`, `BITS 2` | A font of 4 or 2 bits a pixel, whose letters have soft edges (see [Soft edges](#soft-edges)); without it, a font of one bit. |
 | `FAMILY "<pattern>"` | Only this family; a pattern with `*`, as in the rules. |
 | `POSTSCRIPT <name>` | Exactly this face, by its PostScript name (`DejaVuSans`, `DejaVuSans-Bold`); no rules needed. |
 | `SOURCE <file>` | A font from this file: any font file `font2c` reads, a TTF, an OTF or a BDF, with a `SIZE` (a font of bitmaps only at a size it has), or the JSON of a handwritten font from the hw-fonts editor, which has no size. |
@@ -144,6 +145,7 @@ lower case; a need starts with the line `need <name>`:
 | --- | --- |
 | `dgx_font_need(text SIZE 12pt MONO TEXTS a.po b.po)` | `need text` / `size 12pt` / `mono 1` / `text a.po` / `text b.po` |
 | `FAMILY "DejaVu*"`, `POSTSCRIPT DejaVuSans` | `family DejaVu*`, `postscript DejaVuSans` |
+| `BITS 4` | `bits 4` |
 | `DGX font0ss`, `FILE f.c`, `SOURCE f.ttf` | `dgx font0ss`, `file f.c`, `source f.ttf` |
 | `LETTERS "0123456789:"`, `EXCEPT "{}"` | `letters 0123456789:`, `except {}` |
 
@@ -402,7 +404,7 @@ one was made from and under what license.
 ## One font per face and size
 
 The needs are passed to `font2c` as one list, one line per need, and font2c
-itself groups them by (face, pixel size): one font is made per group, with
+itself groups them by (face, pixel size, bits a pixel): one font is made per group, with
 the characters of all its needs merged, and every need gets its own function
 pointing to it. If the game asks for "DejaVu Sans Mono at 48 px with the
 characters of the dialogs" and the keyboard asks for "the same face at
@@ -411,6 +413,53 @@ characters of the dialogs" and the keyboard asks for "the same face at
 
 A handwritten font from a JSON has no size (the size is chosen when text is
 drawn): one font per file.
+
+## Soft edges
+
+A font of one bit has a pixel of ink or a pixel of paper. A font of 4 bits
+a pixel, `BITS 4`, keeps how much of each pixel a letter covers, 0 to 15;
+when text is drawn, the edge of a letter is its color mixed with what lies
+under it by that share, and the letters lose their steps. `BITS 2` keeps 0
+to 3: half the flash of 4 bits, with coarser edges. More than 4 bits shows
+nothing more on a display of 16 bits a color.
+
+Such a font is rendered gray at every size, with the hinting of a font of
+one bit above 16 px, and from the outlines of the face: a TTF that carries
+bitmaps of its own at some sizes, as Terminus does, is drawn from its
+outlines there too. A face of bitmaps alone, a BDF, has no gray and is
+refused. `font2c` names it after the face, the size and the depth,
+`DejaVuSansBook16Depth4`, and its `f_type` is `DGX_FONT_BITMAP_DEPTH4` or
+`DGX_FONT_BITMAP_DEPTH2`. A need for a font of one bit and a need for a font
+of 4 bits of the same face and size are two fonts.
+
+What it costs in flash, DejaVu Sans with the ASCII and Russian letters, 161
+glyphs; the bytes of the bitmaps alone, the table of the glyphs is the same
+for every depth:
+
+| Size | 1 bit | 2 bits | 4 bits |
+| --- | --- | --- | --- |
+| 12 px | 1 465 | 2 742 | 4 933 |
+| 16 px | 2 533 | 4 382 | 8 453 |
+| 24 px | 5 238 | 9 387 | 17 883 |
+| 32 px | 8 450 | 15 893 | 30 808 |
+
+The font keeps the coverage itself; the drawing raises the levels between
+paper and ink by a curve, `a^(1/1.45)`, before it mixes the colors. Mixed
+as they are, the edges of dark letters on light paper came out thin on the
+ILI9341 of a CYD and on the JD9165 of a Guition JC1060P470, which show the
+colors between lighter than they are; light letters on dark paper looked the
+same with the curve and without it.
+
+How such a font is drawn, and what each kind of screen does with it, is in
+[Text with soft edges](../README.md#text-with-soft-edges) of the README and
+in `dgx_font_context_t` of `include/dgx_font.h`. A screen of one bit, and a
+display behind a bus without a paper named, draw it cut to one bit at
+110/255, as `font2c` cuts a font of one bit from the same render above 16
+px; at 16 px and less a font of one bit is rendered for one bit and keeps
+its stems better, so for a screen of one bit take a font of one bit.
+
+A font of 2 or 4 bits is not patched, and the font editor leaves it as it
+is: both are of one bit a pixel.
 
 ## Glyphs fixed by hand
 
@@ -452,7 +501,8 @@ asks for.
 
 `font2c` takes the same patches directly: `-p <file>` names one, `-P <dir>`
 (repeatable) looks in a directory for a patch with a part for the font. Both
-can also be used on a line of a `-jo` list.
+can also be used on a line of a `-jo` list. A font of 2 or 4 bits a pixel
+looks for no patch, and one named for it is refused.
 
 ## What you get
 

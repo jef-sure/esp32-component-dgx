@@ -35,6 +35,8 @@ is an error):
                                          declared twice
     size 12pt                            12pt: points of the frame, times the scale; 4.5mm; 30px
     mono 1                               a monospaced face only
+    bits 4                               a font of 4 bits a pixel, or 2: the coverage of the edges kept, for soft
+                                         edges (font2c -b); 1, ink or paper, by default
     family DejaVu Sans*                  this family only (a pattern, as in the rules)
     postscript DejaVuSans                exactly this face, found by its PostScript name; no rules needed
     text /abs/ru.po                      files whose characters the font must contain: the strings of a .po or
@@ -612,7 +614,7 @@ def list_fonts(path):
         rest = []
         k = 0
         while k < len(words):
-            if words[k] in ("-n", "-f", "-g", "-p", "-P"):
+            if words[k] in ("-n", "-f", "-g", "-p", "-P", "-b"):
                 k += 2
                 continue
             rest.append(words[k])
@@ -761,8 +763,8 @@ def parse_needs(text, name="needs", base=None):
 
 
 # what a need comes to
-Made = namedtuple("Made", "need face px letters how mm by")        # a bitmap font to make: face a Font, how the size came, by
-                                                                   # what the face was chosen
+Made = namedtuple("Made", "need face px letters how mm by bits")   # a bitmap font to make: face a Font, how the size came, by
+                                                                   # what the face was chosen, bits a pixel
 Hand = namedtuple("Hand", "need source letters")                   # a handwritten font to make, of its JSON
 AsIs = namedtuple("AsIs", "need path function how letters")        # a font taken as it is; how: dgx or file
 
@@ -809,7 +811,7 @@ def need_fields(need):
     for key, value, where in need.words:
         if key in ("text", "letters", "except"):
             continue
-        if key not in ("size", "mono", "family", "postscript", "dgx", "file", "source", "patch"):
+        if key not in ("size", "mono", "family", "postscript", "dgx", "file", "source", "patch", "bits"):
             raise FontsError(f"{where}: unknown keyword '{key}' for the need {need.name}")
         if key in fields:
             raise FontsError(f"{where}: {key} given twice for the need {need.name}")
@@ -865,8 +867,17 @@ def resolve(declared, board, rules, dgx, cache):
             raise FontsError(f"{where}: {need.name}: a patch fixes a font rendered from a face; a font used as is or a handwritten one is not patched")
         if not os.path.exists(patch):
             raise FontsError(f"{where}: {need.name}: the patch {patch} does not exist")
-    if way in ("dgx", "file") and ("size" in fields or "mono" in fields or "family" in fields or "postscript" in fields):
-        raise FontsError(f"{need.where}: {need.name}: an existing font has its own size and face: size, mono, family and postscript do not apply")
+    if way in ("dgx", "file") and ("size" in fields or "mono" in fields or "family" in fields or "postscript" in fields or "bits" in fields):
+        raise FontsError(f"{need.where}: {need.name}: an existing font has its own size and face: size, mono, family, postscript and bits "
+                         f"do not apply")
+    bits = 1
+    if "bits" in fields:
+        value, where = fields["bits"]
+        if value not in ("1", "2", "4"):
+            raise FontsError(f"{where}: {need.name}: bits is 1, 2 or 4 bits a pixel, not '{value}'")
+        bits = int(value)
+        if bits > 1 and "patch" in fields:
+            raise FontsError(f"{fields['patch'][1]}: {need.name}: a patch fixes a font of one bit a pixel; this one is of {bits} bits")
     if way == "dgx":
         name, where = fields["dgx"]
         path = os.path.join(dgx, "src", "fonts", name + ".c")
@@ -894,6 +905,8 @@ def resolve(declared, board, rules, dgx, cache):
         if path.lower().endswith(".json"):
             if "size" in fields:
                 raise FontsError(f"{where}: {need.name}: a handwritten font has no size; the size is chosen when text is drawn")
+            if "bits" in fields:
+                raise FontsError(f"{fields['bits'][1]}: {need.name}: bits is for a bitmap font; a handwritten font is drawn by a pen")
             check_letters(hw_code_points(path, where), letters, f"{where}: {path}")
             admit(rules, f"{need.place}: {need.name} asks for the handwritten font {path}", names=hw_names(path))
             return Hand(need, path, letters)
@@ -909,7 +922,7 @@ def resolve(declared, board, rules, dgx, cache):
     if face is not None:
         admit(rules, f"{need.place}: {need.name} asks for {face.family} {face.style} ({face.file}) at {px} px", px, face)
         check_letters(charset(face), letters, f"{need.where}: {face.family} {face.style} ({face.file})")
-        return Made(need, face, px, letters, how, mm, by)
+        return Made(need, face, px, letters, how, mm, by, bits)
     # by the rules
     if not rules:
         raise FontsError(f"{need.where}: {need.name} asks for a face by family or by the rules, and the program declared no rules: "
@@ -925,7 +938,7 @@ def resolve(declared, board, rules, dgx, cache):
         raise FontsError(f"{need.where}: {need.name}: no face allowed by the rules at {px} px{' (mono)' if mono else ''}"
                          f"{' of ' + family if family else ''} has all the characters: {''.join(sorted(letters))}")
     rule, face = found[0]
-    return Made(need, face, px, letters, how, mm, f"picked by the rules, {rule.where}")
+    return Made(need, face, px, letters, how, mm, f"picked by the rules, {rule.where}", bits)
 
 
 def check_letters(points, letters, where):
@@ -1000,15 +1013,20 @@ def same_font(a, b):
     if type(a) is not type(b):
         return False
     if isinstance(a, Made):
-        return a.face.file == b.face.file and a.px == b.px
+        return a.face.file == b.face.file and a.px == b.px and a.bits == b.bits
     if isinstance(a, Hand):
         return a.source == b.source
     return a.how == b.how and a.function == b.function and (a.how == "dgx" or a.path == b.path)
 
 
+def depth_words(w):
+    """How many bits a pixel a made font has, as words to put after its size; nothing for one bit."""
+    return f", {w.bits} bits a pixel" if w.bits > 1 else ""
+
+
 def describe(w):
     if isinstance(w, Made):
-        return f"{w.face.family} {w.face.style} at {w.px} px"
+        return f"{w.face.family} {w.face.style} at {w.px} px{depth_words(w)}"
     if isinstance(w, Hand):
         return f"the handwritten font {os.path.basename(w.source)}"
     return f"the existing font {w.function}"
@@ -1066,7 +1084,7 @@ def fonts_used(resolved, listed, dgx, cache):
         if isinstance(w, Made):
             f = w.face
             uses = entry(("face", f.file), f"{f.family} {f.style}", [f"file: {f.file}, PostScript name {f.psname}"] + of_file(f.file))
-            uses.append(f"{w.need.name} at {w.px} px, {w.by}")
+            uses.append(f"{w.need.name} at {w.px} px{depth_words(w)}, {w.by}")
         elif isinstance(w, Hand):
             entry(("hand", w.source), f"the handwritten font {hw_names(w.source)[0]}", [f"file: {w.source}"]).append(
                 f"{w.need.name}, named by its file in {w.need.place}")
@@ -1153,7 +1171,8 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
                 f.write("".join(sorted(w.letters)))
             words += ["-f", list_word(letters)]
         if isinstance(w, Made):
-            words += patch_words(w)
+            # a font of 2 or 4 bits is not patched: the editor and its patches are of one bit a pixel
+            words += ["-b", str(w.bits)] if w.bits > 1 else patch_words(w)
             words += [list_word(w.face.file), str(w.px)]
         else:
             words.append(list_word(w.source))
@@ -1208,13 +1227,13 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
         upper = w.need.name.upper()
         name = f"dgx_font_{w.need.name}"
         if isinstance(w, Made):
-            h.append(f"/* {w.need.name}: {w.face.family} {w.face.style} at {w.px} px ({w.how}), made for this board */")
+            h.append(f"/* {w.need.name}: {w.face.family} {w.face.style} at {w.px} px ({w.how}){depth_words(w)}, made for this board */")
             h.append(f"dgx_font_t *{name}(void);")
             h.append(f"#define DGX_FONT_{upper}_MADE 1")
             h.append(f"#define DGX_FONT_{upper}_PX {w.px}")
             if w.mm is not None:
                 h.append(f"#define DGX_FONT_{upper}_MM {w.mm:g}")
-            told.append(f"{w.need.name}: {w.face.family} {w.face.style} {w.px} px ({w.how}), {counts.get(name, 0)} glyphs"
+            told.append(f"{w.need.name}: {w.face.family} {w.face.style} {w.px} px ({w.how}){depth_words(w)}, {counts.get(name, 0)} glyphs"
                         + (f", patched by {patched[name]}" if name in patched else ""))
         elif isinstance(w, Hand):
             h.append(f"/* {w.need.name}: the handwritten font {os.path.basename(w.source)}; its size is chosen when text is drawn */")
@@ -1308,6 +1327,8 @@ def read_font(path, name=None):
               re.findall(r"\{\s*(0[xX][0-9A-Fa-f]+|\d+)\s*,\s*(0[xX][0-9A-Fa-f]+|\d+)\s*,\s*\w*glyphs\s*\+\s*(\d+)\s*\}", strip_comments(m.group(1)))]
     fields = dict(re.findall(r"\.(\w+)\s*=\s*([-\w.]+)", text[text.rindex("dgx_font_t"):]))
     f_type = fields.get("f_type", "DGX_FONT_BITMAP_LINES")
+    if f_type in ("DGX_FONT_BITMAP_DEPTH2", "DGX_FONT_BITMAP_DEPTH4"):
+        raise FontsError(f"{path}: {name} is a font of {f_type[-1]} bits a pixel; the editor takes fonts of one bit")
     stream = f_type == "DGX_FONT_BITMAP_STREAM"
     font = {"name": name, "f_type": f_type, "yAdvance": int(fields["yAdvance"]), "yOffsetLowest": int(fields["yOffsetLowest"]),
             "xWidest": int(float(fields.get("xWidest", 0))), "glyphs": {}, "first_advance": glyphs[ranges[0][2]][3] if ranges else 0}

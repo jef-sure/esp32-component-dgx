@@ -33,7 +33,7 @@ make run
 
 The title of the window shows how long each pass of the loop would keep the
 SPI bus of the CYD busy, and how much memory the demo holds. See
-"An effect on the computer" in the README of DGX.
+[The window on the computer](../../docs/host-window-en.md) of DGX.
 
 It builds for the linux target of ESP-IDF as well, with FreeRTOS as on the
 board; `CMakeLists.txt` takes only what `main` needs there, and

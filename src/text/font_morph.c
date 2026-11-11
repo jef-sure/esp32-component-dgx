@@ -2,6 +2,7 @@
 
 #include "dgx_bits.h"
 #include "dgx_font.h"
+#include "dgx_font_priv.h"
 #include "esp_log.h"
 
 static const char TAG[] = "DGX FONT MORPH";
@@ -24,14 +25,13 @@ static bool _dgx_dots_collect(void *user_data, int x, int y)
  * of dgx_font_dot_t of a dot font. NULL with no dots for no glyph or one
  * without set pixels; NULL with the dots counted when there is no memory.
  */
-static dgx_point_2d_t *_dgx_dots_from_bitmap(const glyph_t *g, bool is_stream, int *number_of_dots)
+static dgx_point_2d_t *_dgx_dots_from_bitmap(const dgx_font_t *font, const glyph_t *g, int *number_of_dots)
 {
     if (!g) {
         *number_of_dots = 0;
         return NULL;
     }
-    dgx_bw_bitmap_t bmap = dgx_bw_bitmap_make_of((uint8_t *)g->bitmap, g->width, g->height, is_stream);
-    int             count = dgx_bw_bitmap_foreach_set(&bmap, NULL, NULL);
+    int count = dgx_font_glyph_foreach_ink(font, g, NULL, NULL);
     *number_of_dots       = count;
     if (count == 0) return NULL;
     dgx_point_2d_t *ret   = calloc((size_t)count, sizeof(dgx_point_2d_t));
@@ -40,7 +40,7 @@ static dgx_point_2d_t *_dgx_dots_from_bitmap(const glyph_t *g, bool is_stream, i
         return NULL;
     }
     _dgx_dots_collect_ctx_t ctx = { ret, 0 };
-    dgx_bw_bitmap_foreach_set(&bmap, _dgx_dots_collect, &ctx);
+    dgx_font_glyph_foreach_ink(font, g, _dgx_dots_collect, &ctx);
     return ret;
 }
 
@@ -118,8 +118,8 @@ dgx_font_symbol_morph_t *dgx_font_make_morph_struct( //
         to_dots             = gTo ? gTo->dots : NULL;
         to_number_of_dots   = gTo ? gTo->number_of_dots : 0;
     } else {
-        from_dots_tmp = _dgx_dots_from_bitmap(gFrom, font->f_type == DGX_FONT_BITMAP_STREAM, &from_number_of_dots);
-        to_dots_tmp   = _dgx_dots_from_bitmap(gTo, font->f_type == DGX_FONT_BITMAP_STREAM, &to_number_of_dots);
+        from_dots_tmp = _dgx_dots_from_bitmap(font, gFrom, &from_number_of_dots);
+        to_dots_tmp   = _dgx_dots_from_bitmap(font, gTo, &to_number_of_dots);
         if ((from_number_of_dots && !from_dots_tmp) || (to_number_of_dots && !to_dots_tmp)) {
             /* a glyph without its dots would morph as an empty one: no morph is given instead */
             free(from_dots_tmp);

@@ -33,6 +33,9 @@
 #include "dgx_morph_render.h"
 #include "dgx_morph_sources.h"
 #include "drivers/vscreen.h"
+#include "fonts/CasusDotView.h"
+#include "fonts/CozetteRegular13.h"
+#include "fonts/GLCD5x7.h"
 #include "fonts/LiberationSansRegular12.h"
 #include "fonts/DroidSansRegular9.h"
 #include "fonts/IBMCGALight8x16Light8x1616.h"
@@ -40,6 +43,8 @@
 #include "fonts/NotoMonoRegular28.h"
 #include "fonts/TerminusTTFMedium12.h"
 #include "fonts/DejaVuSansBook32.h"
+#include "fonts/WeatherDotView25.h"
+#include "fonts/WeatherIconsRegular13.h"
 #include "fonts/WeatherIconsRegular27.h"
 #include "fonts/font0ss.h"
 
@@ -109,14 +114,14 @@ static void figures(int x, int y, int r, uint32_t line, uint32_t rest, bool dark
     dgx_draw_arc(canvas, ax, y, r / 5, r / 5, 0, 360, r / 14 + 1, green);
 }
 
-/* a word in glowing dots, the dots of a bitmap font; returns its width */
-static int glowing(const char *text, int x, int y, int cell, const uint32_t *colors)
+/* a UTF-8 text in glowing dots, the pixels or the dots of a font, the top of its cells at y; returns its width */
+static int glowing_in(dgx_font_t *font, const char *text, int x, int y, int cell, const uint32_t *colors)
 {
-    dgx_font_t *font = TerminusTTFMedium12();
-    const int   radius = cell / 2 + cell / 4;
-    int         at = x;
-    for (const char *p = text; *p; ++p) {
-        dgx_bit_matrix_t *from = dgx_morph_glyph_matrix(font, (uint32_t)*p), *to = dgx_morph_glyph_matrix(font, (uint32_t)*p);
+    const int radius = cell / 2 + cell / 4;
+    int       at = x;
+    for (size_t idx = 0; text[idx];) {
+        const uint32_t    cp   = decodeUTF8next(text, &idx);
+        dgx_bit_matrix_t *from = dgx_morph_glyph_matrix(font, cp), *to = dgx_morph_glyph_matrix(font, cp);
         dgx_morph_t      *morph = dgx_morph_create(from, to, dgx_morph_sources_cells, NULL);
         const int         w = from->width * cell + 2 * radius, h = from->height * cell + 2 * radius;
         dgx_morph_glow_t *glow = dgx_morph_glow_create(w, h, cell, 16);
@@ -130,6 +135,12 @@ static int glowing(const char *text, int x, int y, int cell, const uint32_t *col
         dgx_matrix_destroy(&to);
     }
     return at - x;
+}
+
+/* a word in glowing dots, the dots of a bitmap font; returns its width */
+static int glowing(const char *text, int x, int y, int cell, const uint32_t *colors)
+{
+    return glowing_in(TerminusTTFMedium12(), text, x, y, cell, colors);
 }
 
 static void text(dgx_font_t *font, int x, int y, int scale, uint32_t color, const char *str)
@@ -153,17 +164,33 @@ static void recipe(char variant, bool dark)
     ink_color[0] = dark ? 230 : 40, ink_color[1] = dark ? 235 : 105, ink_color[2] = dark ? 245 : 225;
     switch (variant) {
     case 'f': { /* the fonts that come with the library, each naming itself */
+        /* the dots of the dot fonts glow, as on a clock of LEDs: blue on a light page */
+        uint32_t brightness[256];
+        for (int i = 0; i < 256; ++i) brightness[i] = rgb(i, i, i);
+        if (!dark) glow_color[0] = 70, glow_color[1] = 140, glow_color[2] = 245, glow_core[0] = 30, glow_core[1] = 90, glow_core[2] = 215;
         int y = 44;
         text(TerminusTTFMedium12(), 24, y, 2, line, "TerminusTTFMedium12  Привет, мир! Grüße"), y += 50;
         text(LiberationSansRegular12(), 24, y, 2, line, "LiberationSansRegular12  Hello, world! ¿Qué tal?"), y += 50;
+        text(CozetteRegular13(), 24, y, 2, line, "CozetteRegular13  Съешь же ещё этих булок № 5 €"), y += 46;
         text(DroidSansRegular9(), 24, y, 2, dim, "DroidSansRegular9  the quick brown fox jumps over the lazy dog"), y += 44;
-        text(IBMCGALight8x16Light8x1616(), 24, y + 6, 2, cold, "IBMCGALight8x16  C:\\> dir /w"), y += 78;
+        text(GLCD5x7(), 24, y, 3, cold, "GLCD5x7  READY."), y += 30;
+        text(IBMCGALight8x16Light8x1616(), 24, y + 22, 2, cold, "IBMCGALight8x16  C:\\> dir /w"), y += 94;
         text(DejaVuSansBook32(), 24, y, 2, warm, "DejaVu Sans 32"), text(DejaVuSansBook32(), 560, y, 1, warm, "DejaVuSansBook32"), y += 84;
         text(IBMPlexMonoMedium28(), 24, y, 2, line, "12:34"), text(IBMPlexMonoMedium28(), 360, y, 1, line, "IBMPlexMonoMedium28"),
-            text(NotoMonoRegular28(), 760, y, 1, dim, "NotoMonoRegular28"), y += 96;
-        /* the weather symbols a clock shows */
+            text(NotoMonoRegular28(), 760, y, 1, dim, "NotoMonoRegular28"), y += 40;
+        /* a dot font of a clock and the weather symbols a clock shows, in its dots and in two bitmap fonts */
+        const int dots = glowing_in(CasusDotView(), "12:34 21°", 24, y, 6, brightness);
+        text(TerminusTTFMedium12(), 24 + dots + 24, y + 56, 2, dim, "CasusDotView");
         static const char *weather = "\xef\x80\x8d \xef\x80\x82 \xef\x80\x93 \xef\x80\x99 \xef\x80\x9e \xef\x80\x9b \xef\x80\x94";
-        text(WeatherIconsRegular27(), 24, y, 2, cold, weather), text(TerminusTTFMedium12(), 1000, y - 16, 2, dim, "WeatherIconsRegular27");
+        static const char *dotted  = "\xef\x80\x8d\xef\x80\x82\xef\x80\x90\xef\x80\x94\xef\x80\xa1\xef\x80\xae";
+        y += 162;
+        text(WeatherIconsRegular27(), 24, y, 2, cold, weather), text(TerminusTTFMedium12(), 1000, y - 16, 2, dim, "WeatherIconsRegular27"), y += 40;
+        const int glyphs = glowing_in(WeatherDotView25(), dotted, 24, y, 3, brightness);
+        text(TerminusTTFMedium12(), 24 + glyphs + 24, y + 56, 2, dim, "WeatherDotView25");
+        text(WeatherIconsRegular13(), 1000, y + 64, 2, cold, dotted);
+        text(TerminusTTFMedium12(), 1000, y + 112, 2, dim, "WeatherIconsRegular13"), y += 124;
+        /* the handwritten font, by a soft pen */
+        written("font0ss  Привет, мир!", 24, y, 700, 90, 4, 0);
         break;
     }
     case 'g': { /* a gauge at three values */
@@ -257,7 +284,7 @@ static void recipe(char variant, bool dark)
 int main(int argc, char **argv)
 {
     const char variant = argc > 1 ? argv[1][0] : 'a';
-    if (variant == 'f') W = 1400, H = 470;
+    if (variant == 'f') W = 1400, H = 960;
     if (variant == 'g') W = 1200, H = 420;
     if (variant == 'h') W = 1400, H = 420;
     if (variant == 'p') W = 1560, H = 300;

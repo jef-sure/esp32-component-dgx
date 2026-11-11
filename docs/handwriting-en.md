@@ -279,7 +279,7 @@ share of `color`. The table the screen is sent through,
 `dgx_vscreen8_to_screen16()`, turns ink into the colors of the display:
 `uint16_t lut[256]` of RGB565, made by `dgx_lut_gradient(lut, 0, 256, paper,
 ink)` from the two colors as `0xRRGGBB`, see
-[Tables for 8-bit screens](../README.md#tables-for-8-bit-screens). A
+[Tables for 8-bit screens](api-en.md#tables-for-8-bit-screens). A
 16-bit pixel has no amount to compare with what was there, and a display
 behind a bus cannot be read at all: there a pen asked to be soft draws as a
 hard one of the same width.

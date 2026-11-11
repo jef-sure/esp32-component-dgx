@@ -688,8 +688,8 @@ Details.
 - Drawing from several tasks at the same time is not possible; the screen is
   not made for it. The mutex remains the application's. What exactly the
   screen keeps, why it takes one task at a time, and how to build a program
-  with several drawing tasks is in the README, section
-  [Drawing from several tasks](../README.md#drawing-from-several-tasks).
+  with several drawing tasks is in the API reference, section
+  [Drawing from several tasks](api-en.md#drawing-from-several-tasks).
 
 **A known weakness.** If a task is preempted for longer than a frame twice in
 a row, exactly between its calls to the driver, the display may go back to

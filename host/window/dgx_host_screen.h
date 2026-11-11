@@ -17,7 +17,8 @@
  *  What it tells instead, in the title of a window and when the program
  *  ends: how long the bytes sent would take on the wire of the board, from
  *  one wait of the program to the next, and how much memory the program and
- *  DGX hold. See "An effect on the computer" in README.md.
+ *  DGX hold. See "An effect on the computer" in README.md and
+ *  docs/host-window-en.md.
  *
  *  Built with host/dgx_host.mk, its group DGX_HOST_WINDOW, or by ESP-IDF
  *  for its linux target, never for a chip. A program tells the builds apart

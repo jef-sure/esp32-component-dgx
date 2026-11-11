@@ -12,7 +12,9 @@ runs `font2c` for all of them at build time; see
   smoothness. A larger size is rendered anti-aliased with hinting, cut to
   ink at 43% coverage and cropped to the ink: there the bilevel rasterizer
   fused the stems of small letters into blobs and doubled crossbars, while
-  the hinted grayscale render keeps the stems FreeType snaps them to;
+  the hinted grayscale render keeps the stems FreeType snaps them to. With
+  `-b 4` or `-b 2` the coverage is kept instead, in 4 or 2 bits a pixel, for
+  letters with soft edges (see below);
 - handwritten fonts made of Bezier curves, saved as `.json` by the
   [hw-fonts](https://github.com/jef-sure/hw-fonts) editor.
 
@@ -34,7 +36,7 @@ other; asked for another, `font2c` stops and names the sizes it has.
 ```sh
 ./font2c path/to/YourFont.ttf 16 0x20 0x7e 0x410 0x44f
 ./font2c -f charset.txt path/to/YourFont.ttf 16
-./font2c [-n name] [-f charset_file] [-p patch] [-P dir] <font file> <size> [<first> <last>]*
+./font2c [-n name] [-f charset_file] [-b bits] [-p patch] [-P dir] <font file> <size> [<first> <last>]*
 ```
 
 It writes a `.c` and a matching `.h` named after the font family, style and
@@ -47,6 +49,29 @@ made this way can share one C file. To use the generated font:
    `file(GLOB ...)` that adds the fonts is a configure dependency.
 2. Include the generated header and pass its accessor to the text API, like
    a bundled font.
+
+### Soft edges: -b
+
+`-b 4` makes a font of 4 bits a pixel, `-b 2` one of 2 bits: a pixel holds
+how much of it the glyph covers, 0 to 15 or 0 to 3, and the text drawn mixes
+the edges with what lies under them. `-b 1` is the default, a font of one
+bit. Such a font is rendered gray at every size, with hinting, from the
+outlines of the face even where a TTF has bitmaps of its own; a font of
+bitmaps alone, a BDF, has no gray and is refused. Its rows are whole bytes,
+the leftmost pixel in the high bits, `(width * 4 + 7) / 8` or
+`(width * 2 + 7) / 8` bytes a row, the glyphs cropped to what is not 0; its
+`f_type` is `DGX_FONT_BITMAP_DEPTH4` or `DGX_FONT_BITMAP_DEPTH2`, and its
+name has the depth after the size, `DejaVuSansBook16Depth4`. The comment
+above the bytes of a glyph draws it a character a level: a space for 0, the
+digits `1` to `e` at 4 bits or `.` and `+` at 2 bits between, `#` for a pixel
+covered whole. A font of 2 or 4 bits is not patched: `-p` and `-P` with `-b 2`
+or `-b 4` are refused, and on a line of a `-jo` list too; the `-P` of the
+command line of `-jo` goes for the fonts of one bit only. What it costs and
+how it is drawn: [docs/fonts-en.md](../docs/fonts-en.md#soft-edges).
+
+```sh
+./font2c -b 4 path/to/YourFont.ttf 16 0x20 0x7e
+```
 
 ### Glyphs fixed by hand
 
@@ -99,8 +124,9 @@ size produce one font with the characters of both, and each `-n` name of
 theirs becomes a function of it; a line without `-n` gets a name from the
 family, style and size, prefixed with the output name
 (`my_fonts_DejaVuSansBook30`). The static arrays are named after the font,
-so nothing collides. `-n`, `-f`, `-g` and `-p` belong to the lines of a
-list, not to the command line of a `-jo` run. `-P` may go on both: on the
+so nothing collides. `-n`, `-f`, `-b`, `-g` and `-p` belong to the lines of a
+list, not to the command line of a `-jo` run. A line with `-b` asks for
+another font than a line of the same face and size without it. `-P` may go on both: on the
 command line it applies to every font of the lists, after the `-P` of the
 font's own lines. `-x`, `-i` and `-t`, which change the file of a
 handwritten font, go on neither: a list does not change its fonts.

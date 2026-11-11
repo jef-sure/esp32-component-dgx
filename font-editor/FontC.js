@@ -105,6 +105,8 @@ var FontC = (() => {
         const body = text.slice(block.from, block.to);
         const m = /static\s+const\s+uint8_t\s+(\w*)bitmaps\s*\[\s*\]\s*=\s*\{/.exec(body);
         if (!m) return null; // not a bitmap font
+        /* a font of 2 or 4 bits a pixel keeps the coverage of its edges; the editor draws one bit: kept as it is */
+        if (/\.f_type\s*=\s*DGX_FONT_BITMAP_DEPTH[24]\b/.test(body.slice(body.lastIndexOf('dgx_font_t')))) return null;
         const prefix = m[1];
         if (body.indexOf('};', m.index + m[0].length) < 0) return null;
         const glyphRe = /static\s+const\s+glyph_t\s+\w*glyphs\s*\[\s*\]\s*=\s*\{/g;

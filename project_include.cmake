@@ -7,6 +7,7 @@
 #     dgx_font_need(hand DGX font0ss TEXTS assets/ru.po EXCEPT "{}")          # one of DGX's fonts, used as is; its characters are checked
 #     dgx_font_need(time FILE fonts/PxCgaThin8.c LETTERS "0123456789:")       # a font of the program, used as is
 #     dgx_font_need(title SIZE 4.5mm POSTSCRIPT DejaVuSans TEXTS title.txt)  # an exact face at a size in millimeters
+#     dgx_font_need(label SIZE 16px POSTSCRIPT DejaVuSans BITS 4 TEXTS ui.po) # 4 bits a pixel: soft edges
 #     dgx_font_need(note SOURCE fonts/Note.ttf SIZE 30px TEXTS note.txt)      # a font file of the program, rendered at 30 px
 #     dgx_font_need(menu SIZE 9px FAMILY "Droid Sans" PATCH fixes/menu.patch.json TEXTS menu.po)  # with the fixes of the font editor
 #
@@ -83,7 +84,7 @@ function(dgx_font_need name)
     if(DGX_FONTS_TOO_OLD)
         message(FATAL_ERROR "dgx_font_need(${name}): ${DGX_FONTS_TOO_OLD}")
     endif()
-    cmake_parse_arguments(PARSE_ARGV 1 N "MONO" "SIZE;FAMILY;POSTSCRIPT;DGX;FILE;SOURCE;LETTERS;EXCEPT;PATCH" "TEXTS")
+    cmake_parse_arguments(PARSE_ARGV 1 N "MONO" "SIZE;BITS;FAMILY;POSTSCRIPT;DGX;FILE;SOURCE;LETTERS;EXCEPT;PATCH" "TEXTS")
     if(NOT name MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
         message(FATAL_ERROR "dgx_font_need: the name of a need must be a C identifier, not '${name}'")
     endif()
@@ -93,7 +94,7 @@ function(dgx_font_need name)
     # a keyword given twice would keep its last value in silence
     if(ARGC GREATER 1)
         math(EXPR last "${ARGC} - 1")
-        foreach(key SIZE MONO FAMILY POSTSCRIPT DGX FILE SOURCE LETTERS EXCEPT PATCH)
+        foreach(key SIZE BITS MONO FAMILY POSTSCRIPT DGX FILE SOURCE LETTERS EXCEPT PATCH)
             set(times 0)
             foreach(i RANGE 1 ${last})
                 if("${ARGV${i}}" STREQUAL "${key}")
@@ -109,6 +110,9 @@ function(dgx_font_need name)
     set(inputs "")
     if(DEFINED N_SIZE)
         list(APPEND lines "size ${N_SIZE}")
+    endif()
+    if(DEFINED N_BITS)
+        list(APPEND lines "bits ${N_BITS}")
     endif()
     if(N_MONO)
         list(APPEND lines "mono 1")

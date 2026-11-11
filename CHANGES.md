@@ -1,5 +1,65 @@
 # Changes
 
+## 0.10.15 - 2026-11-11
+
+New:
+
+- Fonts with soft edges. `font2c -b 4` makes a font of 4 bits a pixel, and
+  `-b 2` one of 2 bits: a pixel holds how much of it a glyph covers, and the
+  edges of the letters are mixed with what lies under them when text is
+  drawn. A font made at build time asks for it with `BITS 4` in
+  `dgx_font_need()` (`bits 4` in a needs file). Such a font is rendered gray
+  at every size from the outlines of its face, is named with its depth after
+  its size (`DejaVuSansBook16Depth4`), tells it in `f_type`
+  (`DGX_FONT_BITMAP_DEPTH4`, `DGX_FONT_BITMAP_DEPTH2`) and is not patched.
+  At 16 px it takes about 3.3 times the flash of a font of one bit, at 2
+  bits about 1.7 times. A font of one bit comes out of `font2c` byte for
+  byte as before.
+- Text by a context: `dgx_font_context_t` holds what stays the same from one
+  text to the next, the screen, the font, the color, the paper, the flags,
+  the orientation, the scale and the dot function of a dot font, and
+  `dgx_font_draw(ctx, x, y, str)`, `dgx_font_draw_char()` and
+  `dgx_font_bounds()` take it with the place and the text. Zero is the
+  default of every member. `dgx_font_draw()` returns how far the text goes
+  along its line, the scale counted, and `dgx_font_bounds()` measures with
+  the scale. The old calls stay and draw as they did.
+- The edges of a soft font are mixed with the pixels under them on a
+  virtual screen of 12, 16, 18 or 24 bits and on a DSI display, and as
+  amounts of ink on an 8-bit virtual screen. A display behind a bus cannot
+  be read: `DGX_FONT_BG` mixes them with the paper of the context there,
+  every run of touched pixels of a row going as one window, and
+  `DGX_FONT_FILL` fills the cell of the text with the paper too, as high as
+  the font, so that a number drawn again over itself needs no erase. Without
+  a paper such a display, and a screen of one bit, draw the font cut to one
+  bit at 110/255, the cut of `font2c`, which `DGX_FONT_MONO` asks for on any
+  screen. `DGX_FONT_HARD` draws every pixel a letter touches in full, to
+  erase soft text without a halo. The levels between paper and ink are
+  raised by the curve `a^(1/1.45)` before the colors are mixed: without it
+  dark letters on light paper looked thin on the ILI9341 of a CYD and on the
+  JD9165 of a Guition JC1060P470.
+- The morphs take of a soft font the pixels `DGX_FONT_MONO` draws.
+- The example `soft_text_demo` for the CYD.
+
+Documentation:
+
+- The README is half as long: it keeps what DGX is, getting started, the
+  recipes, the examples, how fast it is and what is in the box, and ends with
+  a table of the documents. The API reference, with several tasks,
+  orientation, the build options and the known gaps, is now
+  docs/api-en.md; the supported panels docs/panels-en.md; how the parts fit
+  together, the host tests and the layout of the repository
+  docs/development-en.md. The recipes of the window on the computer and of
+  an Arduino sketch keep how to do it, and the rest of them went to
+  docs/host-window-en.md and docs/arduino-en.md. The links of the other
+  documents follow them.
+- The picture of the bundled fonts in the recipe "Text in your own font"
+  shows all fourteen: CozetteRegular13, GLCD5x7, the dot fonts CasusDotView
+  and WeatherIconsRegular13, WeatherDotView25 and the handwritten font0ss
+  were missing. Made by `docs/images/banner.c`, as before.
+- README: the recipe "Text with soft edges"; the API reference: the new
+  calls; docs/fonts-en.md and docs/fonts-ru.md: `BITS` and the section "Soft
+  edges" with the cost in flash; font2c/README.md: `-b`.
+
 ## 0.10.14 - 2026-11-10
 
 New:

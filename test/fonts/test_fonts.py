@@ -484,6 +484,107 @@ def test_font2c_lines(work):
           f"a line without -n keeps its function beside the -n name: {run.stderr.strip()}")
 
 
+def soft_glyph(c_text, code_point, depth):
+    """A glyph of a font of 2 or 4 bits a pixel as font2c wrote it: (the levels unpacked from its bytes, the levels of its
+    picture in the comment), rows of numbers each, or None when it is not there."""
+    m = re.search(r"\{\s*\{\s*\.bitmap\s*=\s*\w*bitmaps\s*\+\s*(\d+)\s*\}\s*,\s*(\d+)\s*,\s*(\d+)\s*,[^}]*\}\s*/\*\s*%04X\s*\*/" % code_point,
+                  c_text)
+    art = re.search(r"/\* %04X - \w+ \*/((?:\n/\* .* \*/)+)" % code_point, c_text)
+    if not m or not art:
+        return None
+    at, w, h = (int(v) for v in m.groups())
+    body = re.search(r"bitmaps\[\] = \{(.*?)\};", c_text, re.S).group(1)
+    data = [int(x, 16) for x in re.findall(r"0x([0-9A-F]{2})", strip_c_comments(body))]
+    pitch, mask = (w * depth + 7) // 8, (1 << depth) - 1
+    unpacked = [[data[at + y * pitch + x * depth // 8] >> (8 - depth - x * depth % 8) & mask for x in range(w)] for y in range(h)]
+    chars = " 123456789abcde#" if depth == 4 else " .+#"
+    drawn = [[chars.index(c) for c in line[3:-3]] for line in art.group(1).strip("\n").split("\n")]
+    return unpacked, drawn
+
+
+def strip_c_comments(text):
+    return re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+
+
+def test_depth(work):
+    """Fonts of 2 and 4 bits a pixel, font2c -b and the bits of a need: the bytes are the levels the picture in the
+    comment shows, packed as the header says; the model and the name say the depth; such a font and a font of one bit
+    of the same face and size are two fonts; what is refused is told."""
+    font2c = os.path.join(work, "out", "font2c")
+    sans = dejavu_file()
+    here = os.path.join(work, "depth")
+    os.makedirs(here, exist_ok=True)
+    for depth in (2, 4):
+        run = subprocess.run([font2c, "-b", str(depth), sans, "16", "0x41", "0x42", "0x416", "0x416"], capture_output=True, text=True, cwd=here)
+        path = os.path.join(here, f"DejaVuSansBook16Depth{depth}.c")
+        check(run.returncode == 0 and os.path.exists(path), f"-b {depth} makes DejaVuSansBook16Depth{depth}.c: {run.stderr.strip()}")
+        if run.returncode:
+            continue
+        c = open(path, encoding="utf-8").read()
+        check(f".f_type = DGX_FONT_BITMAP_DEPTH{depth}," in c, f"-b {depth}: the model says the depth")
+        for cp in (0x41, 0x416):
+            got = soft_glyph(c, cp, depth)
+            check(got is not None and got[0] == got[1] and any(0 < v < (1 << depth) - 1 for row in got[0] for v in row),
+                  f"-b {depth} U+{cp:04X}: the bytes hold the levels of the picture, some of them between paper and ink")
+        run = subprocess.run(["cc", "-std=gnu11", "-Wall", "-Wextra", "-c", f"-I{STUBS}", f"-I{os.path.join(DGX, 'include')}", path, "-o",
+                              os.path.join(here, f"d{depth}.o")], capture_output=True, text=True)
+        check(run.returncode == 0, f"-b {depth}: the font compiles: {run.stderr.strip()}")
+        code, out, err = tool("json", path)
+        check(code == 1 and f"{depth} bits a pixel" in err, f"-b {depth}: json for the editor is refused: {err.strip()}")
+        node = shutil.which("node")
+        if node:
+            run = subprocess.run([node, os.path.join(HERE, "round_trip.js"), DGX, "read", path], capture_output=True, text=True)
+            check("no bitmap font" in run.stdout, f"-b {depth}: the editor leaves the font as it is: {run.stdout.strip()} {run.stderr.strip()}")
+    # what is refused
+    for what, args, expected in (
+            ("-b 3", ["-b", "3", sans, "16", "0x41", "0x41"], "-b takes 1, 2 or 4"),
+            ("-b with a patch", ["-b", "4", "-p", os.path.join(DGX, "src", "fonts", "DroidSansRegular9.patch.json"), sans, "16", "0x41", "0x41"],
+             "a font of 4 bits is not patched"),
+            ("-b of a handwritten font", ["-b", "4", os.path.join(work, "no.json")], "a handwritten font is drawn by a pen"),
+            ("-b of a font of bitmaps", ["-b", "4", os.path.join(work, "depth.bdf"), "16"], "has no gray")):
+        if "bitmaps" in what:
+            bdf_font(os.path.join(work, "depth.bdf"), 16)
+        run = subprocess.run([font2c] + args, capture_output=True, text=True, cwd=here)
+        check(run.returncode == 1 and expected in run.stderr, f"{what}: told '{expected}', got exit {run.returncode}: {run.stderr.strip()}")
+    with open(os.path.join(work, "depth.list"), "w", encoding="utf-8") as f:
+        f.write(f"-b 4 -n soft {sans} 16 0x41 0x5a\n-n hard {sans} 16 0x41 0x5a\n-b 2 -P {DGX} {sans} 16 0x41 0x41\n")
+    run = subprocess.run([font2c, "-jo", os.path.join(work, "depth.list"), "-o", os.path.join(work, "depth")], capture_output=True, text=True)
+    check(run.returncode == 1 and "a font of 2 bits is not patched" in run.stderr, f"-b with -P on a line is refused: {run.stderr.strip()}")
+    run = subprocess.run([font2c, "-b", "4", "-jo", os.path.join(work, "depth.list"), "-o", os.path.join(work, "depth")], capture_output=True, text=True)
+    check(run.returncode == 1 and "only -o and -P go on the command line" in run.stderr, f"-b beside -jo is refused: {run.stderr.strip()}")
+    # a need of 4 bits beside one of one bit of the same face and size: two fonts, the depth told in the header
+    title = os.path.join(HERE, "title.txt")
+    code, out, err = build(work, f"need soft\nsize 16px\npostscript DejaVuSans\nbits 4\ntext {title}\n"
+                                 f"need hard\nsize 16px\npostscript DejaVuSans\ntext {title}\n"
+                                 f"need halftone\nsize 16px\npostscript DejaVuSans\nbits 2\ntext {title}\n")
+    check(code == 0, f"needs with bits: {err.strip()}")
+    if code == 0:
+        c = open(os.path.join(work, "out", "dgx_fonts.c"), encoding="utf-8").read()
+        h = open(os.path.join(work, "out", "dgx_fonts.h"), encoding="utf-8").read()
+        arrays = sorted(re.findall(r"^static const uint8_t (\w+)_bitmaps\[\]", c, re.M))
+        check(arrays == ["DejaVuSansBook16", "DejaVuSansBook16Depth2", "DejaVuSansBook16Depth4"], f"three fonts of three depths: {arrays}")
+        check("at 16 px (16 px), 4 bits a pixel, made for this board" in h and "at 16 px (16 px), 2 bits a pixel, made for this board" in h,
+              "the header tells the depth")
+        check("4 bits a pixel" in out, f"so does the report of the build: {out.strip()}")
+        run = subprocess.run(["cc", "-std=gnu11", "-Wall", "-Wextra", "-Wno-unused-parameter", "-c", f"-I{STUBS}", f"-I{os.path.join(DGX, 'include')}",
+                              "-include", os.path.join(STUBS, "esp_log.h"), os.path.join(work, "out", "dgx_fonts.c"), "-o",
+                              os.path.join(work, "out", "dgx_fonts.o")], capture_output=True, text=True)
+        check(run.returncode == 0, f"the fonts of three depths compile: {run.stderr.strip()}")
+    po = os.path.join(HERE, "strings.po")
+    for what, needs, expected in (
+            ("bits 3", f"need tag\nsize 16px\npostscript DejaVuSans\nbits 3\ntext {title}\n", "bits is 1, 2 or 4"),
+            ("bits of a font as it is", f"need tag\ndgx font0ss\nbits 4\ntext {po}\nexcept {{}}\n", "bits do not apply"),
+            ("bits with a patch", f"need tag\nsize 16px\npostscript DejaVuSans\nbits 4\n"
+                                  f"patch {os.path.join(DGX, 'src', 'fonts', 'DroidSansRegular9.patch.json')}\ntext {title}\n",
+             "a patch fixes a font of one bit a pixel"),
+            ("one need of two depths", f"need tag /a/CMakeLists.txt\nsize 16px\npostscript DejaVuSans\nbits 4\ntext {title}\n"
+                                       f"need tag /b/CMakeLists.txt\nsize 16px\npostscript DejaVuSans\ntext {title}\n",
+             "at 16 px, 4 bits a pixel in /a/CMakeLists.txt, DejaVu Sans Book at 16 px in /b/CMakeLists.txt")):
+        shutil.rmtree(os.path.join(work, "out", "dgx_fonts.c"), ignore_errors=True)
+        code, out, err = build(work, needs)
+        check(code == 1 and expected in err, f"{what}: told '{expected}', got exit {code}: {err.strip()}")
+
+
 def test_font2c_long_paths(work):
     """A list and the output in a directory of a path over 1000 characters long: the paths of the list are taken from
     its directory, and the C and the header have their whole names."""
@@ -666,6 +767,7 @@ else()
 endif()
 if(CASE STREQUAL "good")
     dgx_font_need(brackets SIZE 12px LETTERS "[a;b]" TEXTS t.txt)
+    dgx_font_need(soft SIZE 12px POSTSCRIPT DejaVuSans BITS 4 TEXTS t.txt)
     dgx_font_needs_file(x.needs)
     dgx_font_list(own.list)
 elseif(CASE STREQUAL "faces")
@@ -674,6 +776,8 @@ elseif(CASE STREQUAL "missing")
     dgx_font_need(b SIZE 12px POSTSCRIPT DejaVuSans TEXTS none.txt)
 elseif(CASE STREQUAL "twice")
     dgx_font_need(b SIZE 12px SIZE 14px POSTSCRIPT DejaVuSans TEXTS t.txt)
+elseif(CASE STREQUAL "bits_twice")
+    dgx_font_need(b SIZE 12px BITS 4 BITS 2 POSTSCRIPT DejaVuSans TEXTS t.txt)
 endif()
 """)
 
@@ -687,6 +791,7 @@ endif()
     if run.returncode == 0:
         needs = open(os.path.join(build_dir, "dgx_fonts", "needs.txt"), encoding="utf-8").read()
         check("letters [a;b]\n" in needs, "brackets and a semicolon of LETTERS reach the needs file")
+        check("need soft " in needs and "bits 4\n" in needs, "BITS reaches the needs file")
         check("letters [{]; \n" in needs, "the letters of a needs file reach it as written, the space at the end too")
         check(f"text {os.path.join(cm, 't.txt')}" in needs and "need fromfile" in needs, "a needs file with a byte order mark is read")
         ninja = open(os.path.join(build_dir, "build.ninja"), encoding="utf-8").read()
@@ -698,6 +803,7 @@ endif()
             h = open(os.path.join(build_dir, "dgx_fonts", "dgx_fonts.h"), encoding="utf-8").read()
             check("dgx_font_t *dgx_font_brackets(void);" in h and "dgx_font_t *dgx_font_fromfile(void);" in h and "dgx_font_t *widget(void);" in h,
                   "the three fonts of the three ways are in the header")
+            check("dgx_font_t *dgx_font_soft(void);" in h and "4 bits a pixel" in h, "the font of BITS 4 is in the header, its depth told")
             c = os.path.join(build_dir, "dgx_fonts", "dgx_fonts.c")
             # the three are one face at 12 px, so one font with the characters of all three
             check(set("[a;b]tq") <= (glyphs_of(c, "dgx_font_brackets") or set()), "the characters of LETTERS with brackets and a semicolon are in the font")
@@ -726,7 +832,7 @@ endif()
         os.utime(os.path.join(cm, "faces", "Sans.ttf"))
         run = subprocess.run(["cmake", "--build", build_dir], capture_output=True, text=True)
         check("DGX: the fonts of the program by its needs" in run.stdout, f"the face changed, the fonts made again: {run.stdout.strip()[-300:]}")
-    for case, expected in (("missing", "none.txt does not exist"), ("twice", "SIZE given twice")):
+    for case, expected in (("missing", "none.txt does not exist"), ("twice", "SIZE given twice"), ("bits_twice", "BITS given twice")):
         build_dir, run = configure(case)
         said = " ".join(run.stderr.split())  # CMake wraps its messages
         check(run.returncode != 0 and expected in said, f"{case}: told '{expected}': {said[-300:]}")
@@ -828,6 +934,7 @@ def main():
         test_half_pixels(work)
         test_characters_as_written(work)
         test_font2c_lines(work)
+        test_depth(work)
         test_font2c_long_paths(work)
         test_editor_round_trip(work)
         test_patches(work)

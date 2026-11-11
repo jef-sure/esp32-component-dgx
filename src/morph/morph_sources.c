@@ -3,6 +3,7 @@
 
 #include "dgx_bitmap.h"
 #include "dgx_morph_sources.h"
+#include "../text/dgx_font_priv.h"
 
 typedef struct {
     dgx_bit_matrix_t *matrix;
@@ -65,9 +66,8 @@ dgx_bit_matrix_t *dgx_morph_glyph_matrix(dgx_font_t *font, uint32_t code_point)
             dgx_morph_glyph_set(&ctx, g->dots[i].x, g->dots[i].y);
         }
     } else if (g->bitmap) {
-        dgx_bw_bitmap_t bmap = dgx_bw_bitmap_make_of(
-            (uint8_t *)g->bitmap, g->width, g->height, font->f_type == DGX_FONT_BITMAP_STREAM);
-        dgx_bw_bitmap_foreach_set(&bmap, dgx_morph_glyph_set, &ctx);
+        /* a font of 2 or 4 bits a pixel gives the pixels DGX_FONT_MONO draws */
+        dgx_font_glyph_foreach_ink(font, g, dgx_morph_glyph_set, &ctx);
     }
     return m;
 }

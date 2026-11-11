@@ -46,7 +46,14 @@ typedef enum {                   //
     DGX_FONT_BITMAP_LINES = 1,   //
     DGX_FONT_BITMAP_STREAM = 2,  //
     DGX_FONT_DOTS = 3,           //
-    DGX_FONT_HW = 4              ///< Handwritten: pen paths of Bezier curves, see dgx_hw_font.h
+    DGX_FONT_HW = 4,             ///< Handwritten: pen paths of Bezier curves, see dgx_hw_font.h
+    /**
+     * Bitmaps of 2 or 4 bits a pixel, font2c -b 2 or -b 4: a pixel is how much of it the glyph covers, 0 to 3 or 0
+     * to 15, for soft edges. Rows as in DGX_FONT_BITMAP_LINES, each from a new byte, the leftmost pixel in the high
+     * bits: (width * 2 + 7) / 8 or (width * 4 + 7) / 8 bytes a row.
+     */
+    DGX_FONT_BITMAP_DEPTH2 = 5,
+    DGX_FONT_BITMAP_DEPTH4 = 6
 } dgx_font_model_t;
 
 struct dgx_hw_element_;
@@ -194,6 +201,110 @@ void dgx_font_string_utf8_screen(        //
     dgx_font_draw_sym_func_t draw_func,  //
     void *param                          //
 );
+
+/*
+ * Flags of a dgx_font_context_t.
+ */
+/**
+ * Mix the soft edges of the letters with ctx->bg instead of with what lies on
+ * the screen: the screen is not read, so the edges are soft on a display
+ * behind a bus too. The pixels the letters do not touch stay as they are.
+ */
+#define DGX_FONT_BG   0x1u
+/**
+ * Fill the cell of the text with ctx->bg and draw the letters over it, their
+ * edges mixed with it; implies DGX_FONT_BG. The cell is as high as the font,
+ * yOffsetLowest to yBottomMax, whatever the letters, and runs from x to the
+ * end of the text, wider where a letter sticks out: a number drawn again over
+ * itself leaves nothing of the one before when it is as long.
+ */
+#define DGX_FONT_FILL 0x2u
+/**
+ * Draw a font of 2 or 4 bits a pixel as one of one bit: a pixel covered by
+ * 110/255 or more takes the color, the rest is left. This is how a font of
+ * one bit is cut from the same render, and how a screen that cannot mix
+ * draws such a font anyway.
+ */
+#define DGX_FONT_MONO 0x4u
+/**
+ * Draw a font of 2 or 4 bits a pixel with hard edges: every pixel a letter
+ * touches takes the color whole. To erase soft text: drawn again in the color
+ * of the paper, soft text leaves a halo, which this does not. Wins over
+ * DGX_FONT_MONO.
+ */
+#define DGX_FONT_HARD 0x8u
+
+/**
+ * @brief How text is drawn: the screen, the font, the colors and the rest that
+ * stays the same from one text to the next.
+ *
+ * A program keeps a few of these and passes one to dgx_font_draw() with the
+ * place and the text. Fill it by the names of its members: zero is the
+ * default of each, so `{.scr = display, .font = f, .color = c}` is a text in
+ * one color, upright, at the size of the font. Members may be added at the
+ * end. The calls do not change it: one context may serve the whole program,
+ * and a text in another color is a copy with that member changed.
+ *
+ * The edges of a font of 2 or 4 bits a pixel (DGX_FONT_BITMAP_DEPTH2,
+ * DGX_FONT_BITMAP_DEPTH4) are soft: an edge pixel is the color mixed with
+ * what is under it by how much of the pixel the letter covers. Without
+ * DGX_FONT_BG the color under it is read from the screen, which a screen in
+ * memory can do: a virtual screen of 12, 16, 18 or 24 bits, a DSI display, and
+ * an 8-bit virtual screen, where a pixel is an amount of ink and the amounts
+ * are mixed. A display behind a bus cannot be read, nor does a screen of one
+ * bit have a color between: there such a font is drawn as with DGX_FONT_MONO,
+ * unless DGX_FONT_BG gives the color under it. A font of one bit draws the
+ * same with or without any flag but DGX_FONT_FILL.
+ *
+ * Drawn again over itself without the paper put back, soft text grows darker
+ * at its edges, and drawn in the color of the paper it leaves a halo: erase it
+ * with DGX_FONT_HARD, or draw the new text with DGX_FONT_FILL.
+ */
+typedef struct dgx_font_context_t {
+    dgx_screen_t            *scr;         ///< Where the text goes.
+    dgx_font_t              *font;        ///< The font; a handwritten one is drawn by dgx_hw_font.h, here only measured.
+    uint32_t                 color;       ///< The color of the letters, in the format of the screen.
+    uint32_t                 bg;          ///< The paper, with DGX_FONT_BG or DGX_FONT_FILL.
+    uint32_t                 flags;       ///< DGX_FONT_BG, DGX_FONT_FILL, DGX_FONT_MONO, DGX_FONT_HARD.
+    dgx_output_orientation_t orientation; ///< 0 is DgxOutputNormal: the upright text turned around the top left corner of pixel x, y.
+    int                      scale;       ///< Every pixel of the font as scale x scale pixels; 0 is the same as 1.
+    /**
+     * A dot font (DGX_FONT_DOTS): draws one dot whose top left corner is at x,
+     * y, scale x scale pixels; NULL draws it as a square of ctx->color.
+     */
+    void (*dot_func)(const struct dgx_font_context_t *ctx, int x, int y);
+    void *user_data; ///< The program's own, for dot_func; DGX does not touch it.
+} dgx_font_context_t;
+
+/**
+ * @brief Draw a UTF-8 text.
+ * @param ctx How: see dgx_font_context_t.
+ * @param x,y The start of the base line of the first letter.
+ * @param str The text.
+ * @return How far the text goes along its line, in pixels of the screen, the
+ *         scale counted: the next text of the line starts that far on, along
+ *         x for a text that is not turned, along y for one that is.
+ */
+int dgx_font_draw(const dgx_font_context_t *ctx, int x, int y, const char *str);
+
+/**
+ * @brief Draw one character, as dgx_font_draw() draws each of a text.
+ *
+ * With DGX_FONT_FILL its own cell is filled: the cell of a text is one, which
+ * a text of these calls is not.
+ * @return How far the next character starts along the line, scale counted.
+ */
+int dgx_font_draw_char(const dgx_font_context_t *ctx, int x, int y, uint32_t code_point);
+
+/**
+ * @brief Measure a text as dgx_font_draw() would draw it, the scale counted.
+ * @param ctx  Its font and scale are taken.
+ * @param str  UTF-8 text.
+ * @param top    Out, may be NULL: the top of the highest letter, from the base line (negative above it).
+ * @param height Out, may be NULL: from that top to the bottom of the lowest letter.
+ * @return How far the text goes along its line, as dgx_font_draw() returns.
+ */
+int dgx_font_bounds(const dgx_font_context_t *ctx, const char *str, int *top, int *height);
 
 /**
  * @brief Set up an 8-bit indexed virtual screen as a glyph "dot" render target.
