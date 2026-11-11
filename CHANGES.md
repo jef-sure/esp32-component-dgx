@@ -1,5 +1,38 @@
 # Changes
 
+## Unreleased
+
+New:
+
+- Soft text on a virtual screen whose pixels lie in a row in memory, one of
+  `dgx_vscreen_init()` or `dgx_vscreen_from_array()`, of 8, 16, 18 or 24
+  bits, is written into that memory, not through the pixel calls of the
+  screen, and the changed area is told once a glyph. On a CYD a line of
+  DejaVu Sans 16 px takes 1.44 ms mixed on 16 bits instead of 2.47, 1.33 ms
+  on 8 bits instead of 2.51. Its time no longer depends on where the bitmaps
+  of the font lie in flash: through the pixel calls two of 16 places were
+  slower by 13 to 21%, written into the memory all came within 1%. The code
+  of `font.c` in IRAM changed the time by less than 1% more, so there is no
+  setting to put it there, as there is for the pen.
+
+Fixed:
+
+- `soft_text_demo` builds for speed (`CONFIG_COMPILER_OPTIMIZATION_PERF`), as
+  the other examples that print times do: built for a debugger it printed
+  three to four times the time of drawing a line.
+
+Documentation:
+
+- The recipe "Text with soft edges" has a picture: DejaVu Sans at 16 px in
+  one bit and in 4 bits a pixel, as large as on a display and four times as
+  large.
+- A recipe of its own for the circle with a soft edge of 0.10.14, "A circle
+  with a soft edge", with a picture: hard circles over soft ones, soft
+  circles covering each other and one of paper, and a hard and a soft circle
+  four times as large.
+- `docs/images/banner.c` draws both, from fonts `font2c` makes first, as its
+  comment says, and writes every picture with its transparency (`PNG32:`).
+
 ## 0.10.15 - 2026-11-11
 
 New:

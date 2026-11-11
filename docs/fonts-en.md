@@ -461,6 +461,52 @@ its stems better, so for a screen of one bit take a font of one bit.
 A font of 2 or 4 bits is not patched, and the font editor leaves it as it
 is: both are of one bit a pixel.
 
+### What it costs in time
+
+Timed on a CYD: an ESP32-D0WD-V3 at 240 MHz, ESP-IDF 5.5.4, built with
+`-O2`. The line is "Привет, мир! Quick fox 0123" in DejaVu Sans at 16 px,
+a font of 4 bits with 893 bytes of bitmaps, and the same face and size in
+one bit for a comparison. The mean of 30 lines.
+
+The line on a virtual screen of 320x30 pixels, where the processor alone
+works, in milliseconds:
+
+| How | Time |
+| --- | --- |
+| a font of one bit, 16 bits a pixel | 0.70 |
+| 4 bits, mixed with the screen, 16 bits a pixel | 1.44 |
+| 4 bits, `DGX_FONT_BG`, 16 bits a pixel | 1.22 |
+| 4 bits, `DGX_FONT_MONO`, 16 bits a pixel | 0.95 |
+| 4 bits, amounts of ink on an 8-bit screen | 1.33 |
+
+The line on the display of the CYD, an ILI9341 on SPI at 40 MHz, where the
+bus takes most of the time, in milliseconds:
+
+| How | Time |
+| --- | --- |
+| a font of one bit | 4.22 |
+| 4 bits, no paper: cut to one bit | 4.56 |
+| 4 bits, `DGX_FONT_BG` | 4.01 |
+| 4 bits, `DGX_FONT_FILL` | 5.50 |
+
+With `DGX_FONT_BG` the line goes faster than in a font of one bit: an edge
+pixel goes in the window of the run it belongs to, and the runs of a soft
+letter are fewer. `DGX_FONT_FILL` sends the cell of the paper first.
+
+On a virtual screen that holds its pixels in a row in memory, one of
+`dgx_vscreen_init()` or `dgx_vscreen_from_array()`, a soft glyph is written
+into that memory. Any other screen that is read, a DSI display or a virtual
+screen of 12 bits, takes every edge pixel through its `get_pixel` and
+`set_pixel`. That way the same line took 2.47 ms mixed on 16 bits and 2.51 ms
+on 8 bits, and it depended on where the bitmaps of the font lay in flash:
+with the bitmaps in 16 places of the flash, a kilobyte apart, two places
+were slower by 13 to 21%, as the code of the pixels shared the sets of the
+cache with them (see [The flash cache](pen-en.md#the-flash-cache)). Written
+into the memory, all 16 places and a copy of the bitmaps in RAM came within
+1% of one another. The same with the code of `font.c` put in IRAM for a
+check: it changed the time by less than 1%, so there is no setting for it,
+as there is for the pen.
+
 ## Glyphs fixed by hand
 
 At small sizes a rendered glyph sometimes comes out wrong on the panel: a

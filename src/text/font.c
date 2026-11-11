@@ -320,10 +320,84 @@ static bool span_to_bus(dgx_screen_t *scr, const glyph_place_t *p, const uint8_t
     return true;
 }
 
+/* bytes a pixel of a linear virtual screen a soft glyph is written into the memory of, 0 for any other screen */
+static int memory_bytes(dgx_screen_t *scr)
+{
+#ifdef DGX_FONT_VSCREEN_FAST_PATH
+    if (dgx_vscreen_is_linear(scr)) {
+        switch (scr->color_bits) {
+        case 8:
+            return 1;
+        case 16:
+            return 2;
+        case 18:
+        case 24:
+            return 3;
+        default:
+            break;
+        }
+    }
+#endif
+    (void)scr;
+    return 0;
+}
+
+/* a pixel in the memory of a virtual screen as the screen keeps it, high byte first */
+static inline uint32_t memory_get(const uint8_t *m, int bytes)
+{
+    return bytes == 1 ? m[0] : bytes == 2 ? (uint32_t)m[0] << 8 | m[1] : (uint32_t)m[0] << 16 | (uint32_t)m[1] << 8 | m[2];
+}
+
+static inline void memory_put(uint8_t *m, int bytes, uint32_t value)
+{
+    if (bytes == 1) {
+        m[0] = (uint8_t)value;
+    } else if (bytes == 2) {
+        m[0] = (uint8_t)(value >> 8), m[1] = (uint8_t)value;
+    } else {
+        m[0] = (uint8_t)(value >> 16), m[1] = (uint8_t)(value >> 8), m[2] = (uint8_t)value;
+    }
+}
+
 /*
- * A glyph of 2 or 4 bits a pixel. A pixel drawn whole, in the color or in a color of the table, goes in runs of one
- * color, a rectangle each; a pixel mixed with the screen is read and written, each of its scale x scale. On a display
- * behind a bus a run of touched pixels with the colors of the table goes as one window, span_to_bus().
+ * A glyph of 2 or 4 bits a pixel on a linear virtual screen, written into its memory: no call a pixel, and the
+ * changed area told once, the box of the glyph. The same pixels as soft_glyph() puts through the screen. cut: the
+ * level from which a pixel is drawn whole, or 0; table: the colors of the levels over the paper, or NULL.
+ */
+static void soft_glyph_memory(const dgx_font_context_t *ctx, const glyph_t *g, const glyph_place_t *p, const uint32_t *table, int cut, int bytes)
+{
+    dgx_screen_t  *scr   = ctx->scr;
+    const int      depth = font_depth(ctx->font), top = (1 << depth) - 1, pitch = (g->width * depth + 7) / 8;
+    const int      bits = scr->color_bits, width = scr->width, height = scr->height;
+    const uint8_t *alpha = depth == 4 ? soft_alpha4 : soft_alpha2;
+    uint8_t       *memory = ((dgx_vscreen_t *)scr)->v_array;
+    const uint32_t color  = ctx->color;
+    for (int by = 0; by < g->height; ++by) {
+        const uint8_t *row = g->bitmap + by * pitch;
+        for (int bx = 0; bx < g->width; ++bx) {
+            const int level = glyph_level(row, bx, depth, top);
+            if (!level || (cut && level < cut)) continue;
+            /* the color the pixel takes, or none when it is mixed with what is under it */
+            const bool     mixed = !cut && !table && level < top;
+            const uint32_t c     = cut ? color : table ? table[level] : color;
+            int            rx, ry, rw, rh;
+            place_run(p, by, bx, bx, &rx, &ry, &rw, &rh);
+            const int x0 = rx < 0 ? 0 : rx, x1 = rx + rw > width ? width : rx + rw;
+            const int y0 = ry < 0 ? 0 : ry, y1 = ry + rh > height ? height : ry + rh;
+            for (int sy = y0; sy < y1; ++sy) {
+                uint8_t *m = memory + ((size_t)sy * (size_t)width + (size_t)x0) * (size_t)bytes;
+                for (int sx = x0; sx < x1; ++sx, m += bytes) memory_put(m, bytes, mixed ? mix_color(bits, memory_get(m, bytes), color, alpha[level]) : c);
+            }
+        }
+    }
+    dgx_screen_touch(scr, p->x, p->x + (p->right + 1) * p->scale - 1, p->y, p->y + (p->bottom + 1) * p->scale - 1);
+}
+
+/*
+ * A glyph of 2 or 4 bits a pixel. On a linear virtual screen it is written into the memory, soft_glyph_memory().
+ * Elsewhere a pixel drawn whole, in the color or in a color of the table, goes in runs of one color, a rectangle
+ * each; a pixel mixed with the screen is read and written, each of its scale x scale. On a display behind a bus a run
+ * of touched pixels with the colors of the table goes as one window, span_to_bus().
  */
 static void soft_glyph(const dgx_font_context_t *ctx, const glyph_t *g, const glyph_place_t *p, const uint32_t *table)
 {
@@ -337,6 +411,11 @@ static void soft_glyph(const dgx_font_context_t *ctx, const glyph_t *g, const gl
     if (ctx->flags & DGX_FONT_HARD) cut = 1;
     else if ((ctx->flags & DGX_FONT_MONO) || (!table && !(mixable_bits(bits) && dgx_screen_is_readable(scr))))
         cut = (DGX_FONT_INK_THRESHOLD + unit - 1) / unit;
+    const int memory = memory_bytes(scr);
+    if (memory) {
+        soft_glyph_memory(ctx, g, p, table, cut, memory);
+        return;
+    }
     /* whole bytes a pixel, as a window of a display takes a row of them */
     const bool spans = table && !cut && scr->screen_subtype == DgxPhysicalScreenWithBus && scr->set_area && scr->write_area && scr->draw_buffer &&
                        (bits == 8 || bits == 16 || bits == 18 || bits == 24);

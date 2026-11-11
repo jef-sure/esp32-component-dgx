@@ -759,12 +759,14 @@ with its transport: see [Getting started](../README.md#getting-started).
 | `CONFIG_DGX_DSI_PRIVATE_DMA2D` | nothing | DSI on chips with a 2D DMA: large pieces are moved past the processor through the private 2D DMA interface of IDF; on by default, an escape hatch for an IDF that no longer builds it |
 | `CONFIG_DGX_DSI_INDEXED_BAND_KB` | nothing | DSI: the size of each of the two bands of internal RAM an 8-bit screen is made into on its way to the frame buffer, 64 KB by default; larger is faster, smaller ones are tried where there is no room |
 | `CONFIG_DGX_HW_FONT_IN_IRAM` | nothing | ESP32 only: the code that lays out a handwritten text is kept in IRAM, 4.1 KB |
-| `CONFIG_DGX_BEZIER_IN_IRAM` | nothing | ESP32 only: the code of the pen of Bezier curves is kept in IRAM, 9.3 KB |
+| `CONFIG_DGX_BEZIER_IN_IRAM` | nothing | ESP32 only: the code of the pen of Bezier curves is kept in IRAM, 10.3 KB, and 10.5 KB more for straight segments |
 
 The two `IN_IRAM` options are for a handwritten text on an ESP32. There code
 and the tables of a font are read from flash through one cache of two ways,
 and the time of the same text changes from build to build with where the
-linker has put the font. With the code in IRAM it does not.
+linker has put the font. With the code in IRAM it does not. Text in bitmap
+fonts needs no such option: its time did not depend on the place of the font,
+see [What it costs in time](fonts-en.md#what-it-costs-in-time).
 IRAM of an ESP32 is no part of the heap, but there are 128 KB of it and a
 program with Wi-Fi leaves a few; see
 [docs/pen-en.md](pen-en.md#the-flash-cache).

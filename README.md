@@ -32,6 +32,7 @@ Every picture in this README was drawn by DGX's own code, run on a PC.
   - [Text with soft edges](#text-with-soft-edges)
   - [A gauge](#a-gauge)
   - [A pie chart, arcs, a Wi-Fi icon](#a-pie-chart-arcs-a-wi-fi-icon)
+  - [A circle with a soft edge](#a-circle-with-a-soft-edge)
   - [Scrolling text](#scrolling-text)
   - [A picture at any size and angle](#a-picture-at-any-size-and-angle)
   - [Pixel art made larger](#pixel-art-made-larger)
@@ -269,6 +270,11 @@ the edges of its letters are mixed with what lies under them instead of
 standing in steps. Ask for one with `BITS 4` (`BITS 2` makes a smaller font
 with coarser edges), or with `font2c -b 4`:
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/jef-sure/esp32-component-dgx/main/docs/images/soft-text-dark.png">
+  <img src="https://raw.githubusercontent.com/jef-sure/esp32-component-dgx/main/docs/images/soft-text-light.png" width="500" alt="DejaVu Sans at 16 px in one bit and in 4 bits a pixel, as large as on a display and four times as large">
+</picture>
+
 ```cmake
 dgx_font_need(label SIZE 16px POSTSCRIPT DejaVuSans BITS 4 TEXTS strings.txt)
 ```
@@ -357,6 +363,36 @@ for (int i = 1; i <= 3; ++i) dgx_draw_arc(scr, cx, cy, i * 9, i * 9, 45, 135, 3,
 ```
 
 Example: [examples/figures_scroll_demo](examples/figures_scroll_demo).
+
+### A circle with a soft edge
+
+A filled circle takes the soft edge of the pen: add `DGX_PEN_SOFT` to its
+radius. The edge is mixed with what lies under it by how much of each pixel
+the circle covers, so a pixel has to be an amount of ink: draw on an 8-bit
+virtual screen and send it to the display through a table of colors from the
+paper to the ink.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/jef-sure/esp32-component-dgx/main/docs/images/soft-circle-dark.png">
+  <img src="https://raw.githubusercontent.com/jef-sure/esp32-component-dgx/main/docs/images/soft-circle-light.png" width="575" alt="Hard circles over soft ones, soft circles covering each other on a gray paper, and a hard and a soft circle four times as large">
+</picture>
+
+```c
+dgx_screen_t   *band = dgx_vscreen_init(320, 60, 8, DgxScreenRGB);
+static uint16_t lut[256];
+dgx_lut_gradient(lut, 0, 256, 0x102040, 0xffc800);           // from the paper to the ink, as 0xRRGGBB
+
+dgx_fill_rectangle(band, 0, 0, band->width, band->height, 0);  // paper
+dgx_solid_circle(band, 30, 30, DGX_PEN_SOFT | 20, 255);        // a circle of ink
+dgx_solid_circle(band, 50, 30, DGX_PEN_SOFT | 12, 0);          // ink 0: a circle of paper over it
+dgx_vscreen8_to_screen16(lcd, 0, 100, band, lut, 0);
+```
+
+The circle covers what is under it, as the hard one does.
+`DGX_PEN_SOFT | DGX_PEN_MAX | r` keeps the larger ink instead, as the pen
+does, and is then the dot of the pen byte for byte. On any other screen the
+circle is the hard one. Details: [A soft circle](docs/pen-en.md#a-soft-circle)
+in docs/pen-en.md; the call: [Drawing primitives](docs/api-en.md#drawing-primitives).
 
 ### Scrolling text
 

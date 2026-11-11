@@ -4,19 +4,23 @@
  *   banner <variant> <out.pam> [dark|light]
  *
  * Variants: a - the banner for a light page, b - the banner for a dark page, c - the name by a pen alone;
- * f - fonts, g - gauges, h - a handwritten text, p - figures, s - pixel art made larger, each for a dark page or,
- * with `light`, a light one.
+ * f - fonts, g - gauges, h - a handwritten text, p - figures, s - pixel art made larger, t - text with soft edges,
+ * r - circles with a soft edge, each for a dark page or, with `light`, a light one.
  *
  * A picture is drawn twice the size it is shown at, on a 16-bit virtual screen, and written as a PAM file
  * with transparency: it has no background, the page shows through it.
- * To build it and make the two banners, from the root of the repository:
+ * To build it and make the two banners, from the root of the repository; the picture of soft text takes DejaVu
+ * Sans at 16 px in 4 bits a pixel and in one, made by font2c first:
  *
- *   cc -O2 -std=gnu11 -Ihost/stubs -Iinclude -Isrc -include host/stubs/esp_log.h docs/images/banner.c \
- *      src/screen/*.c src/draw/*.c src/vscreen/*.c src/text/*.c src/morph/*.c src/fonts/?*.c -lm -o /tmp/banner
+ *   cc font2c/font2c.c -o /tmp/font2c $(pkg-config --cflags --libs freetype2) && mkdir -p /tmp/dgx-pictures
+ *   F=$(fc-match -f '%{file}' 'DejaVu Sans:style=Book')
+ *   (cd /tmp/dgx-pictures && /tmp/font2c -n soft16 -b 4 $F 16 0x20 0x7e 0x410 0x44f && /tmp/font2c -n hard16 $F 16 0x20 0x7e 0x410 0x44f)
+ *   cc -O2 -std=gnu11 -Ihost/stubs -Iinclude -Isrc -I/tmp/dgx-pictures -include host/stubs/esp_log.h docs/images/banner.c \
+ *      src/screen/*.c src/draw/*.c src/vscreen/*.c src/text/*.c src/morph/*.c src/fonts/?*.c /tmp/dgx-pictures/*.c -lm -o /tmp/banner
  *   /tmp/banner b /tmp/x.pam && convert /tmp/x.pam docs/images/banner-dark.png
  *   /tmp/banner a /tmp/x.pam && convert /tmp/x.pam docs/images/banner-light.png
- *   for v in f:fonts g:gauge h:handwriting p:figures s:pixel-scale; do for t in dark light; do
- *       /tmp/banner ${v%%:*} /tmp/x.pam $t && convert /tmp/x.pam docs/images/${v#*:}-$t.png; done; done
+ *   for v in f:fonts g:gauge h:handwriting p:figures s:pixel-scale t:soft-text r:soft-circle; do for t in dark light; do
+ *       /tmp/banner ${v%%:*} /tmp/x.pam $t && convert /tmp/x.pam PNG32:docs/images/${v#*:}-$t.png; done; done
  */
 #include <math.h>
 #include <stdio.h>
@@ -47,6 +51,8 @@
 #include "fonts/WeatherIconsRegular13.h"
 #include "fonts/WeatherIconsRegular27.h"
 #include "fonts/font0ss.h"
+#include "hard16.h"
+#include "soft16.h"
 
 /* the size of the picture: twice what it is shown at */
 static int W = 1600, H = 400;
@@ -143,6 +149,16 @@ static int glowing(const char *text, int x, int y, int cell, const uint32_t *col
     return glowing_in(TerminusTTFMedium12(), text, x, y, cell, colors);
 }
 
+/* an 8-bit screen of ink amounts put into the ink of the picture n times as large, by squares; 0 is no ink */
+static void zoom_ink(dgx_screen_t *small, int x, int y, int n)
+{
+    for (int sy = 0; sy < small->height; ++sy)
+        for (int sx = 0; sx < small->width; ++sx) {
+            const uint32_t amount = dgx_get_pixel(small, sx, sy);
+            if (amount) dgx_fill_rectangle(ink, x + sx * n, y + sy * n, n, n, amount);
+        }
+}
+
 static void text(dgx_font_t *font, int x, int y, int scale, uint32_t color, const char *str)
 {
     dgx_font_string_utf8_screen(canvas, (int16_t)x, (int16_t)y, str, color, DgxOutputNormal, scale, font, NULL, NULL);
@@ -191,6 +207,56 @@ static void recipe(char variant, bool dark)
         text(TerminusTTFMedium12(), 1000, y + 112, 2, dim, "WeatherIconsRegular13"), y += 124;
         /* the handwritten font, by a soft pen */
         written("font0ss  Привет, мир!", 24, y, 700, 90, 4, 0);
+        break;
+    }
+    case 't': { /* text with soft edges: a line in a font of one bit and of 4 bits, as large as on a display and four times */
+        /*
+         * The letters are ink, amounts of it on an 8-bit screen: the soft edges are amounts between, as the font
+         * mixes them there, and the page shows through them as through the edge on a display.
+         */
+        dgx_screen_t *small = dgx_vscreen_init(300, 24, 8, DgxScreenRGB);
+        const char   *line_text = "Привет, мир! Quick fox 0123", *word = "Мир!";
+        dgx_font_t   *fonts[2] = {hard16(), soft16()};
+        static const char *names[2] = {"1 bit", "4 bits"};
+        for (int i = 0; i < 2; ++i) {
+            /* a pixel of the display is two of the file, one of the page */
+            dgx_fill_rectangle(small, 0, 0, small->width, small->height, 0);
+            const dgx_font_context_t ctx = {.scr = small, .font = fonts[i], .color = 255};
+            dgx_font_draw(&ctx, 2, 18, line_text);
+            zoom_ink(small, 170, 24 + i * 56, 2);
+            text(TerminusTTFMedium12(), 24, 56 + i * 56, 2, dim, names[i]);
+            /* and a word four times as large on the page */
+            dgx_fill_rectangle(small, 0, 0, small->width, small->height, 0);
+            dgx_font_draw(&ctx, 2, 18, word);
+            zoom_ink(small, 170 + i * 400, 150, 8);
+            text(TerminusTTFMedium12(), 170 + i * 400, 150 + 24 * 8 + 30, 2, dim, i ? "4 bits, four times" : "1 bit, four times");
+        }
+        dgx_screen_destroy(&small);
+        break;
+    }
+    case 'r': { /* circles with a soft edge: a row of hard ones over a row of soft ones, two of them four times, covering */
+        dgx_screen_t *small = dgx_vscreen_init(330, 120, 8, DgxScreenRGB);
+        dgx_fill_rectangle(small, 0, 0, small->width, small->height, 0);
+        static const int radii[] = {1, 2, 3, 5, 8, 12, 18};
+        for (int i = 0, x = 6; i < 7; x += 2 * radii[i] + 12, ++i) {
+            dgx_solid_circle(small, x + radii[i], 20, radii[i], 255);
+            dgx_solid_circle(small, x + radii[i], 62, DGX_PEN_SOFT | radii[i], 255);
+        }
+        /* covering: a soft circle takes the place of what is under it, its edge mixed; ink 0 a circle of paper */
+        dgx_fill_rectangle(small, 210, 4, 116, 112, 110);
+        static const int inks[] = {255, 60, 180, 0};
+        for (int i = 0; i < 4; ++i) dgx_solid_circle(small, 236 + (i % 2) * 34, 32 + (i / 2) * 34 + (i % 2) * 12, DGX_PEN_SOFT | 20, (uint32_t)inks[i]);
+        zoom_ink(small, 24, 24, 2);
+        text(TerminusTTFMedium12(), 24, 24 + 2 * 120 + 34, 2, dim, "hard over soft");
+        text(TerminusTTFMedium12(), 24 + 2 * 210, 24 + 2 * 120 + 34, 2, dim, "covering, ink 0 a hole");
+        /* one of each four times as large on the page */
+        dgx_screen_t *two = dgx_vscreen_init(40, 20, 8, DgxScreenRGB);
+        dgx_fill_rectangle(two, 0, 0, 40, 20, 0);
+        dgx_solid_circle(two, 9, 9, 7, 255);
+        dgx_solid_circle(two, 29, 9, DGX_PEN_SOFT | 7, 255);
+        zoom_ink(two, 740, 24, 8);
+        text(TerminusTTFMedium12(), 740, 24 + 20 * 8 + 34, 2, dim, "hard and soft, r 7, four times");
+        dgx_screen_destroy(&two), dgx_screen_destroy(&small);
         break;
     }
     case 'g': { /* a gauge at three values */
@@ -289,6 +355,8 @@ int main(int argc, char **argv)
     if (variant == 'h') W = 1400, H = 420;
     if (variant == 'p') W = 1560, H = 300;
     if (variant == 's') W = 1280, H = 320;
+    if (variant == 't') W = 1000, H = 400;
+    if (variant == 'r') W = 1150, H = 320;
     canvas = dgx_vscreen_init(W, H, 16, DgxScreenRGB);
     ink = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
     lights = dgx_vscreen_init(W, H, 16, DgxScreenRGB);

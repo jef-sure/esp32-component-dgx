@@ -421,6 +421,50 @@ static void test_bus_spans(void)
     }
 }
 
+/*
+ * On a linear virtual screen a soft glyph is written into the memory of the screen; on any other screen that is read
+ * it goes through its get_pixel and set_pixel. The same virtual screen with its get_pixel wrapped is read but not
+ * linear: the two ways have to put the same pixels, turned, scaled, cut by the edges, with every flag and depth.
+ */
+static uint32_t (*vscreen_get)(dgx_screen_t *, int, int);
+static uint32_t wrapped_get(dgx_screen_t *scr, int x, int y) { return vscreen_get(scr, x, y); }
+
+static void test_memory_path(void)
+{
+    test_font_t four, two;
+    make_font(&four, AS_IS), make_font(&two, TO_2);
+    static const int      depths[] = {8, 16, 18, 24};
+    static const uint32_t flags[]  = {0, DGX_FONT_BG, DGX_FONT_FILL, DGX_FONT_MONO, DGX_FONT_HARD};
+    int                   rounds = 0, differ = 0;
+    for (int d = 0; d < 4; ++d)
+        for (int f = 0; f < 5; ++f)
+            for (int o = 0; o < 8; ++o)
+                for (int s = 1; s <= 3; s += 2)
+                    for (int place = 0; place < 2; ++place) {
+                        const int     bits = depths[d];
+                        dgx_screen_t *a = dgx_vscreen_init(40, 30, (uint8_t)bits, DgxScreenRGB), *b = dgx_vscreen_init(40, 30, (uint8_t)bits, DgxScreenRGB);
+                        CHECK(a && b);
+                        paint(a), paint(b);
+                        vscreen_get    = b->get_pixel;
+                        b->get_pixel   = wrapped_get;
+                        CHECK(dgx_screen_is_readable(b) && !dgx_vscreen_is_linear(b) && dgx_vscreen_is_linear(a));
+                        /* in the middle, or over the top left corner */
+                        const int x = place ? 1 : 20, y = place ? 2 : 15;
+                        dgx_font_context_t ctx = {.font = (o & 1) ? &two.font : &four.font, .color = pattern(bits, 3, 4), .bg = pattern(bits, 9, 1),
+                                                  .flags = flags[f], .orientation = (dgx_output_orientation_t)o, .scale = s};
+                        ctx.scr = a;
+                        dgx_font_draw(&ctx, x, y, "AB");
+                        ctx.scr = b;
+                        dgx_font_draw(&ctx, x, y, "AB");
+                        for (int yy = 0; yy < 30; ++yy)
+                            for (int xx = 0; xx < 40; ++xx) differ += vscreen_get(a, xx, yy) != vscreen_get(b, xx, yy);
+                        b->get_pixel = vscreen_get;
+                        dgx_screen_destroy(&a), dgx_screen_destroy(&b);
+                        ++rounds;
+                    }
+    CHECK(rounds == 4 * 5 * 8 * 2 * 2 && differ == 0);
+}
+
 /* the dots of a dot font from the dot function of a context, where the old call takes them from its parameters */
 typedef struct {
     int n;
@@ -508,6 +552,7 @@ int main(void)
     test_paper();
     test_fill();
     test_bus_spans();
+    test_memory_path();
     test_dots();
     test_bounds();
     test_morph_sources();
