@@ -19,17 +19,22 @@
  */
 static int cs_pin = GPIO_NUM_NC, cs_level, unwired_calls;
 
+/* the backlight line: its level, and whether it is an output; -1 before anything is done with it */
+#define BL_PIN 7
+static int bl_level = -1, bl_output = -1;
+
 static esp_err_t pin_set_level(gpio_num_t pin, uint32_t level)
 {
     if (pin < 0) ++unwired_calls;
     else if (pin == cs_pin) cs_level = (int)level;
+    else if (pin == BL_PIN) bl_level = (int)level;
     return ESP_OK;
 }
 
 static esp_err_t pin_set_direction(gpio_num_t pin, gpio_mode_t mode)
 {
-    (void)mode;
     if (pin < 0) ++unwired_calls;
+    else if (pin == BL_PIN) bl_output = mode == GPIO_MODE_OUTPUT;
     return ESP_OK;
 }
 
@@ -130,7 +135,7 @@ int main(void)
     dgx_bus_protocols_t bus = {.bus_type = DGX_BUS_SPI, .write_data = line_write_data};
     memset(panel, 1, sizeof(panel)); /* what the memory of the controller holds at power-up is not known */
     cs_pin            = 5;
-    dgx_screen_t *scr = dgx_st7920_init(&bus, GPIO_NUM_NC, cs_pin);
+    dgx_screen_t *scr = dgx_st7920_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, cs_pin);
     CHECK(scr && scr->width == PW && scr->height == PH);
     if (!scr) CHECK_DONE();
 
@@ -204,13 +209,25 @@ int main(void)
 
     /* nor is the chip select, tied high: the panel takes every transfer as before */
     cs_pin = GPIO_NUM_NC;
-    scr    = dgx_st7920_init(&bus, GPIO_NUM_NC, cs_pin);
+    scr    = dgx_st7920_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, cs_pin);
     CHECK(scr != NULL);
     if (scr) {
         dgx_fill_rectangle(scr, 0, 0, scr->width, scr->height, 0);
         dgx_font_string_utf8_screen(scr, 3, 20, "ST7920", 1, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
         dgx_st7920_orientation(scr, DgxScreenRightLeft, DgxScreenBottomTop, false);
         CHECK(mismatches(scr) == 0);
+        /* no backlight line: nothing to turn */
+        CHECK(dgx_st7920_backlight(scr, false) == ESP_ERR_NOT_SUPPORTED);
+        dgx_screen_destroy(&scr);
+    }
+    CHECK(unwired_calls == 0 && bl_level == -1 && bl_output == -1);
+
+    /* a backlight line: an output, on once the panel is set up, off and on by the call */
+    scr = dgx_st7920_init(&bus, GPIO_NUM_NC, BL_PIN, cs_pin);
+    CHECK(scr && bl_output == 1 && bl_level == 1);
+    if (scr) {
+        CHECK(dgx_st7920_backlight(scr, false) == ESP_OK && bl_level == 0);
+        CHECK(dgx_st7920_backlight(scr, true) == ESP_OK && bl_level == 1);
         dgx_screen_destroy(&scr);
     }
     CHECK(unwired_calls == 0);

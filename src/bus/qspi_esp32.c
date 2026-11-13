@@ -213,13 +213,6 @@ static void dgx_qspi_sync_write(struct _dgx_bus_protocols_t *_bus)
     dgx_spi_dev_sync(&bus->dev);
 }
 
-/* the display is not read through this bus: nothing is read, and the buffer is left as it was */
-static uint32_t dgx_qspi_read_data(struct _dgx_bus_protocols_t *_bus, uint8_t *data, uint32_t len)
-{
-    (void)_bus, (void)data, (void)len;
-    return 0;
-}
-
 static void dgx_qspi_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_qspi_sync_write(_bus); // a command held back goes first, but for 0x2C, which has nothing to go with
@@ -239,7 +232,6 @@ static dgx_bus_protocols_t *dgx_qspi_attach(spi_host_device_t host_id, bool owns
     protocols->bus_name            = "QSPI";
     protocols->write_command       = dgx_qspi_send_command;
     protocols->write_commands      = dgx_qspi_send_commands;
-    protocols->read_data           = dgx_qspi_read_data;
     protocols->write_data          = dgx_qspi_send_data;
     protocols->write_data_async    = dgx_qspi_send_data_async;
     protocols->sync_write          = dgx_qspi_sync_write;

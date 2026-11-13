@@ -19,12 +19,14 @@ extern "C" {
  * high and is held for a whole transfer: the driver drives @p cs itself. A
  * panel with its CS tied high, alone on its lines, takes every transfer.
  *
- * @param bus Bus backend returned by dgx_spi_init().
- * @param rst Reset GPIO (use GPIO_NUM_NC if the panel has no reset line).
- * @param cs  Chip-select GPIO, driven by the driver: high for a transfer (use GPIO_NUM_NC if CS is tied high).
+ * @param bus       Bus backend returned by dgx_spi_init().
+ * @param rst       Reset GPIO (use GPIO_NUM_NC if the panel has no reset line).
+ * @param backlight Backlight GPIO, high for on (use GPIO_NUM_NC if the module has no backlight control). It is on once the
+ *                  panel is set up; dgx_st7920_backlight() turns it off and on.
+ * @param cs        Chip-select GPIO, driven by the driver: high for a transfer (use GPIO_NUM_NC if CS is tied high).
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */
-dgx_screen_t* dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t cs);
+dgx_screen_t* dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, gpio_num_t cs);
 
 /**
  * @brief Set how the screen lies on the panel (rotation/mirroring).
@@ -41,6 +43,15 @@ dgx_screen_t* dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
  * @param swap_xy Swap the X and Y axes.
  */
 void dgx_st7920_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
+
+/**
+ * @brief Control the backlight (if a backlight GPIO was provided at initialization).
+ *
+ * @param scr Screen created by dgx_st7920_init().
+ * @param on  true to turn on the backlight, false to turn it off.
+ * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED when the screen was given no backlight GPIO.
+ */
+esp_err_t dgx_st7920_backlight(dgx_screen_t *scr, bool on);
 
 #ifdef __cplusplus
 // @formatter:off

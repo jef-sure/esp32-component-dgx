@@ -224,7 +224,7 @@ static void run(int bits, int rounds)
     dgx_screen_t *lcd = &sbus.scr;
     sbus.bus = bus;
     lcd->width = PW, lcd->height = PH, lcd->color_bits = (uint8_t)bits, lcd->screen_subtype = DgxPhysicalScreenWithBus;
-    dgx_screen_with_bus_init_area(&sbus, 0x2A, 0x2B, 0x2C, 0, DGX_SCREEN_AREA_PROTO_STD16);
+    dgx_screen_with_bus_init_area(&sbus, 0x2A, 0x2B, 0x2C, DGX_SCREEN_AREA_PROTO_STD16);
     /* as a driver sets its controller up: a command with its data, and one with none */
     const uint8_t colmod = 0x55;
     bus->write_command(bus, 0x3A);
@@ -318,7 +318,7 @@ static void test_window_off_screen(void)
     dgx_screen_t *lcd = &sbus.scr;
     sbus.bus = bus;
     lcd->width = PW, lcd->height = PH, lcd->color_bits = 16, lcd->screen_subtype = DgxPhysicalScreenWithBus;
-    dgx_screen_with_bus_init_area(&sbus, 0x2A, 0x2B, 0x2C, 0, DGX_SCREEN_AREA_PROTO_STD16);
+    dgx_screen_with_bus_init_area(&sbus, 0x2A, 0x2B, 0x2C, DGX_SCREEN_AREA_PROTO_STD16);
     dgx_scr_init_slow_bus_optimized_funcs(lcd);
     dgx_fill_rectangle(lcd, 0, 0, PW, PH, 0x1111);
     lcd->wait_buffer(lcd);

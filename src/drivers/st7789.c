@@ -193,7 +193,8 @@ const dgx_panel_t dgx_panel_st7789_135x240 = {
 };
 
 // Initialize the display
-dgx_screen_t *dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo, st7789_resolution_t resolution)
+dgx_screen_t *dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo,
+                              st7789_resolution_t resolution)
 {
     const dgx_panel_t *panel;
     switch (resolution) {
@@ -216,7 +217,7 @@ dgx_screen_t *dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
         ESP_LOGE(TAG, "Unsupported ST7789 resolution %d", (int)resolution);
         return NULL;
     }
-    dgx_screen_t *scr = dgx_panel_init(bus, panel, rst, GPIO_NUM_NC, color_bits, cbo);
+    dgx_screen_t *scr = dgx_panel_init(bus, panel, rst, backlight, color_bits, cbo);
     /*
      * landscape is a turn, MV with MX: MV alone would mirror the picture. It
      * comes after the functions of the screen, which take the screen as not
@@ -230,4 +231,9 @@ dgx_screen_t *dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
 void dgx_st7789_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
     dgx_panel_orientation(scr, dir_x, dir_y, swap_xy);
+}
+
+esp_err_t dgx_st7789_backlight(dgx_screen_t *scr, bool on)
+{
+    return dgx_panel_backlight(scr, on);
 }

@@ -111,7 +111,7 @@ static dgx_screen_t *panel_screen(panel_t *p, int width, int height)
     sbus->bus                   = &p->bus;
     sbus->scr.width = width, sbus->scr.height = height, sbus->scr.color_bits = 16, sbus->scr.screen_subtype = DgxPhysicalScreenWithBus;
     dgx_scr_init_slow_bus_optimized_funcs(&sbus->scr);
-    dgx_screen_with_bus_init_area(sbus, CASET, RASET, RAMWR, 0, DGX_SCREEN_AREA_PROTO_STD16);
+    dgx_screen_with_bus_init_area(sbus, CASET, RASET, RAMWR, DGX_SCREEN_AREA_PROTO_STD16);
     return &sbus->scr;
 }
 

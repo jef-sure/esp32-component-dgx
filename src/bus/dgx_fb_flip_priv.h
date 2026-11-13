@@ -21,9 +21,11 @@
  *  A batch joins a finished picture when both of this hold:
  *
  *   - the frame does not end soon: there is more time left than the
- *     longest of the last batches took to draw, and some to spare. A batch
- *     that is being drawn where a frame ends keeps the whole picture back a
- *     frame;
+ *     longest batch drawn lately took, and some to spare. A batch that is
+ *     being drawn where a frame ends keeps the whole picture back a frame.
+ *     Lately is a time, not a number of batches: a long batch that comes
+ *     now and then among many short ones is still remembered when it comes
+ *     again;
  *   - the picture has not been kept back over an end of a frame already,
  *     and it is known that the display has not taken it.
  *
@@ -69,6 +71,15 @@ typedef struct _dgx_fb_flip_display_t {
 #define DGX_FB_FLIP_BATCH_US_MOST 100000u
 
 /*
+ * How long a batch is remembered: the time is cut into spans this long, and
+ * what a batch may take is the longest of the span going on and the one
+ * before it. So a batch counts for this long at least and twice at most.
+ * A long batch that comes once a second, as a clock may draw, is never
+ * forgotten in between.
+ */
+#define DGX_FB_FLIP_SPAN_US 1000000u
+
+/*
  * Where frames are counted where the display takes the frame buffer, the
  * interrupt that counts a frame looks which frame buffer to take a moment
  * before it counts it: a driver sets the next frame going in between. A
@@ -93,7 +104,10 @@ typedef struct _dgx_fb_flip_t {
     uint32_t ready_at;  /* the count when the picture was first finished */
     uint32_t told_at;   /* and when the display was last told of it */
     uint32_t batch_from; /* when the batch being drawn started */
-    uint32_t batch_us;  /* how long a batch may take to draw: the longest of the last ones, forgotten by an eighth a batch */
+    uint32_t batch_us;  /* how long a batch may take to draw: the longest of the two spans below */
+    uint32_t span_from; /* when the span going on started, see DGX_FB_FLIP_SPAN_US */
+    uint32_t span_us;   /* the longest batch of that span */
+    uint32_t before_us; /* and of the span before it */
     /* counted since the start; they go round after 2^32 */
     uint32_t flips;     /* times the frame buffers changed places */
     uint32_t joined;    /* batches that went into a picture already finished */

@@ -211,7 +211,7 @@ int main(int argc, char **argv)
     dgx_screen_t *lcd = &sbus->scr;
     lcd->width = DW, lcd->height = DH, lcd->color_bits = 16, lcd->screen_subtype = DgxPhysicalScreenWithBus;
     dgx_scr_init_slow_bus_optimized_funcs(lcd);
-    dgx_screen_with_bus_init_area(sbus, CASET, RASET, RAMWR, 0, DGX_SCREEN_AREA_PROTO_STD16);
+    dgx_screen_with_bus_init_area(sbus, CASET, RASET, RAMWR, DGX_SCREEN_AREA_PROTO_STD16);
     dgx_screen_t *ref = dgx_vscreen_init(DW, DH, 16, DgxScreenRGB);
     memset(panel, 0x55, sizeof(panel));
 

@@ -8,6 +8,7 @@
 #include "freertos/task.h"
 
 #include "../vscreen/dgx_bw_screen_priv.h"
+#include "dgx_backlight_priv.h"
 
 // ST7565R Commands
 #define ST7565R_RESET                      0xE2
@@ -47,6 +48,7 @@ typedef struct _dgx_st7565r_t
     dgx_bw_vscreen_t     base;
     dgx_bus_protocols_t *bus;
     gpio_num_t           rst;
+    gpio_num_t           backlight;
 } dgx_st7565r_t;
 
 static const lcd_init_cmd_t st_init_cmds[] = {
@@ -111,12 +113,13 @@ static void dgx_st7565r_destroy_screen(dgx_screen_t **pscr)
     dgx_bw_destroy_screen(pscr);
 }
 
-dgx_screen_t *dgx_st7565r_init(dgx_bus_protocols_t *bus, gpio_num_t rst)
+dgx_screen_t *dgx_st7565r_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight)
 {
     dgx_st7565r_t *scr = (dgx_st7565r_t *)calloc(1, sizeof(dgx_st7565r_t));
     if (!scr) return 0;
     scr->bus                  = bus;
     scr->rst                  = rst;
+    scr->backlight            = backlight;
     int16_t           width   = 128; // ST7565R width
     int16_t           height  = 64;  // ST7565R height
     dgx_bw_vscreen_t *bw_vscr = (dgx_bw_vscreen_t *)dgx_bw_init_with(width, height, bus->memory_allocator);
@@ -162,5 +165,11 @@ dgx_screen_t *dgx_st7565r_init(dgx_bus_protocols_t *bus, gpio_num_t rst)
             dgx_delay(ms);
         }
     }
+    dgx_backlight_on_start(backlight);
     return (dgx_screen_t *)scr;
+}
+
+esp_err_t dgx_st7565r_backlight(dgx_screen_t *scr, bool on)
+{
+    return dgx_backlight_set(((dgx_st7565r_t *)scr)->backlight, on);
 }

@@ -49,6 +49,17 @@ static void dgx_fb_flip_tell(dgx_fb_flip_t *flip)
     if (ended != before) flip->closed = true;
 }
 
+/* a span of DGX_FB_FLIP_SPAN_US is over: it becomes the one before, and what was before it is forgotten */
+static void dgx_fb_flip_span(dgx_fb_flip_t *flip, uint32_t now)
+{
+    const uint32_t gone = now - flip->span_from;
+    if (gone < DGX_FB_FLIP_SPAN_US) return;
+    /* no batch for longer than a span: the one that has ended had none either */
+    flip->before_us = gone < 2u * DGX_FB_FLIP_SPAN_US ? flip->span_us : 0u;
+    flip->span_us   = 0;
+    flip->span_from = now;
+}
+
 bool dgx_fb_flip_draw(dgx_fb_flip_t *flip)
 {
     const dgx_fb_flip_display_t *display = flip->display;
@@ -96,11 +107,13 @@ bool dgx_fb_flip_draw(dgx_fb_flip_t *flip)
 void dgx_fb_flip_drawn(dgx_fb_flip_t *flip)
 {
     if (flip->timed) {
-        /* the longest of the last batches, forgotten by an eighth a batch, but never less than this one took */
-        uint32_t took = flip->display->now_us(flip->context) - flip->batch_from;
+        const uint32_t now  = flip->display->now_us(flip->context);
+        uint32_t       took = now - flip->batch_from;
         if (took > DGX_FB_FLIP_BATCH_US_MOST) took = DGX_FB_FLIP_BATCH_US_MOST;
-        const uint32_t less = flip->batch_us - (flip->batch_us >> 3);
-        flip->batch_us      = took > less ? took : less;
+        /* a batch joins a picture told a frame or two before, when the last batch was drawn: the spans are as of then */
+        dgx_fb_flip_span(flip, now);
+        if (took > flip->span_us) flip->span_us = took;
+        flip->batch_us = flip->span_us > flip->before_us ? flip->span_us : flip->before_us;
     }
 }
 

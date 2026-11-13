@@ -183,9 +183,65 @@ static void dgx_fb_area_write_words(uint8_t *to, const uint8_t *data, uint32_t c
     }
 }
 
+/*
+ * Whole rows of the window, `rows` of them from the next one, when the axes
+ * are swapped. A row of the screen runs down a column of the frame buffer:
+ * its pixels lie a row of the panel apart, each on a line of the cache of
+ * its own, and written so every pixel brings a line. Written a column of
+ * the screen at a time instead, the rows given lie side by side along a row
+ * of the panel, and a line takes as many of them as fit. The next pixel is
+ * the first of the row after them.
+ */
+static void dgx_fb_area_write_across(dgx_fb_area_t *area, const uint8_t *data, uint32_t width, uint32_t rows)
+{
+    ptrdiff_t       along; /* from a column of the screen to the next one: a row of the panel */
+    uint8_t        *first  = dgx_fb_area_at(area, area->left, area->y, &along);
+    const uint32_t  bytes  = area->pixel_bytes;
+    const ptrdiff_t across = area->mirror_x ? -(ptrdiff_t)bytes : (ptrdiff_t)bytes; /* from a row of the screen to the next one */
+    const size_t    pitch  = (size_t)width * bytes;                                   /* a row of the window in the buffer */
+    for (uint32_t column = 0; column < width; ++column, first += along, data += bytes) {
+        dgx_fb_area_touch(area, first, across, rows);
+        uint8_t       *to   = first;
+        const uint8_t *from = data;
+        if (bytes == 2 && !area->swap_rb) {
+            for (uint32_t row = rows; row; --row, from += pitch, to += across) {
+                to[0] = from[1];
+                to[1] = from[0];
+            }
+        } else if (bytes == 2) {
+            for (uint32_t row = rows; row; --row, from += pitch, to += across) {
+                uint16_t color = dgx_fb_area_swap_565((uint16_t)(from[0] << 8 | from[1]));
+                to[0]          = (uint8_t)color;
+                to[1]          = (uint8_t)(color >> 8);
+            }
+        } else {
+            uint32_t r = area->swap_rb ? 0 : 2, b = 2 - r;
+            for (uint32_t row = rows; row; --row, from += pitch, to += across) {
+                to[r] = from[0];
+                to[1] = from[1];
+                to[b] = from[2];
+            }
+        }
+    }
+    const uint32_t next = (uint32_t)area->y + rows;
+    area->y             = next > area->bottom ? area->top : (uint16_t)next;
+}
+
 void dgx_fb_area_write(dgx_fb_area_t *area, const uint8_t *data, uint32_t pixels)
 {
     while (pixels) {
+        if (area->swap_xy && area->x == area->left) {
+            /* the whole rows that are here, down to the bottom of the window */
+            const uint32_t width = (uint32_t)(area->right - area->left) + 1u, down = (uint32_t)(area->bottom - area->y) + 1u;
+            uint32_t       rows  = pixels / width;
+            if (rows > down) rows = down;
+            if (rows >= 2u) {
+                dgx_fb_area_write_across(area, data, width, rows);
+                data += (size_t)width * rows * area->pixel_bytes;
+                pixels -= width * rows;
+                continue;
+            }
+        }
         uint8_t  *to;
         ptrdiff_t step;
         uint32_t  count = dgx_fb_area_run(area, pixels, &to, &step);
@@ -197,7 +253,7 @@ void dgx_fb_area_write(dgx_fb_area_t *area, const uint8_t *data, uint32_t pixels
                 dgx_fb_area_write_words(to, data, count);
                 data += (size_t)count * 2u;
             } else if (!area->swap_rb) {
-                /* mirrored or turned: a pixel at a time */
+                /* mirrored, or a part of a row turned: a pixel at a time */
                 for (; count; --count, data += 2, to += step) {
                     to[0] = data[1];
                     to[1] = data[0];
@@ -216,31 +272,6 @@ void dgx_fb_area_write(dgx_fb_area_t *area, const uint8_t *data, uint32_t pixels
                 to[r] = data[0];
                 to[1] = data[1];
                 to[b] = data[2];
-            }
-        }
-    }
-}
-
-void dgx_fb_area_read(dgx_fb_area_t *area, uint8_t *data, uint32_t pixels)
-{
-    while (pixels) {
-        uint8_t  *from;
-        ptrdiff_t step;
-        uint32_t  count = dgx_fb_area_run(area, pixels, &from, &step);
-        pixels -= count;
-        if (area->pixel_bytes == 2) {
-            for (; count; --count, data += 2, from += step) {
-                uint16_t color = (uint16_t)(from[1] << 8 | from[0]);
-                if (area->swap_rb) color = dgx_fb_area_swap_565(color);
-                data[0] = (uint8_t)(color >> 8);
-                data[1] = (uint8_t)color;
-            }
-        } else {
-            uint8_t r = area->swap_rb ? 0 : 2, b = 2 - r;
-            for (; count; --count, data += 3, from += step) {
-                data[0] = from[r];
-                data[1] = from[1];
-                data[2] = from[b];
             }
         }
     }
@@ -648,13 +679,11 @@ bool dgx_fb_area_command(dgx_fb_area_t *area, uint8_t command)
 {
     switch (command) {
     case DGX_FB_AREA_WRITE:
-    case DGX_FB_AREA_READ:
         dgx_fb_area_rewind(area);
         break;
     case DGX_FB_AREA_SET_COLUMNS:
     case DGX_FB_AREA_SET_ROWS:
     case DGX_FB_AREA_WRITE_CONTINUE:
-    case DGX_FB_AREA_READ_CONTINUE:
         break;
     default:
         area->command = 0;
@@ -677,9 +706,6 @@ bool dgx_fb_area_data(dgx_fb_area_t *area, const uint8_t *data, uint32_t bytes)
     case DGX_FB_AREA_WRITE_CONTINUE:
         dgx_fb_area_write(area, data, bytes / area->pixel_bytes);
         return true;
-    case DGX_FB_AREA_READ:
-    case DGX_FB_AREA_READ_CONTINUE:
-        return true; /* nothing is written while the memory is read */
     default:
         return false;
     }

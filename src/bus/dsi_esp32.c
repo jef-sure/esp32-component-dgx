@@ -906,11 +906,13 @@ static void dgx_dsi_dma_wait(dgx_dsi_bus_t *bus)
         }
     }
     xSemaphoreTake(bus->dma_done, portMAX_DELAY);
-    /* how fast the 2D DMA is here is what tells whether a piece may be left for later */
-    if (bus->dma_undisturbed && !bus->late->left) {
-        dgx_dsi_late_timed(bus->late, bus->dma_bytes, (uint32_t)esp_timer_get_time() - bus->dma_started_us);
-    }
-    /* and behind the scan how long a copy takes; the task may come here later than the copy is done */
+    /*
+     * How fast the 2D DMA is here is what tells whether a piece may be left
+     * for later; timed to the end its interrupt saw, as the task may come
+     * here later, having made the next band meanwhile.
+     */
+    if (bus->dma_undisturbed && !bus->late->left) dgx_dsi_late_timed(bus->late, bus->dma_bytes, bus->dma_done_us - bus->dma_started_us);
+    /* and behind the scan how long a copy takes */
     if (bus->dma_behind_scan) dgx_dsi_scan_timed(bus, (dgx_dsi_scan_kind_t)bus->dma_scan_kind, bus->dma_bytes, bus->dma_done_us - bus->dma_started_us);
 }
 
@@ -1798,19 +1800,6 @@ static inline void dgx_dsi_written(dgx_dsi_bus_t *bus)
     if (dgx_fb_area_take_dirty(&bus->area, &from, &length)) dgx_dsi_bring_out(bus->area.fb + from, length);
 }
 
-static bool dgx_dsi_memory_command(const dgx_dsi_bus_t *bus)
-{
-    switch (bus->area.command) {
-    case DGX_FB_AREA_WRITE:
-    case DGX_FB_AREA_WRITE_CONTINUE:
-    case DGX_FB_AREA_READ:
-    case DGX_FB_AREA_READ_CONTINUE:
-        return bus->area.fb != NULL;
-    default:
-        return false;
-    }
-}
-
 static void dgx_dsi_send_command(struct _dgx_bus_protocols_t *_bus, uint8_t cmd)
 {
     dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)_bus;
@@ -1877,31 +1866,6 @@ static void dgx_dsi_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "command 0x%02x with %u bytes failed: %s", bus->command, (unsigned)byte_len, esp_err_to_name(ret));
     }
-}
-
-static uint32_t dgx_dsi_read_data(struct _dgx_bus_protocols_t *_bus, uint8_t *data, uint32_t len)
-{
-    dgx_dsi_bus_t *bus      = (dgx_dsi_bus_t *)_bus;
-    uint32_t       byte_len = (len + 7u) / 8u;
-    if (byte_len == 0) return 0;
-    if (dgx_dsi_memory_command(bus)) {
-        uint32_t pixels = byte_len / bus->area.pixel_bytes;
-        /* a finished picture may still lack a piece left for later: it is brought as anything lacked is */
-        if (bus->frames == 2) {
-            dgx_dsi_tiles_ready(bus, bus->area.left, bus->area.right, bus->area.top, bus->area.bottom, false, false);
-            if (bus->flip.told) dgx_dsi_read_out(bus);
-        }
-        dgx_fb_area_read(&bus->area, data, pixels);
-        return pixels * bus->area.pixel_bytes * 8u;
-    }
-    bus->command_pending = false;
-    esp_err_t ret        = esp_lcd_panel_io_rx_param(bus->io, bus->command, data, byte_len);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "reading 0x%02x failed: %s", bus->command, esp_err_to_name(ret));
-        memset(data, 0, byte_len);
-        return 0;
-    }
-    return len;
 }
 
 static void dgx_dsi_sync_write(struct _dgx_bus_protocols_t *_bus)
@@ -2149,7 +2113,6 @@ dgx_bus_protocols_t *dgx_dsi_init(int bus_id, uint8_t data_lanes, uint32_t lane_
     bus->protocols.bus_name         = "DSI";
     bus->protocols.write_command    = dgx_dsi_send_command;
     bus->protocols.write_commands   = dgx_dsi_send_commands;
-    bus->protocols.read_data        = dgx_dsi_read_data;
     bus->protocols.write_data       = dgx_dsi_send_data;
     bus->protocols.write_data_async = dgx_dsi_send_data; /* a copy into the frame buffer: done when it returns */
     bus->protocols.sync_write       = dgx_dsi_sync_write;

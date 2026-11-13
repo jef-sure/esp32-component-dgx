@@ -187,7 +187,7 @@ dgx_screen_t *dgx_panel_init(dgx_bus_protocols_t *bus, const dgx_panel_t *panel,
     s->screen_submodel    = 0;
     s->screen_subtype     = DgxPhysicalScreenWithBus;
     dgx_panel_shifts(&scr->base);
-    dgx_screen_with_bus_init_area(&scr->base, DGX_PANEL_CASET, DGX_PANEL_RASET, DGX_PANEL_RAMWR, panel->ramrd, DGX_SCREEN_AREA_PROTO_STD16);
+    dgx_screen_with_bus_init_area(&scr->base, DGX_PANEL_CASET, DGX_PANEL_RASET, DGX_PANEL_RAMWR, DGX_SCREEN_AREA_PROTO_STD16);
     if (panel->scroll_lines) dgx_screen_with_bus_scroll_init(&scr->base, panel->scroll_lines, panel->scroll_area_cmd, panel->scroll_start_cmd);
     const bool clear_first = panel->flags & DGX_PANEL_CLEAR_FIRST;
     if (backlight >= 0 && clear_first) {

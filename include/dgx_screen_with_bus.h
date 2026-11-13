@@ -28,7 +28,6 @@ typedef struct _dgx_screen_with_bus_t {
     dgx_bus_protocols_t *bus;
     uint8_t xcmd_set;
     uint8_t ycmd_set;
-    uint8_t rcmd_send;
     uint8_t wcmd_send;
     uint8_t area_protocol;
     struct {
@@ -75,13 +74,12 @@ typedef struct _dgx_screen_with_bus_t {
     } scroll;
 } dgx_screen_with_bus_t;
 
-static inline void dgx_screen_with_bus_init_area(dgx_screen_with_bus_t *scr, uint8_t xcmd, uint8_t ycmd, uint8_t wcmd, uint8_t rcmd,
+static inline void dgx_screen_with_bus_init_area(dgx_screen_with_bus_t *scr, uint8_t xcmd, uint8_t ycmd, uint8_t wcmd,
                                                  dgx_screen_area_protocol_t protocol)
 {
     scr->xcmd_set          = xcmd;
     scr->ycmd_set          = ycmd;
     scr->wcmd_send         = wcmd;
-    scr->rcmd_send         = rcmd;
     scr->area_protocol     = (uint8_t)protocol;
     scr->cached_area.left  = 0xffff;
     scr->cached_area.right = 0xffff;

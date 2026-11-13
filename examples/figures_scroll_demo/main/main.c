@@ -43,12 +43,10 @@ static dgx_screen_t *lcd;
 /* Guition JC1060P470: 16 bits a pixel and two frame buffers, what is drawn between two frames is shown whole */
 static bool display_init(void)
 {
-    gpio_set_direction(GPIO_NUM_23, GPIO_MODE_OUTPUT); /* the backlight */
-    gpio_set_level(GPIO_NUM_23, 1);
     /* two lanes of 750 Mbit/s; the regulator 3 of the chip powers the DSI PHY with 2.5 V */
     dgx_bus_protocols_t *bus = dgx_dsi_init(0, 2, 750, 3, 2500);
     if (!bus) return false;
-    lcd = dgx_jd9165_init(bus, GPIO_NUM_0, 16, DgxScreenRGB, DgxDsiTwoFrames);
+    lcd = dgx_jd9165_init(bus, GPIO_NUM_0, GPIO_NUM_23, 16, DgxScreenRGB, DgxDsiTwoFrames); /* the backlight 23 */
     return lcd != NULL;
 }
 

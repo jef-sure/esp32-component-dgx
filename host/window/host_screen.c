@@ -1219,13 +1219,6 @@ static void bus_data_async(struct _dgx_bus_protocols_t *bus, const uint8_t *data
     sent(w);
 }
 
-static uint32_t bus_read(struct _dgx_bus_protocols_t *bus, uint8_t *data, uint32_t len)
-{
-    (void)bus;
-    memset(data, 0, (len + 7) / 8);
-    return 0;
-}
-
 /* QSPI: a command held back goes alone now, but for the memory write, which waits for its pixels */
 static void bus_sync(struct _dgx_bus_protocols_t *bus)
 {
@@ -1451,7 +1444,6 @@ dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, co
     bus->write_command       = bus_command;
     bus->write_commands      = bus_commands;
     bus->write_data          = bus_data;
-    bus->read_data           = bus_read;
     bus->write_data_async    = bus_data_async;
     bus->sync_write          = bus_sync;
     bus->sends_from          = bus_sends_from;

@@ -768,6 +768,8 @@ endif()
 if(CASE STREQUAL "good")
     dgx_font_need(brackets SIZE 12px LETTERS "[a;b]" TEXTS t.txt)
     dgx_font_need(soft SIZE 12px POSTSCRIPT DejaVuSans BITS 4 TEXTS t.txt)
+    # values that are keywords of a need: characters, not keywords
+    dgx_font_need(keywords SIZE 13px LETTERS "DGX" EXCEPT MONO TEXTS t.txt)
     dgx_font_needs_file(x.needs)
     dgx_font_list(own.list)
 elseif(CASE STREQUAL "faces")
@@ -778,6 +780,8 @@ elseif(CASE STREQUAL "twice")
     dgx_font_need(b SIZE 12px SIZE 14px POSTSCRIPT DejaVuSans TEXTS t.txt)
 elseif(CASE STREQUAL "bits_twice")
     dgx_font_need(b SIZE 12px BITS 4 BITS 2 POSTSCRIPT DejaVuSans TEXTS t.txt)
+elseif(CASE STREQUAL "no_value")
+    dgx_font_need(b SIZE 12px POSTSCRIPT DejaVuSans TEXTS t.txt LETTERS)
 endif()
 """)
 
@@ -792,6 +796,8 @@ endif()
         needs = open(os.path.join(build_dir, "dgx_fonts", "needs.txt"), encoding="utf-8").read()
         check("letters [a;b]\n" in needs, "brackets and a semicolon of LETTERS reach the needs file")
         check("need soft " in needs and "bits 4\n" in needs, "BITS reaches the needs file")
+        check("letters DGX\nexcept MONO\n" in needs and "\nmono 1\n" not in needs[needs.find("need keywords"):],
+              "LETTERS \"DGX\" and EXCEPT MONO are characters, not the keywords DGX and MONO")
         check("letters [{]; \n" in needs, "the letters of a needs file reach it as written, the space at the end too")
         check(f"text {os.path.join(cm, 't.txt')}" in needs and "need fromfile" in needs, "a needs file with a byte order mark is read")
         ninja = open(os.path.join(build_dir, "build.ninja"), encoding="utf-8").read()
@@ -808,6 +814,7 @@ endif()
             # the three are one face at 12 px, so one font with the characters of all three
             check(set("[a;b]tq") <= (glyphs_of(c, "dgx_font_brackets") or set()), "the characters of LETTERS with brackets and a semicolon are in the font")
             check(set("[{]; tqxyz") <= (glyphs_of(c, "dgx_font_fromfile") or set()), "the characters of the needs file, the space too, are in the font")
+            check(set("DGXtq") <= (glyphs_of(c, "dgx_font_keywords") or set()), "the characters of LETTERS \"DGX\" are in the font")
             check("widget: from a list, 12 glyphs" in run.stdout, f"a list's font that shares a need's font is counted: {run.stdout.strip()[-200:]}")
             check("patched by" in run.stdout, f"the font of the needs takes the patch beside the CMakeLists: {run.stdout.strip()[-300:]}")
             # a file a list names anew is an input of the rule: the list configures the project again
@@ -832,7 +839,8 @@ endif()
         os.utime(os.path.join(cm, "faces", "Sans.ttf"))
         run = subprocess.run(["cmake", "--build", build_dir], capture_output=True, text=True)
         check("DGX: the fonts of the program by its needs" in run.stdout, f"the face changed, the fonts made again: {run.stdout.strip()[-300:]}")
-    for case, expected in (("missing", "none.txt does not exist"), ("twice", "SIZE given twice"), ("bits_twice", "BITS given twice")):
+    for case, expected in (("missing", "none.txt does not exist"), ("twice", "SIZE given twice"), ("bits_twice", "BITS given twice"),
+                           ("no_value", "LETTERS without a value")):
         build_dir, run = configure(case)
         said = " ".join(run.stderr.split())  # CMake wraps its messages
         check(run.returncode != 0 and expected in said, f"{case}: told '{expected}': {said[-300:]}")

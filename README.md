@@ -64,14 +64,14 @@ DGX is an ESP-IDF component, published in the
 as `jef-sure/dgx`. Add it to a project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.10.0"
+idf.py add-dependency "jef-sure/dgx^0.11.0"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.10.0"
+  jef-sure/dgx: "^0.11.0"
 ```
 
 Then enable the drivers you need in `menuconfig`, under the **DGX** menu. A
@@ -103,7 +103,7 @@ dgx_bus_protocols_t *bus =
                GPIO_NUM_27, 40 * 1000 * 1000, 0);
 
 // 2. create a screen on top of that bus
-dgx_screen_t *scr = dgx_st7789_init(bus, GPIO_NUM_33, 16, DgxScreenRGB, ST7789_RESOLUTION_240x320);
+dgx_screen_t *scr = dgx_st7789_init(bus, GPIO_NUM_33, GPIO_NUM_NC, 16, DgxScreenRGB, ST7789_RESOLUTION_240x320);
 
 // 3. draw something
 dgx_fill_rectangle(scr, 0, 0, scr->width, scr->height,
@@ -957,7 +957,7 @@ into one batch. The batch is shown as a whole on the next frame.
 #include "drivers/jd9165.h"
 
 dgx_bus_protocols_t *bus = dgx_dsi_init(0, 2, 750, 3, 2500);
-dgx_screen_t *lcd = dgx_jd9165_init(bus, GPIO_NUM_0, 16, DgxScreenRGB, DgxDsiTwoFrames);
+dgx_screen_t *lcd = dgx_jd9165_init(bus, GPIO_NUM_0, GPIO_NUM_23, 16, DgxScreenRGB, DgxDsiTwoFrames);
 
 dgx_screen_progress_up(lcd);
 draw_picture(lcd);
@@ -1268,7 +1268,7 @@ columns each test draws into an 8-bit virtual screen, which is then sent once:
 
 | Test | CYD 240x320, display | CYD 240x320, memory | JC4827W543 272x480, display | JC4827W543 272x480, memory | JC1060P470 600x1024, display | JC1060P470 600x1024, memory |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Hackaday logo, 16 times | 533 959 | 48 668 | 163 874 | 29 164 | 1 734 100 | 41 594 |
+| Hackaday logo, 16 times | 533 959 | 48 668 | 163 874 | 29 164 | 412 707 | 41 594 |
 | Screen fill | 31 287 | 32 330 | 13 371 | 14 078 | 3 547 | 38 685 |
 | Text | 22 833 | 36 425 | 19 878 | 17 388 | 4 936 | 33 503 |
 | Pixels | 650 896 | 92 062 | 1 013 447 | 99 832 | 3 295 808 | 191 330 |
@@ -1282,7 +1282,7 @@ columns each test draws into an 8-bit virtual screen, which is then sent once:
 | Triangles (filled) | 164 448 | 35 335 | 135 978 | 17 331 | 1 935 747 | 67 570 |
 | Rounded rects (outline) | 23 683 | 33 476 | 23 767 | 15 236 | 49 920 | 37 098 |
 | Rounded rects (filled) | 346 428 | 35 479 | 154 621 | 17 923 | 637 672 | 189 094 |
-| Total | 2 881 373 | 594 087 | 2 857 303 | 383 871 | 8 635 804 | 1 233 483 |
+| Total | 2 881 373 | 594 087 | 2 857 303 | 383 871 | 7 314 411 | 1 233 483 |
 
 Each board draws at the size of its own screen, so a row shows what that
 board does, not one picture drawn three times; only the logo is 240x320
@@ -1292,11 +1292,11 @@ the pixels, and 33 ms on the JC1060P470 with eight times the pixels.
 
 The display of the JC1060P470 is memory in PSRAM, and outside a batch every
 drawing writes the cache of the processor back over the rows it changed.
-Its panel is 1024x600 and the test runs it upright, so neighbours in a row of
-the screen lie 2 KB apart in the frame buffer, each on a cache line of its own:
-that is the 1.7 s of the logo. So figures drawn straight on it take long, and
-a program there draws in memory: the test takes 8.6 s on the display and 1.2 s
-in memory.
+Its panel is 1024x600 and the test runs it upright, so a row of the screen
+runs down a column of the frame buffer, its pixels 2 KB apart; the rows a call
+brings are written side by side, which is what the 0.41 s of the logo cost.
+Figures drawn straight on it take long, and a program there draws in memory:
+the test takes 7.3 s on the display and 1.2 s in memory.
 
 How it was measured, the other boards, and the numbers published for these
 libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/benchmarks-en.md).

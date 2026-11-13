@@ -65,7 +65,6 @@ typedef struct dgx_panel_t {
     uint8_t     colmod[4];                /**< COLMOD for 12, 16, 18 and 24 bits a pixel; 0 for a depth that is not set up, where `depths` is 0. */
     uint8_t     depths;                   /**< The depths set up, DGX_PANEL_DEPTH_*; 0 for those with a COLMOD that is not 0. */
     uint8_t     madctl;                   /**< MADCTL of the upright picture with the colors in RGB order; MX, MY, MV and BGR are turned on it. */
-    uint8_t     ramrd;                    /**< The command that reads memory, 0 for none. */
     uint8_t     reset_high_ms;            /**< The reset line high so long first; 0 to begin with it low. */
     uint8_t     reset_low_ms;             /**< Then low so long. */
     uint8_t     reset_after_ms;           /**< And high again, waited for so long. */

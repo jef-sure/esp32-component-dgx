@@ -17,7 +17,6 @@
 #define GC9A01_CASET   0x2A
 #define GC9A01_PASET   0x2B
 #define GC9A01_RAMWR   0x2C
-#define GC9A01_RAMRD   0x2E
 #define GC9A01_MADCTL  0x36
 #define GC9A01_COLMOD  0x3A
 
@@ -91,21 +90,25 @@ const dgx_panel_t dgx_panel_gc9a01 = {
     .width          = 240,
     .height         = 240,
     .colmod         = {0x03, 0x05, 0x06},
-    .ramrd          = GC9A01_RAMRD,
     .reset_low_ms   = 100,
     .reset_after_ms = 100,
     .flags          = DGX_PANEL_BOTH_BOUNDS,
     .init           = gc9a01_init_cmds,
 };
 
-dgx_screen_t *dgx_gc9a01_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo)
+dgx_screen_t *dgx_gc9a01_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo)
 {
-    return dgx_panel_init(bus, &dgx_panel_gc9a01, rst, GPIO_NUM_NC, color_bits, cbo);
+    return dgx_panel_init(bus, &dgx_panel_gc9a01, rst, backlight, color_bits, cbo);
 }
 
 void dgx_gc9a01_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
     dgx_panel_orientation(scr, dir_x, dir_y, swap_xy);
+}
+
+esp_err_t dgx_gc9a01_backlight(dgx_screen_t *scr, bool on)
+{
+    return dgx_panel_backlight(scr, on);
 }
 
 void dgx_gc9a01_display_off(dgx_screen_t *_scr)

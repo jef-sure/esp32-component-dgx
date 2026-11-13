@@ -16,10 +16,15 @@ extern "C" {
  * The sizes are those of the glass as the controller scans it, sources by
  * gates: the 2.9" module is 128 pixels across and 296 down, and lies in
  * landscape as 296x128 once turned by dgx_ssd1680_orientation().
+ *
+ * The glass of the 2.9" module is Yingruida YRD0290RWS800F6 by the papers of
+ * WeAct, ZJY128296-029EAAMFGN by older ones; GxEPD2 drives it as
+ * GxEPD2_290_C90c. The glass of the 2.13" module is Yingruida E0213A179;
+ * GxEPD2 drives it as GxEPD2_213_Z98c.
  */
 typedef enum {
-    SSD1680_128X296_BWR, ///< 2.9": WeAct Studio 2.9" Epaper Module with red, Good Display GDEM029C90
-    SSD1680_122X250_BWR, ///< 2.13": WeAct Studio 2.13" Epaper Module with red, Good Display GDEY0213Z98; not checked on a module
+    SSD1680_128X296_BWR, ///< 2.9": WeAct Studio 2.9" Epaper Module with red
+    SSD1680_122X250_BWR, ///< 2.13": WeAct Studio 2.13" Epaper Module with red; not checked on a module
 } ssd1680_resolution_t;
 
 /**
@@ -27,8 +32,8 @@ typedef enum {
  *
  * The whole picture is sent, about 9.5 KB for the 2.9" module, and the
  * panel changes all of it: the glass flashes several times, which takes
- * about 20 s at 23 °C on the 2.9" module, 15 s on the 2.13", longer in the
- * cold. The call returns once the picture is sent. Drawing may go on at
+ * about 20 s at 23 °C on the 2.9" module, longer in the cold. The call
+ * returns once the picture is sent. Drawing may go on at
  * once; the next call of the driver waits until the panel has finished,
  * and the controller then goes into deep sleep until the next refresh,
  * when the reset line is wired.

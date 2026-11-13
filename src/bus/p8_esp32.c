@@ -190,12 +190,6 @@ static void dgx_p8_sync_write_func(struct _dgx_bus_protocols_t *_bus) {
     dgx_p8_wait_pending(bus);
 }
 
-/* the display is not read through this bus: nothing is read, and the buffer is left as it was */
-static uint32_t dgx_p8_read_data(struct _dgx_bus_protocols_t *_bus, uint8_t *data, uint32_t len) {
-    (void)_bus, (void)data, (void)len;
-    return 0;
-}
-
 /*
  * The I80 buses DGX creates, one display on each, deleted with it. The I80
  * driver of IDF does not keep the transfers of two panels on one bus apart:
@@ -352,7 +346,6 @@ static dgx_bus_protocols_t *dgx_p8_attach(esp_lcd_i80_bus_handle_t i80_bus, bool
     bus->protocols.bus_name = "P8";
     bus->protocols.write_command = dgx_p8_send_command;
     bus->protocols.write_commands = dgx_p8_send_commands;
-    bus->protocols.read_data = dgx_p8_read_data;
     bus->protocols.write_data = dgx_p8_send_data;
     bus->protocols.write_data_async = dgx_p8_send_data_async;
     bus->protocols.sync_write = dgx_p8_sync_write_func;

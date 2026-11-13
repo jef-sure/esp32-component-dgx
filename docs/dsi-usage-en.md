@@ -29,7 +29,7 @@ color at 1024x600, 1.8 MB for 24-bit. Drawing changes that buffer.
 
 ```c
 dgx_bus_protocols_t *bus = dgx_dsi_init(0, 2, 750, 3, 2500);
-dgx_screen_t *lcd = dgx_jd9165_init(bus, GPIO_NUM_0, 16, DgxScreenRGB, DgxDsiTwoFrames);
+dgx_screen_t *lcd = dgx_jd9165_init(bus, GPIO_NUM_0, GPIO_NUM_23, 16, DgxScreenRGB, DgxDsiTwoFrames);
 ```
 
 - The JD9165 driver takes 16 or 24 bits per pixel. Its init commands belong
@@ -316,6 +316,14 @@ With two frame buffers the bus does one thing for several tasks, see
 and does not care. Which task draws when, how
 often and how evenly is up to the program; `dgx_dsi_frame_us()` and
 `dgx_dsi_frame_ended()` give it what it needs to know about the display.
+
+Run the task that draws at a raised priority, above the tasks of the program
+that compute for long without a pause; when several draw under one mutex,
+all of them. A drawing task held up for longer than a frame between its
+calls to the bus makes the bus misjudge how long a batch takes, and twice
+in a row it can make the display show the picture before for a frame; see
+"A known weakness" in
+[Batches of several tasks in one frame](dsi-display-en.md#batches-of-several-tasks-in-one-frame).
 
 The two ways of the API reference, every task drawing under a mutex and messages to
 one task that draws, measured on a JC1060P470 (ESP32-P4, JD9165 of

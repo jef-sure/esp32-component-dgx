@@ -592,7 +592,7 @@ static void screen_on(dgx_screen_with_bus_t *s, dgx_bus_protocols_t *bus, int bi
     s->bus             = bus;
     s->scr.width       = PW, s->scr.height = PH, s->scr.color_bits = (uint8_t)bits;
     s->scr.screen_subtype = DgxPhysicalScreenWithBus;
-    dgx_screen_with_bus_init_area(s, 0x2A, 0x2B, 0x2C, 0, DGX_SCREEN_AREA_PROTO_STD16);
+    dgx_screen_with_bus_init_area(s, 0x2A, 0x2B, 0x2C, DGX_SCREEN_AREA_PROTO_STD16);
     dgx_scr_init_slow_bus_optimized_funcs(&s->scr);
 }
 

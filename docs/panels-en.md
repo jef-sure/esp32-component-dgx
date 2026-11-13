@@ -6,35 +6,43 @@ going: the [README](../README.md#getting-started).
 
 Each driver returns a `dgx_screen_t *` you can draw on. Color panels take a
 pixel depth and a channel order; monochrome panels keep a RAM buffer that DGX
-flushes for you. Use `GPIO_NUM_NC` for any reset/CS line your board does not
-wire.
+flushes for you; the e-paper panel keeps one that goes to the glass when the
+program asks. Use `GPIO_NUM_NC` for any reset, backlight or CS line your
+board does not wire.
 
 | Controller | Type | Buses | Constructor | Kconfig option |
 | --- | --- | --- | --- | --- |
-| ST7735 | color TFT, 128x160 with no memory offset | SPI, P8 | `dgx_st7735_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ST7735` |
-| ST7789 | color TFT | SPI, P8 | `dgx_st7789_init(bus, rst, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_SPI_ST7789` |
+| ST7735 | color TFT, 128x160 and the 0.96" 80x160 | SPI, P8 | `dgx_st7735_init(bus, rst, backlight, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_SPI_ST7735` |
+| ST7789 | color TFT | SPI, P8 | `dgx_st7789_init(bus, rst, backlight, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_SPI_ST7789` |
 | ILI9341 | color TFT | SPI, P8 | `dgx_ili9341_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ILI_9341` |
 | NV3041A | color TFT, 480x272 | QSPI | `dgx_nv3041a_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_NV3041A` |
 | ST77916 | round color TFT, 360x360 | QSPI, SPI | `dgx_st77916_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_ST77916` |
-| GC9A01 | round color TFT | SPI, P8 | `dgx_gc9a01_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_GC9A01` |
+| GC9A01 | round color TFT | SPI, P8 | `dgx_gc9a01_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_GC9A01` |
 | SSD1351 | color OLED | SPI, P8 | `dgx_ssd1351_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SSD1351` |
 | SSD1322 | 16-gray OLED, 256x64, 240x128, 128x64 | P8, SPI | `dgx_ssd1322_init(bus, resolution, rst)` | `CONFIG_DGX_ENABLE_SSD1322` |
 | SSD1306 | mono OLED | SPI, I2C | `dgx_ssd1306_init(bus, resolution, is_ext_vcc, rst)` | `CONFIG_DGX_ENABLE_SSD1306` |
 | SSD1309 | mono OLED | SPI, I2C | `dgx_ssd1309_init(bus, resolution, rst)` | `CONFIG_DGX_ENABLE_SSD1309` |
 | SH1106 | mono OLED | SPI, I2C | `dgx_sh1106_init(bus, resolution, rst)` | `CONFIG_DGX_ENABLE_SH1106` |
-| ST7565R | mono LCD | SPI | `dgx_st7565r_init(bus, rst)` | `CONFIG_DGX_ENABLE_ST7565R` |
-| ST7920 | mono LCD | SPI | `dgx_st7920_init(bus, rst, cs)` | `CONFIG_DGX_ENABLE_ST7920` |
-| JD9165 | color TFT, 1024x600 | DSI | `dgx_jd9165_init(bus, rst, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9165` |
-| JD9365 | color TFT, 800x1280 | DSI | `dgx_jd9365_init(bus, rst, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9365` |
+| ST7565R | mono LCD | SPI | `dgx_st7565r_init(bus, rst, backlight)` | `CONFIG_DGX_ENABLE_ST7565R` |
+| ST7920 | mono LCD | SPI | `dgx_st7920_init(bus, rst, backlight, cs)` | `CONFIG_DGX_ENABLE_ST7920` |
+| SSD1680 | e-paper of black, white and red, 128x296 and 122x250 | SPI | `dgx_ssd1680_init(bus, resolution, rst, busy)` | `CONFIG_DGX_ENABLE_SSD1680` |
+| JD9165 | color TFT, 1024x600 | DSI | `dgx_jd9165_init(bus, rst, backlight, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9165` |
+| JD9365 | color TFT, 800x1280 | DSI | `dgx_jd9365_init(bus, rst, backlight, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9365` |
 
 Common parameters:
 
 - `bus` — a `dgx_bus_protocols_t *` from `dgx_spi_init()`, `dgx_qspi_init()`,
   `dgx_i2c_init()`, `dgx_p8_init()` or `dgx_dsi_init()`.
 - `rst` — reset GPIO, or `GPIO_NUM_NC` if the panel has no reset line.
-- `backlight` (ILI9341, NV3041A and ST77916) — backlight GPIO, or `GPIO_NUM_NC` if it is not
-  under software control; their backlight calls then return
-  `ESP_ERR_NOT_SUPPORTED`.
+- `backlight` (every display with a backlight: the color TFTs and the mono
+  LCDs; the OLEDs and e-paper have none) — backlight GPIO, high for on, or
+  `GPIO_NUM_NC` if it is not under software control. The driver turns it on
+  once the panel is set up, and `dgx_<driver>_backlight(scr, on)` turns it
+  off and on; without the line that call returns `ESP_ERR_NOT_SUPPORTED`.
+  The driver does no more than that. For brightness by PWM the program
+  drives the line with LEDC itself and passes `GPIO_NUM_NC` here: once LEDC
+  has the pin, the backlight call changes nothing and still returns
+  `ESP_OK`.
 - `color_bits` — pixel depth; `16` (RGB565) is the usual choice. What each
   driver takes: [Color depths](#color-depths). A driver given a depth it
   cannot set up logs an error and returns NULL. For `18` see
@@ -53,15 +61,24 @@ Common parameters:
   `ST7789_RESOLUTION_240x135` for the 1.14" glass, which lies 52 columns and
   40 rows into the memory of the controller. Swapping the axes in
   `dgx_st7789_orientation()` turns the screen between the two shapes.
+- `resolution` (ST7735) — the panel: `ST7735_RESOLUTION_128x160`, or
+  `ST7735_RESOLUTION_160x128` for it in landscape;
+  `ST7735_RESOLUTION_80x160` or `ST7735_RESOLUTION_160x80` for the 0.96" IPS
+  glass. Its controller is set for 128x160 on the module, the glass lies 24
+  columns into it, and its colors need no inversion and go in BGR order on
+  the usual modules: Adafruit starts it as `INITR_MINI160x80`. A module
+  that shows cyan for red and noise along two edges is of the other kind,
+  see [A panel of your own module](#a-panel-of-your-own-module). Before 0.11
+  the constructor had no such argument and made the 128x160.
 
-Color panels, ST7920, SSD1306, SSD1309 and SH1106 also expose an
-orientation setter (`dgx_<driver>_orientation(scr, dir_x, dir_y, swap_xy)`).
-A color controller is told its scan direction. An ST7920 has no command for
-that, and the OLED controllers mirror by their segments and rows only as a
-module wires its glass: these drivers turn the picture where they send it to
-the panel, and with `swap_xy` the screen of a 128x64 panel is 64x128. A few
-drivers add extras: ILI9341 has
-`dgx_ili9341_backlight()`, NV3041A and ST77916 have `dgx_nv3041a_backlight()` and `dgx_st77916_backlight()`,
+Color panels, ST7920, SSD1306, SSD1309, SH1106, SSD1322 and SSD1680 also
+expose an orientation setter (`dgx_<driver>_orientation(scr, dir_x, dir_y,
+swap_xy)`). A color controller is told its scan direction. An ST7920 has no
+command for that, and the OLED controllers mirror by their segments and rows
+only as a module wires its glass: these drivers turn the picture where they
+send it to the panel, and with `swap_xy` the screen of a 128x64 panel is
+64x128. SSD1680 puts each pixel into the picture turned as it is drawn. A few
+drivers add extras: those with a backlight have `dgx_<driver>_backlight()`,
 GC9A01 has `dgx_gc9a01_display_off()` /
 `dgx_gc9a01_display_on()`, SSD1351 has `dgx_ssd1351_brightness()`, SSD1306
 has `dgx_ssd1306_contrast()`, SSD1309 has `dgx_ssd1309_contrast()` and
@@ -145,6 +162,7 @@ controller takes over that bus but DGX does not set up, where they are known:
 | SSD1322 | P8, SPI | 4: 16 grays | |
 | SSD1306, SSD1309, SH1106 | SPI, I2C | 1 | |
 | ST7565R, ST7920 | SPI | 1 | |
+| SSD1680 | SPI | 8: an ink a pixel, black, white or red | |
 | JD9165, JD9365 | DSI | 16, 24 | |
 | the window on the computer | none | 16, 18; 24 with `no_bus` | |
 | a virtual screen | none | 1, 4, 8, 12, 16, 18, 24, 32 | |
@@ -160,7 +178,7 @@ on QSPI, have been seen on a panel; see [docs/18-bit-pixels-en.md](18-bit-pixels
 ST7735, ST7789, ILI9341, GC9A01, NV3041A and ST77916 are descriptions of
 their panels, `dgx_panel_t` of [include/drivers/dgx_panel.h](../include/drivers/dgx_panel.h),
 and their constructors make a screen of one with `dgx_panel_init()`. Their
-headers have them under the names `dgx_panel_st7735`, `dgx_panel_st7789_240x240`,
+headers have them under the names `dgx_panel_st7735`, `dgx_panel_st7735_80x160`, `dgx_panel_st7789_240x240`,
 `dgx_panel_st7789_240x320`, `dgx_panel_st7789_76x284`, `dgx_panel_st7789_135x240`, `dgx_panel_ili9341`, `dgx_panel_gc9a01`,
 `dgx_panel_nv3041a` and `dgx_panel_st77916`. A module of another glass is a
 copy of one with what the module has otherwise: the size of its glass and
@@ -178,7 +196,28 @@ dgx_screen_t *scr = dgx_panel_init(bus, &panel, rst, GPIO_NUM_NC, 16, DgxScreenR
 ```
 
 Turned or mirrored, the window follows the glass: with the rows going up it
-lies 20 rows up from the end of the memory. `dgx_panel_orientation()` and
+lies 20 rows up from the end of the memory.
+
+The other kind of the 0.96" ST7735 module, which Adafruit starts as
+`INITR_MINI160x80_PLUGIN`, has its controller set for 132x162, the glass
+26 columns and 1 row into it, and needs its colors inverted. The table
+`on` goes after the screen is filled with black, with
+`DGX_PANEL_CLEAR_FIRST`, and takes the INVON:
+
+```c
+static const dgx_lcd_init_cmd_t invert[] = {{0x21, 0, 0, 0, {0}}, {0, 0, 0xff, 0, {0}}}; /* INVON, the end */
+static dgx_panel_t panel;
+panel               = dgx_panel_st7735_80x160;
+panel.memory_width  = 132;
+panel.memory_height = 162;
+panel.x_offset      = 26;
+panel.y_offset      = 1;
+panel.flags        |= DGX_PANEL_CLEAR_FIRST;
+panel.on            = invert;
+dgx_screen_t *scr = dgx_panel_init(bus, &panel, rst, GPIO_NUM_NC, 16, DgxScreenBGR);
+```
+
+No module of this kind has been tried. `dgx_panel_orientation()` and
 `dgx_panel_backlight()` work for every such screen. A table of the maker
 gives MADCTL and COLMOD `dgx_panel_adj_madctl` and `dgx_panel_adj_colmod`
 as their adjust functions, so that they follow the order of colors and the
@@ -227,3 +266,22 @@ from segment 2 for 128 columns and from 32 for 64, as u8g2 has it; if a
 module of yours shows a blank stripe at an edge, pass the segment of its
 first column to `dgx_sh1106_column_offset()`. The init commands are those
 of the u8g2 driver written for the controller after its datasheet.
+
+SSD1680 is the controller of the e-paper modules of black, white and red:
+`dgx_ssd1680_init(bus, SSD1680_128X296_BWR, rst, busy)` for the 2.9" module
+of WeAct Studio, seen right on a module, or `SSD1680_122X250_BWR` for its
+2.13" one, not tried. The driver keeps the picture as the controller takes
+it, two planes of a bit a pixel, 9.5 KB for the 2.9", and drawing changes
+only that. `dgx_ssd1680_refresh()` sends it and has the glass change: all of
+it, flashing several times, in about 20 s on the 2.9" at room temperature;
+the glass has no fast refresh of a part. `dgx_ssd1680_busy()` is true until
+the glass has changed, and the next call of the driver waits for that. A
+color is an ink, a byte a pixel: `DGX_BWR_BLACK`, `DGX_BWR_WHITE` or
+`DGX_BWR_RED` of `dgx_bits.h`, and `dgx_rgb_to_bwr()` gives the nearest of
+them, so `DGX_RED(dgx_rgb_to_bwr)` and the other colors of `dgx_colors.h`
+work. Inks do not mix: a font of soft edges is drawn with `DGX_FONT_MONO`.
+BUSY has to be wired. With the reset line the controller sleeps between
+refreshes; without it, it never sleeps, for only a reset wakes it. The
+glass keeps the picture with no power; its maker tests it with a refresh
+every 150 s, and more often than every few minutes wears it.
+[examples/ssd1680_demo](../examples/ssd1680_demo) is a working program.

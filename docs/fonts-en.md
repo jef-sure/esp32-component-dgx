@@ -105,7 +105,7 @@ The keywords of a need:
 | Keyword | Meaning |
 | --- | --- |
 | `TEXTS <files...>` | Files whose characters the font must contain. Paths are relative to the CMakeLists that declares the need. How each kind of file is read is described below. |
-| `LETTERS "<characters>"` | Characters given directly, in addition to the texts or instead of them; any characters, brackets, semicolons and spaces included. A string that is a keyword of a need, such as `"DGX"` or `"MONO"`, is taken by CMake for that keyword: give its letters in another order, `"GXD"`. |
+| `LETTERS "<characters>"` | Characters given directly, in addition to the texts or instead of them; any characters, brackets, semicolons and spaces included. The word after `LETTERS` is always the characters, even when it reads like a keyword: `LETTERS "DGX"` asks for D, G and X. |
 | `EXCEPT "<characters>"` | Characters of the texts the font does not need: the braces of placeholders like `{0}` in a game's strings, for example. |
 | `SIZE <n>pt`, `<n>mm`, `<n>px` | The size: in points of the frame, in millimeters, or in pixels (see below). A bare number means points. |
 | `MONO` | Only a monospaced face. |

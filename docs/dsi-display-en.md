@@ -7,7 +7,7 @@ has been measured on it, and why the screen is updated the way it is. What a
 program needs to know to use such a display is shorter and lives in
 [dsi-usage-en.md](dsi-usage-en.md).
 
-The note describes the code of DGX 0.10.16. The bus is `src/bus/dsi_esp32.c`, the
+The note describes the code of DGX 0.11.0. The bus is `src/bus/dsi_esp32.c`, the
 frame buffer core `src/bus/fb_area.c`, the tile maps `src/bus/fb_tiles.c`,
 the swap of two buffers `src/bus/fb_flip.c`, the drivers
 `src/drivers/jd9165.c` and `src/drivers/jd9365.c`.
@@ -564,7 +564,7 @@ other the old. There is no way to avoid it that suits every program, so the
 driver constructor takes a strategy.
 
 ```c
-dgx_screen_t *scr = dgx_jd9165_init(bus, rst, 16, DgxScreenRGB, DgxDsiTwoFrames);
+dgx_screen_t *scr = dgx_jd9165_init(bus, rst, backlight, 16, DgxScreenRGB, DgxDsiTwoFrames);
 ```
 
 | Strategy | Buffers | Tearing | Cost |
@@ -694,20 +694,24 @@ Details.
   goes by the past ones: it measures the time of every batch itself, from
   the first drawing to `update_screen()`, and takes the longest of the recent
   ones as the estimate.
-- "Recent" means that a long batch stops counting after a while. After every
-  batch the estimate becomes the larger of two numbers: the time of this
-  batch, or the previous estimate less an eighth. If a batch of 8 ms is
-  followed by batches of 1 ms, the estimate goes 7, 6.1, 5.4, 4.7 ms and so
-  on: about half after five batches, 1 ms after sixteen. One long batch does
-  not forbid joining for good, but right after it the bus is more careful.
-- There is one estimate per bus, not one for each task. If one task draws
-  long batches rarely and another draws short ones often, by the next long
-  batch the short ones have brought the estimate down to their own length.
-  The long batch then goes into a finished picture with less of the frame
-  left than it takes, does not make it, and the whole picture, the parts of
-  the other tasks included, is shown a frame later. Nothing half-drawn
-  reaches the screen. Such frames are counted by `kept_back` in
-  `dgx_dsi_counters()`.
+- "Recent" is a time, not a number of batches. The bus cuts time into spans
+  of a second, and the estimate is the longest batch of the span going on
+  and of the one before it: a batch counts for a second at least and two at
+  most, however many batches come after it. A long batch that comes once a
+  second, as a clock may draw it, is never forgotten in between.
+- There is one estimate per bus, not one for each task. While a long batch
+  counts, the short batches of other tasks go into a finished picture only
+  while what is left of the frame would still hold the long one; later in
+  the frame they wait for the swap, and what they draw is shown a frame
+  later. The other way round is worse: a long batch that goes into a
+  finished picture with less of the frame left than it takes does not make
+  it, and the whole picture, the parts of the other tasks included, is shown
+  a frame later, the screen keeping the one before for a frame more. A long
+  batch that comes more seldom than every two seconds is forgotten in
+  between and can still do that, once for each of its batches at most.
+  Nothing half-drawn reaches the screen. Such frames are counted by
+  `kept_back` in `dgx_dsi_counters()`, the waits by `flip_waits` and
+  `flip_wait_us`.
 - The 2 ms are room for inaccuracy: the end of frame is predicted from the
   timing of the last one, and the interrupt may have come late.
 - The wait for the swap happens inside a drawing function, that is under the
@@ -724,8 +728,8 @@ the previous picture for one frame: it took B, the request to stay on A was
 late, and the repeated request to show B was late too. Nothing half-drawn is
 seen at that.
 
-The bus cannot fix this; a program can make it rare. It is about task
-priorities.
+The bus cannot fix this; a program makes it rare by running the task that
+draws at a raised priority. In detail:
 
 - A drawing task is held up for a frame or longer only by a task of higher
   priority that computes for that long without a pause. The drawing task
@@ -1597,7 +1601,7 @@ A program sets another size itself; the call is optional:
 ```c
 dgx_bus_protocols_t *bus = dgx_dsi_init(0, 2, 750, 3, 2500);
 if (dgx_dsi_tiles(bus, 32, 8) != ESP_OK) ESP_LOGW(TAG, "the tiles stay 32x4");
-dgx_screen_t *screen = dgx_jd9165_init(bus, rst, 16, DgxScreenRGB, DgxDsiTwoFrames);
+dgx_screen_t *screen = dgx_jd9165_init(bus, rst, backlight, 16, DgxScreenRGB, DgxDsiTwoFrames);
 ```
 
 The call checks the size and answers with an ESP-IDF code. If the size is not
@@ -1863,8 +1867,11 @@ and blue as the panel takes them, at least the `rows_from` bytes of
 
 This is what makes a turned screen fast. Through a window, a screen rotated
 by 90 degrees writes each pixel a row of the panel away from the one before,
-1600 bytes on the 10" panel, and the cache brings in a line of 64 bytes for
-every 2 bytes written. The same path serves `DGX_VSCREEN_SCALE(n)`: a
+1600 bytes on the 10" panel. Since 0.11.0 the whole rows of the window that
+come in one call are written a column of the screen at a time, side by side
+in a row of the panel: with 4 KB of pixels and rows of 240, eight of them
+share a line of the cache of 64 bytes. A pixel at a time, as before, the
+cache brought in a line for every 2 bytes written. The same path serves `DGX_VSCREEN_SCALE(n)`: a
 320x200 game picture goes to a 1280x800 screen with every pixel a 4x4
 square. The processor reads 64 000 indices, and three of every four rows of
 the panel are copies. With `DGX_VSCREEN_SMOOTH` as well, every row of the
@@ -2578,6 +2585,16 @@ and the like), whose header says not to call them from a program; ESP-IDF
 has no other way to it. A program that keeps code in the cache itself turns
 `CONFIG_DGX_DSI_LOCK_INTERRUPT_CODE` off.
 
+The option is on by default in a build for revision 3 and later only, where
+the fault was seen. In a build for revisions below 3
+(`CONFIG_ESP32P4_SELECTS_REV_LESS_V3`), as for the 7" JC1060P470 of
+revision 1.3, it is off: the fault never showed there, and the cache it
+takes is not free. The port and the handler take one way of the four in
+about 45 of the 64 sets of each instruction cache, and on the 7" the text of
+the PDQ test, the test with the longest code, went 5% slower with it: 5 648
+and 5 293 us in two rounds against 5 379 and 5 087. The other tests took the
+same time.
+
 A thread of the Espressif forum,
 [ESP32-P4 HP Core voltage issue](https://esp32.com/viewtopic.php?p=153253),
 tells of the same kind of failure, wrong instructions, on a board of its own
@@ -2759,11 +2776,12 @@ With the current code scenes 1–6 with two buffers give 42.3, 60.9, 34.8,
   6.1, see issue 19226, and the bus works around it by writing the register.
   The way around ran on both boards under 6.1; under 6.0.3 the code was only
   built.
-- **The time of a batch.** How long a batch will take the bus judges by past
-  batches, and it has one estimate. If batches differ in length it is wrong,
-  and a finished picture waits an extra frame. In the check with random
-  batches the finished picture missed 5% of frame ends, see "How it was
-  checked".
+- **The time of a batch.** How long a batch will take the bus judges by the
+  batches of the last second or two, and it has one estimate. A long batch
+  more seldom than every two seconds is forgotten in between, and a finished
+  picture it goes into may wait an extra frame. While a long batch counts,
+  short batches late in a frame wait for the swap. A third frame buffer
+  would need no estimate at all.
 - **Evenness.** A picture that comes less often than a frame and not after an
   equal number of frames moves unevenly. The bus does not even this out, see
   "Evenness".
@@ -2890,6 +2908,7 @@ the JD9165 (7") its aiming was only built.
 | 0.7.2 | disposing of the bus right after a swap drops the pieces not yet started: it waited 250–500 ms for them and logged a false warning |
 | 0.9.3 | 0.9.2 was not released, its work came with this version. A display whose start failed can be made again on the same bus. Where frames are counted at the buffer switch, a batch finished in the last 0.3 ms of a frame waits one more frame, `DGX_FB_FLIP_SWITCH_US`, and the bus counts the frame first thing in its interrupt. A wait for the scan no longer ends at once when the end of a frame is due but not yet counted. The configuration of `dma2d_enqueue()` lives in the bus, not on the stack. With `CONFIG_LCD_DSI_ISR_CACHE_SAFE` or `CONFIG_DMA2D_ISR_IRAM_SAFE` but no `CONFIG_DMA2D_OPERATION_FUNC_IN_IRAM` the copy after the swap is off. A piece is left for that copy only when its rows start and end on cache lines. The interrupt that finishes a late piece reads the number of pieces before it marks its piece done. The bands of `write_indexed` are taken with `MALLOC_CAP_DMA` |
 | 0.10.16 | `write_indexed` takes 16-bit colours too: a 16-bit picture scaled, turned or under an overlay layer goes by bands instead of through the window; `DGX_VSCREEN_ALPHA` mixes a band with the frame buffer by the accelerator or by the processor; every index of an overlay layer may weigh its own; behind the scan a write of the 2D DMA or the PPA is started by its measured speed, early enough for a write slower than the scan; the code of interrupts is kept in the instruction cache against "Illegal instruction" on the 10-inch board |
+| 0.11.0 | a batch counts for the estimate of its length a second at least and two at most, instead of being forgotten by an eighth with every batch after it: a long batch among short ones no longer keeps a finished picture back; the speed of the 2D DMA, by which a piece is left for the copy after the swap, is timed to the end its interrupt sees, not to when the task comes to wait for it; the bus no longer answers the command that reads memory from the frame buffer; the whole rows of a window turned on the panel that come in one call are written a column of the screen at a time, side by side in a row of the panel: the logo of the PDQ test on the 7" in 0.41 s instead of 1.75 |
 
 ### The strips of 0.5.4
 

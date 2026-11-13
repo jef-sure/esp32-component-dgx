@@ -97,15 +97,14 @@ enum
 /* 16 bits a pixel and two frame buffers: a picture is shown whole, as a game shows its frames */
 static dgx_screen_t *display_init(void)
 {
-    gpio_set_direction((gpio_num_t)EXAMPLE_LCD_PIN_NUM_BL, GPIO_MODE_OUTPUT);
-    gpio_set_level((gpio_num_t)EXAMPLE_LCD_PIN_NUM_BL, 1);
     dgx_bus_protocols_t *bus =
         dgx_dsi_init(0, EXAMPLE_LCD_DSI_LANES, EXAMPLE_LCD_DSI_LANE_MBPS, EXAMPLE_LCD_PHY_LDO_CHAN, EXAMPLE_LCD_PHY_LDO_MV);
     if (!bus) {
         ESP_LOGE(TAG, "dgx_dsi_init failed");
         return NULL;
     }
-    dgx_screen_t *display = example_lcd_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, 16, DgxScreenRGB, DgxDsiTwoFrames);
+    dgx_screen_t *display =
+        example_lcd_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_BL, 16, DgxScreenRGB, DgxDsiTwoFrames);
     if (!display) {
         ESP_LOGE(TAG, "the driver of the display failed");
         return NULL;

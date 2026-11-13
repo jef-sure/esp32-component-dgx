@@ -205,18 +205,6 @@ static void dgx_scr_write_area_sb(dgx_screen_t *scr, uint8_t *data, uint32_t len
     }
 }
 
-static uint32_t dgx_scr_read_area_sb(dgx_screen_t *scr, uint8_t *data, uint32_t lenbits)
-{
-    if (scr->screen_subtype == DgxPhysicalScreenWithBus) {
-        dgx_screen_with_bus_t *sbus = (dgx_screen_with_bus_t *)scr;
-        dgx_bus_protocols_t   *bus  = sbus->bus;
-        if (sbus->rcmd_send != 0) {
-            return bus->read_data(bus, data, lenbits);
-        }
-    }
-    return 0;
-}
-
 static void dgx_scr_wait_buffer_sb(dgx_screen_t *scr)
 {
     if (scr->screen_subtype == DgxPhysicalScreenWithBus) {
@@ -239,7 +227,6 @@ void dgx_scr_init_slow_bus_optimized_funcs(dgx_screen_t *scr)
     scr->draw_line      = dgx_draw_line_runs;
     scr->get_pixel      = dgx_scr_get_pixel_sb;
     scr->set_area       = dgx_scr_set_area_sb;
-    scr->read_area      = dgx_scr_read_area_sb;
     scr->write_area     = dgx_scr_write_area_sb;
     scr->wait_buffer    = dgx_scr_wait_buffer_sb;
     scr->solid_circle   = dgx_draw_solid_circle_rows;

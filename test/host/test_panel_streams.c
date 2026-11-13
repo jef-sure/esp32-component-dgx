@@ -132,15 +132,6 @@ static void bus_sync(dgx_bus_protocols_t *bus)
     put("S\n");
 }
 
-static uint32_t bus_read(dgx_bus_protocols_t *bus, uint8_t *data, uint32_t bits)
-{
-    (void)bus;
-    pixels_end();
-    put("R %u\n", (unsigned)bits);
-    memset(data, 0, (bits + 7u) / 8u);
-    return 0;
-}
-
 static uint8_t *bus_memory(uint32_t len)
 {
     return malloc(len);
@@ -160,7 +151,6 @@ static dgx_bus_protocols_t bus_of(enum dgx_bus_type type)
     bus.write_command    = bus_command;
     bus.write_commands   = bus_commands;
     bus.write_data       = bus_data;
-    bus.read_data        = bus_read;
     bus.write_data_async = bus_pixels;
     bus.sync_write       = bus_sync;
     bus.memory_allocator = bus_memory;
@@ -245,14 +235,14 @@ static void record_st7789(void)
             const dgx_color_order_t order = bgr ? DgxScreenBGR : DgxScreenRGB;
             dgx_bus_protocols_t     bus = bus_of(DGX_BUS_SPI);
             part("st7789", names[r], bits, order);
-            dgx_screen_t *s = dgx_st7789_init(&bus, 4, (uint8_t)bits, order, resolutions[r]);
+            dgx_screen_t *s = dgx_st7789_init(&bus, 4, 21, (uint8_t)bits, order, resolutions[r]);
             if (s) turns(s, dgx_st7789_orientation, !bgr, false);
             done(s, true);
         }
     }
     dgx_bus_protocols_t bus = bus_of(DGX_BUS_SPI);
     part("st7789", " refused", 24, DgxScreenRGB);
-    done(dgx_st7789_init(&bus, 4, 24, DgxScreenRGB, ST7789_RESOLUTION_240x320), false);
+    done(dgx_st7789_init(&bus, 4, 21, 24, DgxScreenRGB, ST7789_RESOLUTION_240x320), false);
 }
 
 static void record_st7735(void)
@@ -264,13 +254,22 @@ static void record_st7735(void)
         const dgx_color_order_t order = bgr ? DgxScreenBGR : DgxScreenRGB;
         dgx_bus_protocols_t     bus = bus_of(DGX_BUS_SPI);
         part("st7735", "", bits, order);
-        dgx_screen_t *s = dgx_st7735_init(&bus, 4, (uint8_t)bits, order);
+        dgx_screen_t *s = dgx_st7735_init(&bus, 4, 21, (uint8_t)bits, order, ST7735_RESOLUTION_128x160);
+        if (s) turns(s, dgx_st7735_orientation, !bgr, false);
+        done(s, true);
+    }
+    /* the 0.96" glass at its offset, at 16 bits in both orders */
+    for (int bgr = 0; bgr < 2; ++bgr) {
+        const dgx_color_order_t order = bgr ? DgxScreenBGR : DgxScreenRGB;
+        dgx_bus_protocols_t     bus = bus_of(DGX_BUS_SPI);
+        part("st7735", " 80x160", 16, order);
+        dgx_screen_t *s = dgx_st7735_init(&bus, 4, 21, 16, order, ST7735_RESOLUTION_80x160);
         if (s) turns(s, dgx_st7735_orientation, !bgr, false);
         done(s, true);
     }
     dgx_bus_protocols_t bus = bus_of(DGX_BUS_SPI);
     part("st7735", " refused", 24, DgxScreenRGB);
-    done(dgx_st7735_init(&bus, 4, 24, DgxScreenRGB), false);
+    done(dgx_st7735_init(&bus, 4, 21, 24, DgxScreenRGB, ST7735_RESOLUTION_128x160), false);
 }
 
 static void record_gc9a01(void)
@@ -282,7 +281,7 @@ static void record_gc9a01(void)
         const dgx_color_order_t order = bgr ? DgxScreenBGR : DgxScreenRGB;
         dgx_bus_protocols_t     bus = bus_of(DGX_BUS_SPI);
         part("gc9a01", "", bits, order);
-        dgx_screen_t *s = dgx_gc9a01_init(&bus, 4, (uint8_t)bits, order);
+        dgx_screen_t *s = dgx_gc9a01_init(&bus, 4, 21, (uint8_t)bits, order);
         if (s) {
             turns(s, dgx_gc9a01_orientation, !bgr, false);
             dgx_gc9a01_display_off(s);
@@ -292,7 +291,7 @@ static void record_gc9a01(void)
     }
     dgx_bus_protocols_t bus = bus_of(DGX_BUS_SPI);
     part("gc9a01", " refused", 24, DgxScreenRGB);
-    done(dgx_gc9a01_init(&bus, 4, 24, DgxScreenRGB), false);
+    done(dgx_gc9a01_init(&bus, 4, 21, 24, DgxScreenRGB), false);
 }
 
 static void record_ssd1351(void)

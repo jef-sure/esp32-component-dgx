@@ -188,7 +188,7 @@ into an 8-bit virtual screen, which is then sent once:
 
 | Test | CYD 240x320, display | CYD 240x320, memory | JC4827W543 272x480, display | JC4827W543 272x480, memory | JC1060P470 600x1024, display | JC1060P470 600x1024, memory |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| HaD pushColor | 533 959 | 48 668 | 163 874 | 29 164 | 1 734 100 | 41 594 |
+| HaD pushColor | 533 959 | 48 668 | 163 874 | 29 164 | 412 707 | 41 594 |
 | Screen fill | 31 287 | 32 330 | 13 371 | 14 078 | 3 547 | 38 685 |
 | Text | 22 833 | 36 425 | 19 878 | 17 388 | 4 936 | 33 503 |
 | Pixels | 650 896 | 92 062 | 1 013 447 | 99 832 | 3 295 808 | 191 330 |
@@ -202,7 +202,7 @@ into an 8-bit virtual screen, which is then sent once:
 | Triangles (filled) | 164 448 | 35 335 | 135 978 | 17 331 | 1 935 747 | 67 570 |
 | Rounded rects (outline) | 23 683 | 33 476 | 23 767 | 15 236 | 49 920 | 37 098 |
 | Rounded rects (filled) | 346 428 | 35 479 | 154 621 | 17 923 | 637 672 | 189 094 |
-| Total | 2 881 373 | 594 087 | 2 857 303 | 383 871 | 8 635 804 | 1 233 483 |
+| Total | 2 881 373 | 594 087 | 2 857 303 | 383 871 | 7 314 411 | 1 233 483 |
 
 The memory rows that draw least show what sending the whole screen takes:
 about 32 ms on the CYD, 14 ms on the JC4827W543 with 1.7 times the pixels,
@@ -377,7 +377,7 @@ the pixels of the CYD, so the lines of the test draw more:
 
 | Test | on the display | in memory |
 | --- | ---: | ---: |
-| HaD pushColor | 1 734 100 | 41 594 |
+| HaD pushColor | 412 707 | 41 594 |
 | Screen fill | 3 547 | 38 685 |
 | Text | 4 936 | 33 503 |
 | Pixels | 3 295 808 | 191 330 |
@@ -391,7 +391,7 @@ the pixels of the CYD, so the lines of the test draw more:
 | Triangles (filled) | 1 935 747 | 67 570 |
 | Rounded rects (outline) | 49 920 | 37 098 |
 | Rounded rects (filled) | 637 672 | 189 094 |
-| Total | 8 635 804 | 1 233 483 |
+| Total | 7 314 411 | 1 233 483 |
 
 A fill of 1.2 MB takes 3.5 ms. Every drawing outside a batch ends with the
 cache of the processor written back to PSRAM over the bytes it has changed,
@@ -402,10 +402,24 @@ cost here. A batch around many drawings writes back once, and a picture
 drawn in memory is written back once as it is sent.
 
 The logo costs something else: nothing is written back while it is drawn. The
-panel is 1024x600 and the test runs it upright, so neighbours in a row of the
-screen lie 2 KB apart in the frame buffer, each on a cache line of its own,
-and `write_area()` moves them a pixel at a time: 1.4 us a pixel all told. A
-picture sent whole from memory goes in the order of the panel instead.
+panel is 1024x600 and the test runs it upright, so a row of the screen runs
+down a column of the frame buffer: neighbours in it lie 2 KB apart, each on a
+cache line of its own. The test sends 2048 pixels a call, eight rows of the
+logo and a part of the ninth, and the bus writes the whole rows a column of
+the screen at a time: the eight pixels of a column lie side by side in a row
+of the panel and share a line of the cache. That is 0.34 us a pixel. Written
+a pixel at a time, as until 0.11.0, it was 1.4 us, 1 734 100 us for the
+logo. A picture sent whole from memory goes in the order of the panel and
+costs less still.
+
+The logo row on the display is of DGX 0.11.0, measured under the same
+conditions as the rest, and the total is summed with it. The other rows of
+that run came within 2% of the table. The text on the display differs by 5
+to 6% from one round to the next in every version: 5 379 and 5 087 us with
+0.11.0, 5 278 and 4 978 with the DGX of the table. With the code of
+interrupts kept in the instruction cache, `CONFIG_DGX_DSI_LOCK_INTERRUPT_CODE`
+of 0.10.16, it is 5% slower, 5 648 and 5 293 us; since 0.11.0 that option is
+off by default in a build for revisions below 3, as for this board.
 
 ## Where DGX is still slower
 

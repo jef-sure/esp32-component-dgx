@@ -351,24 +351,6 @@ static void dgx_spi_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *
     }
 }
 
-static uint32_t dgx_spi_read_data(struct _dgx_bus_protocols_t *_bus, uint8_t *data, uint32_t len)
-{
-    dgx_spi_bus_t *bus = (dgx_spi_bus_t *)_bus;
-    if (len == 0) return len;
-    dgx_spi_dev_direct_end(&bus->dev);
-    dgx_spi_dev_wait(&bus->dev);
-    spi_transaction_t *trans = &bus->dev.trans_sync;
-    memset(trans, 0, sizeof(*trans));
-    trans->rx_buffer = data;
-    trans->length    = len;                      // Data length in bits
-    trans->user      = set_dc_pin(bus->dcio, 1); // DC = 1 when data
-    if (spi_device_transmit(bus->dev.spi, trans) != ESP_OK) {
-        ESP_LOGE(TAG, "dgx_spi_read_data failed");
-        return 0;
-    }
-    return trans->rxlength;
-}
-
 /* the next of trans_data made a transfer of pixels with the head of its bus; the transfers before it no longer use it */
 static spi_transaction_t *dgx_spi_dev_trans(dgx_spi_dev_t *dev, const uint8_t *data, uint32_t len, const dgx_spi_head_t *head)
 {
@@ -762,7 +744,6 @@ static dgx_bus_protocols_t *dgx_spi_attach(spi_host_device_t host_id, bool owns_
     protocols->bus_name            = "SPI";
     protocols->write_command       = dgx_spi_send_command;
     protocols->write_commands      = dgx_spi_send_commands;
-    protocols->read_data           = dgx_spi_read_data;
     protocols->write_data          = dgx_spi_send_data;
     protocols->write_data_async    = dgx_spi_send_data_async;
     protocols->sync_write          = dgx_spi_sync_write;
@@ -782,8 +763,7 @@ static dgx_bus_protocols_t *dgx_spi_attach(spi_host_device_t host_id, bool owns_
      * No dummy cycles to make up for the delay of MISO through the GPIO
      * matrix: DGX does not read the display back, and an ESP32 refuses a
      * full-duplex device that would need them, one faster than 26.7 MHz on
-     * pins of the GPIO matrix (spi_hal_cal_clock_conf() of IDF). read_data()
-     * at such a clock may take wrong bits.
+     * pins of the GPIO matrix (spi_hal_cal_clock_conf() of IDF).
      */
     devcfg.flags = SPI_DEVICE_NO_DUMMY;
     if (dc >= 0) {

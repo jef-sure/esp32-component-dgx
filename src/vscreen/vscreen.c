@@ -23,10 +23,10 @@
 static const char TAG[] = "DGX V-Screen";
 
 /*
- * The window of write_area() and read_area(), cut by the screen as a display
- * behind a bus cuts it. A window that lies off the screen is no window: what
- * is written into it goes nowhere, not into the window before, and nothing
- * is read from it. It is marked so by a left edge past the right one.
+ * The window of write_area(), cut by the screen as a display behind a bus
+ * cuts it. A window that lies off the screen is no window: what is written
+ * into it goes nowhere, not into the window before. It is marked so by a
+ * left edge past the right one.
  */
 static void dgx_vscreen_set_area(dgx_screen_t *_scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
 {
@@ -93,27 +93,6 @@ static void dgx_vscreen_write_area(dgx_screen_t *_scr, uint8_t *data, uint32_t l
         lenbits -= pixel_bits;
     }
 }
-static uint32_t dgx_vscreen_read_area(dgx_screen_t *_scr, uint8_t *data, uint32_t lenbits)
-{
-    uint32_t       ret = 0;
-    dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
-    int            idx = 0;
-    if (scr->area.left > scr->area.right) return 0; /* the window lies off the screen */
-    /* an 18-bit pixel takes three bytes in a buffer, as it does on the wire */
-    uint32_t       pixel_bits = _scr->color_bits == 18 ? 24u : _scr->color_bits;
-    while (lenbits >= pixel_bits) {
-        uint32_t offset = DGX_VSCR_OFFSET(scr, scr->area.x_offset, scr->area.y_offset);
-        uint8_t *lp     = DGX_VSCR_PTR(scr, offset);
-        uint32_t color  = dgx_read_buf_value(_scr->color_bits, &lp, offset);
-        data            = dgx_fill_buf_value(_scr->color_bits, data, idx, color);
-        ++idx;
-        _dgx_move_to_next_area_pixel_v(_scr);
-        ret += pixel_bits;
-        lenbits -= pixel_bits;
-    }
-    return ret;
-}
-
 static void dgx_vscreen_set_pixel(dgx_screen_t *_scr, int x, int y, uint32_t color)
 {
     dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
@@ -330,7 +309,6 @@ static dgx_vscreen_t *dgx_vscreen_without_array(int width, int height, uint8_t c
     scr->base.fill_rectangle  = dgx_vscreen_fill_rectangle;
     scr->base.get_pixel       = dgx_vscreen_get_pixel;
     scr->base.set_area        = dgx_vscreen_set_area;
-    scr->base.read_area       = dgx_vscreen_read_area;
     scr->base.write_area      = dgx_vscreen_write_area;
     scr->base.wait_buffer     = dgx_vscreen_wait_buffer_dummy;
     scr->base.update_screen   = dgx_vscreen_update_area;

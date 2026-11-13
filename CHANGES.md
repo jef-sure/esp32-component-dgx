@@ -1,6 +1,114 @@
 # Changes
 
-## Unreleased
+## 0.11.0 - 2026-11-14
+
+Changes a program may see:
+
+- Every display with a backlight takes its line after the reset line, as
+  `dgx_ili9341_init()`, `dgx_nv3041a_init()` and `dgx_st77916_init()` did
+  already: `dgx_st7735_init()`, `dgx_st7789_init()`, `dgx_gc9a01_init()`,
+  `dgx_st7565r_init()`, `dgx_st7920_init()`, `dgx_jd9165_init()` and
+  `dgx_jd9365_init()`. A call made for 0.10 no longer compiles;
+  `GPIO_NUM_NC` after the reset line keeps what it did. With the line given
+  the driver turns the backlight on once the display is set up, a DSI
+  display once its frame buffer, black, is on the glass, and the new
+  `dgx_st7735_backlight()`, `dgx_st7789_backlight()`,
+  `dgx_gc9a01_backlight()`, `dgx_st7565r_backlight()`,
+  `dgx_st7920_backlight()`, `dgx_jd9165_backlight()` and
+  `dgx_jd9365_backlight()` turn it off and on. The examples for the DSI
+  boards give their GPIO 23 so instead of setting it themselves. Seen on
+  the 0.96" ST7735 module, turned off and on, and on the two DSI boards.
+  The OLEDs and the e-paper have no backlight.
+- `dgx_st7735_init()` takes the panel as its last argument, as
+  `dgx_st7789_init()` does: `ST7735_RESOLUTION_128x160` is what it made
+  before, `ST7735_RESOLUTION_160x128` the same in landscape.
+  `dgx_st7735_init(bus, rst, color_bits, cbo)` becomes
+  `dgx_st7735_init(bus, rst, GPIO_NUM_NC, color_bits, cbo,
+  ST7735_RESOLUTION_128x160)`.
+- `CONFIG_DGX_DSI_LOCK_INTERRUPT_CODE` is on by default only in a build for
+  an ESP32-P4 of revision 3 and later, where "Illegal instruction" was seen;
+  in a build for revisions below 3 (`CONFIG_ESP32P4_SELECTS_REV_LESS_V3`) it
+  is off. The cache it takes is not free: on the 7-inch JC1060P470 of
+  revision 1.3 the text of the PDQ test went 5% slower with it, 5 648 and
+  5 293 us in two rounds against 5 379 and 5 087, the other tests the same.
+  A program for such a chip that wants it turns it on; an sdkconfig made
+  with an earlier DGX keeps the value it has.
+- Reading a display back through its window is gone: `read_area` of
+  `dgx_screen_t`, `read_data` of `dgx_bus_protocols_t`, `rcmd_send` of
+  `dgx_screen_with_bus_t` and `ramrd` of `dgx_panel_t`, and the read
+  command of `dgx_screen_with_bus_init_area()`, which takes one argument
+  less. Nothing in DGX called them. A panel behind a bus is sent the
+  window with the command that writes memory, never the one that reads it,
+  so what came back was not the picture; a DSI display gave the pixels of
+  the window from its frame buffer, and no longer does.
+  A panel of a program's own drops its `.ramrd` line, a driver of its own
+  the read command in `dgx_screen_with_bus_init_area()`. Pixels are read as
+  before by `dgx_get_pixel()`, and a virtual screen also through its
+  memory.
+
+New:
+
+- ST7735: the 0.96" IPS glass of 80x160, `ST7735_RESOLUTION_80x160` and
+  `ST7735_RESOLUTION_160x80`. The controller of the module is set for
+  128x160, the glass lies at column 24, the colors go in BGR order and need
+  no inversion, as Adafruit starts `INITR_MINI160x80`; seen right on a
+  module in all eight orientations. Its panel, `dgx_panel_st7735_80x160`,
+  goes to `dgx_panel_init()` as the others do. docs/panels-en.md shows how
+  to set up the other kind, Adafruit's `INITR_MINI160x80_PLUGIN`: 132x162,
+  the glass at column 26 and row 1, INVON. `test_st7735`: the window of
+  each panel in all eight orientations, and of that other kind;
+  `test_panel_streams` records the 80x160 too, the 128x160 byte for byte as
+  before.
+
+Faster:
+
+- MIPI-DSI: a window turned a quarter round on the panel is written a
+  column of the screen at a time where a call brings whole rows of it. A
+  row of such a screen runs down a column of the frame buffer, and written a
+  pixel at a time every pixel brought a line of the cache of its own; now
+  the rows of a call lie side by side in a row of the panel. The logo of the
+  PDQ test, sent 2048 pixels a call into a window of 240x320 on the 7-inch
+  JC1060P470 upright, 412 707 us instead of 1 745 682, 0.34 us a pixel
+  instead of 1.4; the other rows of the test the same. `test_fb_area` writes
+  every window past its end too, in pieces of any length.
+
+Fixed:
+
+- `dgx_font_need()` takes the word after a keyword with a value as that
+  value, whatever it says. `LETTERS "DGX"` used to lose its letters to the
+  keyword `DGX`, and `LETTERS "MONO"` turned the need monospaced: CMake
+  drops the quotes before a function sees its arguments, and
+  `cmake_parse_arguments` took any word equal to a keyword for that keyword.
+  A keyword with nothing after it is now an error.
+- MIPI-DSI with two frame buffers: a long batch that came now and then
+  among many short ones kept the finished picture back a frame. The bus
+  judges whether a batch still fits into a frame by the longest batch drawn
+  lately, and lately was the last few batches: the estimate lost an eighth
+  with every batch after a long one, so the short batches of other tasks
+  had brought it down to their own length by the time the long one came
+  again. Lately is now a time: the longest batch of the span of a second
+  going on and of the one before it, so a batch counts for a second at least
+  and two at most. On the host model of the bus, with two tasks drawing
+  batches of 0.5 to 1 ms all the time and a third drawing 9 to 10 ms every
+  0.15 to 0.4 s, 6000 frames: 139 pictures kept back before, none now; with
+  the long batch once a second, 40 of 98 before, none now; over 200 random
+  mixes of tasks, 2924 in 80 100 frames before, 34 now. The price: while a
+  long batch counts, short batches late in a frame wait for the swap instead
+  of joining, and the two tasks that draw all the time waited 67% of the
+  time instead of 16%. A long batch more seldom than every two seconds is
+  still forgotten in between. Not run on a board.
+- MIPI-DSI: the speed of the 2D DMA, by which a piece of a finished picture
+  is left to be copied after the swap, was timed to when the task came to
+  wait for the copy. `write_indexed` makes the next band while the DMA
+  moves one, and when making it took longer, the DMA was taken for slower
+  than it is and fewer pieces were left for later. It is timed to the end
+  its interrupt sees now. On the 7-inch JC1060P470, in `pixel_scale_demo`
+  with two frame buffers, the bus took the 2D DMA for 75 to 127 KB/ms with
+  the smoothed pictures and now for 149 to 151, the speed the board has, and
+  leaves 1.2 MB a picture for later in one more of its nine ways; the times
+  of the calls are the same and no piece came late. On the 10-inch
+  JC8012P4A1C the processor makes a band faster than the DMA moves it, and
+  both took 167 KB/ms.
 
 Documentation:
 
@@ -25,6 +133,27 @@ Documentation:
   "Illegal instruction on the 10.1-inch board", have a paragraph on the
   cause; the Kconfig help, docs/dsi-usage-*.md and the READMEs of the
   examples say so.
+- The backlight line of a panel is turned on and off only. For brightness
+  by PWM the program drives the line with LEDC and passes `GPIO_NUM_NC` to
+  the driver, whose backlight calls would otherwise do nothing and return
+  `ESP_OK`. Said in docs/panels-en.md.
+- docs/panels-en.md has the SSD1680 of 0.10.17, which it lacked: its row
+  in the table of the controllers and in that of the depths, and what the
+  driver does, from the two planes to the refresh and the inks.
+- `ssd1680.h` named the glass of each WeAct module after the Good Display
+  glass GxEPD2 names its driver for. It now names the glass WeAct's papers
+  give: Yingruida YRD0290RWS800F6 for the 2.9" module,
+  ZJY128296-029EAAMFGN in older papers, and Yingruida E0213A179 for the
+  2.13" one, with the GxEPD2 driver of each. The refresh of 15 s it gave for
+  the 2.13" came from GxEPD2 too, and is gone: the papers of the glass give
+  no time.
+- docs/dsi-usage-en.md and -ru.md, "Several tasks": run the task that draws
+  at a raised priority. A drawing task held up for longer than a frame
+  between its calls to the bus makes the bus misjudge a batch, and twice in
+  a row can make the display show the picture before for a frame; that was
+  said only in docs/dsi-display-*.md.
+- The README asks for `^0.11.0` in "Getting started": its recipes call the
+  constructors with the backlight line.
 
 ## 0.10.17 - 2026-11-13
 

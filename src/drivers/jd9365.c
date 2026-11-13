@@ -3,6 +3,7 @@
 #include "bus/dgx_dsi_esp32.h"
 #include "dgx_arch.h"
 #include "drivers/dgx_lcd_init.h"
+#include "dgx_backlight_priv.h"
 #include "drivers/jd9365.h"
 
 // JD9365 commands used here; the window and the memory are those of the MIPI display command set
@@ -11,7 +12,6 @@
 #define JD9365_CASET    0x2A
 #define JD9365_RASET    0x2B
 #define JD9365_RAMWR    0x2C
-#define JD9365_RAMRD    0x2E
 #define JD9365_MADCTL   0x36
 #define JD9365_COLMOD   0x3A
 #define JD9365_DSI_INT0 0x80 // the number of DSI lanes, on page 0
@@ -25,6 +25,7 @@
 typedef struct _dgx_jd9365_t {
     dgx_screen_with_bus_t base;
     gpio_num_t            rst;
+    gpio_num_t            backlight;
 } dgx_jd9365_t;
 
 static const char TAG[] = "DGX JD9365";
@@ -330,7 +331,8 @@ static const dgx_lcd_init_cmd_t jd9365_init_cmds[] = {
 };
 
 // Initialize the display
-dgx_screen_t *dgx_jd9365_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo, dgx_dsi_frames_t frames)
+dgx_screen_t *dgx_jd9365_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo,
+                            dgx_dsi_frames_t frames)
 {
     if (!bus || bus->bus_type != DGX_BUS_DSI) {
         ESP_LOGE(TAG, "the display needs a bus made by dgx_dsi_init()");
@@ -342,6 +344,7 @@ dgx_screen_t *dgx_jd9365_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
         return NULL;
     }
     scr->rst                      = rst;
+    scr->backlight                = backlight;
     scr->base.bus                 = bus;
     scr->base.scr.cg_row_shift    = 0;
     scr->base.scr.cg_col_shift    = 0;
@@ -352,7 +355,7 @@ dgx_screen_t *dgx_jd9365_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
     scr->base.scr.screen_name     = "JD9365";
     scr->base.scr.screen_submodel = 0;
     scr->base.scr.screen_subtype  = DgxPhysicalScreenWithBus;
-    dgx_screen_with_bus_init_area(&scr->base, JD9365_CASET, JD9365_RASET, JD9365_RAMWR, JD9365_RAMRD, DGX_SCREEN_AREA_PROTO_STD16);
+    dgx_screen_with_bus_init_area(&scr->base, JD9365_CASET, JD9365_RASET, JD9365_RAMWR, DGX_SCREEN_AREA_PROTO_STD16);
     // the frame buffer first: it is black until something is drawn. The display itself knows the order of colors.
     if (!dgx_dsi_video_setup(bus, &jd9365_video, color_bits, false, frames)) {
         free(scr);
@@ -376,6 +379,8 @@ dgx_screen_t *dgx_jd9365_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
     }
     // the drawing functions of a screen that has its pixels in memory
     dgx_dsi_screen_functions((dgx_screen_t *)scr);
+    // the frame buffer is black and on the glass
+    dgx_backlight_on_start(backlight);
     return (dgx_screen_t *)scr;
 }
 
@@ -391,4 +396,9 @@ void dgx_jd9365_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_ori
     // the bus has set the window to the whole screen
     scr->base.cached_area.left = scr->base.cached_area.right = 0xffff;
     scr->base.cached_area.top = scr->base.cached_area.bottom = 0xffff;
+}
+
+esp_err_t dgx_jd9365_backlight(dgx_screen_t *scr, bool on)
+{
+    return dgx_backlight_set(((dgx_jd9365_t *)scr)->backlight, on);
 }

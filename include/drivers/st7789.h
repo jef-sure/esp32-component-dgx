@@ -33,12 +33,15 @@ typedef enum {
  *
  * @param bus        Bus backend returned by dgx_spi_init() or dgx_p8_init().
  * @param rst        Reset GPIO (use GPIO_NUM_NC if the panel has no reset line).
+ * @param backlight  Backlight GPIO, high for on (use GPIO_NUM_NC if the panel has no backlight control). It is on once the
+ *                   panel is set up; dgx_st7789_backlight() turns it off and on.
  * @param color_bits Pixel depth in bits: 16 for RGB565, the usual one, 12 or 18.
  * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR).
  * @param resolution The panel (see st7789_resolution_t).
  * @return Newly allocated screen, or NULL on failure, an unknown resolution or another depth. Free with dgx_screen_destroy().
  */
-dgx_screen_t* dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo, st7789_resolution_t resolution);
+dgx_screen_t* dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo,
+                              st7789_resolution_t resolution);
 
 /**
  * @brief Reprogram the controller scan direction (rotation/mirroring).
@@ -50,6 +53,15 @@ dgx_screen_t* dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
  *                240x320 panel the screen becomes 320x240 and back.
  */
 void dgx_st7789_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
+
+/**
+ * @brief Control the backlight (if a backlight GPIO was provided at initialization).
+ *
+ * @param scr Screen created by dgx_st7789_init().
+ * @param on  true to turn on the backlight, false to turn it off.
+ * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED when the screen was given no backlight GPIO.
+ */
+esp_err_t dgx_st7789_backlight(dgx_screen_t *scr, bool on);
 
 /**
  * @brief The panels dgx_st7789_init() makes its screen of: the glass of 240x240, of 240x320, of 76x284 and of 135x240. A copy of one with what

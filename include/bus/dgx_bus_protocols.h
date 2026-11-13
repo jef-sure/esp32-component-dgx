@@ -38,7 +38,6 @@ typedef uint8_t *(*dgx_bus_malloc_func)(uint32_t len);
  */
 typedef void (*dgx_bus_write_commands_func)(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t len);
 typedef void (*dgx_bus_write_data_func)(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t len);
-typedef uint32_t (*dgx_bus_read_data_func)(struct _dgx_bus_protocols_t *bus, uint8_t *data, uint32_t len);
 typedef void (*dgx_bus_write_data_async_func)(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t len);
 typedef void (*dgx_bus_sync_write_func)(struct _dgx_bus_protocols_t *bus);
 typedef bool (*dgx_bus_sends_from_func)(struct _dgx_bus_protocols_t *bus, const void *pixels);
@@ -210,7 +209,6 @@ typedef struct _dgx_bus_protocols_t {
     dgx_bus_send_command_func write_command;
     dgx_bus_write_commands_func write_commands;
     dgx_bus_write_data_func write_data;
-    dgx_bus_read_data_func read_data;
     dgx_bus_write_data_async_func write_data_async;
     dgx_bus_sync_write_func sync_write;
     dgx_bus_malloc_func memory_allocator;

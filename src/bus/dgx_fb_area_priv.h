@@ -49,9 +49,7 @@ typedef struct _dgx_fb_area_t {
 #define DGX_FB_AREA_SET_COLUMNS    0x2A
 #define DGX_FB_AREA_SET_ROWS       0x2B
 #define DGX_FB_AREA_WRITE          0x2C
-#define DGX_FB_AREA_READ           0x2E
 #define DGX_FB_AREA_WRITE_CONTINUE 0x3C
-#define DGX_FB_AREA_READ_CONTINUE  0x3E
 
 /** @brief Width of the screen: of the panel, or its height when the axes are swapped. */
 static inline uint16_t dgx_fb_area_width(const dgx_fb_area_t *area)
@@ -90,9 +88,6 @@ static inline void dgx_fb_area_rewind(dgx_fb_area_t *area)
  * @param pixels Their number.
  */
 void dgx_fb_area_write(dgx_fb_area_t *area, const uint8_t *data, uint32_t pixels);
-
-/** @brief Read pixels of the window the same way, into a buffer as DGX keeps them. */
-void dgx_fb_area_read(dgx_fb_area_t *area, uint8_t *data, uint32_t pixels);
 
 /*
  * Drawing past the window: a screen that has the memory at hand does not

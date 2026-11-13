@@ -13,6 +13,7 @@
 
 #include "drivers/vscreen.h"
 #include "../vscreen/dgx_soft_turn_priv.h"
+#include "dgx_backlight_priv.h"
 
 /**
  * @brief chip information definition
@@ -87,6 +88,7 @@ typedef struct _dgx_st7920_t
     dgx_bus_protocols_t *bus;
     gpio_num_t           rst;
     gpio_num_t           cs;
+    gpio_num_t           backlight;
 } dgx_st7920_t;
 
 static const char TAG[] = "DGX ST7920";
@@ -210,7 +212,7 @@ static void dgx_st7920_update_screen(dgx_screen_t *_scr, int left, int right, in
 }
 
 // Initialize the display
-dgx_screen_t *dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t cs)
+dgx_screen_t *dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, gpio_num_t cs)
 {
     dgx_st7920_t *scr = (dgx_st7920_t *)calloc(1, sizeof(dgx_st7920_t));
     if (!scr) {
@@ -218,9 +220,10 @@ dgx_screen_t *dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
         return NULL;
     }
 
-    scr->cs  = cs;
-    scr->rst = rst;
-    scr->bus = bus;
+    scr->cs        = cs;
+    scr->rst       = rst;
+    scr->backlight = backlight;
+    scr->bus       = bus;
 
     // Initialize virtual screen (128x64, 1 bit per pixel, monochrome)
     dgx_screen_t *vscreen = dgx_vscreen_init(ST7920_WIDTH, ST7920_HEIGHT, 1, DgxScreenRGB);
@@ -263,9 +266,10 @@ dgx_screen_t *dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
     dgx_delay(2);
 
     // Wire up function pointers - only override what's needed
-    // vscreen already provides: set_area, write_area, read_area, set_pixel, get_pixel,
+    // vscreen already provides: set_area, write_area, set_pixel, get_pixel,
     //                            fill_rectangle, draw_line, circle, solid_circle, wait_buffer, destroy
     scr->base.base.update_screen = dgx_st7920_update_screen;
+    dgx_backlight_on_start(backlight);
 
     return (dgx_screen_t *)scr;
 }
@@ -274,4 +278,9 @@ void dgx_st7920_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_ori
 {
     dgx_soft_turn_set(scr_, ((dgx_st7920_t *)scr_)->base.v_array, ST7920_WIDTH, ST7920_HEIGHT, dir_x, dir_y, swap_xy);
     dgx_st7920_update_screen(scr_, 0, scr_->width - 1, 0, scr_->height - 1);
+}
+
+esp_err_t dgx_st7920_backlight(dgx_screen_t *scr, bool on)
+{
+    return dgx_backlight_set(((dgx_st7920_t *)scr)->backlight, on);
 }

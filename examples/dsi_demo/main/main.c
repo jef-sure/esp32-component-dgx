@@ -39,7 +39,6 @@ enum
     EXAMPLE_LCD_PHY_LDO_MV    = 2500,
     EXAMPLE_LCD_PIN_NUM_RST   = 27,
     EXAMPLE_LCD_PIN_NUM_BL    = 23,
-    EXAMPLE_LCD_BL_ON_LEVEL   = 1,
     EXAMPLE_LCD_PANEL_WIDTH   = 800, /* of the panel, before any orientation */
     EXAMPLE_LCD_PANEL_HEIGHT  = 1280,
 };
@@ -55,7 +54,6 @@ enum
     EXAMPLE_LCD_PHY_LDO_MV    = 2500,
     EXAMPLE_LCD_PIN_NUM_RST   = 0,
     EXAMPLE_LCD_PIN_NUM_BL    = 23,
-    EXAMPLE_LCD_BL_ON_LEVEL   = 1,
     EXAMPLE_LCD_PANEL_WIDTH   = 1024, /* of the panel, before any orientation */
     EXAMPLE_LCD_PANEL_HEIGHT  = 600,
 };
@@ -523,9 +521,6 @@ static void demo_tune(dgx_bus_protocols_t *bus, dgx_screen_t *screen, const dgx_
 
 void app_main(void)
 {
-    gpio_set_direction((gpio_num_t)EXAMPLE_LCD_PIN_NUM_BL, GPIO_MODE_OUTPUT);
-    gpio_set_level((gpio_num_t)EXAMPLE_LCD_PIN_NUM_BL, EXAMPLE_LCD_BL_ON_LEVEL);
-
     dgx_bus_protocols_t *bus =
         dgx_dsi_init(0, EXAMPLE_LCD_DSI_LANES, EXAMPLE_LCD_DSI_LANE_MBPS, EXAMPLE_LCD_PHY_LDO_CHAN, EXAMPLE_LCD_PHY_LDO_MV);
     if (!bus) {
@@ -543,7 +538,8 @@ void app_main(void)
         ESP_LOGI(TAG, "the numbers kept in NVS ask for two frame buffers: the display gets them");
     }
 
-    dgx_screen_t *screen = example_lcd_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, EXAMPLE_LCD_COLOR_BITS, DgxScreenRGB, demo_numbers.frames);
+    dgx_screen_t *screen = example_lcd_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_BL, EXAMPLE_LCD_COLOR_BITS,
+                                            DgxScreenRGB, demo_numbers.frames);
     if (!screen) {
         ESP_LOGE(TAG, "the display could not be set up");
         return;

@@ -400,6 +400,7 @@ static void test_kept_back(void)
     const uint32_t flips = flip.flips, frames = sim.frames, joined = flip.joined;
     const uint32_t first = sim.version[flip.drawn][0];
     batch(1, PERIOD);
+    const uint32_t long_at = sim.now;
     CHECK(flip.joined == joined + 1 && flip.flips == flips);
     CHECK(sim.frames == frames + 1);
     /* the frame that ended meanwhile did not show the first batch: the second one was being drawn */
@@ -416,16 +417,25 @@ static void test_kept_back(void)
     CHECK(sim.shown[0] == first && sim.shown[1] > first);
     CHECK(sim.frames == frames + 2);
     /* for a while nothing joins a picture when less than the time of the long batch is left of the frame */
-    CHECK(flip.batch_us >= PERIOD * 7 / 8 && flip.batch_us < PERIOD);
+    CHECK(flip.batch_us >= PERIOD && flip.batch_us < PERIOD + 200);
     next_frame();
     batch(0, 300);
     CHECK(flip.flips == flips + 2 && flip.waits == waits + 1);
     while (since() < 4000u) sim_advance(100);
     batch(1, 300);
     CHECK(flip.waits == waits + 2 && flip.joined == joined + 1 && flip.flips == flips + 3);
-    /* and the long batch is forgotten, an eighth with every batch */
-    for (int i = 0; i < 60; ++i) batch(i & 1, 300);
-    CHECK(flip.batch_us < 500);
+    /* the long batch is remembered for a second at least, many short ones after it as well */
+    for (int i = 0; sim.now - long_at < DGX_FB_FLIP_SPAN_US - 20000u; ++i) {
+        next_frame();
+        for (int k = 0; k < 8; ++k) batch((i + k) & 1, 300);
+    }
+    CHECK(flip.batch_us >= PERIOD && flip.batch_us < PERIOD + 200);
+    /* and forgotten after two at most */
+    for (int i = 0; sim.now - long_at < 2u * DGX_FB_FLIP_SPAN_US + 50000u; ++i) {
+        next_frame();
+        batch(i & 1, 300);
+    }
+    CHECK(flip.batch_us >= 300 && flip.batch_us < 500);
     CHECK(flip.kept_back == 1);
     CHECK(sim.broken == 0 && sim.back == 0);
 }
@@ -477,8 +487,12 @@ static void test_frame_ends_in_telling(void)
         batch(4, 300);
         CHECK(flip.joined == joined && flip.flips == flips + 1);
         CHECK(!flip.closed);
-        /* the batch that was held until the frame ended counts as a long one: it is forgotten first */
-        for (int i = 0; i < 40; ++i) batch(i & 1, 300);
+        /* the batch that was held until the frame ended counts as a long one: it is forgotten in two seconds at most */
+        const uint32_t held_at = sim.now;
+        for (int i = 0; sim.now - held_at < 2u * DGX_FB_FLIP_SPAN_US + 50000u; ++i) {
+            next_frame();
+            batch(i & 1, 300);
+        }
         next_frame();
         batch(5, 300);
         const uint32_t before_it = flip.joined;
@@ -488,7 +502,7 @@ static void test_frame_ends_in_telling(void)
     }
 }
 
-/* how long a batch may take is not known before one has been timed, and a very long one is forgotten in time */
+/* how long a batch may take is not known before one has been timed, and a very long one is remembered for a second or two */
 static void test_batch_time(void)
 {
     sim_start(PERIOD, 0, 0, true, GUARD);
@@ -506,6 +520,7 @@ static void test_batch_time(void)
     CHECK(flip.joined == 1 && flip.flips == 0 && flip.waits == 0);
     CHECK(flip.batch_us >= 500 && flip.batch_us < 600 && flip.timed);
     batch(0, 3000000u);
+    const uint32_t long_at = sim.now;
     CHECK(flip.batch_us == DGX_FB_FLIP_BATCH_US_MOST);
     /* nothing joins a picture for a while */
     const uint32_t joined = flip.joined;
@@ -515,9 +530,9 @@ static void test_batch_time(void)
         batch(0, 300);
         CHECK(flip.joined == joined);
     }
-    /* forgotten by an eighth a batch: 100 ms come down to the 300 us of the batches after some 45 of them */
-    CHECK(flip.batch_us > 10000);
-    for (int i = 0; i < 50; ++i) {
+    CHECK(flip.batch_us == DGX_FB_FLIP_BATCH_US_MOST);
+    /* then the 300 us of the batches after it are what counts */
+    while (sim.now - long_at < 2u * DGX_FB_FLIP_SPAN_US + 50000u) {
         next_frame();
         batch(0, 300);
     }
@@ -527,15 +542,28 @@ static void test_batch_time(void)
     const uint32_t before_it = flip.joined;
     batch(0, 300);
     CHECK(flip.joined == before_it + 1);
+    /* a long batch, then nothing drawn for longer than two seconds: what is drawn next is all that counts */
+    batch(1, 12000);
+    CHECK(flip.batch_us >= 12000 && flip.batch_us < 12200);
+    sim_advance(2u * DGX_FB_FLIP_SPAN_US + 100000u);
+    next_frame();
+    batch(0, 300);
+    CHECK(flip.batch_us >= 300 && flip.batch_us < 400);
+    /* so a batch late in the frame still joins */
+    while (since() < PERIOD - GUARD - 1500u) sim_advance(50);
+    const uint32_t before_late = flip.joined;
+    batch(1, 300);
+    CHECK(flip.joined == before_late + 1);
     CHECK(sim.broken == 0 && sim.back == 0);
 }
 
 /*
  * Two tasks that never pause and one that draws seldom and long. How long a
- * batch may take is one number for all of them, and the short batches make
- * the long one forgotten: when it comes late in a frame it joins and keeps
- * the picture back a frame. No more than a frame for each of its batches,
- * and nothing half-drawn is shown.
+ * batch may take is one number for all of them, and the long batch counts
+ * among the many short ones, as it is remembered by time: it never joins a
+ * picture too late in a frame and keeps it back. The short ones join only
+ * while there is time for the long one left of the frame, and wait for the
+ * frame to end otherwise; every frame shows them all the same.
  */
 static void test_seldom_and_long(void)
 {
@@ -544,6 +572,33 @@ static void test_seldom_and_long(void)
     run(tasks, 3, 6000 * PERIOD);
     CHECK(sim.broken == 0 && sim.back == 0);
     CHECK(sim.shown_frames[2] > 250);
+    CHECK(flip.kept_back == 0);
+    CHECK(sim.shown_frames[0] >= sim.frames - 40 && sim.shown_frames[1] >= sim.frames - 40);
+}
+
+/* a long batch once a second, as a clock may draw: not forgotten in between, whatever part of a frame it comes in */
+static void test_long_once_a_second(void)
+{
+    static const task_t tasks[] = {{800, 1000, 0, 0}, {500, 700, 0, 0}, {9000, 10000, 950000, 1050000}};
+    sim_start(PERIOD, 0, 0, true, GUARD);
+    run(tasks, 3, 6000 * PERIOD);
+    CHECK(sim.broken == 0 && sim.back == 0);
+    CHECK(sim.shown_frames[2] >= 90);
+    CHECK(flip.kept_back == 0);
+}
+
+/*
+ * A long batch more seldom than two seconds is forgotten in between: when it
+ * comes late in a frame it joins and keeps the picture back a frame. No
+ * more than a frame for each of its batches, and nothing half-drawn is shown.
+ */
+static void test_long_and_forgotten(void)
+{
+    static const task_t tasks[] = {{800, 1000, 0, 0}, {500, 700, 0, 0}, {9000, 10000, 2500000, 5000000}};
+    sim_start(PERIOD, 0, 0, true, GUARD);
+    run(tasks, 3, 12000 * PERIOD);
+    CHECK(sim.broken == 0 && sim.back == 0);
+    CHECK(sim.shown_frames[2] >= 40);
     CHECK(flip.kept_back > 0 && flip.kept_back <= sim.shown_frames[2]);
     CHECK(sim.shown_frames[0] >= sim.frames - 2 * flip.kept_back - 12 && sim.shown_frames[1] >= sim.frames - 2 * flip.kept_back - 12);
 }
@@ -680,6 +735,8 @@ int main(void)
     test_frame_ends_in_telling();
     test_batch_time();
     test_seldom_and_long();
+    test_long_once_a_second();
+    test_long_and_forgotten();
     test_untimed();
     test_many_tasks();
     /* frames counted where the display takes the frame buffer */

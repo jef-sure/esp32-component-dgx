@@ -98,8 +98,8 @@ done:
 }
 
 /*
- * A window off the screen takes nothing, and what is written into it does
- * not land in the window before; one that goes past an edge is cut there,
+ * What is written into a window off the screen does not land in the window
+ * before; one that goes past an edge is cut there,
  * as a display behind a bus cuts it.
  */
 static void test_window_off_screen(void)
@@ -107,13 +107,12 @@ static void test_window_off_screen(void)
     dgx_screen_t *s = dgx_vscreen_init(10, 10, 16, DgxScreenRGB);
     CHECK(s != NULL);
     if (!s) return;
-    uint8_t pixels[4] = {0x12, 0x34, 0x56, 0x78}, back[4] = {0};
+    uint8_t pixels[4] = {0x12, 0x34, 0x56, 0x78};
     s->set_area(s, 2, 4, 2, 2);
     s->set_area(s, 20, 25, 1, 1);
     s->write_area(s, pixels, 32);
     for (int y = 0; y < 10; ++y)
         for (int x = 0; x < 10; ++x) CHECK(dgx_get_pixel(s, x, y) == 0);
-    CHECK(s->read_area(s, back, 32) == 0);
     s->set_area(s, 8, 15, 3, 3);
     s->write_area(s, pixels, 32);
     CHECK(dgx_get_pixel(s, 8, 3) == 0x1234 && dgx_get_pixel(s, 9, 3) == 0x5678);

@@ -16,7 +16,6 @@ struct _dgx_screen_t;
 typedef void (*dgx_scr_set_area_func)(struct _dgx_screen_t *scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom);
 typedef void (*dgx_scr_update_area_func)(struct _dgx_screen_t *scr, int left, int right, int top, int bottom);
 typedef void (*dgx_scr_write_area_func)(struct _dgx_screen_t *scr, uint8_t *data, uint32_t lenbits);
-typedef uint32_t (*dgx_scr_read_area_func)(struct _dgx_screen_t *scr, uint8_t *data, uint32_t lenbits);
 typedef void (*dgx_scr_draw_pixel_func)(struct _dgx_screen_t *scr, int x, int y, uint32_t color);
 typedef uint32_t (*dgx_scr_read_pixel_func)(struct _dgx_screen_t *scr, int x, int y);
 typedef void (*dgx_scr_screen_wait_buffer_func)(struct _dgx_screen_t *scr);
@@ -157,7 +156,6 @@ typedef struct _dgx_screen_t
     /* basic functions */
     dgx_scr_set_area_func           set_area;
     dgx_scr_write_area_func         write_area;
-    dgx_scr_read_area_func          read_area;
     dgx_scr_screen_wait_buffer_func wait_buffer;
     dgx_scr_draw_pixel_func         set_pixel;
     dgx_scr_read_pixel_func         get_pixel;

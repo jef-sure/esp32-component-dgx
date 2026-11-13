@@ -448,10 +448,8 @@ static void show(const result_t *d, const result_t *m, int n, int round)
 /* JC1060P470: two lanes of 750 Mbit/s, the DSI PHY powered by the regulator 3 with 2.5 V, the backlight 23 */
 static dgx_screen_t *display_init(void)
 {
-    gpio_set_direction(GPIO_NUM_23, GPIO_MODE_OUTPUT);
-    gpio_set_level(GPIO_NUM_23, 1);
     dgx_bus_protocols_t *bus = dgx_dsi_init(0, 2, 750, 3, 2500);
-    dgx_screen_t        *scr = bus ? dgx_jd9165_init(bus, GPIO_NUM_0, 16, DgxScreenRGB, DgxDsiOneFrame) : NULL;
+    dgx_screen_t        *scr = bus ? dgx_jd9165_init(bus, GPIO_NUM_0, GPIO_NUM_23, 16, DgxScreenRGB, DgxDsiOneFrame) : NULL;
     if (scr) dgx_jd9165_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true); /* upright, 600x1024 */
     return scr;
 }

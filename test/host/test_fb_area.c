@@ -86,7 +86,7 @@ static void test_windows(uint8_t pixel_bytes, bool swap_rb, bool mirror_x, bool 
     for (int round = 0; round < 200; ++round) {
         int left = rnd(0, w - 1), right = rnd(left, w - 1), top = rnd(0, h - 1), bottom = rnd(top, h - 1);
         int count = (right - left + 1) * (bottom - top + 1);
-        uint8_t  data[FW * FH * 3], back[FW * FH * 3];
+        uint8_t  data[FW * FH * 3];
         uint8_t *lp = data;
         memcpy(model, fb + 4, FW * FH * 3); /* the model goes on from what the frame buffer holds */
         uint32_t low = UINT32_MAX, high = 0;
@@ -116,11 +116,26 @@ static void test_windows(uint8_t pixel_bytes, bool swap_rb, bool mirror_x, bool 
         CHECK(dgx_fb_area_take_dirty(&area, &from, &length));
         CHECK(from == low && from + length == high);
         CHECK(!dgx_fb_area_take_dirty(&area, &from, &length));
-        /* read back, it is what was sent */
-        set_window(&area, left, right, top, bottom, DGX_FB_AREA_READ);
-        dgx_fb_area_read(&area, back, (uint32_t)count);
-        CHECK(memcmp(back, data, (size_t)count * pixel_bytes) == 0);
-        CHECK(!dgx_fb_area_take_dirty(&area, &from, &length));
+        /* written on past its end, two to three times its size: after the last pixel the first comes again, wherever a piece ends */
+        static uint8_t again[FW * FH * 3 * 3];
+        const int      width = right - left + 1, height = bottom - top + 1, total = count * 2 + rnd(0, count);
+        lp                   = again;
+        for (int i = 0; i < total; ++i) {
+            uint32_t color = ((uint32_t)rnd(0, 0xffff) << 8 | (uint32_t)rnd(0, 0xff)) & color_mask;
+            lp             = buffer_put(lp, pixel_bytes, color);
+            model_put(&area, left + i % width, top + i / width % height, color);
+        }
+        set_window(&area, left, right, top, bottom, DGX_FB_AREA_WRITE);
+        for (int sent = 0; sent < total;) {
+            int piece = rnd(0, 2) ? rnd(1, total - sent) : rnd(1, 3);
+            if (piece > total - sent) piece = total - sent;
+            CHECK(dgx_fb_area_data(&area, again + sent * pixel_bytes, (uint32_t)piece * pixel_bytes));
+            sent += piece;
+        }
+        CHECK(memcmp(fb + 4, model, FW * FH * 3) == 0);
+        CHECK(fb[0] == 0xa5 && fb[3] == 0xa5 && fb[4 + FW * FH * pixel_bytes] == 0xa5);
+        CHECK(area.x == left + total % width && area.y == top + total / width % height);
+        dgx_fb_area_take_dirty(&area, &from, &length);
     }
 }
 

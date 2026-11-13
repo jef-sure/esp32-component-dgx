@@ -85,10 +85,10 @@ int main(void)
         {ST7789_RESOLUTION_240x135, 240, 135, 135, 240, 52, 40, true},
     };
     /* a depth the controller is not set up for gives no screen, and nothing is sent */
-    CHECK(dgx_st7789_init(&bus, GPIO_NUM_NC, 24, DgxScreenRGB, ST7789_RESOLUTION_240x320) == NULL && command == 0);
+    CHECK(dgx_st7789_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 24, DgxScreenRGB, ST7789_RESOLUTION_240x320) == NULL && command == 0);
     for (size_t p = 0; p < sizeof(panels) / sizeof(panels[0]); ++p) {
         madctl            = 0xff;
-        dgx_screen_t *scr = dgx_st7789_init(&bus, GPIO_NUM_NC, 16, DgxScreenRGB, panels[p].resolution);
+        dgx_screen_t *scr = dgx_st7789_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 16, DgxScreenRGB, panels[p].resolution);
         CHECK(scr && agrees(scr, panels[p].width, panels[p].height));
         CHECK(inverted == panels[p].inverted);
         if (!scr) continue;

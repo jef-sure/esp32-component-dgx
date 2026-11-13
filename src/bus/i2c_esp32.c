@@ -88,13 +88,6 @@ static void dgx_i2c_send_data_async(struct _dgx_bus_protocols_t *_bus, const uin
     dgx_i2c_send_data(_bus, data, len);
 }
 
-/* the display is not read through this bus: nothing is read, and the buffer is left as it was */
-static uint32_t dgx_i2c_read_data(struct _dgx_bus_protocols_t *_bus, uint8_t *data, uint32_t len)
-{
-    (void)_bus, (void)data, (void)len;
-    return 0;
-}
-
 /*
  * The master buses DGX creates, one a port, shared by the DGX displays on that
  * port and deleted with the last of them. A bus the program created and gave
@@ -206,7 +199,6 @@ static dgx_bus_protocols_t *dgx_i2c_attach(i2c_master_bus_handle_t bus_handle, b
     bus->protocols.bus_name          = "I2C";
     bus->protocols.write_command     = dgx_i2c_send_command;
     bus->protocols.write_commands    = dgx_i2c_send_commands;
-    bus->protocols.read_data         = dgx_i2c_read_data;
     bus->protocols.write_data        = dgx_i2c_send_data;
     bus->protocols.write_data_async  = dgx_i2c_send_data_async;
     bus->protocols.sync_write        = dgx_i2c_sync_write;

@@ -382,7 +382,6 @@ dgx_screen_t *dgx_ssd1680_init(dgx_bus_protocols_t *bus, ssd1680_resolution_t re
     dgx_scr_init_slow_bus_optimized_funcs(&scr->base);
     scr->base.set_area       = dgx_ssd1680_set_area;
     scr->base.write_area     = dgx_ssd1680_write_area;
-    scr->base.read_area      = NULL;
     scr->base.wait_buffer    = dgx_ssd1680_wait_buffer;
     scr->base.set_pixel      = dgx_ssd1680_set_pixel;
     scr->base.get_pixel      = dgx_ssd1680_get_pixel;

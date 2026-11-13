@@ -172,7 +172,7 @@ dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t
     scr->base.scr.screen_name = "SSD 1351";
     scr->base.scr.screen_submodel = 0;
     scr->base.scr.screen_subtype = DgxPhysicalScreenWithBus;
-    dgx_screen_with_bus_init_area(&scr->base, SSD1351_CMD_SETCOLUMN, SSD1351_CMD_SETROW, SSD1351_CMD_WRITERAM, 0,
+    dgx_screen_with_bus_init_area(&scr->base, SSD1351_CMD_SETCOLUMN, SSD1351_CMD_SETROW, SSD1351_CMD_WRITERAM,
                                   DGX_SCREEN_AREA_PROTO_STD8);
     // Initialize non-SPI GPIOs
     if (rst >= 0) {

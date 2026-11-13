@@ -36,22 +36,20 @@ enum
     EXAMPLE_LCD_PHY_LDO_MV    = 2500,
     EXAMPLE_LCD_PIN_NUM_RST   = 0,
     EXAMPLE_LCD_PIN_NUM_BL    = 23,
-    EXAMPLE_LCD_BL_ON_LEVEL   = 1,
 };
 
 /* 16 bits a pixel and two frame buffers: what is drawn between two frames is shown whole, the moving lines do not tear. */
 static dgx_screen_t *display_init(void)
 {
     ESP_LOGI(TAG, "Starting soft pen demo on a JC1060P470");
-    gpio_set_direction((gpio_num_t)EXAMPLE_LCD_PIN_NUM_BL, GPIO_MODE_OUTPUT);
-    gpio_set_level((gpio_num_t)EXAMPLE_LCD_PIN_NUM_BL, EXAMPLE_LCD_BL_ON_LEVEL);
     dgx_bus_protocols_t *bus =
         dgx_dsi_init(0, EXAMPLE_LCD_DSI_LANES, EXAMPLE_LCD_DSI_LANE_MBPS, EXAMPLE_LCD_PHY_LDO_CHAN, EXAMPLE_LCD_PHY_LDO_MV);
     if (!bus) {
         ESP_LOGE(TAG, "dgx_dsi_init failed");
         return NULL;
     }
-    dgx_screen_t *display = dgx_jd9165_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, 16, DgxScreenRGB, DgxDsiTwoFrames);
+    dgx_screen_t *display =
+        dgx_jd9165_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_BL, 16, DgxScreenRGB, DgxDsiTwoFrames);
     if (!display) {
         ESP_LOGE(TAG, "dgx_jd9165_init failed");
         return NULL;

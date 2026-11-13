@@ -100,11 +100,56 @@ const dgx_panel_t dgx_panel_st7735 = {
     .init           = st7735_init_cmds,
 };
 
+/*
+ * The 80 columns of the 0.96" glass from column 24 of the 128 of the
+ * memory, its 160 rows all of the 160: in the middle either way. Its
+ * controller is set for 128x160, and it starts as the 128x160 does, with
+ * no inversion, as Adafruit starts INITR_MINI160x80.
+ */
+const dgx_panel_t dgx_panel_st7735_80x160 = {
+    .name           = "ST 7735",
+    .width          = 80,
+    .height         = 160,
+    .memory_width   = 128,
+    .memory_height  = 160,
+    .x_offset       = 24,
+    .y_offset       = 0,
+    .colmod         = {0x03, 0x05, 0x06},
+    .reset_low_ms   = 100,
+    .reset_after_ms = 100,
+    .init           = st7735_init_cmds,
+};
+
+static const char TAG[] = "DGX ST 7735";
+
 //Initialize the display
-dgx_screen_t* dgx_st7735_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo) {
-    return dgx_panel_init(bus, &dgx_panel_st7735, rst, GPIO_NUM_NC, color_bits, cbo);
+dgx_screen_t* dgx_st7735_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo,
+                              st7735_resolution_t resolution) {
+    const dgx_panel_t *panel;
+    switch (resolution) {
+    case ST7735_RESOLUTION_128x160:
+    case ST7735_RESOLUTION_160x128:
+        panel = &dgx_panel_st7735;
+        break;
+    case ST7735_RESOLUTION_80x160:
+    case ST7735_RESOLUTION_160x80:
+        panel = &dgx_panel_st7735_80x160;
+        break;
+    default:
+        ESP_LOGE(TAG, "Unsupported ST7735 resolution %d", (int)resolution);
+        return NULL;
+    }
+    dgx_screen_t *scr = dgx_panel_init(bus, panel, rst, backlight, color_bits, cbo);
+    /* landscape is a turn, MV with MX, as on the ST7789; after the functions of the screen, which take it as not turned */
+    if (scr && (resolution == ST7735_RESOLUTION_160x128 || resolution == ST7735_RESOLUTION_160x80))
+        dgx_panel_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    return scr;
 }
 
 void dgx_st7735_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy) {
     dgx_panel_orientation(scr, dir_x, dir_y, swap_xy);
+}
+
+esp_err_t dgx_st7735_backlight(dgx_screen_t *scr, bool on) {
+    return dgx_panel_backlight(scr, on);
 }

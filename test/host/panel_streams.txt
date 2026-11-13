@@ -632,6 +632,8 @@ W 10
 C 29
 S
 W 500
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 00
@@ -815,6 +817,8 @@ W 10
 C 29
 S
 W 500
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 00
@@ -998,6 +1002,8 @@ W 10
 C 29
 S
 W 500
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 00
@@ -1181,6 +1187,8 @@ W 10
 C 29
 S
 W 500
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 08
@@ -1235,6 +1243,8 @@ W 10
 C 29
 S
 W 500
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 00
@@ -1418,6 +1428,8 @@ W 10
 C 29
 S
 W 500
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 00
@@ -1601,6 +1613,8 @@ W 10
 C 29
 S
 W 500
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 00
@@ -1784,6 +1798,8 @@ W 10
 C 29
 S
 W 500
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 08
@@ -1838,6 +1854,8 @@ W 10
 C 29
 S
 W 500
+M 21 2
+G 21 1
 C 36
 D 60
 # turn lr tb
@@ -2023,6 +2041,8 @@ W 10
 C 29
 S
 W 500
+M 21 2
+G 21 1
 C 36
 D 60
 # turn lr tb
@@ -2208,6 +2228,8 @@ W 10
 C 29
 S
 W 500
+M 21 2
+G 21 1
 C 36
 D 60
 # turn lr tb
@@ -2393,6 +2415,8 @@ W 10
 C 29
 S
 W 500
+M 21 2
+G 21 1
 C 36
 D 68
 # turn lr tb
@@ -2471,6 +2495,8 @@ W 10
 C 29
 S
 W 100
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 00
@@ -2675,6 +2701,8 @@ W 10
 C 29
 S
 W 100
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 00
@@ -2879,6 +2907,8 @@ W 10
 C 29
 S
 W 100
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 00
@@ -3083,6 +3113,291 @@ W 10
 C 29
 S
 W 100
+M 21 2
+G 21 1
+# turn lr tb
+C 36
+D 08
+# turn rl tb
+C 36
+D 48
+# turn lr bt
+C 36
+D 88
+# turn rl bt
+C 36
+D c8
+# turn lr tb swap
+C 36
+D 28
+# turn rl tb swap
+C 36
+D 68
+# turn lr bt swap
+C 36
+D a8
+# turn rl bt swap
+C 36
+D e8
+## st7735 80x160 16 rgb
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C b1
+D 01 2c 2d
+C b2
+D 01 2c 2d
+C b3
+D 01 2c 2d 01 2c 2d
+C b4
+D 07
+C c0
+D a2 02 84
+C c1
+D c5
+C c2
+D 0a 00
+C c3
+D 8a 2a
+C c4
+D 8a ee
+C c5
+D 0e
+W 9
+C 36
+D 00
+C 3a
+D 05
+C 2a
+D 00 00 00 7f
+C 2b
+D 00 00 00 9f
+C e0
+D 02 1c 07 12 37 32 29 2d 29 25 2b 39 00 01 03 10
+C e1
+D 03 1d 07 06 2e 2c 29 2d 2e 2e 37 3f 00 00 02 10
+C 13
+S
+W 10
+C 29
+S
+W 100
+M 21 2
+G 21 1
+# turn lr tb
+C 36
+D 00
+S
+C 2a
+D 00 19 00 19
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+C 2a
+D 00 1b 00 24
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb
+C 36
+D 40
+S
+C 2a
+D 00 19 00 19
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+C 2a
+D 00 1b 00 24
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt
+C 36
+D 80
+S
+C 2a
+D 00 19 00 19
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+C 2a
+D 00 1b 00 24
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt
+C 36
+D c0
+S
+C 2a
+D 00 19 00 19
+C 2b
+D 00 02 00 02
+C 2c
+P 16 0821ef07b4ddabbf
+S
+C 2a
+D 00 1b 00 24
+C 2b
+D 00 04 00 09
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr tb swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 1a 00 1a
+C 2c
+P 16 0821ef07b4ddabbf
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 1c 00 21
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl tb swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 1a 00 1a
+C 2c
+P 16 0821ef07b4ddabbf
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 1c 00 21
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn lr bt swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 1a 00 1a
+C 2c
+P 16 0821ef07b4ddabbf
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 1c 00 21
+C 2c
+P 960 33dc5bc23c289e05
+S
+# turn rl bt swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 1a 00 1a
+C 2c
+P 16 0821ef07b4ddabbf
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 1c 00 21
+C 2c
+P 960 33dc5bc23c289e05
+S
+# fill
+S
+C 2a
+D 00 00 00 9f
+C 2b
+D 00 18 00 67
+C 2c
+P 204800 015b0a73147a3b25
+S
+## st7735 80x160 16 bgr
+M 4 2
+G 4 0
+W 100
+G 4 1
+W 100
+C 01
+S
+W 150
+C 11
+S
+W 500
+C b1
+D 01 2c 2d
+C b2
+D 01 2c 2d
+C b3
+D 01 2c 2d 01 2c 2d
+C b4
+D 07
+C c0
+D a2 02 84
+C c1
+D c5
+C c2
+D 0a 00
+C c3
+D 8a 2a
+C c4
+D 8a ee
+C c5
+D 0e
+W 9
+C 36
+D 08
+C 3a
+D 05
+C 2a
+D 00 00 00 7f
+C 2b
+D 00 00 00 9f
+C e0
+D 02 1c 07 12 37 32 29 2d 29 25 2b 39 00 01 03 10
+C e1
+D 03 1d 07 06 2e 2c 29 2d 2e 2e 37 3f 00 00 02 10
+C 13
+S
+W 10
+C 29
+S
+W 100
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 08
@@ -3216,6 +3531,8 @@ W 120
 C 29
 S
 W 20
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 00
@@ -3481,6 +3798,8 @@ W 120
 C 29
 S
 W 20
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 00
@@ -3746,6 +4065,8 @@ W 120
 C 29
 S
 W 20
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 00
@@ -4011,6 +4332,8 @@ W 120
 C 29
 S
 W 20
+M 21 2
+G 21 1
 # turn lr tb
 C 36
 D 08

@@ -24,7 +24,8 @@ config DGX_ENABLE_DSI
 config DGX_DSI_LOCK_INTERRUPT_CODE
     bool "Keep the code of interrupts in the instruction cache"
     depends on DGX_ENABLE_DSI && IDF_TARGET_ESP32P4
-    default y
+    default y if !ESP32P4_SELECTS_REV_LESS_V3
+    default n
     help
         On a JC8012P4A1C (ESP32-P4 v3.2) under the load a DSI display makes
         with the 2D DMA and the accelerator, a line of the instruction cache
@@ -38,6 +39,12 @@ config DGX_DSI_LOCK_INTERRUPT_CODE
         cause is not known, the errata of the chip tell of nothing like it,
         and one board has shown it. See "Illegal instruction on the
         10.1-inch board" in docs/dsi-display-en.md.
+
+        On by default in a build for revision 3 and later, where the fault
+        was seen; off in a build for revisions below 3
+        (CONFIG_ESP32P4_SELECTS_REV_LESS_V3), where it never was. The cache
+        it takes is not free: on a JC1060P470 (revision 1.3) the text of the
+        PDQ test went 5% slower with it, the other tests the same.
 
         Turn it off if the program keeps other code in the cache itself.
 
