@@ -1,11 +1,13 @@
+#include <stdlib.h>
 #include <string.h>
 
 #include "dgx_bw_screen.h"
 #include "drivers/st7565r.h"
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#include "../vscreen/dgx_bw_screen_priv.h"
 
 // ST7565R Commands
 #define ST7565R_RESET                      0xE2
@@ -117,7 +119,7 @@ dgx_screen_t *dgx_st7565r_init(dgx_bus_protocols_t *bus, gpio_num_t rst)
     scr->rst                  = rst;
     int16_t           width   = 128; // ST7565R width
     int16_t           height  = 64;  // ST7565R height
-    dgx_bw_vscreen_t *bw_vscr = (dgx_bw_vscreen_t *)dgx_bw_init(width, height);
+    dgx_bw_vscreen_t *bw_vscr = (dgx_bw_vscreen_t *)dgx_bw_init_with(width, height, bus->memory_allocator);
     if (bw_vscr == NULL) {
         ESP_LOGE(TAG, "BW screen initialization failed");
         free(scr);

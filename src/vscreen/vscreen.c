@@ -337,19 +337,25 @@ static dgx_vscreen_t *dgx_vscreen_without_array(int width, int height, uint8_t c
     return scr;
 }
 
-// Initialize the display
-dgx_screen_t *dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_color_order_t cbo)
+dgx_screen_t *dgx_vscreen_init_with(int width, int height, uint8_t color_bits, dgx_color_order_t cbo, dgx_bus_malloc_func alloc)
 {
     dgx_vscreen_t *scr = dgx_vscreen_without_array(width, height, color_bits, cbo);
     if (!scr) return 0;
     uint32_t asize = dgx_color_points_to_bytes(color_bits, width * height);
-    scr->v_array   = calloc(asize, 1);
+    scr->v_array   = alloc ? alloc(asize) : (uint8_t *)calloc(asize, 1);
     if (!scr->v_array) {
         ESP_LOGE(TAG, "Impossible to allocation memory");
         free(scr);
         return 0;
     }
+    if (alloc) memset(scr->v_array, 0, asize);
     return (dgx_screen_t *)scr;
+}
+
+// Initialize the display
+dgx_screen_t *dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_color_order_t cbo)
+{
+    return dgx_vscreen_init_with(width, height, color_bits, cbo, NULL);
 }
 
 dgx_screen_t *dgx_vscreen_from_array(void *v_array, int width, int height, uint8_t color_bits, dgx_color_order_t cbo)

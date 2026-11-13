@@ -165,6 +165,16 @@ config DGX_ENABLE_SSD1322
         keeps a 4-bit RAM buffer, 8 KB for 256x64, and sends what has
         changed.
 
+config DGX_ENABLE_SSD1680
+    bool "Enable SSD1680 e-paper controller"
+    depends on DGX_ENABLE_SPI
+    default n
+    help
+        The controller of the e-paper panels of black, white and red of
+        the 2.9" and 2.13" modules, on a bus of dgx_spi_init(). The driver
+        keeps the picture as the controller takes it, two planes of a bit
+        a pixel, 9.5 KB for 2.9", and sends it at dgx_ssd1680_refresh().
+
 config DGX_ENABLE_V_BW_SCREEN
     bool "Enable monochrome virtual/back screen"
     default n

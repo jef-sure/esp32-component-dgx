@@ -99,6 +99,10 @@ if(CONFIG_DGX_ENABLE_SSD1322)
 	list(APPEND srcs "src/drivers/ssd1322.c")
 endif()
 
+if(CONFIG_DGX_ENABLE_SSD1680)
+	list(APPEND srcs "src/drivers/ssd1680.c")
+endif()
+
 if(CONFIG_DGX_ENABLE_ST7565R)
 	list(APPEND srcs "src/drivers/st7565r.c")
 endif()

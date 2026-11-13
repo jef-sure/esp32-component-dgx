@@ -18,6 +18,8 @@ static inline esp_err_t gpio_set_level(gpio_num_t pin, uint32_t level) { (void)p
 static inline esp_err_t gpio_set_direction(gpio_num_t pin, gpio_mode_t mode) { (void)pin, (void)mode; return ESP_OK; }
 static inline esp_err_t dgx_gpio_set_level(gpio_num_t pin, uint32_t level) { (void)pin, (void)level; return ESP_OK; }
 static inline esp_err_t dgx_gpio_set_direction(gpio_num_t pin, gpio_mode_t mode) { (void)pin, (void)mode; return ESP_OK; }
+static inline int gpio_get_level(gpio_num_t pin) { (void)pin; return 0; }
+static inline int dgx_gpio_get_level(gpio_num_t pin) { (void)pin; return 0; }
 #ifdef DGX_HOST_WINDOW
 void dgx_host_delay(uint32_t ms);
 static inline void dgx_delay(uint32_t ms) { dgx_host_delay(ms); }

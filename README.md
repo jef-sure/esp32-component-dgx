@@ -27,6 +27,7 @@ Every picture in this README was drawn by DGX's own code, run on a PC.
 - [Recipes](#recipes)
   - [Animation without flicker](#animation-without-flicker)
   - [A monochrome OLED](#a-monochrome-oled)
+  - [An e-paper panel of black, white and red](#an-e-paper-panel-of-black-white-and-red)
   - [Text in your own font](#text-in-your-own-font)
   - [Fonts made at build time](#fonts-made-at-build-time)
   - [Text with soft edges](#text-with-soft-edges)
@@ -190,6 +191,39 @@ dgx_screen_progress_up(oled);
 draw_frame(oled);               // clear, text, figures: nothing is sent yet
 dgx_screen_progress_down(oled); // the changed rectangle goes to the panel once
 ```
+
+### An e-paper panel of black, white and red
+
+Drawing changes the picture in RAM only, kept as the controller takes it:
+two planes of a bit a pixel, 9.5 KB for the 2.9" module. The panel shows it
+when you call `dgx_ssd1680_refresh()`: the whole glass changes in about 20 s,
+flashing several times meanwhile, and keeps the picture with no power. A
+color is one of the three inks, `DGX_BWR_BLACK`, `DGX_BWR_WHITE` and
+`DGX_BWR_RED`; `dgx_rgb_to_bwr` turns any other into the nearest of them, as
+in `DGX_ORANGE(dgx_rgb_to_bwr)`. A new screen is white.
+
+```c
+#include "bus/dgx_spi_esp32.h"
+#include "dgx_bits.h"
+#include "drivers/ssd1680.h"
+#include "fonts/DejaVuSansBook32.h"
+
+dgx_bus_protocols_t *bus = dgx_spi_init(SPI3_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_23, GPIO_NUM_NC, GPIO_NUM_18,
+                                        GPIO_NUM_5, GPIO_NUM_17, 10 * 1000 * 1000, 0); // MOSI, MISO, SCK, CS, D/C
+dgx_screen_t *paper = dgx_ssd1680_init(bus, SSD1680_128X296_BWR, GPIO_NUM_16, GPIO_NUM_4); // RES, BUSY
+// 296x128, the module lying with its pins on the right
+dgx_ssd1680_orientation(paper, DgxScreenLeftRight, DgxScreenBottomTop, true);
+
+dgx_font_context_t text = {.scr = paper, .font = DejaVuSansBook32(), .color = DGX_BWR_BLACK};
+dgx_font_draw(&text, 8, 34, "Hello");
+dgx_fill_rectangle(paper, 8, 44, 280, 6, DGX_BWR_RED);
+dgx_ssd1680_refresh(paper); // returns once the picture is sent
+while (dgx_ssd1680_busy(paper)) vTaskDelay(pdMS_TO_TICKS(100));
+```
+
+A program may draw the next picture while the glass changes; the next call
+of the driver waits for the end. The colors are not levels that mix: a font
+of soft edges is drawn with `DGX_FONT_MONO`.
 
 ### Text in your own font
 
@@ -1146,6 +1180,7 @@ idf.py flash monitor
 | [hw_morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/hw_morph_demo) | CYD | handwritten words morphing one into another |
 | [hw_soft_pen_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/hw_soft_pen_demo) | CYD or JC1060P470 | handwriting with a soft pen, lines that move to make room |
 | [ssd1322_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/ssd1322_demo) | ESP32 with a 3.12" SSD1322 OLED on the 8-bit parallel bus | 16 grays, text in two fonts, lines and circles, a gray ramp |
+| [ssd1680_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/ssd1680_demo) | ESP32 with the WeAct Studio 2.9" e-paper module of black, white and red | text, the three colors and figures in landscape, the eight ways the screen can lie on the glass; the time of a refresh in the log |
 
 A CYD (Cheap Yellow Display) is an ESP32-2432S028R: an ESP32 with a
 320x240 ILI9341 on SPI.
@@ -1268,7 +1303,8 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
 ## What's in the box
 
 - Panel drivers for ST7735, ST7789, ILI9341, NV3041A, ST77916, GC9A01, SSD1351, SSD1306,
-  SSD1309, SH1106, ST7565R, ST7920, JD9165 and JD9365.
+  SSD1309, SH1106, ST7565R, ST7920, SSD1322, JD9165 and JD9365, and SSD1680 for
+  e-paper of black, white and red.
 - SPI, QSPI, I2C and 8-bit parallel (I80) transports for ESP32, and MIPI-DSI
   for ESP32-P4.
 - A color RAM-backed virtual screen and a 1-bit monochrome virtual screen.

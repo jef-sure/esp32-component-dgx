@@ -18,6 +18,17 @@
 #include "dgx_font.h"
 #include "fonts/TerminusTTFMedium12.h"
 
+/* memory the bus gives: counted, and not cleared, as malloc() gives it */
+static int bus_memory_given;
+
+static uint8_t *bus_memory(uint32_t len)
+{
+    ++bus_memory_given;
+    uint8_t *m = (uint8_t *)malloc(len);
+    if (m) memset(m, 0xa5, len);
+    return m;
+}
+
 #define SEGMENTS 128
 #define PAGES    8
 
@@ -243,12 +254,14 @@ static void turns(dgx_screen_t *scr, int pw, int ph, int offset)
 
 static void run(ssd1306_resolution_t resolution, int width, int height, int offset, uint8_t ext_vcc)
 {
-    dgx_bus_protocols_t bus = {.bus_type = DGX_BUS_SPI, .write_command = bus_write_command, .write_commands = bus_write_commands, .write_data = bus_write_data};
+    dgx_bus_protocols_t bus = {.bus_type = DGX_BUS_SPI, .write_command = bus_write_command, .write_commands = bus_write_commands, .write_data = bus_write_data, .memory_allocator = bus_memory};
     memset(gddram, 0x55, sizeof(gddram)); /* what the memory holds at power-up is not known */
     addr_mode = mux = com_pins = display_on = pump = -1;
     command_bytes = data_bytes = transfers = 0;
 
+    const int given = bus_memory_given;
     dgx_screen_t *scr = dgx_ssd1306_init(&bus, resolution, ext_vcc, GPIO_NUM_NC);
+    CHECK(bus_memory_given == given + 1); /* the pages from the bus */
     CHECK(scr && scr->width == width && scr->height == height);
     if (!scr) return;
     /* the start-up: horizontal addressing, the multiplex ratio of the panel, the COM pins of its height, the charge pump unless the supply is external, the display on at the end */

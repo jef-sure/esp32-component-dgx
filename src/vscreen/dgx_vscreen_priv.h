@@ -13,8 +13,18 @@
 
 #include <stdint.h>
 
+#include "bus/dgx_bus_protocols.h"
 #include "dgx_bits.h"
 #include "drivers/vscreen.h"
+
+/*
+ * As dgx_vscreen_init(), the pixels from `alloc`, the memory_allocator of
+ * the bus a driver sends them on straight from the screen, which gives
+ * memory the bus sends from as it lies; NULL for the memory
+ * dgx_vscreen_init() takes. The destructor of the screen frees them with
+ * free(), as a bus frees what it gives.
+ */
+dgx_screen_t *dgx_vscreen_init_with(int width, int height, uint8_t color_bits, dgx_color_order_t cbo, dgx_bus_malloc_func alloc);
 
 /* the number of the pixel (x, y) counted from (0, 0) row by row */
 #define DGX_VSCR_OFFSET(vscr, x, y) ((x) + (y) * (vscr)->base.width)

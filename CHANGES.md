@@ -1,5 +1,43 @@
 # Changes
 
+## 0.10.17 - 2026-11-13
+
+New:
+
+- The SSD1680 driver, for e-paper of black, white and red: the 2.9" module
+  of WeAct Studio, 128x296, and its 2.13" one, 122x250, untried. Drawing
+  changes the picture in RAM only, kept as the controller takes it: two
+  planes of a bit a pixel, 9.5 KB for the 2.9". `dgx_ssd1680_refresh()`
+  sends the whole picture and starts the change of the glass, about 20 s,
+  and returns at once; `dgx_ssd1680_busy()` is true until the glass is done,
+  and the next call of the driver waits for it. Between changes the
+  controller is in deep sleep. `dgx_ssd1680_orientation()` turns the screen.
+  `examples/ssd1680_demo` runs on the 2.9" module on SPI of an ESP32: a
+  change takes 19.4 s there. Seen right on that module, in all eight
+  orientations and in landscape with its pins on the right.
+- A screen of black, white and red takes a byte a pixel, which is the ink:
+  `DGX_BWR_BLACK`, `DGX_BWR_WHITE` or `DGX_BWR_RED`. `dgx_rgb_to_bwr()`
+  gives the nearest of them to a color, so the colors of `dgx_colors.h`
+  work: `DGX_ORANGE(dgx_rgb_to_bwr)` is red.
+
+Inside DGX:
+
+- The drivers take the memory they send straight from the bus it goes on,
+  from its `memory_allocator`: the pages of SSD1306, SH1106, SSD1309 and
+  ST7565R (`dgx_bw_init_with()`, `src/vscreen/dgx_bw_screen_priv.h`), the
+  picture of SSD1322 (`dgx_vscreen_init_with()`,
+  `src/vscreen/dgx_vscreen_priv.h`), the buffer of the I2C bus that the
+  first three make when it has none, and the planes of SSD1680. SSD1351
+  takes the bytes of its 18-bit pixels from the bus only: every bus of DGX
+  has an allocator. `dgx_bw_init()` keeps its pages in memory for DMA, but
+  no longer the structure of the screen, which is never sent. Seen right on
+  the 72x40 SSD1306 of an ESP32-C3 on I2C, in all eight orientations, and on
+  a 3.12" SSD1322 on the 8-bit parallel bus, as fast as before.
+- `dgx_gpio_get_level()` reads a pin, the BUSY line of the e-paper.
+- `test_ssd1680`: the driver against a model of the controller that takes
+  no command while BUSY is high or while it sleeps, on both modules, in all
+  eight orientations.
+
 ## 0.10.16 - 2026-11-13
 
 New:

@@ -1,7 +1,9 @@
+#include <stdlib.h>
 #include <string.h>
 
 #include "dgx_bits.h"
 #include "dgx_bw_screen.h"
+#include "dgx_bw_screen_priv.h"
 #include "dgx_screen_functions.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -299,9 +301,9 @@ void dgx_bw_destroy_screen(dgx_screen_t **scr_)
     *scr_ = 0;
 }
 
-dgx_screen_t *dgx_bw_init(int width, int height)
+dgx_screen_t *dgx_bw_init_with(int width, int height, dgx_bus_malloc_func alloc)
 {
-    dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)heap_caps_calloc(1, sizeof(dgx_bw_vscreen_t), MALLOC_CAP_DMA);
+    dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)calloc(1, sizeof(dgx_bw_vscreen_t));
     if (!scr) {
         ESP_LOGE(TAG, "Impossible to allocate memory for BW virtual screen");
         return 0;
@@ -315,12 +317,15 @@ dgx_screen_t *dgx_bw_init(int width, int height)
     scr->base.swap_xy     = false;
     // must be set before dgx_scr_init_slow_bus_optimized_funcs(), which takes subtype 0 for a screen with a bus
     scr->base.screen_subtype = DgxVirtualBackScreen;
-    scr->v_array             = heap_caps_calloc(1, ((scr->base.height + 7) / 8) * scr->base.width, MALLOC_CAP_DMA);
+    /* sent by DMA as it lies by the drivers on SPI */
+    const size_t bytes = (size_t)((height + 7) / 8) * (size_t)width;
+    scr->v_array       = alloc ? alloc((uint32_t)bytes) : (uint8_t *)heap_caps_malloc(bytes, MALLOC_CAP_DMA);
     if (!scr->v_array) {
         free(scr);
         ESP_LOGE(TAG, "Impossible to allocate memory for BW virtual screen buffer");
         return 0;
     }
+    memset(scr->v_array, 0, bytes);
     dgx_scr_init_slow_bus_optimized_funcs(&scr->base);
     scr->base.set_area       = dgx_bw_set_area;
     scr->base.set_pixel      = dgx_bw_set_pixel;
@@ -332,4 +337,9 @@ dgx_screen_t *dgx_bw_init(int width, int height)
     scr->base.destroy        = dgx_bw_destroy_screen;
     dgx_bw_set_area((dgx_screen_t *)scr, 0, width - 1, 0, height - 1);
     return (dgx_screen_t *)scr;
+}
+
+dgx_screen_t *dgx_bw_init(int width, int height)
+{
+    return dgx_bw_init_with(width, height, NULL);
 }

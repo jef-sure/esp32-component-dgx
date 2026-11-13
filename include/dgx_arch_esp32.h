@@ -45,6 +45,11 @@ static inline esp_err_t dgx_gpio_set_level(gpio_num_t gpio_num, uint32_t level)
     return gpio_set_level(gpio_num, level);
 }
 
+static inline int dgx_gpio_get_level(gpio_num_t gpio_num)
+{
+    return gpio_get_level(gpio_num);
+}
+
 /*
  * Wait for at least so many milliseconds. A delay in ticks is rounded up, and
  * one tick is added: the tick under way may end the next moment. Rounded

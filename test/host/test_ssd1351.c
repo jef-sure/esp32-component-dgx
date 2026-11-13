@@ -144,6 +144,15 @@ static uint32_t held(uint32_t value, uint8_t bits)
     return (value >> 18 & 0x3f) << 12 | (value >> 10 & 0x3f) << 6 | (value >> 2 & 0x3f);
 }
 
+/* memory the bus gives, as malloc() gives it: counted */
+static int bus_memory_given;
+
+static uint8_t *bus_memory(uint32_t len)
+{
+    ++bus_memory_given;
+    return (uint8_t *)malloc(len);
+}
+
 /* a bus buffer of `buffer_len` bytes: more than the 768 the driver sends at a time at 18 bits makes it send in pieces */
 static void run(enum dgx_bus_type type, uint8_t bits, bool swap_xy, size_t buffer_len)
 {
@@ -154,11 +163,14 @@ static void run(enum dgx_bus_type type, uint8_t bits, bool swap_xy, size_t buffe
                                .write_data       = bus_write_data,
                                .write_data_async = bus_write_data_async,
                                .sync_write       = bus_sync,
+                               .memory_allocator = bus_memory,
                                .buffer           = buffer,
                                .buffer_len       = buffer_len};
     memset(gddram, 0xa5, sizeof(gddram)); /* what the memory holds at power-up is not known: the first fill has to reach all of it */
     remap = 0;
-    dgx_screen_t *scr = dgx_ssd1351_init(&bus, GPIO_NUM_NC, bits, DgxScreenRGB);
+    const int     given = bus_memory_given;
+    dgx_screen_t *scr   = dgx_ssd1351_init(&bus, GPIO_NUM_NC, bits, DgxScreenRGB);
+    CHECK(bus_memory_given == given + (bits == 18)); /* the bytes of 18-bit pixels from the bus */
     dgx_ssd1351_orientation(scr, DgxScreenLeftRight, DgxScreenTopBottom, swap_xy);
     CHECK(((remap & 1) != 0) == swap_xy && (remap >> 6) == (bits == 18 ? 2 : 1));
     dgx_screen_t *ref    = dgx_vscreen_init(SIDE, SIDE, bits, DgxScreenRGB);
@@ -200,6 +212,7 @@ static void adafruit_turns(void)
                                .write_data       = bus_write_data,
                                .write_data_async = bus_write_data_async,
                                .sync_write       = bus_sync,
+                               .memory_allocator = bus_memory,
                                .buffer           = buffer,
                                .buffer_len       = sizeof(buffer)};
     static const struct {

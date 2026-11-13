@@ -1,5 +1,6 @@
 #include "drivers/ssd1351.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "dgx_arch.h"
@@ -7,7 +8,6 @@
 #include "dgx_screen_functions.h"
 #include "dgx_spi_area_protocol.h"
 #include "drivers/dgx_lcd_init.h"
-#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -154,8 +154,7 @@ dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t
         return NULL;
     }
     if (color_bits == 18) {
-        scr->wire = bus->memory_allocator ? bus->memory_allocator(DGX_SSD1351_WIRE_BYTES)
-                                          : (uint8_t *)heap_caps_malloc(DGX_SSD1351_WIRE_BYTES, MALLOC_CAP_DMA);
+        scr->wire = bus->memory_allocator(DGX_SSD1351_WIRE_BYTES);
         if (!scr->wire) {
             ESP_LOGE(TAG, "no memory for the bytes of 18-bit pixels");
             free(scr);

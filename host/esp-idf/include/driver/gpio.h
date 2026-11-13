@@ -33,6 +33,12 @@ static inline esp_err_t gpio_set_direction(gpio_num_t pin, gpio_mode_t mode)
     return ESP_OK;
 }
 
+static inline int gpio_get_level(gpio_num_t pin)
+{
+    (void)pin;
+    return 0;
+}
+
 #ifdef __cplusplus
 }
 #endif

@@ -212,8 +212,11 @@ static void line_sync_write(struct _dgx_bus_protocols_t *bus)
     (void)bus;
 }
 
+static int line_malloc_given;
+
 static uint8_t *line_malloc(uint32_t len)
 {
+    ++line_malloc_given;
     return (uint8_t *)malloc(len);
 }
 
@@ -275,7 +278,9 @@ static void run(dgx_bus_protocols_t *bus, int m)
     pw = modules[m].width, ph = modules[m].height, col0 = modules[m].col0, seg = modules[m].segments;
     memset(gddram, 0xa5, sizeof(gddram)); /* what the memory of the controller holds at power-up is not known */
     display_on = false;
-    dgx_screen_t *scr = dgx_ssd1322_init(bus, modules[m].resolution, rst_pin);
+    const int     given = line_malloc_given;
+    dgx_screen_t *scr   = dgx_ssd1322_init(bus, modules[m].resolution, rst_pin);
+    CHECK(line_malloc_given == given + 1); /* the picture, its rows sent straight from it, from the bus */
     CHECK(scr && scr->width == pw && scr->height == ph);
     if (!scr) return;
     CHECK(remap_a == modules[m].remap_a && remap_b == modules[m].remap_b);

@@ -12,16 +12,17 @@
  *  Copyright (c) 2021-2026 Anton Petrusevich
  */
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "bus/dgx_i2c_esp32.h"
 #include "dgx_bw_screen.h"
 #include "drivers/ssd1309.h"
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "../vscreen/dgx_bw_screen_priv.h"
 #include "../vscreen/dgx_soft_turn_priv.h"
 
 // Control byte of the I2C protocol, the same as the SSD1306
@@ -203,7 +204,7 @@ dgx_screen_t *dgx_ssd1309_init(dgx_bus_protocols_t *bus, ssd1309_resolution_t re
         ESP_LOGE(TAG, "Unsupported SSD1309 resolution");
         return NULL;
     }
-    dgx_bw_vscreen_t *bw_scr = (dgx_bw_vscreen_t *)dgx_bw_init(width, height);
+    dgx_bw_vscreen_t *bw_scr = (dgx_bw_vscreen_t *)dgx_bw_init_with(width, height, bus->memory_allocator);
     if (bw_scr == NULL) {
         ESP_LOGE(TAG, "BW screen initialization failed");
         return NULL;
@@ -230,7 +231,7 @@ dgx_screen_t *dgx_ssd1309_init(dgx_bus_protocols_t *bus, ssd1309_resolution_t re
         i2c_bus->cmd_single    = SSD1309_CONTROL_BYTE_CMD_SINGLE;
         if (bus->buffer_len == 0) {
             bus->buffer_len = 1 + width * ((height + 7) / 8);
-            bus->buffer     = (uint8_t *)heap_caps_calloc(1, bus->buffer_len, MALLOC_CAP_DMA);
+            bus->buffer     = bus->memory_allocator((uint32_t)bus->buffer_len); /* the bus grows it with realloc() and frees it */
             if (bus->buffer == NULL) {
                 ESP_LOGE(TAG, "SSD1309 I2C buffer allocation failed");
                 bus->buffer_len = 0;

@@ -358,7 +358,9 @@ the same result through a typed function-like interface.
 
 Available packers: `DGX_RGB_12` / `dgx_rgb_to_12`, `DGX_RGB_16` /
 `dgx_rgb_to_16`, `DGX_RGB_18` / `dgx_rgb_to_18`, `DGX_RGB_24` /
-`dgx_rgb_to_24`. Named colors include `DGX_BLACK`, `DGX_WHITE`, `DGX_RED`,
+`dgx_rgb_to_24`, and `dgx_rgb_to_bwr` for an e-paper panel of black, white and
+red, which gives the nearest of its three inks, `DGX_BWR_BLACK`,
+`DGX_BWR_WHITE` and `DGX_BWR_RED`, a byte a pixel. Named colors include `DGX_BLACK`, `DGX_WHITE`, `DGX_RED`,
 `DGX_GREEN`, `DGX_BLUE`, `DGX_CYAN`, `DGX_MAGENTA`, `DGX_YELLOW`,
 `DGX_ORANGE`, `DGX_NAVY`, `DGX_GOLD`, `DGX_SILVER`, `DGX_SKYBLUE` and more.
 For most ESP32 TFT panels here, `DGX_RGB_16` is the right choice.
@@ -608,6 +610,11 @@ themselves. On drivers that transmit pixels immediately from `write_area()`,
 the batch cannot buffer those transfers; use a virtual screen when the whole
 frame must be composed before it is sent.
 
+An e-paper panel (SSD1680) is the exception: its `update_screen()` does
+nothing, for a change of the glass takes about 20 s. Drawing changes the
+picture in RAM, and `dgx_ssd1680_refresh()` sends the whole of it and starts
+the change; `dgx_ssd1680_busy()` is true until the glass is done.
+
 Declared in [include/dgx_screen.h](../include/dgx_screen.h):
 
 | API | Description |
@@ -792,6 +799,7 @@ with its transport: see [Getting started](../README.md#getting-started).
 | `CONFIG_DGX_ENABLE_SH1106` | `drivers/sh1106.c` | needs SPI or I2C; selects `V_BW_SCREEN` |
 | `CONFIG_DGX_ENABLE_ST7565R` | `drivers/st7565r.c` | needs SPI; selects `V_BW_SCREEN` |
 | `CONFIG_DGX_ENABLE_ST7920` | `drivers/st7920.c` | needs SPI; selects `VSCREEN` |
+| `CONFIG_DGX_ENABLE_SSD1680` | `drivers/ssd1680.c` | needs SPI |
 | `CONFIG_DGX_ENABLE_JD9165` | `drivers/jd9165.c` | needs DSI |
 | `CONFIG_DGX_ENABLE_JD9365` | `drivers/jd9365.c` | needs DSI |
 | `CONFIG_DGX_ENABLE_V_BW_SCREEN` | `vscreen/bw_screen.c` | 1-bit virtual screen |
@@ -825,7 +833,7 @@ A couple of practical limitations are worth knowing up front:
 
 - **Pixel readback works only from RAM.** `get_pixel()` reads virtual screens,
   panels that draw into a virtual back screen first (ST7920, SSD1306,
-  SSD1309, SH1106, ST7565R) and a DSI display, whose frame buffer is memory of the chip
+  SSD1309, SH1106, ST7565R, SSD1322, SSD1680) and a DSI display, whose frame buffer is memory of the chip
   (JD9165, JD9365). Direct panels (ILI9341, ST7789, ...) return 0: many SPI modules
   have no MISO line at all, and where RAMRD works it is far too slow. If you
   need to read what you drew, draw into a `vscreen` and push it with

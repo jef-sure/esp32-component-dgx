@@ -5,6 +5,7 @@
 #include "check.h"
 #include "dgx_bits.h"
 #include "dgx_bw_screen.h"
+#include "vscreen/dgx_bw_screen_priv.h"
 #include "dgx_draw.h"
 #include "dgx_font.h"
 #include "drivers/vscreen.h"
@@ -403,9 +404,39 @@ static void test_tall_pages(void)
     dgx_screen_destroy(&s);
 }
 
+/* memory a bus gives, not cleared: the pages of dgx_bw_init_with() come from it and start dark */
+static int given;
+
+static uint8_t *bus_memory(uint32_t len)
+{
+    ++given;
+    uint8_t *m = (uint8_t *)malloc(len);
+    if (m) memset(m, 0xa5, len);
+    return m;
+}
+
+static void test_bw_memory_of_a_bus(void)
+{
+    dgx_screen_t *s = dgx_bw_init_with(30, 20, bus_memory);
+    CHECK(s && given == 1);
+    if (!s) return;
+    int lit = 0;
+    for (int y = 0; y < s->height; ++y)
+        for (int x = 0; x < s->width; ++x) lit += dgx_get_pixel(s, x, y) != 0;
+    CHECK(lit == 0);
+    dgx_set_pixel(s, 29, 19, 1);
+    CHECK(dgx_get_pixel(s, 29, 19) == 1);
+    dgx_screen_destroy(&s);
+    /* without one, the memory of dgx_bw_init() */
+    s = dgx_bw_init_with(8, 8, NULL);
+    CHECK(s && given == 1);
+    dgx_screen_destroy(&s);
+}
+
 int main(void)
 {
     test_bw_screen();
+    test_bw_memory_of_a_bus();
     test_bw_thick_lines();
     test_bw_text();
     test_fills();

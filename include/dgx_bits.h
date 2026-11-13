@@ -213,6 +213,23 @@ static inline uint32_t dgx_rgb_to_24(uint8_t r, uint8_t g, uint8_t b)
     return DGX_RGB_24(r, g, b);
 }
 
+/* the three colors of an e-paper panel of black, white and red, as its screen takes them, a byte a pixel */
+#define DGX_BWR_BLACK 0u
+#define DGX_BWR_WHITE 1u
+#define DGX_BWR_RED   2u
+
+/*
+ * The nearest of black, white and red: DGX_RED(dgx_rgb_to_bwr). Red is
+ * nearer than black when r >= 128, and nearer than white when
+ * g + b <= 255; between white and black it is the sum r + g + b, white
+ * from 383. Yellow goes to red, grey from 128 to white.
+ */
+static inline uint32_t dgx_rgb_to_bwr(uint8_t r, uint8_t g, uint8_t b)
+{
+    if (r >= 128) return (unsigned)g + b <= 255u ? DGX_BWR_RED : DGX_BWR_WHITE;
+    return (unsigned)r + g + b >= 383u ? DGX_BWR_WHITE : DGX_BWR_BLACK;
+}
+
 static inline uint8_t *dgx_fill_buf_value_1(uint8_t *lp, int idx, uint32_t value)
 {
     uint8_t mask = 0x80 >> (idx & 7);

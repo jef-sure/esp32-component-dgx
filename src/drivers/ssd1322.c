@@ -27,6 +27,7 @@
 #include "esp_log.h"
 
 #include "../vscreen/dgx_soft_turn_priv.h"
+#include "../vscreen/dgx_vscreen_priv.h"
 
 #define SSD1322_CMD_ENABLEGRAY     0x00 ///< puts the table of B8h in force
 #define SSD1322_CMD_SETCOLUMN      0x15 ///< start and end column, 0..119, 4 pixels each
@@ -264,7 +265,8 @@ dgx_screen_t *dgx_ssd1322_init(dgx_bus_protocols_t *bus, ssd1322_resolution_t re
         ESP_LOGE(TAG, "no bus, or its buffer cannot hold a row");
         return NULL;
     }
-    dgx_vscreen_t *vscreen = (dgx_vscreen_t *)dgx_vscreen_init(width, height, 4, DgxScreenRGB);
+    /* the rows go to the bus straight from it: memory of the bus */
+    dgx_vscreen_t *vscreen = (dgx_vscreen_t *)dgx_vscreen_init_with(width, height, 4, DgxScreenRGB, bus->memory_allocator);
     if (!vscreen) {
         ESP_LOGE(TAG, "virtual screen initialization failed");
         return NULL;
