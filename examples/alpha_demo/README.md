@@ -98,8 +98,8 @@ program that would rather not use it sets `CONFIG_SPIRAM_SPEED_200M`: the
 demo has two frame buffers, which keep the display from flashing at 200 MHz,
 and there the overlay scene takes 27.6 ms a frame instead of 23.3. This load
 once stopped the demo now and then with "Illegal instruction", at 200 MHz as
-well: a line of the instruction cache came as zeros. DGX keeps the code it
-hit in the cache, and the demo has run twenty minutes at 250 MHz without a
+well: a line of the instruction cache came as zeros, for a cause not known.
+DGX works around it by keeping the code it hit in the cache, and the demo has run twenty minutes at 250 MHz without a
 stop. See "Illegal instruction on the 10.1-inch board" in
 [docs/dsi-display-en.md](../../docs/dsi-display-en.md).
 

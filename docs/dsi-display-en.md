@@ -56,7 +56,8 @@ How to read this note.
 - [When the PSRAM cannot keep up](#when-the-psram-cannot-keep-up): flashes
   on the JD9365 (10")
 - [Illegal instruction on the 10.1-inch board](#illegal-instruction-on-the-101-inch-board):
-  lines of the instruction cache read as zeros, and the code kept in it
+  lines of the instruction cache read as zeros, the cause unknown, and the
+  code kept in it as a workaround
 - [A picture scrolled](#a-picture-scrolled)
 - [Summary measurements](#summary-measurements): the working time of a
   batch, frame rate
@@ -2486,10 +2487,11 @@ unknown.
 On the JC8012P4A1C (ESP32-P4 revision 3.2, CPU at 400 MHz, ESP-IDF 6.1) a
 program that kept the display busy, pictures put whole one after another for
 long, stopped now and then with "Illegal instruction". Since 0.10.16 DGX
-keeps the code where it happened in the instruction cache, and with that the
-same load has not stopped. Whether another board of this kind shows it is
-not known. The 7-inch JC1060P470 (revision 1.3, CPU at 360 MHz) did not, in
-ten minutes of the same load.
+works around it: it keeps the code where it happened in the instruction
+cache, and with that the same load has not stopped. The cause is not known:
+the workaround takes away the symptom, not the cause. Whether another board
+of this kind shows it is not known. The 7-inch JC1060P470 (revision 1.3, CPU
+at 360 MHz) did not, in ten minutes of the same load.
 
 **What it is.** The program stopped in the code of FreeRTOS that takes the
 spinlock of a critical section, `xPortEnterCriticalTimeout()`, entered from
@@ -2501,8 +2503,7 @@ upper half, the first bytes of the next line, had come as zeros, and so had
 the next instruction, 0x0000, which is no instruction. Halted at the panic,
 the code in internal RAM read back by JTAG matched the program's file byte
 for byte. So a line of the instruction cache now and then came from internal
-RAM as zeros, with the memory intact. No erratum of Espressif for revision 3
-tells of it; neither does the advisory for revision 3.2.
+RAM as zeros, with the memory intact.
 
 **What decides it.** Where the code lies after a build: not the PSRAM clock,
 not the clock of the CPU. The same bench on the JC8012P4A1C, one frame buffer,
@@ -2525,7 +2526,21 @@ stopped about every 25 seconds in builds that had the function at
 200 and 250 MHz compared then were two layouts of the code as well, and
 whether the PSRAM clock adds to it at all is not known.
 
-**What DGX does.** `dgx_dsi_init()` keeps the code every interrupt runs in
+**The cause.** Not known. The errata of the ESP32-P4 tell of nothing of the
+kind, for no revision of the chip. Of its interface to flash and PSRAM they
+name a load access fault at power-on and on waking from deep sleep, unaligned
+reads of PSRAM by DMA that may return old data, and errors in its detection
+of overlapping addresses at certain clocks: none of them tells of the
+instruction cache or of lines read from internal RAM, and the code that met
+it lies in internal RAM, not in flash or PSRAM. Neither does the advisory for
+revision 3.2. One board has shown it, so it may come from that board, from
+the supply of its core or another of its properties: a thread of the forum
+tells of the same kind of failure on a board whose core supply was off
+(below). What DGX does is therefore a workaround on this board, not a
+behaviour of the chip it relies on; it stays on while the cause is not
+known.
+
+**The workaround.** `dgx_dsi_init()` keeps the code every interrupt runs in
 the L1 instruction caches of both cores: the port of FreeRTOS from its first
 function to its last (critical sections, the entry and exit of an interrupt,
 the tick), 2.5 KB in ESP-IDF 6.1 and 3.7 KB in 5.5.4, the handler every

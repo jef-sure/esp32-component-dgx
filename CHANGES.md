@@ -1,5 +1,31 @@
 # Changes
 
+## Unreleased
+
+Documentation:
+
+- A picture through a table goes to a screen of 16 bits only:
+  `dgx_vscreen8_to_screen16()` and its region, and with them the mask
+  `DGX_VSCREEN_MASK`, refuse a destination of other bits with an error in
+  the log, a DSI display of 24 bits and a window on the computer made with
+  `no_bus` of 24 bits among them. Said in `vscreen.h`, docs/api-en.md
+  (Known gaps), the recipe of the mask in the README and
+  docs/host-window-en.md.
+- `DGX_VSCREEN_ALPHA`, a mask and the overlay layer mix in 32 steps at every
+  depth: a fade has 33 different pictures at most, which a slow crossfade of
+  a smooth gradient on a large display of 24 bits may show. Said in
+  `vscreen.h` and docs/api-en.md (Known gaps); 256 steps for 24 bits are a
+  candidate for later.
+- `CONFIG_DGX_DSI_LOCK_INTERRUPT_CODE` is described as what it is, a
+  workaround: the cause of the lines of the instruction cache read as zeros
+  on the 10.1-inch board is not known, the errata of the ESP32-P4 tell of
+  nothing like it for any revision, the code that met it lies in internal
+  RAM, and one board has shown it, so the board itself, the supply of its
+  core among others, may be the cause. docs/dsi-display-en.md and -ru.md,
+  "Illegal instruction on the 10.1-inch board", have a paragraph on the
+  cause; the Kconfig help, docs/dsi-usage-*.md and the READMEs of the
+  examples say so.
+
 ## 0.10.17 - 2026-11-13
 
 New:

@@ -34,8 +34,10 @@ config DGX_DSI_LOCK_INTERRUPT_CODE
         the code lay after a build. With this on, dgx_dsi_init() keeps that
         code, the port of FreeRTOS, 2.6 KB in IDF 6.1, in the instruction
         caches of both cores, where it is never read again; it takes one way
-        of the four in about 45 of the 64 sets. See "Illegal instruction on
-        the 10.1-inch board" in docs/dsi-display-en.md.
+        of the four in about 45 of the 64 sets. It is a workaround: the
+        cause is not known, the errata of the chip tell of nothing like it,
+        and one board has shown it. See "Illegal instruction on the
+        10.1-inch board" in docs/dsi-display-en.md.
 
         Turn it off if the program keeps other code in the cache itself.
 

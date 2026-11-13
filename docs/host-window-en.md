@@ -102,7 +102,9 @@ on SPI does, and is not read: `dgx_screen_is_readable()` is false, soft
 text without a paper is cut to one bit, as on such a panel. A window with
 `no_bus` stands for a display on MIPI-DSI: it takes 24 bits too, and its
 screen is read as a frame buffer is, so soft edges are mixed with what it
-shows, as on the board.
+shows, as on the board. A picture through a table,
+`dgx_vscreen8_to_screen16()` and so a mask, goes to 16 bits only, as on the
+board: in a window of 24 bits it logs an error and draws nothing.
 
 ## The linux target of ESP-IDF (host-esp-idf)
 

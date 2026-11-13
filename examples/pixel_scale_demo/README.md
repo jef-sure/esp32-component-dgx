@@ -73,7 +73,8 @@ experimental setting of ESP-IDF. A program that would rather not use it sets
 `CONFIG_SPIRAM_SPEED_200M`: the demo has two frame buffers, which keep the
 display from flashing at 200 MHz. The "Illegal instruction" a program on this
 board met now and then under the heaviest load came from the instruction
-cache, at 200 MHz as well, and DGX keeps the code it hit in the cache: see
+cache, at 200 MHz as well, for a cause not known, and DGX works around it
+by keeping the code it hit in the cache: see
 "Illegal instruction on the 10.1-inch board" in
 [docs/dsi-display-en.md](../../docs/dsi-display-en.md) and "PSRAM speed" in
 [docs/dsi-usage-en.md](../../docs/dsi-usage-en.md).

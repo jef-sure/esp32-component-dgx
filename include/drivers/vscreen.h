@@ -196,7 +196,10 @@ bool dgx_vscreen_to_argb8888(dgx_screen_t *scr, int x, int y, int width, int hei
  * The picture over what lies under it by @p a, 0 to 255: 255 the picture
  * alone, as without the flag, 128 half and half, 0 nothing of it. Each
  * channel of a pixel is mixed in 32 steps, (picture × w + under × (32 − w))
- * / 32 with w = a × 32 / 255 rounded, as the overlay layer mixes. Under it
+ * / 32 with w = a × 32 / 255 rounded, as the overlay layer mixes, at every
+ * depth: a fade by steps of @p a has 33 different pictures at most, as fine
+ * as the colors of RGB565, but on a large display of 24 bits, a DSI one, a
+ * slow fade of a smooth gradient may show its steps. Under it
  * is what the destination holds: a virtual screen and a display that can be
  * read, a DSI one, give their pixels, so a picture put by steps of @p a over
  * another fades into it. A display behind a bus that cannot be read has
@@ -224,7 +227,10 @@ bool dgx_vscreen_to_argb8888(dgx_screen_t *scr, int x, int y, int width, int hei
  * goes through the table as it does without it, so give it a table from the
  * paper to the ink there, dgx_lut_gradient(). The indices are made larger,
  * smoothed and turned as the other flags ask, and the overlay layer is mixed
- * over the result.
+ * over the result. Only dgx_vscreen8_to_screen16() and
+ * dgx_vscreen8_region_to_screen16() take it, and they take a destination of
+ * 16 bits: a DSI display of 24 bits, and a window on the computer made with
+ * no_bus of 24 bits, get an error in the log and no picture.
  */
 #define DGX_VSCREEN_MASK 0x10u
 
@@ -284,7 +290,10 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
  * @brief Expand an 8-bit indexed virtual screen into a 16-bit destination through a LUT.
  *
  * The same as dgx_vscreen_to_screen(), every index put as its color from
- * the table; DGX_VSCREEN_TRANSPARENT leaves out index 0.
+ * the table; DGX_VSCREEN_TRANSPARENT leaves out index 0. The destination is
+ * of 16 bits: one of other bits, a DSI display of 24 bits or a window on the
+ * computer made with no_bus of 24 bits, gets an error in the log and nothing
+ * is drawn.
  *
  * A display whose bus has faster ways than its window is served by them,
  * and the pixels are those of the table. A DSI display of an ESP32-P4 makes

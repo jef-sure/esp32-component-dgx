@@ -1982,8 +1982,9 @@ static void dgx_dsi_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
  * then came from internal memory as zeros, and the program stopped with
  * "Illegal instruction" in the spinlock of a critical section an interrupt
  * entered: about once a minute or never, by where the code lay after a
- * build, at a PSRAM of 200 MHz as of 250. A line kept in the cache is not
- * read again. Kept are the port of FreeRTOS from its first function to its
+ * build, at a PSRAM of 200 MHz as of 250. A workaround: the cause is not
+ * known, and the errata of the chip tell of nothing like it. A line kept in
+ * the cache is not read again. Kept are the port of FreeRTOS from its first function to its
  * last (critical sections, the entry and exit of an interrupt, the tick),
  * 2.6 KB in IDF 6.1, the handler every interrupt starts in and the atomic
  * exchange of a spinlock: one way of the four in about 45 of the 64 sets.

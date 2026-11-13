@@ -137,7 +137,8 @@ use 250 MHz, an experimental setting of ESP-IDF. Set
 `dgx_dsi_advise()` asks for two frame buffers, and the demo restarts with
 them. The "Illegal instruction" a program on this board met now and then
 under the heaviest load came from the instruction cache, at 200 MHz as well,
-and DGX keeps the code it hit in the cache: see "Illegal instruction on the
+for a cause not known, and DGX works around it by keeping the code it hit in
+the cache: see "Illegal instruction on the
 10.1-inch board" in [docs/dsi-display-en.md](../../docs/dsi-display-en.md)
 and "PSRAM speed" in [docs/dsi-usage-en.md](../../docs/dsi-usage-en.md).
 

@@ -242,8 +242,9 @@ with a chip of revision 3.2:
   among its experimental features. Under the heaviest load a program on this
   board stopped now and then with "Illegal instruction", at 250 MHz and at
   200 MHz as well: a line of the instruction cache came from internal RAM as
-  zeros. DGX keeps the code that met it in the cache
-  (`CONFIG_DGX_DSI_LOCK_INTERRUPT_CODE`), and a crossfade that had stopped
+  zeros. The cause is not known; DGX works around it by keeping the code
+  that met it in the cache (`CONFIG_DGX_DSI_LOCK_INTERRUPT_CODE`), and a
+  crossfade that had stopped
   about every half a minute at 250 MHz ran twenty minutes without a stop.
   The examples keep 250 MHz. See "When the PSRAM cannot keep up" and
   "Illegal instruction on the 10.1-inch board" in

@@ -439,8 +439,8 @@ The last argument of the four transfers is 0 or these added together:
 | `DGX_VSCREEN_SMOOTH` | With a scale of 2, 3 or 4: Scale2x, Scale3x, Scale2x twice, instead of plain squares. |
 | `DGX_VSCREEN_SMOOTH_SFX` | The same by Scale2xSFX and Scale3xSFX: fewer lumps on thin lines, more work. |
 | `DGX_VSCREEN_ORIENTED(o)` | Turned or mirrored, `o` a `dgx_output_orientation_t`; scaled and smoothed first. |
-| `DGX_VSCREEN_ALPHA(a)` | The picture over what lies under it by `a`, 0 to 255, in 32 steps: a virtual screen and a display that is read (DSI) give what they have, a display behind a bus that cannot be read has black under it. Steps of `a` make a crossfade, or a fade to black and from it. A pixel under an overlay layer is read with the layer in it. |
-| `DGX_VSCREEN_MASK` | Through a table only: the 8-bit picture is a mask, a pixel how much of `lut[255]` goes over what lies under it, 0 to 255, in 32 steps, times `DGX_VSCREEN_ALPHA`. A soft shape drawn once into an 8-bit screen is put on any picture of a virtual screen or a DSI display; on a display that cannot be read the flag changes nothing, so give it a table from the paper to the ink there. |
+| `DGX_VSCREEN_ALPHA(a)` | The picture over what lies under it by `a`, 0 to 255, in 32 steps: a virtual screen and a display that is read (DSI) give what they have, a display behind a bus that cannot be read has black under it. Steps of `a` make a crossfade, or a fade to black and from it, of 33 different pictures at most at any depth. A pixel under an overlay layer is read with the layer in it. |
+| `DGX_VSCREEN_MASK` | Through a table only: the 8-bit picture is a mask, a pixel how much of `lut[255]` goes over what lies under it, 0 to 255, in 32 steps, times `DGX_VSCREEN_ALPHA`. A soft shape drawn once into an 8-bit screen is put on any picture of a virtual screen or a DSI display; on a display that cannot be read the flag changes nothing, so give it a table from the paper to the ink there. 16-bit destinations only, as every transfer through a table: a 24-bit one gets an error in the log and no picture. |
 | `DGX_VSCREEN_EXACT` | Through a table: its colors to the last bit, no hardware that mixes two colors. With `DGX_VSCREEN_ALPHA` on a DSI display, through a table or of 16 bits: mixed by the processor, not by the accelerator, which may give red, green or blue ±1 off, rarely seen by the eye. |
 
 Free any screen with `dgx_screen_destroy(&scr)`.
@@ -845,6 +845,21 @@ A couple of practical limitations are worth knowing up front:
   GC9A01 have the same two commands and take the same code, three lines of a
   driver each; they are not switched on, for there was no panel to see them
   on. `dgx_scroll()` returns `ESP_ERR_NOT_SUPPORTED` there.
+
+- **A picture through a table goes to a screen of 16 bits only.**
+  `dgx_vscreen8_to_screen16()` and `dgx_vscreen8_region_to_screen16()`, and
+  with them the mask `DGX_VSCREEN_MASK`, refuse a destination of other bits
+  with an error in the log. A DSI display of 24 bits draws nothing so, and
+  neither does a window on the computer made with `no_bus` of 24 bits, which
+  stands for one: debug a mask in a window of 16 bits. The mixing itself has
+  a way for 24 bits; the calls do not take them.
+
+- **An alpha mixes in 32 steps at every depth.** `DGX_VSCREEN_ALPHA`, a mask
+  and the overlay layer weigh the picture by 0 to 32 of 32, so a fade by
+  many small steps has 33 different pictures at most. That is as fine as the
+  colors of RGB565; on a large display of 24 bits a slow crossfade of a
+  smooth gradient may show its steps. 256 steps for 24 bits are a candidate
+  for later.
 
 - **Virtual screens don't honor `dir_x`/`dir_y`/`swap_xy` for framebuffer
   access.** Those fields describe orientation metadata, but they do not

@@ -727,7 +727,8 @@ dgx_vscreen8_to_screen16(scene, 66, 64, badge, gold,
 
 A pixel of the shape is how much of the color goes over what lies under it,
 in 32 steps, times the alpha of `DGX_VSCREEN_ALPHA`. Under it is what the
-destination holds: a virtual screen, as `scene` here, or a DSI display. On
+destination holds, of 16 bits: a virtual screen, as `scene` here, or a DSI
+display; one of 24 bits gets an error in the log and no picture. On
 a display behind a bus, which cannot be read, the flag changes nothing: the
 amounts go through the table as colors. Give it a table from the paper to
 the ink there, `dgx_lut_gradient(lut, 0, 256, paper, ink)`, with
