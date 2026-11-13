@@ -18,6 +18,7 @@
 #include "dgx_font.h"
 #include "dgx_matrix_morph.h"
 #include "dgx_morph_sources.h"
+#include "dgx_screen_with_bus.h"
 #include "drivers/vscreen.h"
 #include "fonts/CasusDotView.h"
 
@@ -100,6 +101,8 @@ static uint32_t mix_ch(uint32_t u, uint32_t c, unsigned a, unsigned shift, uint3
 static uint32_t mix(int bits, uint32_t under, uint32_t color, unsigned a)
 {
     switch (bits) {
+    case 4:
+        return mix_ch(under, color, a, 4, 15);
     case 8:
         return mix_ch(under, color, a, 0, 255);
     case 12:
@@ -118,6 +121,8 @@ static uint32_t pattern(int bits, int x, int y)
 {
     const uint32_t v = (uint32_t)(x * 2654435761u ^ y * 40503u ^ (x * y * 97u)) * 2246822519u >> 7;
     switch (bits) {
+    case 4:
+        return v & 0xf0;
     case 8:
         return v & 0xff;
     case 12:
@@ -190,11 +195,11 @@ static void test_placement(void)
     dgx_screen_destroy(&a), dgx_screen_destroy(&b);
 }
 
-/* mixed with the screen, upright at scales 1 and 2, on every depth that mixes, for both soft depths */
+/* mixed with the screen, upright at scales 1 and 2, on every depth that mixes, for both soft depths; 4 bits a gray level */
 static void test_mix(void)
 {
-    static const int depths[] = {8, 12, 16, 18, 24};
-    for (int d = 0; d < 5; ++d)
+    static const int depths[] = {4, 8, 12, 16, 18, 24};
+    for (int d = 0; d < 6; ++d)
         for (int depth = 2; depth <= 4; depth += 2)
             for (int s = 1; s <= 2; ++s) {
                 const int bits = depths[d];
@@ -340,6 +345,7 @@ static void test_fill(void)
  */
 enum { PW = 80, PH = 80 };
 static uint32_t panel[PW * PH];
+static uint8_t  panel_writes[PW * PH]; /* times each pixel was written */
 static int      win_l, win_r, win_b, win_x, win_y, panel_bytes;
 static long     panel_windows, panel_rects;
 
@@ -353,12 +359,13 @@ static void bus_set_area(dgx_screen_t *scr, uint16_t left, uint16_t right, uint1
 
 static void bus_write_area(dgx_screen_t *scr, uint8_t *data, uint32_t lenbits)
 {
-    CHECK(data == scr->draw_buffer && lenbits % (8u * panel_bytes) == 0 && lenbits / 8 <= scr->draw_buffer_len);
+    /* from the buffer of the bus, a half of it or the whole */
+    CHECK(data >= scr->draw_buffer && data + lenbits / 8 <= scr->draw_buffer + scr->draw_buffer_len && lenbits % (8u * panel_bytes) == 0);
     for (uint32_t i = 0; i + panel_bytes <= lenbits / 8; i += panel_bytes) {
         uint32_t c = 0;
         for (int k = 0; k < panel_bytes; ++k) c = c << 8 | data[i + k];
         CHECK(win_y <= win_b);
-        if (win_y <= win_b) panel[win_x + win_y * PW] = c;
+        if (win_y <= win_b) panel[win_x + win_y * PW] = c, ++panel_writes[win_x + win_y * PW];
         if (++win_x > win_r) win_x = win_l, ++win_y;
     }
 }
@@ -369,12 +376,14 @@ static void bus_fill(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t col
     ++panel_rects;
     for (int yy = y; yy < y + h; ++yy)
         for (int xx = x; xx < x + w; ++xx)
-            if (xx >= 0 && yy >= 0 && xx < PW && yy < PH) panel[xx + yy * PW] = color;
+            if (xx >= 0 && yy >= 0 && xx < PW && yy < PH) panel[xx + yy * PW] = color, ++panel_writes[xx + yy * PW];
 }
 
 static void bus_pixel(dgx_screen_t *scr, int x, int y, uint32_t color) { bus_fill(scr, x, y, 1, 1, color); }
 
 static void bus_update(dgx_screen_t *scr, int left, int right, int top, int bottom) { (void)scr, (void)left, (void)right, (void)top, (void)bottom; }
+
+static void bus_wait(dgx_screen_t *scr) { (void)scr; }
 
 /*
  * DGX_FONT_BG and DGX_FONT_FILL on a display behind a bus put the pixels they put on a virtual screen holding the same
@@ -383,18 +392,25 @@ static void bus_update(dgx_screen_t *scr, int left, int right, int top, int bott
  */
 static void test_bus_spans(void)
 {
-    test_font_t f;
-    make_font(&f, AS_IS);
+    static test_font_t fonts[3];
+    make_font(&fonts[0], AS_IS), make_font(&fonts[1], TO_2), make_font(&fonts[2], MONO_1);
     static uint8_t buffer[512];
-    for (int round = 0; round < 8 * 3 * 3 * 2; ++round) {
+    for (int round = 0; round < 8 * 3 * 3 * 2 * 3; ++round) {
         const dgx_output_orientation_t turn = (dgx_output_orientation_t)(round % 8);
-        const int s = 1 + round / 8 % 3, place = round / 24 % 3, bits = round / 72 % 2 ? 24 : 16;
+        const int s = 1 + round / 8 % 3, place = round / 24 % 3, bits = round / 72 % 2 ? 24 : 16, kind = round / 144;
         const bool tiny = place == 2, fill = round % 3 == 1;
+        /* a font of 4, 2 and 1 bits; a filled cell cut to one bit now and then, as DGX_FONT_MONO and DGX_FONT_HARD ask */
+        const test_font_t *ft    = &fonts[kind];
+        const uint32_t     extra = fill ? (round / 3 % 3 == 1 ? DGX_FONT_MONO : round / 3 % 3 == 2 ? DGX_FONT_HARD : 0u) : 0u;
         panel_bytes = bits / 8;
-        dgx_screen_t lcd = {.width = PW, .height = PH, .color_bits = (uint8_t)bits, .screen_subtype = DgxPhysicalScreenWithBus};
-        lcd.set_area = bus_set_area, lcd.write_area = bus_write_area, lcd.fill_rectangle = bus_fill, lcd.set_pixel = bus_pixel;
-        lcd.update_screen = bus_update, lcd.draw_buffer = buffer, lcd.draw_buffer_len = tiny ? 4 : sizeof(buffer);
-        CHECK(!dgx_screen_is_readable(&lcd));
+        /* a screen with its bus, as the drivers make them: the buffer of the bus is the draw_buffer of the screen */
+        dgx_bus_protocols_t   bus  = {.buffer = buffer, .buffer_len = tiny ? 4 : sizeof(buffer)};
+        dgx_screen_with_bus_t sbus = {.bus = &bus};
+        dgx_screen_t         *lcdp = &sbus.scr;
+        lcdp->width = PW, lcdp->height = PH, lcdp->color_bits = (uint8_t)bits, lcdp->screen_subtype = DgxPhysicalScreenWithBus;
+        lcdp->set_area = bus_set_area, lcdp->write_area = bus_write_area, lcdp->fill_rectangle = bus_fill, lcdp->set_pixel = bus_pixel;
+        lcdp->update_screen = bus_update, lcdp->wait_buffer = bus_wait, lcdp->draw_buffer = buffer, lcdp->draw_buffer_len = tiny ? 4 : sizeof(buffer);
+        CHECK(!dgx_screen_is_readable(lcdp));
         dgx_screen_t *model = dgx_vscreen_init(PW, PH, (uint8_t)bits, DgxScreenRGB);
         CHECK(model);
         paint(model);
@@ -403,20 +419,29 @@ static void test_bus_spans(void)
         /* in the middle, or half off the left top corner */
         const int x = place == 1 ? 2 : 40, y = place == 1 ? 3 : 40;
         const uint32_t color = pattern(bits, 5, 9), bg = pattern(bits, 31, 2);
-        dgx_font_context_t ctx = {.scr = &lcd, .font = &f.font, .color = color, .bg = bg, .flags = fill ? DGX_FONT_FILL : DGX_FONT_BG,
-                                  .orientation = turn, .scale = s};
+        dgx_font_context_t ctx = {.scr = lcdp, .font = (dgx_font_t *)&ft->font, .color = color, .bg = bg,
+                                  .flags = (fill ? DGX_FONT_FILL : DGX_FONT_BG) | extra, .orientation = turn, .scale = s};
         panel_windows = panel_rects = 0;
+        memset(panel_writes, 0, sizeof(panel_writes));
         dgx_font_draw(&ctx, x, y, "AB");
         ctx.scr = model;
         dgx_font_draw(&ctx, x, y, "AB");
         int differ = 0;
         for (int yy = 0; yy < PH; ++yy)
             for (int xx = 0; xx < PW; ++xx) differ += panel[xx + yy * PW] != dgx_get_pixel(model, xx, yy);
+        if (differ) fprintf(stderr, "bus spans: round %d kind %d fill %d extra %u bits %d: %d pixels differ\n", round, kind, fill, (unsigned)extra, bits, differ);
         CHECK(differ == 0);
-        /* a span a run of touched pixels: as many windows as runs of a row, AB has 4 + 5 rows of them, 2 at most each */
-        if (!tiny && place == 0) CHECK(panel_windows >= 9 && panel_windows <= 18 && panel_rects == fill);
-        /* a buffer of 4 bytes takes a row of a window of a pixel or two: an upright span longer than that goes as rectangles */
-        if (tiny && !dgx_output_orientation_swap_xy(turn)) CHECK(panel_rects > fill);
+        if (fill && bits == 16) {
+            /* the cell in one pass: one window, no rectangle, every pixel written once, the old number never gone first */
+            int most = 0;
+            for (int i = 0; i < PW * PH; ++i) most = panel_writes[i] > most ? panel_writes[i] : most;
+            CHECK(panel_windows == 1 && panel_rects == 0 && most == 1);
+        } else if (kind == 0 && !extra) {
+            /* a span a run of touched pixels: as many windows as runs of a row, AB has 4 + 5 rows of them, 2 at most each */
+            if (!tiny && place == 0) CHECK(panel_windows >= 9 && panel_windows <= 18 && panel_rects == fill);
+            /* a buffer of 4 bytes takes a row of a window of a pixel or two: an upright span longer than that goes as rectangles */
+            if (tiny && !dgx_output_orientation_swap_xy(turn)) CHECK(panel_rects > fill);
+        }
         dgx_screen_destroy(&model);
     }
 }

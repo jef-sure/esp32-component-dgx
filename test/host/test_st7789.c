@@ -81,6 +81,8 @@ int main(void)
         {ST7789_RESOLUTION_320x240, 320, 240, 240, 320, 0, 0, true},
         {ST7789_RESOLUTION_76x284, 76, 284, 76, 284, 82, 18, false},
         {ST7789_RESOLUTION_284x76, 284, 76, 76, 284, 82, 18, false},
+        {ST7789_RESOLUTION_135x240, 135, 240, 135, 240, 52, 40, true},
+        {ST7789_RESOLUTION_240x135, 240, 135, 135, 240, 52, 40, true},
     };
     /* a depth the controller is not set up for gives no screen, and nothing is sent */
     CHECK(dgx_st7789_init(&bus, GPIO_NUM_NC, 24, DgxScreenRGB, ST7789_RESOLUTION_240x320) == NULL && command == 0);

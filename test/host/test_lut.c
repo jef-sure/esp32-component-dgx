@@ -109,8 +109,8 @@ static void test_gradient(void)
 
     /*
      * The loop the examples had, from the paper to the ink over 256 entries:
-     * it truncates, the gradient rounds, so they differ by one step of a
-     * channel of 8 bits at most, and in RGB565 by one step at most.
+     * it truncates, the gradient rounds, so they differ by 1 at most in
+     * red, green or blue of 8 bits, and by 1 at most in RGB565 too.
      */
     dgx_lut_gradient(lut, 0, 256, dgx_rgb_to_24(250, 246, 232), dgx_rgb_to_24(24, 36, 120));
     int same = 0, far = 0;

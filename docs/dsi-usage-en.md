@@ -115,8 +115,9 @@ at 24 bits.
   by the 2D DMA of the chip, which also swaps the bytes of the pixels: a
   full 1024x600 screen takes 8 ms instead of 34. The screen must not be
   mirrored or rotated, and the picture has to go at its own size, not turned,
-  with no overlay layer and no transparency. Otherwise, and for 24-bit color,
-  the processor moves the pixels as before.
+  with no overlay layer and no transparency. Otherwise it goes in bands the
+  processor makes and the 2D DMA moves, as an 8-bit screen through a table
+  does; smoothed, with holes, and at 24 bits the processor moves the pixels.
 - A large rectangle is filled by the pixel processing accelerator (PPA): the
   full screen in 3.5 ms instead of 16, in any orientation and color depth.
 - An 8-bit virtual screen whose table is a ramp between two colors, like the
@@ -126,8 +127,9 @@ at 24 bits.
   transparency, turn or smoothing: 367 thousand pixels in
   10.6 ms instead of 17.1 ms through the table. The first and last colors
   are exactly those of the table. A color in between can differ from the
-  table by one step of a channel: 3.2% of the range of red or blue, 1.6% of
-  green, at most 2.3% of full brightness and 0.5% on average. Pass
+  table by ±1 in red, green or blue, the limit of accuracy of 16-bit color:
+  3.2% of the range of red or blue, 1.6% of green, at most 2.3% of full
+  brightness and 0.5% on average, rarely seen by the eye. Pass
   `DGX_VSCREEN_EXACT` to the call to get exactly the colors of the table; the
   screen then goes through its table.
 
@@ -236,7 +238,16 @@ with a chip of revision 3.2:
   cause such flashes now and then; raising the AXI priority of the DMA that
   reads the frame does not stop them;
 - one buffer, PSRAM at 250 MHz: no flashes. 250 MHz exists on chips of
-  revision 3 and later (`CONFIG_SPIRAM_SPEED_250M`);
+  revision 3 and later (`CONFIG_SPIRAM_SPEED_250M`), where ESP-IDF counts it
+  among its experimental features. Under the heaviest load a program on this
+  board stopped now and then with "Illegal instruction", at 250 MHz and at
+  200 MHz as well: a line of the instruction cache came from internal RAM as
+  zeros. DGX keeps the code that met it in the cache
+  (`CONFIG_DGX_DSI_LOCK_INTERRUPT_CODE`), and a crossfade that had stopped
+  about every half a minute at 250 MHz ran twenty minutes without a stop.
+  The examples keep 250 MHz. See "When the PSRAM cannot keep up" and
+  "Illegal instruction on the 10.1-inch board" in
+  [dsi-display-en.md](dsi-display-en.md);
 - two frame buffers (`DgxDsiTwoFrames`), PSRAM at 200 MHz: no flashes. That
   is the way for an older chip, whose PSRAM goes up to 200 MHz; such a chip
   has not been tried with this panel, this was seen on the chip of revision
@@ -247,29 +258,35 @@ with a chip of revision 3.2:
 
 ## One buffer, after the scan
 
-The DMA and the PPA write faster than the display reads.
-`DgxDsiOneFrameAfterScan` uses that: it starts them when the scan of the
-display has left the rows they are going to write. They stay ahead of the
-scan, and the part or the rectangle is seen whole with a single frame
-buffer, even when it is the whole screen.
+The DMA and the PPA write the rows of the frame buffer from the top, as the
+display reads them. `DgxDsiOneFrameAfterScan` starts them so that the display
+comes to each row after it is written: before the scan comes to the rows, and
+earlier by what a write slower than the scan loses on them, at the speed the
+bus measures for each kind of write. So the part or the rectangle is seen
+whole with a single frame buffer. One as tall as the screen has no such
+moment: it is started when the scan leaves its rows, and the display may come
+upon its first rows before they are written. On the 10.1-inch board a copy
+from PSRAM is hardly faster than the display reads, and mixing by the PPA is
+slower; the numbers are under "Behind the scan" in
+[dsi-display-en.md](dsi-display-en.md).
 
 What is seen whole this way:
 
 - a large rectangle filled by the PPA, in any orientation and color depth;
-- a part of a 16-bit virtual screen the 2D DMA puts: 16 KB or more, on a
-  screen neither mirrored nor rotated, at its own size and not turned, with
-  no overlay layer over it, put without transparency, and with `CONFIG_DGX_DSI_PRIVATE_DMA2D` on, as it is
-  by default;
-- a part of an 8-bit virtual screen through a table of colors, 16 KB or
-  more, put without transparency, in any orientation, with the same option
-  on: the 2D DMA puts it in bands, each when the scan is out of its rows,
-  and it is whole as long as the processor makes the rows faster than the
-  display reads them, which a picture smoothed at a large scale may not.
+- a part of a 16-bit virtual screen the 2D DMA puts at once: 16 KB or more,
+  on a screen neither mirrored nor rotated, at its own size and not turned,
+  with no overlay layer over it, put without transparency, and with
+  `CONFIG_DGX_DSI_PRIVATE_DMA2D` on, as it is by default;
+- a part of a 16-bit virtual screen put another way, and of an 8-bit one
+  through a table of colors, 16 KB or more, put without transparency, in any
+  orientation, with the same option on: the 2D DMA puts it in bands, each by
+  the same rule, and it is whole as long as the processor makes the rows
+  faster than the display reads them, which a picture smoothed at a large
+  scale may not.
 
 Anything else from a virtual screen is sent through the window by the
-processor, which writes slower than the display reads: a 16-bit screen on a
-mirrored or rotated display (the 10.1-inch JD9365 in landscape, for one), a
-scaled or turned 16-bit picture, 24-bit color, a part under an overlay layer or under 16 KB. Such a window
+processor, which writes slower than the display reads: a smoothed 16-bit
+picture, 24-bit color, a part under 16 KB. Such a window
 waits for the scan only when it can be written before the scan is back,
 about 160 rows of 1024 pixels; a larger one goes at once and may tear, as
 with `DgxDsiOneFrame`. Where such a picture must not tear, take

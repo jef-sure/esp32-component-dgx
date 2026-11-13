@@ -316,13 +316,16 @@ static void record_ssd1351(void)
     done(dgx_ssd1351_init(&bus, 4, 12, DgxScreenRGB), false);
 }
 
+/* 16 bits in both orders, then 18 (RGB666, whose COLMOD is 0) after them, so that the parts of 16 stay as they were */
 static void record_nv3041a(void)
 {
-    for (int bgr = 0; bgr < 2; ++bgr) {
+    for (int k = 0; k < 3; ++k) {
+        const bool              bgr   = k == 1;
+        const int               bits  = k == 2 ? 18 : 16;
         const dgx_color_order_t order = bgr ? DgxScreenBGR : DgxScreenRGB;
-        dgx_bus_protocols_t     bus = bus_of(DGX_BUS_QSPI);
-        part("nv3041a", "", 16, order);
-        dgx_screen_t *s = dgx_nv3041a_init(&bus, 4, 1, 16, order);
+        dgx_bus_protocols_t     bus   = bus_of(DGX_BUS_QSPI);
+        part("nv3041a", "", bits, order);
+        dgx_screen_t *s = dgx_nv3041a_init(&bus, 4, 1, (uint8_t)bits, order);
         if (s) {
             turns(s, dgx_nv3041a_orientation, !bgr, false);
             dgx_nv3041a_backlight(s, false);
@@ -331,8 +334,8 @@ static void record_nv3041a(void)
         done(s, true);
     }
     dgx_bus_protocols_t bus = bus_of(DGX_BUS_QSPI);
-    part("nv3041a", " refused", 18, DgxScreenRGB);
-    done(dgx_nv3041a_init(&bus, 4, 1, 18, DgxScreenRGB), false);
+    part("nv3041a", " refused", 12, DgxScreenRGB);
+    done(dgx_nv3041a_init(&bus, 4, 1, 12, DgxScreenRGB), false);
 }
 
 static void record_st77916(void)

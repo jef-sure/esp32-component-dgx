@@ -131,8 +131,15 @@ revision, 400 MHz and PSRAM at 250 MHz. At 200 MHz the display, which reads
 then ran short of data while the moving bars were drawn, and the screen flashed light blue for a frame; at 250 MHz it
 did not. With two frame buffers (`CONFIG_EXAMPLE_LCD_TWO_FRAMES`) there were
 no flashes at 200 MHz either: that is the way for a chip older than
-revision 3, which has no 250 MHz. See "PSRAM speed" in
-[docs/dsi-usage-en.md](../../docs/dsi-usage-en.md).
+revision 3, which has no 250 MHz, and for a program that would rather not
+use 250 MHz, an experimental setting of ESP-IDF. Set
+`CONFIG_SPIRAM_SPEED_200M`: the demo measures the board again,
+`dgx_dsi_advise()` asks for two frame buffers, and the demo restarts with
+them. The "Illegal instruction" a program on this board met now and then
+under the heaviest load came from the instruction cache, at 200 MHz as well,
+and DGX keeps the code it hit in the cache: see "Illegal instruction on the
+10.1-inch board" in [docs/dsi-display-en.md](../../docs/dsi-display-en.md)
+and "PSRAM speed" in [docs/dsi-usage-en.md](../../docs/dsi-usage-en.md).
 
 The panel is portrait. `EXAMPLE_LCD_SWAP_XY` makes it 1280x800. With one
 frame buffer the moving bars tear more than on the 7-inch board: the 2D DMA

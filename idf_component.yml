@@ -1,6 +1,6 @@
 ## IDF Component Manager Manifest File
-version: "0.10.15"
-description: "Display and graphics component for ESP32 with SPI, QSPI, I2C, parallel and MIPI-DSI display buses, virtual screens, drawing primitives, fonts, handwritten text and morphing"
+version: "0.10.16"
+description: "Display and graphics component for ESP32 with SPI, QSPI, I2C, parallel and MIPI-DSI display buses, virtual screens, drawing primitives, fonts with anti-aliased edges, handwritten text and morphing"
 url: https://github.com/jef-sure/esp32-component-dgx
 repository: https://github.com/jef-sure/esp32-component-dgx.git
 documentation: https://github.com/jef-sure/esp32-component-dgx/blob/main/README.md
@@ -21,9 +21,30 @@ tags:
   - mipi-dsi
   - framebuffer
   - font
+  - anti-aliasing
   - bezier
   - handwriting
   - morphing
+  - animation
+  - tft
+  - esp32
+  - esp32-s3
+  - esp32-p4
+  - ili9341
+  - st7789
+  - st7735
+  - gc9a01
+  - ssd1351
+  - nv3041a
+  - st77916
+  - jd9165
+  - jd9365
+  - ssd1306
+  - ssd1309
+  - sh1106
+  - ssd1322
+  - st7565r
+  - st7920
 
 maintainers:
   - "Anton Petrusevich <anton.petrusevich.mobile@gmail.com>"

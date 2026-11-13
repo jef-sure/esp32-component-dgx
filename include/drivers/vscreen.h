@@ -133,7 +133,8 @@ bool dgx_vscreen_to_argb8888(dgx_screen_t *scr, int x, int y, int width, int hei
  * dgx_vscreen_to_screen(), dgx_vscreen_region_to_screen(),
  * dgx_vscreen8_to_screen16() and dgx_vscreen8_region_to_screen16(), 0 or
  * these added together. Every transfer takes every flag but
- * DGX_VSCREEN_EXACT, which is for a table of colors.
+ * DGX_VSCREEN_MASK, which is for a table of colors; DGX_VSCREEN_EXACT
+ * changes a transfer of 16 bits only together with DGX_VSCREEN_ALPHA.
  */
 
 /**
@@ -148,8 +149,11 @@ bool dgx_vscreen_to_argb8888(dgx_screen_t *scr, int x, int y, int width, int hei
  * Through a table: the colors of the table and no others. Without it a
  * display that has hardware for it may be given a table of two colors mixed
  * by that hardware, faster and not to the last bit; see
- * dgx_vscreen8_to_screen16(). It changes nothing where there is no such
- * hardware.
+ * dgx_vscreen8_to_screen16(). With DGX_VSCREEN_ALPHA a DSI display mixes
+ * the picture, through a table or of 16 bits, with its frame buffer by the
+ * processor, to the last bit, instead of by the accelerator of the
+ * ESP32-P4, which may give red, green or blue ±1 off, rarely seen by the
+ * eye. It changes nothing where there is no such hardware.
  */
 #define DGX_VSCREEN_EXACT 2u
 /**
@@ -188,6 +192,41 @@ bool dgx_vscreen_to_argb8888(dgx_screen_t *scr, int x, int y, int width, int hei
  * before the turn and look the same turned.
  */
 #define DGX_VSCREEN_ORIENTED(o) (((uint32_t)(o) & 7u) << 16)
+/**
+ * The picture over what lies under it by @p a, 0 to 255: 255 the picture
+ * alone, as without the flag, 128 half and half, 0 nothing of it. Each
+ * channel of a pixel is mixed in 32 steps, (picture × w + under × (32 − w))
+ * / 32 with w = a × 32 / 255 rounded, as the overlay layer mixes. Under it
+ * is what the destination holds: a virtual screen and a display that can be
+ * read, a DSI one, give their pixels, so a picture put by steps of @p a over
+ * another fades into it. A display behind a bus that cannot be read has
+ * black under it: the picture fades to black and from it. A screen of one
+ * bit takes the picture from 128 on. Through a table, the colors of the
+ * table are mixed, not the indices. A DSI display of 16 bits mixes a picture
+ * through a table, or of 16 bits, with its frame buffer by bands: by the
+ * accelerator, which may give red, green or blue ±1 off the formula, or, with
+ * DGX_VSCREEN_EXACT or under an overlay layer, by the processor to the last
+ * bit. A transparent picture, a smoothed one of 16 bits, and any picture on
+ * a DSI display of 24 bits are mixed pixel by pixel, which is slow. A pixel
+ * under an overlay layer is read with the layer in it, and the layer is mixed
+ * over the result again: put the layer away for a crossfade under it. @p a is
+ * evaluated once.
+ */
+#define DGX_VSCREEN_ALPHA(a) (((255u - ((uint32_t)(a) & 0xffu)) & 0xffu) << 24)
+/**
+ * Through a table only: the 8-bit picture is a mask. A pixel of it is how
+ * much of lut[255] goes over what lies under it, 0 none, 255 all, in 32
+ * steps as DGX_VSCREEN_ALPHA mixes, and with DGX_VSCREEN_ALPHA(a) the two
+ * are multiplied: a soft shape drawn once into an 8-bit screen, by the soft
+ * pen, the soft circle or soft text, is put on any picture. It takes a
+ * virtual screen and a display that can be read, a DSI one; on a display
+ * behind a bus that cannot be read the flag changes nothing, and the picture
+ * goes through the table as it does without it, so give it a table from the
+ * paper to the ink there, dgx_lut_gradient(). The indices are made larger,
+ * smoothed and turned as the other flags ask, and the overlay layer is mixed
+ * over the result.
+ */
+#define DGX_VSCREEN_MASK 0x10u
 
 /* The names of these flags in release 0.6, when only the transfers through a table had them. */
 #define DGX_LUT_TRANSPARENT DGX_VSCREEN_TRANSPARENT
@@ -260,12 +299,12 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
  * mixes two colors, a DSI display of an ESP32-P4 with two frame buffers,
  * mixes them itself by the bytes of the screen then, and the processor
  * carries no pixel. The first color and the last one come out as the table
- * has them; a color between them may differ from the table by a step of red,
- * green or blue: 3.2% of the range of red or blue, 1.6% of green. A table is
- * taken for such when none of its colors is further than a step from the
- * straight way between its first and its last, nothing is transparent,
- * scaled or turned. DGX_VSCREEN_EXACT asks for the colors of the table
- * whatever it is.
+ * has them; a color between them may differ from the table by ±1 in red,
+ * green or blue: 3.2% of the range of red or blue, 1.6% of green, rarely
+ * seen by the eye. A table is taken for such when none of its colors is
+ * further than 1 in red, green or blue from the straight way between its
+ * first and its last, nothing is transparent, scaled or turned.
+ * DGX_VSCREEN_EXACT asks for the colors of the table whatever it is.
  *
  * @param _scr_dst     Destination 16-bit screen.
  * @param x_dst,y_dst  Where the corner of the source goes.

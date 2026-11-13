@@ -45,15 +45,15 @@
  * JC4827W543 send it: power, timings of the gates and sources, and gamma, in
  * its registers between the two writes of NV3041A_PAGE. The panel of that
  * board is IPS: its true colors need inversion on, so INVON follows after
- * SLPOUT. COLMOD 0x01 is
- * RGB565 on this controller, 0x00 would be RGB666; 0x41 = 0x03 is the width of
- * the bus to its memory, 16 bits.
+ * SLPOUT. COLMOD is 0x01 for RGB565 on this controller and 0x00 for RGB666;
+ * the table has 0x01. 0x41 = 0x03 is the width of the bus to its memory, 16
+ * bits.
  */
 static const dgx_lcd_init_cmd_t nv3041a_init_cmds[] = {
     {NV3041A_SWRESET, 0, 0, 120, {0}},
     {NV3041A_PAGE, 0, 1, 0, {0xA5}},
     {NV3041A_MADCTL, dgx_panel_adj_madctl, 1, 0, {0}},
-    {NV3041A_COLMOD, 0, 1, 0, {0x01}},
+    {NV3041A_COLMOD, dgx_panel_adj_colmod, 1, 0, {0x01}},
     {0x41, 0, 1, 0, {0x03}},
     {0x44, 0, 1, 0, {0x15}},
     {0x45, 0, 1, 0, {0x15}},
@@ -161,14 +161,16 @@ static const dgx_lcd_init_cmd_t nv3041a_on_cmds[] = {
 };
 
 /*
- * Only RGB565 is set up (COLMOD 0x01 of the table). The panel shows noise
- * until its memory is written: dark until it is black, then turned on.
+ * RGB565 and RGB666: the COLMOD of RGB666 is 0, so `depths` names both. The
+ * panel shows noise until its memory is written: dark until it is black, then
+ * turned on.
  */
 const dgx_panel_t dgx_panel_nv3041a = {
     .name           = "NV3041A",
     .width          = NV3041A_WIDTH,
     .height         = NV3041A_HEIGHT,
-    .colmod         = {0, 0x01, 0},
+    .colmod         = {0, 0x01, 0x00},
+    .depths         = DGX_PANEL_DEPTH_16 | DGX_PANEL_DEPTH_18,
     .madctl         = NV3041A_MADCTL_UPRIGHT,
     .reset_high_ms  = 10,
     .reset_low_ms   = 10,

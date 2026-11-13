@@ -14,8 +14,8 @@ extern "C" {
 /**
  * The panels of an ST7789. Its memory is 240x320 in every one of them: a
  * 240x240 panel shows the first 240 rows of it, a 320x240 one is a 240x320
- * turned to landscape, and the 2.25" bar of 76x284 (an ST7789P3) shows the
- * middle of it. The colors of the bar are in BGR order on the modules seen
+ * turned to landscape, the 2.25" bar of 76x284 (an ST7789P3) and the 1.14"
+ * glass of 135x240 show the middle of it. The colors of the bar are in BGR order on the modules seen
  * so far: give it DgxScreenBGR.
  */
 typedef enum {
@@ -23,7 +23,9 @@ typedef enum {
     ST7789_RESOLUTION_240x320 = 2,
     ST7789_RESOLUTION_320x240 = 3, /**< 240x320 turned by dgx_st7789_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true) */
     ST7789_RESOLUTION_76x284  = 4, /**< the 2.25" bar, upright */
-    ST7789_RESOLUTION_284x76  = 5  /**< the 2.25" bar turned as 320x240 is */
+    ST7789_RESOLUTION_284x76  = 5, /**< the 2.25" bar turned as 320x240 is */
+    ST7789_RESOLUTION_135x240 = 6, /**< the 1.14" glass, upright */
+    ST7789_RESOLUTION_240x135 = 7  /**< the 1.14" glass turned as 320x240 is */
 } st7789_resolution_t;
 
 /**
@@ -50,12 +52,13 @@ dgx_screen_t* dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
 void dgx_st7789_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 
 /**
- * @brief The panels dgx_st7789_init() makes its screen of: the glass of 240x240, of 240x320 and of 76x284. A copy of one with what
+ * @brief The panels dgx_st7789_init() makes its screen of: the glass of 240x240, of 240x320, of 76x284 and of 135x240. A copy of one with what
  * a module has otherwise, such as a glass of another size at an offset in the 240x320 of the memory, goes to dgx_panel_init().
  */
 extern const dgx_panel_t dgx_panel_st7789_240x240;
 extern const dgx_panel_t dgx_panel_st7789_240x320;
 extern const dgx_panel_t dgx_panel_st7789_76x284;
+extern const dgx_panel_t dgx_panel_st7789_135x240;
 
 #ifdef __cplusplus
 // @formatter:off

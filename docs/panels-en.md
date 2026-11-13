@@ -35,10 +35,9 @@ Common parameters:
 - `backlight` (ILI9341, NV3041A and ST77916) — backlight GPIO, or `GPIO_NUM_NC` if it is not
   under software control; their backlight calls then return
   `ESP_ERR_NOT_SUPPORTED`.
-- `color_bits` — pixel depth; `16` (RGB565) is the usual choice. ST7735,
-  ST7789 and GC9A01 take `12`, `16` or `18`; ILI9341 and SSD1351 `16` or
-  `18`; ST77916 `16` or `18`; NV3041A `16`; JD9165 and JD9365 `16` or `24`. A driver given a depth
-  it cannot set up logs an error and returns NULL. For `18` see
+- `color_bits` — pixel depth; `16` (RGB565) is the usual choice. What each
+  driver takes: [Color depths](#color-depths). A driver given a depth it
+  cannot set up logs an error and returns NULL. For `18` see
   [docs/18-bit-pixels-en.md](18-bit-pixels-en.md)
   ([Russian](18-bit-pixels-ru.md)).
 - `cbo` — channel order, `DgxScreenRGB` or `DgxScreenBGR`: the order colors
@@ -50,7 +49,9 @@ Common parameters:
   `ST7789_RESOLUTION_240x320`, or `ST7789_RESOLUTION_320x240` for a 240x320
   panel in landscape; `ST7789_RESOLUTION_76x284` or
   `ST7789_RESOLUTION_284x76` for the 2.25" bar (an ST7789P3, colors in BGR
-  order, not yet tried on a module). Swapping the axes in
+  order, not yet tried on a module); `ST7789_RESOLUTION_135x240` or
+  `ST7789_RESOLUTION_240x135` for the 1.14" glass, which lies 52 columns and
+  40 rows into the memory of the controller. Swapping the axes in
   `dgx_st7789_orientation()` turns the screen between the two shapes.
 
 Color panels, ST7920, SSD1306, SSD1309 and SH1106 also expose an
@@ -107,7 +108,9 @@ dgx_screen_t *scr = dgx_nv3041a_init(bus, GPIO_NUM_NC, GPIO_NUM_1, 16, DgxScreen
 panel of that board works there. To stay within the datasheet, ask for
 26666667, which runs at 26.7 MHz: the SPI clock is 80 MHz divided by a whole
 number, and one that does not divide evenly is rounded down. 80 MHz garbles
-the picture.
+the picture. At 18 bits a frame takes 1.5 times as long as at 16, longer
+than the panel takes to show one: 18 bits are for a picture that changes
+seldom.
 
 The panel of that board now and then writes a pair of pixels just outside a
 window it is sent. On a picture updated in small windows they stay behind as
@@ -125,13 +128,40 @@ scrolls by its own hardware. An init table belongs to its glass: with the table 
 another one the picture comes out as stripes, so a module of another glass
 takes its own, see [A panel of your own module](#a-panel-of-your-own-module).
 
+## Color depths
+
+The depths each driver sets up, in bits a pixel, and the depths its
+controller takes over that bus but DGX does not set up, where they are known:
+
+| Controller | Buses | Set up by DGX | Taken by the controller, not set up |
+| --- | --- | --- | --- |
+| ST7735 | SPI, P8 | 12, 16, 18 | |
+| ST7789 | SPI, P8 | 12, 16, 18 | |
+| GC9A01 | SPI, P8 | 12, 16, 18 | |
+| ILI9341 | SPI, P8 | 16, 18 | |
+| ST77916 | QSPI, SPI | 16, 18 | |
+| NV3041A | QSPI | 16, 18 | |
+| SSD1351 | SPI, P8 | 16, 18 | |
+| SSD1322 | P8, SPI | 4: 16 grays | |
+| SSD1306, SSD1309, SH1106 | SPI, I2C | 1 | |
+| ST7565R, ST7920 | SPI | 1 | |
+| JD9165, JD9365 | DSI | 16, 24 | |
+| the window on the computer | none | 16, 18; 24 with `no_bus` | |
+| a virtual screen | none | 1, 4, 8, 12, 16, 18, 24, 32 | |
+
+An empty cell in the last column means that the datasheet of the controller
+was not checked for more, not that there is none. 24 bits come only over
+MIPI-DSI: no panel DGX drives on SPI, QSPI or the parallel bus has them set
+up. Of the 18-bit depths, only those of the ST77916 and the NV3041A, both
+on QSPI, have been seen on a panel; see [docs/18-bit-pixels-en.md](18-bit-pixels-en.md).
+
 ## A panel of your own module
 
 ST7735, ST7789, ILI9341, GC9A01, NV3041A and ST77916 are descriptions of
 their panels, `dgx_panel_t` of [include/drivers/dgx_panel.h](../include/drivers/dgx_panel.h),
 and their constructors make a screen of one with `dgx_panel_init()`. Their
 headers have them under the names `dgx_panel_st7735`, `dgx_panel_st7789_240x240`,
-`dgx_panel_st7789_240x320`, `dgx_panel_st7789_76x284`, `dgx_panel_ili9341`, `dgx_panel_gc9a01`,
+`dgx_panel_st7789_240x320`, `dgx_panel_st7789_76x284`, `dgx_panel_st7789_135x240`, `dgx_panel_ili9341`, `dgx_panel_gc9a01`,
 `dgx_panel_nv3041a` and `dgx_panel_st77916`. A module of another glass is a
 copy of one with what the module has otherwise: the size of its glass and
 where the glass lies in the memory of the controller, the table of commands
@@ -152,7 +182,10 @@ lies 20 rows up from the end of the memory. `dgx_panel_orientation()` and
 `dgx_panel_backlight()` work for every such screen. A table of the maker
 gives MADCTL and COLMOD `dgx_panel_adj_madctl` and `dgx_panel_adj_colmod`
 as their adjust functions, so that they follow the order of colors and the
-depth of the screen.
+depth of the screen. A depth is set up where its COLMOD in `colmod` is not 0.
+A controller with a COLMOD of 0 for a depth it takes, as the NV3041A has for
+RGB666, names the depths set up in `depths` instead:
+`DGX_PANEL_DEPTH_16 | DGX_PANEL_DEPTH_18`.
 
 For SSD1306, pick a geometry from `ssd1306_resolution_t`: `SSD1306_128X32`,
 `SSD1306_128X64`, `SSD1306_96X16`, `SSD1306_64X48` or `SSD1306_72X40`.

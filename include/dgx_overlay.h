@@ -65,6 +65,23 @@ extern "C" {
  */
 bool dgx_overlay_set(dgx_screen_t *display, dgx_screen_t *layer, int x, int y, const uint16_t *lut, uint8_t alpha);
 
+/**
+ * @brief Give every index of the layer a share of its own, on top of the alpha of the layer.
+ *
+ * Index i is mixed by alphas[i] times the `alpha` of dgx_overlay_set(),
+ * divided by 255: a button solid and its shadow half seen, and the alpha of
+ * the layer still fades all of them. The shares stay with the layer when
+ * dgx_overlay_set() moves it or gives it other colors or another alpha,
+ * until it is taken away. NULL gives every index 255, the alpha of the layer
+ * alone, as before the first call. Index 0 stays empty. The place of the
+ * layer becomes changed, see dgx_overlay_take_dirty().
+ *
+ * @param display The screen the layer lies over.
+ * @param alphas  256 shares, 0 to 255, taken when called; NULL for 255 each.
+ * @return false when the screen has no layer.
+ */
+bool dgx_overlay_set_alphas(dgx_screen_t *display, const uint8_t *alphas);
+
 /** @brief Take the layer away from the screen; its place becomes changed. */
 void dgx_overlay_clear(dgx_screen_t *display);
 

@@ -424,15 +424,21 @@ static bool           waited;   /* the owner has come to its first wait */
 static host_task_t    owner;    /* the task that made the windows and shows them */
 static const char    *shot;
 
+/* COLMOD: 0x55 RGB565 in two bytes, 0x66 RGB666 and 0x77 RGB888 in three */
 static int pixel_bytes(const host_window_t *w)
 {
-    return (w->colmod & 0x07u) == 0x06u ? 3 : 2;
+    return (w->colmod & 0x07u) >= 0x06u ? 3 : 2;
 }
 
 static void panel_pixel(host_window_t *w, const uint8_t *b)
 {
     uint32_t r, g, bl;
-    if (pixel_bytes(w) == 3) {
+    if ((w->colmod & 0x07u) == 0x07u) {
+        /* 24 bits: a byte a color, whole */
+        r  = b[0];
+        g  = b[1];
+        bl = b[2];
+    } else if (pixel_bytes(w) == 3) {
         /* 18 bits: a byte a color, its six bits at the top */
         r  = b[0] & 0xFCu;
         g  = b[1] & 0xFCu;
@@ -1318,6 +1324,47 @@ static double cost_of(float asked, double otherwise)
     return asked > 0 ? asked : asked < 0 ? 0.0 : otherwise;
 }
 
+/* the window of a screen of dgx_host_screen_init(), NULL for another screen */
+static host_window_t *window_of_screen(const dgx_screen_t *scr)
+{
+    if (!scr || scr->screen_subtype != DgxPhysicalScreenWithBus) return NULL;
+    dgx_bus_protocols_t *bus = ((const dgx_screen_with_bus_t *)scr)->bus;
+    return bus && bus->dispose == bus_dispose ? (host_window_t *)bus : NULL;
+}
+
+/*
+ * A pixel of the screen of a window that stands for a display on MIPI-DSI, read from the memory of its controller
+ * as a frame buffer is read: the address as panel_pixel() takes it, the color as the screen keeps it. 16 and 18 bits
+ * come back as they were written, their colors widened to the glass and narrowed again; the order of the colors as
+ * MADCTL has it.
+ */
+static uint32_t window_get_pixel(dgx_screen_t *scr, int x, int y)
+{
+    const host_window_t *w = window_of_screen(scr);
+    if (!w || x < 0 || y < 0 || x >= scr->width || y >= scr->height) return 0;
+    const int  column = x + scr->cg_col_shift, page = y + scr->cg_row_shift;
+    const bool swap   = w->madctl & HOST_MV;
+    int        gx     = swap ? page : column;
+    int        gy     = swap ? column : page;
+    if (w->madctl & HOST_MX) gx = w->width - 1 - gx;
+    if (w->madctl & HOST_MY) gy = w->height - 1 - gy;
+    if (gx < 0 || gx >= w->width || gy < 0 || gy >= w->height) return 0;
+    const uint32_t argb = w->glass[(size_t)gy * w->width + gx];
+    uint32_t       r = argb >> 16 & 0xFFu, g = argb >> 8 & 0xFFu, b = argb & 0xFFu;
+    if (w->madctl & HOST_BGR) {
+        const uint32_t t = r;
+        r = b, b = t;
+    }
+    switch (scr->color_bits) {
+    case 24:
+        return r << 16 | g << 8 | b;
+    case 18:
+        return (r & 0xFCu) << 16 | (g & 0xFCu) << 8 | (b & 0xFCu);
+    default:
+        return (r >> 3) << 11 | (g >> 2) << 5 | b >> 3;
+    }
+}
+
 dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, const dgx_host_screen_options_t *options)
 {
     const dgx_host_screen_options_t none = {0};
@@ -1412,11 +1459,14 @@ dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, co
     bus->dispose             = bus_dispose;
     bus->buffer_len          = bus_buffer_len(w, options->buffer_max);
     bus->buffer              = bus->memory_allocator((uint32_t)bus->buffer_len);
-    /* the scroll of the panel along the rows of its memory, the rows of the glass, as the ILI9341 has it */
+    /*
+     * The scroll of the panel along the rows of its memory, the rows of the glass, as the ILI9341 has it. 16 and 18
+     * bits as a panel on SPI takes them; a display on MIPI-DSI, no_bus, takes 24 too.
+     */
     w->description = (dgx_panel_t){.name             = "Host",
                                    .width            = (uint16_t)width,
                                    .height           = (uint16_t)height,
-                                   .colmod           = {0, 0x55, 0x66},
+                                   .colmod           = {0, 0x55, 0x66, options->no_bus ? 0x77 : 0},
                                    .madctl           = 0,
                                    .scroll_lines     = (uint16_t)height,
                                    .scroll_area_cmd  = HOST_VSCRDEF,
@@ -1427,6 +1477,8 @@ dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, co
         window_free(w);
         return NULL;
     }
+    /* the frame buffer of a display on MIPI-DSI is memory of the chip, and its screen is read */
+    if (options->no_bus) scr->get_pixel = window_get_pixel;
     stats_clear(w); /* the commands that started the panel are not the program's */
     made_us = clock_us();
     if (w->no_bus)
@@ -1437,13 +1489,6 @@ dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, co
     return scr;
 }
 
-/* the window of a screen of dgx_host_screen_init(), NULL for another screen */
-static host_window_t *window_of_screen(const dgx_screen_t *scr)
-{
-    if (!scr || scr->screen_subtype != DgxPhysicalScreenWithBus) return NULL;
-    dgx_bus_protocols_t *bus = ((const dgx_screen_with_bus_t *)scr)->bus;
-    return bus && bus->dispose == bus_dispose ? (host_window_t *)bus : NULL;
-}
 
 int dgx_host_screen_fingers(const dgx_screen_t *scr, dgx_host_finger_t *fingers, int max)
 {

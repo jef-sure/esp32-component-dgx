@@ -60,13 +60,21 @@ static int weight_of(uint8_t alpha)
     return (alpha * 32 + 127) / 255;
 }
 
+/* the shares of the indices given to the layer, NULL for 255 each, and the weight of an index with them */
+static const uint8_t *index_alphas;
+
+static int weight_of_index(uint8_t alpha, uint8_t index)
+{
+    return index_alphas ? weight_of((uint8_t)((index_alphas[index] * alpha + 127) / 255)) : weight_of(alpha);
+}
+
 /* the layer of the test over the display at (lx, ly): what the pixel (x, y) of the display gets from `color` */
 static uint16_t expected_over(dgx_screen_t *layer, int lx, int ly, uint8_t alpha, int x, int y, uint16_t color)
 {
     const int ix = x - lx, iy = y - ly;
     if (ix < 0 || iy < 0 || ix >= LW || iy >= LH) return color;
     const uint8_t index = (uint8_t)dgx_get_pixel(layer, ix, iy);
-    return index ? model_mix(layer_lut[index], color, weight_of(alpha)) : color;
+    return index ? model_mix(layer_lut[index], color, weight_of_index(alpha, index)) : color;
 }
 
 /* a display behind a bus: a window and its pixels, two bytes each, the high one first */
@@ -132,8 +140,10 @@ static bool panel_write_indexed(struct _dgx_bus_protocols_t *bus, uint16_t left,
     if (picture->smooth || picture->orientation) return false; /* those come the other way */
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
-            const uint8_t index = picture->pixels[(picture->y + y) / picture->scale * picture->pitch + (picture->x + x) / picture->scale];
-            uint16_t      color = picture->lut[index];
+            /* an index through the table, or a color of 16 bits kept the high byte first */
+            const uint8_t *at = picture->pixels + (picture->y + y) / picture->scale * picture->pitch +
+                                (picture->x + x) / picture->scale * (picture->bytes == 2 ? 2u : 1u);
+            uint16_t color = picture->bytes == 2 ? (uint16_t)(at[0] << 8 | at[1]) : picture->lut[*at];
             if (picture->overlay) color = dgx_overlay_pixel(picture->overlay, left + x, top + y, color);
             panel[left + x + (top + y) * DW] = color;
         }
@@ -201,6 +211,14 @@ static void test_transfers(void)
         dgx_fill_rectangle(mixed, 0, 0, DW, DH, MARK);
         for (int i = 0; i < DW * DH; ++i) panel[i] = MARK;
         CHECK(dgx_overlay_set(dst, layer, lx, ly, layer_lut, alpha));
+        /* every third round each index its own share, 0 and 255 among them */
+        static uint8_t alphas[256];
+        index_alphas = round % 3 == 2 ? alphas : NULL;
+        if (index_alphas) {
+            /* not from rnd(): the rounds stay the ones the counts below were set for */
+            for (int i = 0; i < 256; ++i) alphas[i] = (uint8_t)(i % 7 == 0 ? 0 : i % 7 == 1 ? 255 : 1 + (i * 37 + round * 101) % 254);
+            CHECK(dgx_overlay_set_alphas(dst, alphas));
+        }
         if (kind < 3) dgx_vscreen8_region_to_screen16(dst, x + n * left, y + n * top, src8, left, top, w, h, lut, flags);
         else dgx_vscreen_region_to_screen(dst, x + left, y + top, src16, left, top, w, h, flags);
         dgx_overlay_clear(dst);
@@ -222,6 +240,7 @@ static void test_transfers(void)
             ++check_failures;
         }
     }
+    index_alphas = NULL;
     CHECK(mixed_pixels > 3000);
     /* the bus took rows where no layer was over them, and indices with the layer and without it */
     CHECK(rows_taken > 5 && indexed_taken > 40 && indexed_mixed > 10 && indexed_taken > indexed_mixed + 10);
@@ -323,6 +342,8 @@ static void test_panel(bool mirror_x, bool mirror_y, bool swap_xy)
     enum { PW = 70, PH = 40 };
     static uint8_t  fb[FW * FH * 2], band[FW * FH * 2], ink[7 * 6], pixels[PW * PH], tiles[3 * 2];
     static uint32_t pre[256];
+    static uint8_t  under[256];
+    int             weights[256];
     dgx_fb_area_t   area;
     dgx_fb_area_init(&area, fb, FW, FH, 2, false);
     dgx_fb_area_orientation(&area, mirror_x, mirror_y, swap_xy);
@@ -332,11 +353,17 @@ static void test_panel(bool mirror_x, bool mirror_y, bool swap_xy)
         for (int i = 0; i < 7 * 6; ++i) ink[i] = (uint8_t)rnd(0, 255);
         for (int t = 0; t < 6; ++t) tiles[t] = (uint8_t)rnd(0, 1);
         for (int i = 0; i < PW * PH; ++i) pixels[i] = (uint8_t)(tiles[(i / PW / 32) * 3 + i % PW / 32] && !rnd(0, 2) ? rnd(1, 255) : 0);
-        const int weight = rnd(0, 32);
-        for (int i = 0; i < 256; ++i) pre[i] = ((layer_lut[i] | (uint32_t)layer_lut[i] << 16) & 0x07E0F81Fu) * (uint32_t)weight;
+        /* a weight of the layer, or every index its own; now and then the layer opaque */
+        const int each = rnd(0, 1), weight = round % 4 == 0 ? 32 : rnd(0, 32);
+        for (int i = 0; i < 256; ++i) {
+            weights[i] = each ? rnd(0, 32) : weight;
+            under[i]   = (uint8_t)(32 - weights[i]);
+            pre[i]     = ((layer_lut[i] | (uint32_t)layer_lut[i] << 16) & 0x07E0F81Fu) * (uint32_t)weights[i];
+        }
         /* the layer somewhere over the screen, and where it may have something within it and the screen */
         dgx_bus_overlay_t over = {.pixels = pixels, .pitch = PW, .x = rnd(-PW + 2, sw - 2), .y = rnd(-PH + 2, sh - 2), .pre = pre,
-                                  .under = 32u - (uint32_t)weight, .tiles = round & 1 ? tiles : NULL, .tiles_across = 3};
+                                  .under = 32u - (uint32_t)weight, .unders = each ? under : NULL, .tiles = round & 1 ? tiles : NULL,
+                                  .tiles_across = 3};
         over.left   = rnd(over.x, over.x + PW - 1), over.top = rnd(over.y, over.y + PH - 1);
         over.right  = rnd(over.left, over.x + PW - 1), over.bottom = rnd(over.top, over.y + PH - 1);
         over.left   = over.left < 0 ? 0 : over.left, over.top = over.top < 0 ? 0 : over.top;
@@ -362,7 +389,7 @@ static void test_panel(bool mirror_x, bool mirror_y, bool swap_xy)
                 uint16_t  want = lut[ink[y * 7 + x]];
                 if (sx >= over.left && sx <= over.right && sy >= over.top && sy <= over.bottom) {
                     const uint8_t index = pixels[(sy - over.y) * PW + sx - over.x];
-                    if (index) want = model_mix(layer_lut[index], want, weight);
+                    if (index) want = model_mix(layer_lut[index], want, weights[index]);
                 }
                 wrong += (uint16_t)dgx_fb_area_get_pixel(&area, (uint16_t)sx, (uint16_t)sy) != want;
             }
@@ -425,11 +452,59 @@ static void test_margins(void)
     }
 }
 
+/*
+ * The shares of the indices: times the alpha of the layer, kept when the layer is moved or gets another alpha,
+ * NULL back to the alpha alone, forgotten with the layer; the place of the layer changed by them.
+ */
+static void test_alphas(void)
+{
+    dgx_screen_t *display = dgx_vscreen_init(DW, DH, 16, DgxScreenRGB), *layer = dgx_vscreen_init(LW, LH, 8, DgxScreenRGB);
+    dgx_screen_t *src = dgx_vscreen_init(DW, DH, 16, DgxScreenRGB);
+    CHECK(display && layer && src);
+    uint8_t alphas[256];
+    int     x, y, w, h;
+    for (int i = 0; i < 256; ++i) layer_lut[i] = (uint16_t)(0xF800 | i), alphas[i] = (uint8_t)(255 - i);
+    dgx_fill_rectangle(src, 0, 0, DW, DH, 0x07E0);
+    for (int i = 1; i < 6; ++i) dgx_set_pixel(layer, i, 0, (uint32_t)(i * 50));
+    /* no layer: refused */
+    CHECK(!dgx_overlay_set_alphas(display, alphas));
+    const uint8_t layer_alphas[2] = {255, 128};
+    for (int a = 0; a < 2; ++a) {
+        CHECK(dgx_overlay_set(display, layer, 3, 4, layer_lut, layer_alphas[a]));
+        if (a == 0) CHECK(dgx_overlay_set_alphas(display, alphas));
+        dgx_overlay_take_dirty(display, &x, &y, &w, &h);
+        dgx_vscreen_to_screen(display, 0, 0, src, 0);
+        index_alphas = alphas;
+        for (int i = 1; i < 6; ++i) CHECK(dgx_get_pixel(display, 3 + i, 4) == expected_over(layer, 3, 4, layer_alphas[a], 3 + i, 4, 0x07E0));
+        /* index 250 at alpha 255: share 5, weight 1; index 0 empty */
+        CHECK(weight_of_index(255, 250) == 1 && dgx_get_pixel(display, 3, 4) == 0x07E0);
+    }
+    /* NULL: the alpha of the layer alone, and the place of the layer changed */
+    dgx_overlay_take_dirty(display, &x, &y, &w, &h);
+    CHECK(dgx_overlay_set_alphas(display, NULL));
+    CHECK(dgx_overlay_take_dirty(display, &x, &y, &w, &h) && x == 4 && y == 4 && w == 5 && h == 1);
+    dgx_vscreen_to_screen(display, 0, 0, src, 0);
+    index_alphas = NULL;
+    for (int i = 1; i < 6; ++i) CHECK(dgx_get_pixel(display, 3 + i, 4) == expected_over(layer, 3, 4, 128, 3 + i, 4, 0x07E0));
+    /* forgotten with the layer: laid again, it has the alpha alone */
+    index_alphas = alphas;
+    CHECK(dgx_overlay_set_alphas(display, alphas));
+    dgx_overlay_clear(display);
+    CHECK(dgx_overlay_set(display, layer, 3, 4, layer_lut, 200));
+    dgx_vscreen_to_screen(display, 0, 0, src, 0);
+    index_alphas = NULL;
+    for (int i = 1; i < 6; ++i) CHECK(dgx_get_pixel(display, 3 + i, 4) == expected_over(layer, 3, 4, 200, 3 + i, 4, 0x07E0));
+    dgx_overlay_clear(display);
+    dgx_overlay_take_dirty(display, &x, &y, &w, &h);
+    dgx_screen_destroy(&src), dgx_screen_destroy(&layer), dgx_screen_destroy(&display);
+}
+
 int main(void)
 {
     test_mix();
     test_transfers();
     test_changes();
+    test_alphas();
     test_margins();
     for (int bits = 0; bits < 8; ++bits) test_panel(bits & 4, bits & 2, bits & 1);
     CHECK_DONE();

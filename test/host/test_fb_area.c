@@ -358,6 +358,28 @@ static void test_pictures(bool mirror_x, bool mirror_y, bool swap_xy)
                     mirror_x, mirror_y, swap_xy, turn, width, height, left, top, px, py, scale, kind);
             ++check_failures;
         }
+        if (kind) continue;
+        /* the same squares from colors of 16 bits, kept the high byte first: the same rows */
+        static uint8_t colors[IW * IH * 2];
+        for (int i = 0; i < IW * IH; ++i) colors[2 * i] = (uint8_t)(table[ink[i]] >> 8), colors[2 * i + 1] = (uint8_t)table[ink[i]];
+        const dgx_bus_indexed_t wide_picture = {.pixels = colors, .bytes = 2, .pitch = IW * 2, .width = IW, .height = IH, .x = (uint32_t)px,
+                                                .y = (uint32_t)py, .scale = (uint8_t)scale, .orientation = (uint8_t)turn};
+        /* the frame buffer as the model has it, the rectangle spoilt: the rows must put it right again */
+        memcpy(fb, model, FW * FH * 2);
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x) fb[(y * FW + x) * 2] ^= 0xff;
+        for (int r = 0; r < rows;) {
+            const int n = rnd(1, rows - r);
+            dgx_fb_area_indexed_rows(&area, band, (uint16_t)left, (uint16_t)top, (uint16_t)width, (uint16_t)height, &wide_picture, (uint16_t)r,
+                                     (uint16_t)n, NULL);
+            for (int i = 0; i < n; ++i) memcpy(fb + ((y0 + r + i) * FW + x0) * 2, band + i * columns * 2, (size_t)columns * 2);
+            r += n;
+        }
+        if (memcmp(fb, model, FW * FH * 2) != 0) {
+            fprintf(stderr, "rows of 16-bit colors: screen mirror %d %d swap %d, picture turned %u, %dx%d at %d,%d from %d,%d, scale %d differ\n",
+                    mirror_x, mirror_y, swap_xy, turn, width, height, left, top, px, py, scale);
+            ++check_failures;
+        }
     }
 }
 

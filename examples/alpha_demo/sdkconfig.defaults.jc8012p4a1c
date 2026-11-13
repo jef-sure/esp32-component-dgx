@@ -1,0 +1,16 @@
+# The Guition JC8012P4A1C, 10.1-inch: read after the other two with
+#   idf.py -B build_jc8012p4a1c -D SDKCONFIG=build_jc8012p4a1c/sdkconfig -D IDF_TARGET=esp32p4 \
+#          -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.esp32p4;sdkconfig.defaults.jc8012p4a1c" build
+CONFIG_EXAMPLE_BOARD_JC8012P4A1C=y
+CONFIG_DGX_ENABLE_JD9365=y
+
+# Its chip is of revision 3.2: a build for revision 1 does not start on it
+# CONFIG_ESP32P4_SELECTS_REV_LESS_V3 is not set
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_400=y
+# PSRAM at 250 MHz, an experimental setting of ESP-IDF. A program that would
+# rather not use it sets CONFIG_SPIRAM_SPEED_200M: the demo has two frame
+# buffers, which keep the display from flashing there. The "Illegal
+# instruction" this load met on this board came from the instruction cache,
+# at 200 MHz as well; DGX keeps that code in the cache. See "PSRAM speed" in
+# docs/dsi-usage-en.md.
+CONFIG_SPIRAM_SPEED_250M=y

@@ -11,4 +11,10 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_400=y
 # The display reads 160 MB/s from the PSRAM within a row, and at 200 MHz drawing a moving
 # picture leaves it short now and then: the screen flashes light blue for a
 # frame. 250 MHz, which a chip of revision 3 has, leaves it enough.
+# 250 MHz is an experimental setting of ESP-IDF. A program that would rather
+# not use it sets CONFIG_SPIRAM_SPEED_200M instead: the demo then measures the
+# board again, dgx_dsi_advise() asks for two frame buffers, and it restarts
+# with them. The "Illegal instruction" once seen on this board under the
+# heaviest load came from the instruction cache, at 200 MHz as well; DGX
+# keeps that code in the cache. See "PSRAM speed" in docs/dsi-usage-en.md.
 CONFIG_SPIRAM_SPEED_250M=y

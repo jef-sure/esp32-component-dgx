@@ -517,6 +517,58 @@ void app_main(void)
     four->protocols.dispose(&four->protocols);
     CHECK(windows == one && one->next == two && !two->next);
 
+    /*
+     * A display on MIPI-DSI is read, and takes 24 bits: what is drawn on the screen of such a window comes back from
+     * dgx_get_pixel() as it was given, at 16, 18 and 24 bits, the screen turned all eight ways. A window of a panel
+     * on SPI is not read and takes no 24 bits.
+     */
+    {
+        CHECK(dgx_host_screen_init(8, 8, 24, NULL) == NULL);
+        dgx_screen_t *spi = dgx_host_screen_init(8, 8, 16, NULL);
+        CHECK(spi && !dgx_screen_is_readable(spi));
+        if (spi) {
+            host_window_t *w = window_of(spi);
+            dgx_screen_destroy(&spi);
+            w->protocols.dispose(&w->protocols);
+        }
+        static const uint8_t depths[3] = {16, 18, 24};
+        uint32_t             seed      = 12345;
+        for (int d = 0; d < 3; ++d) {
+            dgx_screen_t *glass = dgx_host_screen_init(12, 7, depths[d], &(dgx_host_screen_options_t){.no_bus = true});
+            CHECK(glass && dgx_screen_is_readable(glass));
+            if (!glass) continue;
+            host_window_t *w = window_of(glass);
+            for (int o = 0; o < 8; ++o) {
+                dgx_panel_orientation(glass, (o & 1) ? DgxScreenRightLeft : DgxScreenLeftRight, (o & 2) ? DgxScreenBottomTop : DgxScreenTopBottom,
+                                      (o & 4) != 0);
+                CHECK(glass->width == ((o & 4) ? 7 : 12) && glass->height == ((o & 4) ? 12 : 7));
+                int wrong = 0;
+                for (int y = 0; y < glass->height; ++y)
+                    for (int x = 0; x < glass->width; ++x) {
+                        seed = seed * 1664525u + 1013904223u;
+                        const uint32_t c = depths[d] == 16 ? seed >> 16 : depths[d] == 18 ? (seed >> 8) & 0xFCFCFCu : seed >> 8;
+                        dgx_set_pixel(glass, x, y, c);
+                        wrong += dgx_get_pixel(glass, x, y) != c;
+                    }
+                /* a rectangle through the window of the controller, read back pixel by pixel */
+                const uint32_t c = depths[d] == 16 ? 0xF81Fu : depths[d] == 18 ? 0x40FC80u : 0x123456u;
+                dgx_fill_rectangle(glass, 1, 2, 4, 3, c);
+                for (int y = 2; y < 5; ++y)
+                    for (int x = 1; x < 5; ++x) wrong += dgx_get_pixel(glass, x, y) != c;
+                CHECK(wrong == 0);
+            }
+            /* 24 bits reach the glass whole */
+            dgx_panel_orientation(glass, DgxScreenLeftRight, DgxScreenTopBottom, false);
+            if (depths[d] == 24) {
+                dgx_set_pixel(glass, 0, 0, 0x123457u);
+                CHECK((w->glass[0] & 0xFFFFFFu) == 0x123457u);
+            }
+            dgx_screen_destroy(&glass);
+            w->protocols.dispose(&w->protocols);
+        }
+        CHECK(windows == one && one->next == two && !two->next);
+    }
+
     /* the memory: what is held and let go of, the largest block, and the limits */
     const size_t before = heap.now;
     void        *p      = take(1000);

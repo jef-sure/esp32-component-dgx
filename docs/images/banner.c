@@ -5,7 +5,8 @@
  *
  * Variants: a - the banner for a light page, b - the banner for a dark page, c - the name by a pen alone;
  * f - fonts, g - gauges, h - a handwritten text, p - figures, s - pixel art made larger, t - text with soft edges,
- * r - circles with a soft edge, each for a dark page or, with `light`, a light one.
+ * r - circles with a soft edge, x - a crossfade, m - a soft shape put by a mask, o - translucent buttons, each for
+ * a dark page or, with `light`, a light one.
  *
  * A picture is drawn twice the size it is shown at, on a 16-bit virtual screen, and written as a PAM file
  * with transparency: it has no background, the page shows through it.
@@ -19,7 +20,8 @@
  *      src/screen/*.c src/draw/*.c src/vscreen/*.c src/text/*.c src/morph/*.c src/fonts/?*.c /tmp/dgx-pictures/*.c -lm -o /tmp/banner
  *   /tmp/banner b /tmp/x.pam && convert /tmp/x.pam docs/images/banner-dark.png
  *   /tmp/banner a /tmp/x.pam && convert /tmp/x.pam docs/images/banner-light.png
- *   for v in f:fonts g:gauge h:handwriting p:figures s:pixel-scale t:soft-text r:soft-circle; do for t in dark light; do
+ *   for v in f:fonts g:gauge h:handwriting p:figures s:pixel-scale t:soft-text r:soft-circle x:crossfade m:mask o:overlay; do
+ *     for t in dark light; do
  *       /tmp/banner ${v%%:*} /tmp/x.pam $t && convert /tmp/x.pam PNG32:docs/images/${v#*:}-$t.png; done; done
  */
 #include <math.h>
@@ -33,9 +35,11 @@
 #include "dgx_font.h"
 #include "dgx_gauge.h"
 #include "dgx_hw_font.h"
+#include "dgx_lut.h"
 #include "dgx_morph.h"
 #include "dgx_morph_render.h"
 #include "dgx_morph_sources.h"
+#include "dgx_overlay.h"
 #include "drivers/vscreen.h"
 #include "fonts/CasusDotView.h"
 #include "fonts/CozetteRegular13.h"
@@ -164,6 +168,30 @@ static void text(dgx_font_t *font, int x, int y, int scale, uint32_t color, cons
     dgx_font_string_utf8_screen(canvas, (int16_t)x, (int16_t)y, str, color, DgxOutputNormal, scale, font, NULL, NULL);
 }
 
+/* the first picture of the recipes of alpha: a sky from deep blue to pale, a sun and two hills */
+static void landscape(dgx_screen_t *pic, uint16_t *lut)
+{
+    const int pw = pic->width, ph = pic->height;
+    dgx_lut_gradient(lut, 0, 64, 0x102a6a, 0xb4dcff);
+    lut[64] = (uint16_t)rgb(255, 216, 74), lut[65] = (uint16_t)rgb(47, 107, 42), lut[66] = (uint16_t)rgb(79, 154, 60);
+    for (int y = 0; y < ph; ++y) dgx_fill_rectangle(pic, 0, y, pw, 1, (uint32_t)(y * 63 / (ph - 1)));
+    dgx_solid_circle(pic, pw * 3 / 4, ph / 3, ph / 7, 64);
+    dgx_solid_circle(pic, pw / 4, ph + ph / 3, ph * 3 / 5, 65);
+    dgx_solid_circle(pic, pw * 4 / 5, ph + ph / 2, ph * 3 / 4, 66);
+}
+
+/* the second: tiles of two colors under rings of warm ones */
+static void tiles(dgx_screen_t *pic, uint16_t *lut)
+{
+    const int pw = pic->width, ph = pic->height, tile = ph / 6;
+    lut[1] = (uint16_t)rgb(60, 20, 80), lut[2] = (uint16_t)rgb(90, 40, 120);
+    lut[3] = (uint16_t)rgb(255, 138, 92), lut[4] = (uint16_t)rgb(255, 192, 106), lut[5] = (uint16_t)rgb(255, 92, 138);
+    for (int y = 0; y < ph; y += tile)
+        for (int x = 0; x < pw; x += tile) dgx_fill_rectangle(pic, x, y, tile, tile, (uint32_t)(((x / tile) ^ (y / tile)) & 1 ? 1 : 2));
+    for (int i = 0; i < 9; ++i)
+        for (int k = 0; k < 3; ++k) dgx_draw_circle(pic, pw * (1 + i % 3) / 4, ph * (1 + i / 3) / 4, ph / 9 - k, (uint32_t)(3 + i % 3));
+}
+
 /* the pictures of the recipes; `dark` is the page they are for */
 static void recipe(char variant, bool dark)
 {
@@ -257,6 +285,90 @@ static void recipe(char variant, bool dark)
         zoom_ink(two, 740, 24, 8);
         text(TerminusTTFMedium12(), 740, 24 + 20 * 8 + 34, 2, dim, "hard and soft, r 7, four times");
         dgx_screen_destroy(&two), dgx_screen_destroy(&small);
+        break;
+    }
+    case 'x': { /* a crossfade: the second picture over the first by five alphas, 0 the first alone and 255 the second */
+        enum { PW = 112, PH = 72, SHOW = 2, GAP = 24, LEFT = 24, TOP = 8 };
+        dgx_screen_t   *a = dgx_vscreen_init(PW, PH, 8, DgxScreenRGB), *b = dgx_vscreen_init(PW, PH, 8, DgxScreenRGB);
+        static uint16_t lut_a[256], lut_b[256];
+        landscape(a, lut_a), tiles(b, lut_b);
+        static const int alphas[5] = {0, 64, 128, 192, 255};
+        for (int i = 0; i < 5; ++i) {
+            /* a pixel of the pictures is two of the file, one of the page */
+            const int x = LEFT + i * (SHOW * PW + GAP);
+            char      label[16];
+            dgx_vscreen8_to_screen16(canvas, x, TOP, a, lut_a, DGX_VSCREEN_SCALE(SHOW));
+            dgx_vscreen8_to_screen16(canvas, x, TOP, b, lut_b, DGX_VSCREEN_SCALE(SHOW) | DGX_VSCREEN_ALPHA(alphas[i]));
+            snprintf(label, sizeof(label), "a = %d", alphas[i]);
+            text(TerminusTTFMedium12(), x, TOP + SHOW * PH + 36, 2, dim, label);
+        }
+        dgx_screen_destroy(&a), dgx_screen_destroy(&b);
+        break;
+    }
+    case 'm': { /* a soft shape drawn once as amounts of ink, then put many times over a picture by a mask */
+        enum { SW = 72, SH = 36, PW = 300, PH = 150, SHOW = 2, LEFT = 24, TOP = 24 };
+        dgx_screen_t *shape = dgx_vscreen_init(SW, SH, 8, DgxScreenRGB), *scene = dgx_vscreen_init(PW, PH, 16, DgxScreenRGB);
+        dgx_screen_t *pic   = dgx_vscreen_init(PW, PH, 8, DgxScreenRGB);
+        dgx_fill_rectangle(shape, 0, 0, SW, SH, 0);
+        dgx_solid_circle(shape, 17, 18, DGX_PEN_SOFT | 15, 255);
+        const dgx_font_context_t word = {.scr = shape, .font = soft16(), .color = 255};
+        dgx_font_draw(&word, 37, 24, "DGX");
+        /* the shape twice as large on the page, its ink as it is: the page shows through where there is little */
+        zoom_ink(shape, LEFT, TOP, 4);
+        text(TerminusTTFMedium12(), LEFT, TOP + SH * 4 + 34, 2, dim, "the shape: amounts of ink");
+        static uint16_t lut[256], inks[4][256];
+        landscape(pic, lut);
+        dgx_vscreen8_to_screen16(scene, 0, 0, pic, lut, 0);
+        static const uint32_t colors[4] = {0xffffff, 0xffe066, 0x66e0ff, 0xff7090};
+        for (int i = 0; i < 4; ++i) inks[i][255] = (uint16_t)rgb(colors[i] >> 16, (colors[i] >> 8) & 0xff, colors[i] & 0xff);
+        /* where each goes, turned how, how large, in which ink and how strong */
+        static const struct {
+            int16_t x, y;
+            uint8_t turn, n, ink, alpha;
+        } puts[7] = {
+            {8, 8, DgxOutputNormal, 1, 0, 255},       {104, 6, DgxOutputMirrorX, 1, 2, 255},    {214, 10, DgxOutputNormal, 1, 3, 110},
+            {12, 58, DgxOutputRotate90CCW, 1, 1, 255}, {66, 64, DgxOutputNormal, 2, 1, 255},     {252, 56, DgxOutputRotate90CW, 1, 0, 255},
+            {196, 108, DgxOutputRotate180, 1, 2, 110},
+        };
+        for (int i = 0; i < 7; ++i)
+            dgx_vscreen8_to_screen16(scene, puts[i].x, puts[i].y, shape, inks[puts[i].ink],
+                                     DGX_VSCREEN_MASK | DGX_VSCREEN_ORIENTED(puts[i].turn) | DGX_VSCREEN_SCALE(puts[i].n) | DGX_VSCREEN_ALPHA(puts[i].alpha));
+        dgx_vscreen_to_screen(canvas, LEFT + SW * 4 + 48, TOP, scene, DGX_VSCREEN_SCALE(SHOW));
+        dgx_screen_destroy(&shape), dgx_screen_destroy(&scene), dgx_screen_destroy(&pic);
+        break;
+    }
+    case 'o': { /* translucent buttons over a picture: the face solid, the shadow faint, the whole layer at two alphas */
+        enum { PW = 240, PH = 120, SHOW = 2, GAP = 24, LEFT = 24, TOP = 8 };
+        dgx_screen_t *pic = dgx_vscreen_init(PW, PH, 8, DgxScreenRGB), *scene = dgx_vscreen_init(PW, PH, 16, DgxScreenRGB);
+        const int     lw = PW * 3 / 4, lh = PH / 2, r = lh / 3;
+        dgx_screen_t *layer = dgx_vscreen_init(lw, lh, 8, DgxScreenRGB);
+        static uint16_t lut[256], lut_l[256];
+        static uint8_t  shares[256];
+        tiles(pic, lut);
+        dgx_fill_rectangle(layer, 0, 0, lw, lh, 0);
+        for (int i = 0; i < 3; ++i) {
+            const int cx = lw * (1 + 2 * i) / 6, cy = lh / 2;
+            dgx_solid_circle(layer, cx + r / 4, cy + r / 4, r, 2);
+            dgx_solid_circle(layer, cx, cy, r, 1);
+            dgx_draw_circle(layer, cx, cy, r / 2, 3);
+            dgx_draw_circle(layer, cx, cy, r / 2 - 1, 3);
+        }
+        lut_l[1] = (uint16_t)rgb(232, 232, 232), lut_l[2] = (uint16_t)rgb(0, 0, 0), lut_l[3] = (uint16_t)rgb(208, 48, 48);
+        memset(shares, 255, sizeof(shares));
+        shares[2] = 90; /* the shadow */
+        static const int alphas[2] = {255, 150};
+        for (int i = 0; i < 2; ++i) {
+            const int x = LEFT + i * (SHOW * PW + GAP);
+            char      label[24];
+            dgx_overlay_set(scene, layer, (PW - lw) / 2, PH - lh - 4, lut_l, (uint8_t)alphas[i]);
+            dgx_overlay_set_alphas(scene, shares);
+            dgx_vscreen8_to_screen16(scene, 0, 0, pic, lut, 0);
+            dgx_overlay_clear(scene);
+            dgx_vscreen_to_screen(canvas, x, TOP, scene, DGX_VSCREEN_SCALE(SHOW));
+            snprintf(label, sizeof(label), "the layer at %d", alphas[i]);
+            text(TerminusTTFMedium12(), x, TOP + SHOW * PH + 36, 2, dim, label);
+        }
+        dgx_screen_destroy(&layer), dgx_screen_destroy(&scene), dgx_screen_destroy(&pic);
         break;
     }
     case 'g': { /* a gauge at three values */
@@ -357,6 +469,9 @@ int main(int argc, char **argv)
     if (variant == 's') W = 1280, H = 320;
     if (variant == 't') W = 1000, H = 400;
     if (variant == 'r') W = 1150, H = 320;
+    if (variant == 'x') W = 1264, H = 200;
+    if (variant == 'm') W = 984, H = 348;
+    if (variant == 'o') W = 1032, H = 300;
     canvas = dgx_vscreen_init(W, H, 16, DgxScreenRGB);
     ink = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
     lights = dgx_vscreen_init(W, H, 16, DgxScreenRGB);

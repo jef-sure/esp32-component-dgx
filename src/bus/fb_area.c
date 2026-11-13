@@ -454,9 +454,67 @@ void dgx_fb_area_indexed_rows(const dgx_fb_area_t *area, uint8_t *to, uint16_t l
     const uint32_t  runs_index = (uint32_t)runs.runs_at / scale;
     const uint32_t  first_run  = dir > 0 ? scale - (uint32_t)runs.runs_at % scale : (uint32_t)runs.runs_at % scale + 1u;
     const uint32_t  pitch      = picture->pitch;
-    const ptrdiff_t step       = runs.along_y ? dir * (ptrdiff_t)pitch : dir;
     const uint16_t *lut        = picture->lut;
     uint32_t        line_last  = UINT32_MAX;
+    if (picture->bytes == 2 && runs.along_y) {
+        /*
+         * A row of the panel runs down a column of the picture, a row of the
+         * picture apart each pixel: read so, every pixel of a large picture
+         * is a line of the cache of its own, seven times as slow on the
+         * ESP32-P4. The rows are made 32 columns of the panel at a time
+         * instead: 32 rows of the picture, each read along itself as the rows
+         * of the panel go down, its line of the cache read again by the next.
+         */
+        enum { DGX_FB_AREA_TILE = 32 };
+        const uint8_t *from[DGX_FB_AREA_TILE];
+        for (uint32_t i0 = 0; i0 < columns; i0 += DGX_FB_AREA_TILE) {
+            const uint32_t k = columns - i0 < DGX_FB_AREA_TILE ? columns - i0 : DGX_FB_AREA_TILE;
+            for (uint32_t i = 0; i < k; ++i) from[i] = picture->pixels + (size_t)((uint32_t)(runs.runs_at + (int32_t)(i0 + i) * dir) / scale) * pitch;
+            uint16_t *out     = row + i0;
+            size_t    at_last = SIZE_MAX;
+            for (uint32_t r = 0; r < rows; ++r, out += columns) {
+                const size_t at = 2u * ((uint32_t)(runs.line_at + (int32_t)(first + r) * runs.across) / scale);
+                if (at == at_last) {
+                    /* the same column of the picture again: the row above */
+                    memcpy(out, out - columns, k * 2u);
+                    continue;
+                }
+                at_last = at;
+                for (uint32_t i = 0; i < k; ++i) out[i] = (uint16_t)(from[i][at] << 8 | from[i][at + 1]);
+            }
+        }
+        return;
+    }
+    if (picture->bytes == 2) {
+        /* colors of 16 bits, the high byte first: two bytes a step along a row of the picture */
+        const ptrdiff_t step = dir * 2;
+        for (uint32_t r = 0; r < rows; ++r, row += columns) {
+            const uint32_t line_index = (uint32_t)(runs.line_at + (int32_t)(first + r) * runs.across) / scale;
+            if (line_index == line_last) {
+                memcpy(row, row - columns, columns * 2u);
+                continue;
+            }
+            line_last = line_index;
+            const uint8_t *at = picture->pixels + (size_t)line_index * pitch + runs_index * 2u;
+            if (scale == 1) {
+                for (uint32_t i = 0; i < columns; ++i, at += step) row[i] = (uint16_t)(at[0] << 8 | at[1]);
+                continue;
+            }
+            uint16_t *out     = row;
+            uint32_t  left_px = columns, run = first_run;
+            while (left_px) {
+                const uint32_t n     = run < left_px ? run : left_px;
+                const uint16_t color = (uint16_t)(at[0] << 8 | at[1]);
+                for (uint32_t i = 0; i < n; ++i) out[i] = color;
+                out += n;
+                left_px -= n;
+                at += step;
+                run = scale;
+            }
+        }
+        return;
+    }
+    const ptrdiff_t step = runs.along_y ? dir * (ptrdiff_t)pitch : dir;
     for (uint32_t r = 0; r < rows; ++r, row += columns) {
         const uint32_t line_index = (uint32_t)(runs.line_at + (int32_t)(first + r) * runs.across) / scale;
         if (line_index == line_last) {
@@ -500,10 +558,29 @@ void dgx_fb_area_indexed_rows(const dgx_fb_area_t *area, uint8_t *to, uint16_t l
     }
 }
 
-/* a pixel of the band mixed with the layer's index */
-static inline void dgx_fb_area_overlay_mix(uint16_t *out, const uint32_t *pre, uint32_t under, uint8_t index)
+/*
+ * The run of indices that are not empty from j on, mixed into the band from `out` on, `step` apart; where it ends.
+ * `way` is a constant at every call: each way of weighing is a loop of its own with no branch in it.
+ */
+static inline __attribute__((always_inline)) uint32_t dgx_fb_area_overlay_run(const dgx_bus_overlay_t *overlay, uint16_t *out, ptrdiff_t step,
+                                                                             const uint8_t *index, uint32_t j, uint32_t n, dgx_overlay_way_t way)
 {
-    *out = under ? dgx_bus_overlay_mix(*out, pre[index], under) : (uint16_t)((pre[index] >> 5) | (pre[index] >> 21));
+    const uint32_t *pre = overlay->pre;
+    for (; j < n && index[j]; ++j, out += step) {
+        const uint32_t color = pre[index[j]];
+        if (way == DGX_OVERLAY_PUT) *out = (uint16_t)((color >> 5) | (color >> 21));
+        else *out = dgx_bus_overlay_mix(*out, color, way == DGX_OVERLAY_ONE ? overlay->under : overlay->unders[index[j]]);
+    }
+    return j;
+}
+
+/* the run by the loop of the way the layer weighs */
+static inline __attribute__((always_inline)) uint32_t dgx_fb_area_overlay_runs(const dgx_bus_overlay_t *overlay, uint16_t *out, ptrdiff_t step,
+                                                                              const uint8_t *index, uint32_t j, uint32_t n, dgx_overlay_way_t way)
+{
+    return way == DGX_OVERLAY_PUT   ? dgx_fb_area_overlay_run(overlay, out, step, index, j, n, DGX_OVERLAY_PUT)
+           : way == DGX_OVERLAY_ONE ? dgx_fb_area_overlay_run(overlay, out, step, index, j, n, DGX_OVERLAY_ONE)
+                                    : dgx_fb_area_overlay_run(overlay, out, step, index, j, n, DGX_OVERLAY_EACH);
 }
 
 void dgx_fb_area_overlay_rows(const dgx_fb_area_t *area, uint8_t *to, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
@@ -521,7 +598,7 @@ void dgx_fb_area_overlay_rows(const dgx_fb_area_t *area, uint8_t *to, uint16_t l
     const uint32_t from_py = band_first > py0 ? band_first : py0, to_py = band_last < py1 ? band_last : py1;
     if (from_py > to_py) return;
     const uint32_t  columns = (uint32_t)x1 - x0 + 1u, count = (uint32_t)px1 - px0 + 1u;
-    const uint32_t *pre = overlay->pre, under = overlay->under;
+    const dgx_overlay_way_t way = dgx_overlay_way_of(overlay);
     uint16_t       *band = (uint16_t *)to;
     /* where a point of the panel lies on the screen, across the rows and along them */
 #define DGX_ACROSS(py) ((int32_t)(area->mirror_y ? area->fb_height - 1u - (py) : (py)))
@@ -538,8 +615,7 @@ void dgx_fb_area_overlay_rows(const dgx_fb_area_t *area, uint8_t *to, uint16_t l
             const ptrdiff_t step = area->mirror_x ? -1 : 1;
             const int32_t lx = sx - overlay->x, ly = sy - overlay->y;
             for (uint32_t j = dgx_overlay_next_in(overlay, index, lx, ly, 0, count); j < count; j = dgx_overlay_next_in(overlay, index, lx, ly, j, count)) {
-                uint16_t *out = base + (ptrdiff_t)j * step;
-                for (; j < count && index[j]; ++j, out += step) dgx_fb_area_overlay_mix(out, pre, under, index[j]);
+                j = dgx_fb_area_overlay_runs(overlay, base + (ptrdiff_t)j * step, step, index, j, count, way);
             }
         }
     } else {
@@ -560,8 +636,7 @@ void dgx_fb_area_overlay_rows(const dgx_fb_area_t *area, uint8_t *to, uint16_t l
             const ptrdiff_t step = area->mirror_y ? -(ptrdiff_t)columns : (ptrdiff_t)columns;
             const int32_t lx = sx_lo - overlay->x, ly = sy - overlay->y;
             for (uint32_t j = dgx_overlay_next_in(overlay, index, lx, ly, 0, n); j < n; j = dgx_overlay_next_in(overlay, index, lx, ly, j, n)) {
-                uint16_t *out = base + (ptrdiff_t)j * step;
-                for (; j < n && index[j]; ++j, out += step) dgx_fb_area_overlay_mix(out, pre, under, index[j]);
+                j = dgx_fb_area_overlay_runs(overlay, base + (ptrdiff_t)j * step, step, index, j, n, way);
             }
         }
     }

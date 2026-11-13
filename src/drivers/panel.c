@@ -37,7 +37,7 @@ typedef struct dgx_panel_screen_t {
     gpio_num_t            backlight;
 } dgx_panel_screen_t;
 
-/* the place of a depth in colmod[]: 12, 16 and 18 bits, -1 for any other */
+/* the place of a depth in colmod[]: 12, 16, 18 and 24 bits, -1 for any other */
 static int dgx_panel_depth(uint8_t color_bits)
 {
     switch (color_bits) {
@@ -47,6 +47,8 @@ static int dgx_panel_depth(uint8_t color_bits)
         return 1;
     case 18:
         return 2;
+    case 24:
+        return 3;
     default:
         return -1;
     }
@@ -127,18 +129,27 @@ static void dgx_panel_set_area_both(dgx_screen_t *_scr, uint16_t left, uint16_t 
     dgx_screen_with_bus_set_area_window_full(scr, left, right, top, bottom);
 }
 
+/* is the depth at `depth` of colmod[] set up: named in `depths`, or with a COLMOD that is not 0 where `depths` is 0 */
+static bool dgx_panel_takes(const dgx_panel_t *panel, int depth)
+{
+    return panel->depths ? (panel->depths >> depth & 1u) != 0 : panel->colmod[depth] != 0;
+}
+
 /* the depths a panel takes, for the log: "16 and 18" */
 static void dgx_panel_depths(const dgx_panel_t *panel, char *text, size_t size)
 {
-    static const int bits[3] = {12, 16, 18};
-    int              taken[3], n = 0;
-    for (int i = 0; i < 3; ++i) {
-        if (panel->colmod[i]) taken[n++] = bits[i];
+    static const int bits[4] = {12, 16, 18, 24};
+    int              taken[4], n = 0;
+    for (int i = 0; i < 4; ++i) {
+        if (dgx_panel_takes(panel, i)) taken[n++] = bits[i];
     }
-    if (n == 1) snprintf(text, size, "%d", taken[0]);
-    else if (n == 2) snprintf(text, size, "%d and %d", taken[0], taken[1]);
-    else if (n == 3) snprintf(text, size, "%d, %d and %d", taken[0], taken[1], taken[2]);
-    else snprintf(text, size, "none");
+    if (!n) {
+        snprintf(text, size, "none");
+        return;
+    }
+    size_t at = 0;
+    for (int i = 0; i < n && at < size; ++i)
+        at += (size_t)snprintf(text + at, size - at, "%s%d", i == 0 ? "" : i == n - 1 ? " and " : ", ", taken[i]);
 }
 
 dgx_screen_t *dgx_panel_init(dgx_bus_protocols_t *bus, const dgx_panel_t *panel, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits,
@@ -149,7 +160,7 @@ dgx_screen_t *dgx_panel_init(dgx_bus_protocols_t *bus, const dgx_panel_t *panel,
         return NULL;
     }
     const int depth = dgx_panel_depth(color_bits);
-    if (depth < 0 || !panel->colmod[depth]) {
+    if (depth < 0 || !dgx_panel_takes(panel, depth)) {
         char depths[24];
         dgx_panel_depths(panel, depths, sizeof(depths));
         ESP_LOGE(TAG, "%s: %u-bit color is not set up for this panel, only %s", panel->name, (unsigned)color_bits, depths);

@@ -31,6 +31,10 @@ typedef struct _dgx_overlay_t {
     bool                     changed;
     int32_t                  changed_left, changed_top, changed_right, changed_bottom;
     uint32_t                 pre[256];
+    uint8_t                  under[256];  /* see dgx_bus_overlay_t */
+    uint16_t                 lut[256];    /* the colors of dgx_overlay_set(), for weights given later */
+    uint8_t                  alphas[256]; /* of dgx_overlay_set_alphas(), 255 each without it */
+    uint8_t                  alpha;       /* of dgx_overlay_set() */
     uint8_t                 *tiles; /* of the layer, see dgx_bus_overlay_t */
     uint32_t                 tiles_down;
 } dgx_overlay_t;
@@ -45,12 +49,23 @@ static inline const dgx_bus_overlay_t *dgx_overlay_over(const dgx_screen_t *disp
     return bus;
 }
 
+/*
+ * How the indices of a layer weigh, for the loops that mix it: each its color as it is, one weight under all of
+ * them, or a weight of its own each.
+ */
+typedef enum { DGX_OVERLAY_PUT, DGX_OVERLAY_ONE, DGX_OVERLAY_EACH } dgx_overlay_way_t;
+
+static inline dgx_overlay_way_t dgx_overlay_way_of(const dgx_bus_overlay_t *overlay)
+{
+    return overlay->unders ? DGX_OVERLAY_EACH : overlay->under ? DGX_OVERLAY_ONE : DGX_OVERLAY_PUT;
+}
+
 /* the color the pixel (x, y) of the screen gets from the color put there, the layer over it */
 static inline uint16_t dgx_overlay_pixel(const dgx_bus_overlay_t *overlay, int x, int y, uint16_t color)
 {
     if (x < overlay->left || x > overlay->right || y < overlay->top || y > overlay->bottom) return color;
     const uint8_t index = overlay->pixels[(size_t)(y - overlay->y) * overlay->pitch + (size_t)(x - overlay->x)];
-    return index ? dgx_bus_overlay_mix(color, overlay->pre[index], overlay->under) : color;
+    return index ? dgx_bus_overlay_mix(color, overlay->pre[index], overlay->unders ? overlay->unders[index] : overlay->under) : color;
 }
 
 /*

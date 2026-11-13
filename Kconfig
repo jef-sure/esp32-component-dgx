@@ -21,6 +21,24 @@ config DGX_ENABLE_DSI
     depends on SOC_MIPI_DSI_SUPPORTED
     default n
 
+config DGX_DSI_LOCK_INTERRUPT_CODE
+    bool "Keep the code of interrupts in the instruction cache"
+    depends on DGX_ENABLE_DSI && IDF_TARGET_ESP32P4
+    default y
+    help
+        On a JC8012P4A1C (ESP32-P4 v3.2) under the load a DSI display makes
+        with the 2D DMA and the accelerator, a line of the instruction cache
+        now and then came from internal memory as zeros, and the program
+        stopped with "Illegal instruction" in the spinlock of a critical
+        section an interrupt entered: about once a minute or never, by where
+        the code lay after a build. With this on, dgx_dsi_init() keeps that
+        code, the port of FreeRTOS, 2.6 KB in IDF 6.1, in the instruction
+        caches of both cores, where it is never read again; it takes one way
+        of the four in about 45 of the 64 sets. See "Illegal instruction on
+        the 10.1-inch board" in docs/dsi-display-en.md.
+
+        Turn it off if the program keeps other code in the cache itself.
+
 config DGX_DSI_PRIVATE_DMA2D
     bool "Drive the 2D DMA of a DSI display through the private interface of IDF"
     depends on DGX_ENABLE_DSI && SOC_DMA2D_SUPPORTED

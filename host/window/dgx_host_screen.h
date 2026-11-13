@@ -50,7 +50,10 @@ typedef struct {
     /**
      * The display of the board is on no bus the window stands for, as one on
      * MIPI-DSI is: the window counts no time on a wire, and the fields of the
-     * bus above mean nothing.
+     * bus above mean nothing. It stands for such a display in the rest too:
+     * it takes 24 bits as well, and its screen is read, dgx_get_pixel() and
+     * dgx_screen_is_readable(), as the frame buffer of a DSI display is; soft
+     * text and soft edges are mixed with what it shows.
      */
     bool        no_bus;
 } dgx_host_screen_options_t;
@@ -70,7 +73,7 @@ typedef struct {
  * program. bus->dispose() of the screen's bus closes the window.
  *
  * @param width,height The glass, upright; dgx_panel_orientation() turns the screen on it as on a board.
- * @param color_bits   16 or 18.
+ * @param color_bits   16 or 18, as a panel on SPI takes them; with no_bus 24 too.
  * @param options      NULL for the CYD: SPI at 40 MHz.
  * @return The screen, or NULL when there is no window.
  */

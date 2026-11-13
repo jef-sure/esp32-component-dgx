@@ -64,21 +64,29 @@ typedef enum {
      * whole, one the processor sends only when it is small, drawing on the
      * display itself only in part.
      *
-     * A part of a virtual screen that goes by the 2D DMA and a large
-     * rectangle filled by the accelerator are started when the scan is not
-     * in their rows. Both write faster than the display reads and stay
-     * ahead of the scan, so the part or the rectangle is seen whole, the
-     * whole screen as well. A 16-bit part goes so when it is 16 KB or more,
-     * the screen is neither mirrored nor turned, and no overlay layer lies
-     * over it; an 8-bit one through a table of colors goes in bands the
-     * processor makes, and is whole as long as it makes them faster than
-     * the display reads.
+     * A part of a virtual screen that goes by the 2D DMA, a large rectangle
+     * filled by the accelerator and a band it mixes are started so that
+     * the scan comes to each of their rows after it is written: before the
+     * scan comes to the first row, earlier by what a write slower than the
+     * scan loses on the way, at the speed the bus has measured for each
+     * kind (dgx_dsi_counters()). On a JC8012P4A1C with the PSRAM at 200 MHz
+     * the 2D DMA copies from PSRAM hardly faster than the display reads and
+     * the accelerator mixes slower. A part as tall as the screen may have
+     * no such moment: on a JC8012P4A1C, whose chip counts the end of a
+     * frame after the blanking, it has none. It is then started when the
+     * scan has just left its rows, the display may come upon rows of it
+     * not yet written, and it is counted in scan_late.
      *
-     * Pixels the processor sends through the window (small parts, a 16-bit
-     * part on a turned screen, 24-bit color, a part under an overlay layer,
-     * every part without CONFIG_DGX_DSI_PRIVATE_DMA2D) wait until the scan
-     * has left the rows of the window, when they can be written before it
-     * is back.
+     * A 16-bit part of 16 KB or more goes by the 2D DMA: at once when it
+     * is put as it is on a screen neither mirrored nor turned with no
+     * overlay layer over it, otherwise in bands the processor makes, as an
+     * 8-bit one through a table of colors goes. Bands are whole as long as
+     * the processor makes them faster than the display reads.
+     *
+     * Pixels the processor sends through the window (small parts, a
+     * smoothed 16-bit part, 24-bit color, every part without
+     * CONFIG_DGX_DSI_PRIVATE_DMA2D) wait until the scan has left the rows of
+     * the window, when they can be written before it is back.
      * That holds for about 160 rows of 1024 pixels; a larger window goes as
      * it comes and may tear, as with DgxDsiOneFrame. What a batch has left
      * in the cache of the chip is brought out the same way at its end.
@@ -149,6 +157,18 @@ typedef struct _dgx_dsi_counters_t {
     uint32_t copy_waits;   /*!< times drawing waited for such a piece to be copied */
     uint32_t copy_wait_us; /*!< and how long in all */
     uint32_t copy_kb_a_ms; /*!< not a count: KB the 2D DMA copies in a millisecond, as the bus has measured it; 0 until it has */
+    /**
+     * Behind the scan: writes by the 2D DMA or the accelerator too slow, or
+     * too tall, to stay ahead of the scan wherever they started, the time
+     * they take to start counted in. Each was started when the scan had just
+     * left its rows, and the display may have come upon rows of it not yet
+     * written.
+     */
+    uint32_t scan_late;
+    /** not a count: behind the scan, KB the 2D DMA copies in a millisecond from internal memory, as the bus has measured it; 0 until it has. copy_kb_a_ms is from PSRAM there */
+    uint32_t copy_ram_kb_a_ms;
+    uint32_t fill_kb_a_ms; /*!< not a count: behind the scan, KB the accelerator fills in a millisecond, measured so */
+    uint32_t mix_kb_a_ms;  /*!< not a count: behind the scan, KB of the frame buffer the accelerator mixes in a millisecond, measured so */
 } dgx_dsi_counters_t;
 
 /**

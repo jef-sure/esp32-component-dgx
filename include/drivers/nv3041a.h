@@ -19,7 +19,7 @@ extern "C"
  * @param bus        Bus backend returned by dgx_qspi_init() or dgx_qspi_init_on_bus().
  * @param rst        Reset GPIO (use GPIO_NUM_NC if the panel has no reset line: it is reset by a command then).
  * @param backlight  Backlight GPIO (use GPIO_NUM_NC if the panel has no backlight control).
- * @param color_bits Pixel depth in bits: 16 (RGB565), the only one the driver sets up.
+ * @param color_bits Pixel depth in bits: 16 (RGB565) or 18 (RGB666). At 18 a frame takes 1.5 times as long on the wire.
  * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR). If red and blue are exchanged on a module, pass the other value.
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */

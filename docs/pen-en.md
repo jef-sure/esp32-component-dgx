@@ -9,7 +9,9 @@ by `src/draw/segment.c`, which has a copy of the same figures of its own. How
 to use a pen is in [handwriting-en.md](handwriting-en.md); here is only how it
 is built.
 
-It describes the code of version 0.5.4. Every number is either
+It describes the code of version 0.10.14: the pen of 0.5.4, the straight
+segments of 0.10.13 and the soft circle of 0.10.14, the numbers of each
+measured on the version it came with. Every number is either
 measured on the board or marked as calculated or as counted on the host. A KB
 is 1024 bytes.
 

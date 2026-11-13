@@ -82,8 +82,9 @@ typedef bool (*dgx_bus_write_ink_func)(struct _dgx_bus_protocols_t *bus, uint16_
  *
  * Index 0 is empty and leaves the pixel under it as it is. Another index
  * gives its color mixed with the pixel under it: `pre[index]` is the color
- * times the weight of the layer, and `under` the weight of the pixel under
- * it, the two adding up to 32. A color is spread over a word as
+ * times the weight of the index, and the weight of the pixel under it, the
+ * two adding up to 32, is `under` for every index, or `unders[index]` when
+ * the indices weigh differently. A color is spread over a word as
  * 0x07E0F81F masks it: green in the high half, red and blue in the low one.
  */
 typedef struct {
@@ -93,8 +94,9 @@ typedef struct {
     int32_t         y;
     /*! the part of the screen outside which the layer has nothing, both ends included; inside the screen and the layer */
     int32_t         left, top, right, bottom;
-    const uint32_t *pre;    /*!< 256 colors times the weight of the layer, spread */
-    uint32_t        under;  /*!< the weight of what lies under the layer, 0 to 32 */
+    const uint32_t *pre;    /*!< 256 colors times the weights of their indices, spread */
+    uint32_t        under;  /*!< the weight of what lies under every index, 0 to 32, when `unders` is NULL; 0 puts the colors as they are */
+    const uint8_t  *unders; /*!< 256 weights of what lies under an index, 0 to 32; NULL when every index has `under` */
     /*! a byte for every 32 by 32 pixels of the layer, row after row, 0 where it has nothing; NULL when it may have something anywhere */
     const uint8_t  *tiles;
     uint32_t        tiles_across; /*!< tiles in a row of them */
@@ -131,6 +133,11 @@ static inline uint16_t dgx_bus_overlay_mix(uint16_t color, uint32_t pre, uint32_
  */
 typedef struct {
     const uint8_t  *pixels;      /*!< the whole picture, row after row */
+    /*!
+     * Bytes of a pixel: 1 (or 0), an index through `lut`; 2, a color of 16 bits kept the high byte first, as a virtual
+     * screen keeps it, and `lut` NULL. A bus that takes only indices refuses colors; neither is smoothed then.
+     */
+    uint8_t         bytes;
     uint32_t        pitch;       /*!< bytes from a row to the next one */
     uint32_t        width;       /*!< of the whole picture */
     uint32_t        height;
@@ -142,10 +149,24 @@ typedef struct {
     const uint16_t *lut;         /*!< the 256 colors, RGB565 */
     /*! the overlay layer of the screen to mix in, NULL when none or when it is not over the rectangle */
     const dgx_bus_overlay_t *overlay;
+    /*!
+     * The weight of what the display has there, 0 to 32: 0 puts the picture alone. Otherwise each channel is
+     * (picture × (32 − under) + display × under) / 32, before the overlay layer is mixed in; a bus that cannot read
+     * what it has refuses such a picture.
+     */
+    uint8_t under;
+    bool    exact; /*!< with `under`: mixed by that formula to the last bit, not by hardware that rounds its own way */
+    /*!
+     * A mask, NULL for none: an index puts `ink` over what the display has, unders[index] of 32 of that left, before the
+     * overlay layer is mixed in; `lut` gives every index itself then. A bus that cannot read what it has refuses one.
+     */
+    const uint8_t *unders;
+    uint16_t       ink; /*!< the color of a mask, RGB565 */
 } dgx_bus_indexed_t;
 
 /**
- * @brief Put a picture of 8-bit indices into a rectangle of the display through a table of colors, when the bus has a faster way than its window.
+ * @brief Put a picture of 8-bit indices through a table of colors, or of 16-bit colors, into a rectangle of the display, when the bus has a faster
+ * way than its window.
  *
  * @param left,top     The rectangle on the screen, inside it.
  * @param width,height Its size in pixels of the screen.

@@ -2,7 +2,8 @@
 
 Every color panel that DGX drives over SPI or the 8-bit parallel bus (P8)
 can take 18 bits per pixel (RGB666) instead of the usual 16 (RGB565):
-ST7735, ST7789, ILI9341, GC9A01, SSD1351 and ST77916, the last on QSPI too.
+ST7735, ST7789, ILI9341, GC9A01, SSD1351 and ST77916, the last on QSPI too,
+and NV3041A, which is on QSPI only.
 Pass `18` as `color_bits` to the driver's init function. You get 262,144 colors instead of 65,536 (red
 and blue get six bits instead of five; green has six either way), at the
 price of three bytes per pixel on the wire instead of two. The DSI panels
@@ -28,6 +29,7 @@ the six bits of a channel.
 | --- | --- | --- |
 | ILI9341, ST7789, ST77916 | COLMOD (0x3A) = 0x66 | D7..D2 |
 | ST7735, GC9A01 | COLMOD (0x3A) = 0x06 | D7..D2 |
+| NV3041A | COLMOD (0x3A) = 0x00, among the maker's registers | D7..D2 |
 | SSD1351 | remap (0xA0), bits 7:6 = 10b | D5..D0 |
 
 On the wire, 18 bits take half as long again as 16. A full 240x320 frame is
@@ -116,7 +118,7 @@ Host tests check the bytes, not a panel:
   screens, once with a bus buffer large enough that the driver sends in
   pieces.
 
-An ST77916 on QSPI has been run at 18 bits, and its colors came out right. No other panel has.
+An ST77916 and an NV3041A, both on QSPI, have been run at 18 bits, and their colors came out right. No other panel has.
 
 ## History
 

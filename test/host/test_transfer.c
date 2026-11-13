@@ -179,6 +179,7 @@ static bool panel_write_indexed(struct _dgx_bus_protocols_t *bus, uint16_t left,
                                 const dgx_bus_indexed_t *picture)
 {
     (void)bus;
+    if (picture->bytes == 2) return false; /* colors of 16 bits: this bus takes indices only */
     if (refuse_every && ++calls % refuse_every == 0) return false;
     CHECK(left + width <= DW && top + height <= DH && picture->width == SW && picture->height == SH && picture->pitch == SW);
     const ref_picture_t p     = {source_values, SW, SH};

@@ -51,7 +51,7 @@ board has:
 | `buffer_max` | as in `dgx_spi_options_t`: the buffer of the bus, and so its pieces, no longer than this |
 | `transfer_us`, `piece_us` | what starting a transfer by the registers and a piece by DMA cost; 0 for 0.75 and 25 us, below 0 for nothing |
 | `turn` | how the board is held: the glass turned clockwise by 0, 90, 180 or 270 degrees in the window |
-| `no_bus` | the display is on no bus the window stands for, as one on MIPI-DSI: no time on a wire is counted, and the title and the report say nothing of a bus |
+| `no_bus` | the display is on no bus the window stands for, as one on MIPI-DSI: no time on a wire is counted, and the title and the report say nothing of a bus. Such a window stands for a DSI display in the rest too: it takes 24 bits, and its screen is read, as a frame buffer is |
 | `title` | the title of the window |
 
 ## Variables of the environment and scripts
@@ -97,7 +97,12 @@ by its time.
 `heap_caps_get_free_size()`, `heap_caps_get_largest_free_block()`,
 `esp_get_free_heap_size()` and their minimums tell the program what these
 limits leave, and of a gigabyte without them. With `SDL_VIDEODRIVER=dummy`
-no window opens. The panel of the window takes 16 and 18 bits.
+no window opens. The panel of the window takes 16 and 18 bits, as a panel
+on SPI does, and is not read: `dgx_screen_is_readable()` is false, soft
+text without a paper is cut to one bit, as on such a panel. A window with
+`no_bus` stands for a display on MIPI-DSI: it takes 24 bits too, and its
+screen is read as a frame buffer is, so soft edges are mixed with what it
+shows, as on the board.
 
 ## The linux target of ESP-IDF (host-esp-idf)
 

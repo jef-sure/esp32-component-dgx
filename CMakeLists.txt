@@ -125,7 +125,7 @@ if(CONFIG_DGX_ENABLE_V_BW_SCREEN)
 endif()
 
 if(CONFIG_DGX_ENABLE_VSCREEN)
-	list(APPEND srcs "src/vscreen/vscreen.c" "src/vscreen/transfer.c" "src/vscreen/image.c")
+	list(APPEND srcs "src/vscreen/vscreen.c" "src/vscreen/transfer.c" "src/vscreen/alpha.c" "src/vscreen/image.c")
 endif()
 
 if(CONFIG_DGX_ENABLE_VSCREEN_2H)

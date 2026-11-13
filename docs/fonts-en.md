@@ -105,7 +105,7 @@ The keywords of a need:
 | Keyword | Meaning |
 | --- | --- |
 | `TEXTS <files...>` | Files whose characters the font must contain. Paths are relative to the CMakeLists that declares the need. How each kind of file is read is described below. |
-| `LETTERS "<characters>"` | Characters given directly, in addition to the texts or instead of them; any characters, brackets, semicolons and spaces included. |
+| `LETTERS "<characters>"` | Characters given directly, in addition to the texts or instead of them; any characters, brackets, semicolons and spaces included. A string that is a keyword of a need, such as `"DGX"` or `"MONO"`, is taken by CMake for that keyword: give its letters in another order, `"GXD"`. |
 | `EXCEPT "<characters>"` | Characters of the texts the font does not need: the braces of placeholders like `{0}` in a game's strings, for example. |
 | `SIZE <n>pt`, `<n>mm`, `<n>px` | The size: in points of the frame, in millimeters, or in pixels (see below). A bare number means points. |
 | `MONO` | Only a monospaced face. |
@@ -452,11 +452,15 @@ same with the curve and without it.
 
 How such a font is drawn, and what each kind of screen does with it, is in
 [Text with soft edges](../README.md#text-with-soft-edges) of the README and
-in `dgx_font_context_t` of `include/dgx_font.h`. A screen of one bit, and a
-display behind a bus without a paper named, draw it cut to one bit at
-110/255, as `font2c` cuts a font of one bit from the same render above 16
-px; at 16 px and less a font of one bit is rendered for one bit and keeps
-its stems better, so for a screen of one bit take a font of one bit.
+in `dgx_font_context_t` of `include/dgx_font.h`. A screen of one bit or of
+32 bits, and a display behind a bus without a paper named, draw it cut to
+one bit at 110/255, as `font2c` cuts a font of one bit from the same render
+above 16 px. The soft render does not put stems on the pixels: a stem that
+lies on one column keeps one pixel, one that lies across two columns, each
+covered by about half, gets both. Cut, a small font is heavier and its
+stems uneven. At 16 px and less a font of one bit is rendered for one bit,
+its stems put on the pixels, so for a screen of one bit, and for a display
+without a paper named, take a font of one bit.
 
 A font of 2 or 4 bits is not patched, and the font editor leaves it as it
 is: both are of one bit a pixel.
@@ -487,11 +491,14 @@ bus takes most of the time, in milliseconds:
 | a font of one bit | 4.22 |
 | 4 bits, no paper: cut to one bit | 4.56 |
 | 4 bits, `DGX_FONT_BG` | 4.01 |
-| 4 bits, `DGX_FONT_FILL` | 5.50 |
+| 4 bits, `DGX_FONT_FILL` | 2.11 |
 
 With `DGX_FONT_BG` the line goes faster than in a font of one bit: an edge
 pixel goes in the window of the run it belongs to, and the runs of a soft
-letter are fewer. `DGX_FONT_FILL` sends the cell of the paper first.
+letter are fewer. `DGX_FONT_FILL` goes faster still: the cell is made of the
+levels of the font by bands of its rows and sent through their colors, a
+window a band, every pixel once. Sending the paper first and the letters
+after took 5.50 ms in DGX 0.10.15.
 
 On a virtual screen that holds its pixels in a row in memory, one of
 `dgx_vscreen_init()` or `dgx_vscreen_from_array()`, a soft glyph is written

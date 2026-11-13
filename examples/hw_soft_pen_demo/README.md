@@ -53,9 +53,10 @@ and drawn in 18 ms and its part of the page, 367 thousand pixels, is sent to
 the display in 13.5 ms. The table of the page is two colors and what lies
 between them, so the pixel accelerator of the chip mixes the color of the
 ink into the color of the paper, and the processor carries no pixel. A color
-between the two may differ from the table by a step of a channel; with
-`DGX_VSCREEN_EXACT` in place of `false` in `show()` the page goes through the
-table, to the last bit, in 20.7 ms and at 25 frames a second.
+between the two may be ±1 off the table in red, green or blue, which the eye
+rarely sees; with `DGX_VSCREEN_EXACT` in place of `false` in `show()` the
+page goes through the table, to the last bit, in 20.7 ms and at 25 frames a
+second.
 
 The settings of each board are in `sdkconfig.defaults.esp32` and
 `sdkconfig.defaults.esp32p4`. On the P4 the page of ink, 1024x600 bytes, and

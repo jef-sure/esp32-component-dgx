@@ -1,37 +1,223 @@
 # Changes
 
-## Unreleased
+## 0.10.16 - 2026-11-13
 
 New:
 
+- The window on the computer with `no_bus` stands for a display on MIPI-DSI in
+  more than the wire: it takes 24 bits, and its screen is read, as the frame
+  buffer of a DSI display is, so soft text and soft edges are mixed with what
+  it shows, as on the board. A window of a panel on SPI still takes 16 and 18
+  bits and is not read. `dgx_panel_t` has a COLMOD for 24 bits, `colmod[3]`;
+  the panels on SPI, QSPI and the parallel bus leave it 0, as their
+  controllers take 24 bits only over RGB and DSI.
+- NV3041A takes 18 bits a pixel, RGB666, as well as 16. Seen right on a
+  JC4827W543; a whole frame takes 20.6 ms at 40 MHz instead of 13.8, longer
+  than the 15.6 ms the panel takes to show one, so 18 bits are for a picture
+  that changes seldom. Its COLMOD for RGB666 is 0, which `dgx_panel_t` reads
+  as a depth not set up, so the description of a panel has a new field,
+  `depths`, that names the depths set up (`DGX_PANEL_DEPTH_12` to
+  `DGX_PANEL_DEPTH_24`) where a COLMOD is 0; left 0, as in every description
+  so far, the depths are those with a COLMOD that is not 0. docs/nv3041a-en.md
+  has the times and how the panel takes a COLMOD once it has started.
+- Every index of an overlay layer can have a share of its own of the alpha of
+  the layer: `dgx_overlay_set_alphas(display, alphas)`, 256 shares of 0 to
+  255, each times the `alpha` of `dgx_overlay_set()`. A button can be solid
+  and its shadow faint, and the alpha of the layer still fades all of them.
+  The shares stay with the layer when it is moved or gets other colors, until
+  it is taken away; NULL gives the alpha of the layer alone again. A layer
+  takes 1 KB more RAM while it lies over a screen: its colors and the shares
+  are kept to weigh the indices anew. A layer whose indices weigh alike is
+  mixed by one weight, an opaque one put without reading what lies under it,
+  and indices that weigh differently by a weight looked up for each pixel,
+  each in a loop of its own with no test in it. On a CYD the rows of a layer
+  of 320x240 are mixed 7 to 9% faster than before, 12.7 ms instead of 14.0 at
+  alpha 160 and 8.5 instead of 9.2 opaque, and with a weight for each index in
+  13.4 ms; a picture sent to its ILI9341 takes 32.2 ms as before, the mixing
+  going on while the bus sends. On the 10-inch JC8012P4A1C the bands of a DSI
+  display are mixed as fast as before or faster, half the screen at alpha 128
+  in 37.1 ms instead of 38.0, and a weight for each index costs up to 3%
+  (docs/dsi-display-en.md).
+- `DGX_VSCREEN_ALPHA(a)` in the flags of the four transfers of virtual
+  screens: the picture over what lies under it by `a`, 0 to 255, each channel
+  in 32 steps as the overlay layer mixes. A virtual screen of any depth and a
+  display that is read, a DSI one, give what they have, so steps of `a`
+  crossfade two pictures; a display behind a bus that cannot be read has black
+  under it, and a picture fades to black and from it there. Two pictures
+  crossfade there with the second as the overlay layer, which is mixed in as
+  the bus sends (the recipe "Crossfade between two pictures"). All the other
+  flags work with it. Through a table on a display that cannot be read, the
+  colors of the table are made darker once and sent as before: a picture of
+  320x240 to the ILI9341 of a CYD takes 32.1 ms with the flag as without it, a
+  16-bit one of 160x120 8.1 ms instead of 7.9; mixed into another 16-bit
+  virtual screen in memory it takes 2.9 ms, and a picture of 160x112 through
+  a table 2.7 ms against 1.2 without the flag. A DSI display mixes a picture
+  through a table with its frame buffer by the bands it makes the picture in:
+  by the accelerator of the ESP32-P4, at most ±1 off in red, green or blue, or
+  by the processor to the last bit with `DGX_VSCREEN_EXACT` or under an
+  overlay layer. On the 10-inch JC8012P4A1C, PSRAM at 200 MHz, a picture of
+  320x200 at `DGX_VSCREEN_SCALE(4)` over the whole screen takes 81 ms so,
+  133 ms exact, against 10 ms without the flag; a 16-bit one of 1280x800
+  146 ms, 197 ms exact, against 75 ms. The description of a picture for a
+  bus, `dgx_bus_indexed_t`, has the weight of what the display has, `under`,
+  and `exact`.
+- `DGX_FONT_FILL` on a display of 16 bits a pixel behind a bus writes every
+  pixel of the cell once: the cell is made of the levels of the font by bands
+  of its rows, the greater level where two glyphs meet, and every band is
+  sent through the colors of the levels in one window, turned and scaled by
+  the transfer of a virtual screen. A number drawn again over itself no
+  longer blinks, and the line of DejaVu Sans 16 px of the timing table takes
+  2.11 ms on the ILI9341 of a CYD instead of 5.50. Fonts of one, 2 and 4 bits
+  go so, with `DGX_FONT_MONO` and `DGX_FONT_HARD` too; on a display of 18 or
+  24 bits the cell is filled first as before.
+- `DGX_VSCREEN_MASK` for the transfers through a table: the 8-bit picture is
+  a mask, a pixel how much of `lut[255]` goes over what lies under it, 0 to
+  255, in 32 steps, times the alpha of `DGX_VSCREEN_ALPHA`. A soft shape drawn
+  once into an 8-bit screen by the soft pen, the soft circle or soft text is
+  put on any picture of a virtual screen or a DSI display, made larger,
+  smoothed and turned as the other flags ask; on a display that cannot be
+  read the flag changes nothing. A DSI display mixes it by the bands it makes
+  the picture in, by the accelerator or by the processor: soft spots of
+  320x200 at `DGX_VSCREEN_SCALE(4)` over the whole screen of the 10-inch
+  JC8012P4A1C take 101 ms so, 135 ms exact (PSRAM at 200 MHz).
+  `dgx_bus_indexed_t` has `unders` and `ink` for it.
+- A 16-bit virtual screen goes to a DSI display the way a picture through a
+  table goes: made larger and turned by the processor into bands in the order
+  of the panel, the bands moved by the 2D DMA, instead of pixel by pixel
+  through the window. On the 10-inch JC8012P4A1C, which shows its 800x1280
+  panel turned to 1280x800, a picture of 1280x800 takes 68 ms instead of 77.6
+  (PSRAM at 250 MHz). One put as it is on a display that lies on its panel as
+  it is still goes by rows of memory. A smoothed one goes the old way.
+  `dgx_bus_indexed_t` tells the bytes of a pixel, `bytes`: 1, an index through
+  `lut`, or 2, a color of 16 bits; a bus that takes indices only refuses
+  colors.
+- Soft text mixes on a 4-bit virtual screen, where a pixel is a gray level, as
+  the SSD1322 keeps its picture: a font of 4 bits has the 16 levels of its
+  grays. Before, it was cut to one bit there. Seen right on an SSD1322
+  256x64: DejaVu Sans at 12, 16 and 24 px, over black and over a gray ramp.
 - Soft text on a virtual screen whose pixels lie in a row in memory, one of
-  `dgx_vscreen_init()` or `dgx_vscreen_from_array()`, of 8, 16, 18 or 24
-  bits, is written into that memory, not through the pixel calls of the
-  screen, and the changed area is told once a glyph. On a CYD a line of
-  DejaVu Sans 16 px takes 1.44 ms mixed on 16 bits instead of 2.47, 1.33 ms
-  on 8 bits instead of 2.51. Its time no longer depends on where the bitmaps
-  of the font lie in flash: through the pixel calls two of 16 places were
-  slower by 13 to 21%, written into the memory all came within 1%. The code
-  of `font.c` in IRAM changed the time by less than 1% more, so there is no
-  setting to put it there, as there is for the pen.
+  `dgx_vscreen_init()` or `dgx_vscreen_from_array()`, of 8, 16, 18 or 24 bits,
+  is written into that memory, not through the pixel calls of the screen, and
+  the changed area is told once a glyph. On a CYD a line of DejaVu Sans 16 px
+  takes 1.44 ms mixed on 16 bits instead of 2.47, 1.33 ms on 8 bits instead of
+  2.51. Its time no longer depends on where the bitmaps of the font lie in
+  flash: through the pixel calls two of 16 places were slower by 13 to 21%,
+  written into the memory all came within 1%. The code of `font.c` in IRAM
+  changed the time by less than 1% more, so there is no setting to put it
+  there, as there is for the pen.
+- ST7789: the 1.14" glass of 135x240, `ST7789_RESOLUTION_135x240` and
+  `ST7789_RESOLUTION_240x135`, and its description `dgx_panel_st7789_135x240`.
+  The glass lies 52 columns and 40 rows into the 240x320 of the memory of the
+  controller; mirrored, the 105 columns left over put it 53 from the other
+  side. TFT_eSPI and Adafruit_ST7789 put it the same way. Not yet tried on a
+  module.
+- The example `alpha_demo` for the CYD, the 7-inch JC1060P470 and the
+  10.1-inch JC8012P4A1C: two pictures fading into each other, a soft shape
+  put by a mask twelve times over a picture, and an overlay layer of buttons
+  with a faint shadow over a picture that scrolls; each timed. On a CYD a
+  crossfade frame takes 34.1 ms, mixed in a 16-bit virtual screen and sent,
+  or 31.8 ms with the second picture as the overlay layer, where sending one
+  picture takes 30.0; mixed in the frame buffer, 31.7 ms on the 7-inch board
+  and 48.6 ms on the 10.1-inch one.
 
 Fixed:
 
+- On the 10.1-inch JC8012P4A1C (ESP32-P4 v3.2, CPU at 400 MHz) a program
+  that kept the display busy stopped now and then with "Illegal instruction"
+  in the spinlock of a critical section an interrupt entered: a line of the
+  instruction cache came from internal RAM as zeros. About once a minute or
+  never, by where the code lay after a build, at a PSRAM of 200 MHz as of
+  250. `dgx_dsi_init()` keeps the code every interrupt runs in the
+  instruction caches of both cores: the port of FreeRTOS (2.5 KB in ESP-IDF
+  6.1), the interrupt handler and the atomic exchange of a spinlock, by the
+  prelock sections of the cache and calls of the ROM of the chip.
+  `CONFIG_DGX_DSI_LOCK_INTERRUPT_CODE`, on by default, turns it off. So kept,
+  a bench that had stopped 6 to 9 times in ten minutes did not stop, with a
+  write to flash three times a second, and `alpha_demo` at 250 MHz, a load
+  that had stopped about every 25 seconds, ran twenty minutes without a stop.
+  The investigation is in docs/dsi-display-en.md, "Illegal instruction on the
+  10.1-inch board".
+- With one frame buffer behind the scan (`DgxDsiOneFrameAfterScan`) a write
+  by the 2D DMA or the accelerator was started as soon as the scan was out of
+  its rows, as if every such write were faster than the display reads. On the
+  10-inch JC8012P4A1C with the PSRAM at 200 MHz it is not: the 2D DMA copies
+  from PSRAM at 127 to 139 KB a millisecond, hardly faster than the 124 the
+  display reads, and the accelerator mixes a band at 91, slower, so the scan
+  could overtake a write in its rows. The bus now times each kind of write
+  as it goes (copies from PSRAM and from internal memory, fills, mixes) and
+  starts a write early enough for the scan to come to each of its rows after
+  the row is written. A write that has no such moment, on that board one as
+  tall as the screen, is started when the scan leaves its rows, as before,
+  and counted. `dgx_dsi_counters_t` has `scan_late`, `copy_ram_kb_a_ms`,
+  `fill_kb_a_ms` and `mix_kb_a_ms`, and behind the scan `copy_kb_a_ms` is
+  the copy from PSRAM. The rule is checked on the computer against the scan
+  and the write followed row by row (`test/host/test_dsi_scan.c`).
 - `soft_text_demo` builds for speed (`CONFIG_COMPILER_OPTIMIZATION_PERF`), as
   the other examples that print times do: built for a debugger it printed
   three to four times the time of drawing a line.
 
 Documentation:
 
-- The recipe "Text with soft edges" has a picture: DejaVu Sans at 16 px in
-  one bit and in 4 bits a pixel, as large as on a display and four times as
-  large.
+- docs/dsi-display-en.md and docs/dsi-usage-en.md: on the 10-inch JC8012P4A1C
+  PSRAM at 250 MHz keeps one frame buffer free of flashes; at 200 MHz two
+  frame buffers do, `dgx_dsi_advise()` asks for them, and examples/dsi_demo
+  then takes them by itself. The "Illegal instruction" first laid at the door
+  of 250 MHz came from the instruction cache, at 200 MHz as well (see Fixed),
+  so the examples for that board keep 250 MHz, `alpha_demo` too.
+- docs/dsi-display-en.md, "Behind the scan", and docs/dsi-usage-en.md said
+  that a part of any size, the whole screen included, goes behind the scan
+  without tearing because the 2D DMA and the PPA write faster than the
+  display reads. That held on the 7-inch board; the section now has the
+  speeds of both boards, the rule the bus follows (see Fixed) and why a part
+  as tall as the screen has no moment in time on either. The lists of what
+  goes through the window no longer name a 16-bit picture turned, scaled or
+  under an overlay layer, which goes in bands since this version.
+- The recipe "Text with soft edges" claimed that `DGX_FONT_FILL` replaces a
+  number without a flicker, which was not so: the cell was filled first. It
+  is so now on a display of 16 bits (see New); the recipe and `dgx_font.h`
+  say where the cell still goes paper first. They also warn that on a screen
+  of 4 or 8 bits holding indices into a table of colors the mixed edges come
+  out in wrong colors, and that `DGX_FONT_MONO` is for such a screen.
+- The API reference has a section of its own on the paper of a text, "The
+  paper of a text": what a text with no flag, with `DGX_FONT_BG` and with
+  `DGX_FONT_FILL` writes and leaves on the screen, what each is for, how far
+  the cell of `DGX_FONT_FILL` goes and where it blinks; the recipe "Text with
+  soft edges" and `dgx_font.h` point to it.
+- docs/pen-en.md said it described the code of 0.5.4; it names the versions of
+  its parts now. docs/handwriting-en.md gave 9.3 KB for the code of the pen in
+  IRAM, where the API reference and docs/pen-en.md give 10.3.
+- The README and the description of the component in the registry say
+  "anti-aliased" for soft edges, the word people search for, and the component
+  has the tag `anti-aliasing`.
+- The tags of the component also name the controllers DGX drives and the chips
+  it runs on (`st7789`, `nv3041a`, `esp32-p4` and so on), which is how people
+  search the registry. The README calls the CYD a Cheap Yellow Display once.
+- Every link in the README is absolute. The registry shows the same README and
+  turns relative links into plain text, so its links to the docs and the
+  examples did not work there.
+- A new recipe, "LVGL on top of DGX", points to `jef-sure/dgx-lvgl` in the
+  registry and on GitHub.
+- docs/panels-en.md has a table of the color depths every driver sets up and
+  of those its controller takes but DGX does not set up, where they are known;
+  the API reference points to it from "Colors".
+- The recipe "Text with soft edges" has a picture: DejaVu Sans at 16 px in one
+  bit and in 4 bits a pixel, as large as on a display and four times as large.
 - A recipe of its own for the circle with a soft edge of 0.10.14, "A circle
-  with a soft edge", with a picture: hard circles over soft ones, soft
-  circles covering each other and one of paper, and a hard and a soft circle
-  four times as large.
+  with a soft edge", with a picture: hard circles over soft ones, soft circles
+  covering each other and one of paper, and a hard and a soft circle four
+  times as large.
 - `docs/images/banner.c` draws both, from fonts `font2c` makes first, as its
   comment says, and writes every picture with its transparency (`PNG32:`).
+- Two new recipes with pictures, "Crossfade between two pictures" and "A soft
+  shape stamped anywhere", and a picture for "Translucent buttons over a
+  picture": three buttons with a faint shadow, the layer solid and at 150.
+  `docs/images/banner.c` draws the three by DGX's own calls.
+- `vscreen.h` and the API reference said `DGX_VSCREEN_EXACT` was for a table
+  of colors only; with `DGX_VSCREEN_ALPHA` on a DSI display it chooses the
+  processor over the accelerator for a 16-bit picture too.
+- docs/fonts-en.md: letters of `dgx_font_need()` that spell one of its
+  keywords, `LETTERS "DGX"` for one, are taken by CMake for the keyword; give
+  them in another order.
 
 ## 0.10.15 - 2026-11-11
 
@@ -571,8 +757,7 @@ New:
   `dgx_fill_round_rectangle()`. A corner is a quarter of the circle of
   `dgx_draw_circle()` or `dgx_solid_circle()`: a square of 2r + 1 is that
   circle pixel for pixel, and a radius of 0 is the plain rectangle. A
-  radius larger than the rectangle allows is cut to (the shorter side - 1) /
-  2. No pixel is sent twice but where the eighths of a corner meet.
+  radius larger than the rectangle allows is cut to (the shorter side - 1) / 2. No pixel is sent twice but where the eighths of a corner meet.
 - **`GLCD5x7`**, the classic 5x7 font of the Adafruit GFX Library
   (`glcdfont.c`, BSD License), characters U+0020 to U+007E: the default font
   of Adafruit_GFX, TFT_eSPI and LovyanGFX, readable on small screens.
@@ -1004,7 +1189,7 @@ Examples and tools:
 - The fonts are made again when a list given to `dgx_font_list()` changes,
   which is now a configure dependency, and, with CMake 3.20 or later, when a
   face found by fontconfig or the rules changes: `dgx_fonts.py build
-  --depfile` lists every file the fonts were made from. A newly installed
+--depfile` lists every file the fonts were made from. A newly installed
   face is picked up once the rules file is touched.
 - `font2c -jo` handles paths of any length. An output path over 297
   characters gave the C file and the header the same truncated name, so the
@@ -1198,12 +1383,12 @@ Examples and tools:
   - A JSON error from `font2c` names the file.
 
 - The font editor fits the metrics of glyphs to their pixels. `Fit to
-  pixels` trims the empty rows and columns of a glyph, its pixels staying
+pixels` trims the empty rows and columns of a glyph, its pixels staying
   where they are, and sets its advance so that the glyph keeps its gap
   before the next glyph: the gap it had before it was changed, which the
   patch remembers as `rightGap`, or the one an advance typed in left.
   Digits keep their advance, so that numbers stay in columns. `Fit changed
-  glyphs`, beside the button that saves the patch, does the same for every
+glyphs`, beside the button that saves the patch, does the same for every
   changed glyph of the file whose metrics do not fit, tells how many there
   are, and is undone with one Undo.
 
@@ -1618,7 +1803,7 @@ of `examples/fonts_demo`.
   `letters` of a needs file is a character, not trimmed away; a text or
   JSON file that starts with a byte order mark is read without it.
 - **font2c -jo.** An option after the font file and its size (`file 12 -f
-  letters.txt`) was taken for a range and gave a font of no glyphs; options
+letters.txt`) was taken for a range and gave a font of no glyphs; options
   may stand anywhere on a line now. Two different files that make a font of
   the same name, two handwritten fonts with the same `name` for example,
   were silently merged into the first; they are refused. A line without
@@ -1724,7 +1909,6 @@ with the same turn do.
   At `-O2` every function of the library compiles to the same instructions
   as in 0.7.1.
 
-
 ## 0.7.1 - 2026-10-21
 
 Fixes from a review of 0.7.0. The changes to the SSD1351, ST7789, SSD1306,
@@ -1746,6 +1930,7 @@ pen and the smoothing were timed on a CYD and both P4 boards against 0.7.0.
   around it that smoothing looks at, into a temporary screen. A host test
   compares such copies with copies from a duplicate of the screen, at every
   depth, with holes, under an overlay layer, scaled and rotated.
+
 - **A missing pixel at a still end of a soft curve.** When a control point
   lies on the first or last point of a curve, the curve starts or ends at
   zero speed, and its pieces there are very short. At a nearly straight
@@ -1846,6 +2031,7 @@ pen and the smoothing were timed on a CYD and both P4 boards against 0.7.0.
 - **Even-width thick lines** are now documented: `dgx_draw_line_thick()`
   puts the spare pixel to the right of the direction of the line, so the
   same line drawn the other way lies a pixel aside.
+
 ## 0.7.0 - 2026-10-21
 
 This release changes the transfer API. The calls of 0.6 without flags
@@ -1859,8 +2045,7 @@ others are gone and need a one-line edit each, see the table below.
   `dgx_vscreen8_to_screen16()` and `dgx_vscreen8_region_to_screen16()`.
   - `DGX_VSCREEN_TRANSPARENT`: pixels of value 0 are not put; `true` still
     means this.
-  - `DGX_VSCREEN_SCALE(n)`: every pixel becomes an n by n square, n up to
-    255.
+  - `DGX_VSCREEN_SCALE(n)`: every pixel becomes an n by n square, n up to 255.
   - `DGX_VSCREEN_SMOOTH`: Scale2x at a scale of 2, Scale3x at 3, Scale2x
     twice at 4.
   - `DGX_VSCREEN_SMOOTH_SFX`: Scale2xSFX and Scale3xSFX instead (see
@@ -1875,16 +2060,17 @@ others are gone and need a one-line edit each, see the table below.
   through a table. The old names `DGX_LUT_TRANSPARENT`, `DGX_LUT_EXACT`,
   `DGX_LUT_SCALE(n)` and `DGX_LUT_SMOOTH` remain as the same values, so the
   table transfers of 0.6 build unchanged.
+
 - **The calls that the flags replace are removed:**
 
-  | 0.6 | now |
-  | --- | --- |
-  | `dgx_vscreen_to_screen(dst, x, y, src)` | `dgx_vscreen_to_screen(dst, x, y, src, 0)` |
-  | `dgx_vscreen_region_to_screen(dst, x, y, src, sx, sy, w, h)` | `dgx_vscreen_region_to_screen(dst, x, y, src, sx, sy, w, h, 0)` |
-  | `dgx_vscreen_to_screen_oriented(dst, x, y, src, o)` | `dgx_vscreen_to_screen(dst, x, y, src, DGX_VSCREEN_ORIENTED(o))` |
+  | 0.6                                                                      | now                                                                                   |
+  | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+  | `dgx_vscreen_to_screen(dst, x, y, src)`                                  | `dgx_vscreen_to_screen(dst, x, y, src, 0)`                                            |
+  | `dgx_vscreen_region_to_screen(dst, x, y, src, sx, sy, w, h)`             | `dgx_vscreen_region_to_screen(dst, x, y, src, sx, sy, w, h, 0)`                       |
+  | `dgx_vscreen_to_screen_oriented(dst, x, y, src, o)`                      | `dgx_vscreen_to_screen(dst, x, y, src, DGX_VSCREEN_ORIENTED(o))`                      |
   | `dgx_vscreen_region_to_screen_oriented(dst, x, y, src, sx, sy, w, h, o)` | `dgx_vscreen_region_to_screen(dst, x, y, src, sx, sy, w, h, DGX_VSCREEN_ORIENTED(o))` |
-  | `dgx_vscreen_to_vscreen(dst, x, y, src, transparent)` | `dgx_vscreen_to_screen(dst, x, y, src, transparent)` |
-  | `dgx_vscreen_to_vscreen_oriented(dst, x, y, src, transparent, o)` | `dgx_vscreen_to_screen(dst, x, y, src, transparent \| DGX_VSCREEN_ORIENTED(o))` |
+  | `dgx_vscreen_to_vscreen(dst, x, y, src, transparent)`                    | `dgx_vscreen_to_screen(dst, x, y, src, transparent)`                                  |
+  | `dgx_vscreen_to_vscreen_oriented(dst, x, y, src, transparent, o)`        | `dgx_vscreen_to_screen(dst, x, y, src, transparent \| DGX_VSCREEN_ORIENTED(o))`       |
 
   The first two rows and `dgx_vscreen_to_vscreen()` need no edit:
   `drivers/vscreen.h` keeps them as macros that call the new functions with
@@ -1896,6 +2082,7 @@ others are gone and need a one-line edit each, see the table below.
   `_dgx_move_to_next_area_pixel()`, which nothing in the library used, and
   the empty header `dgx_bw_page_screen.h`. The table of a transfer is
   `const uint16_t *` now.
+
 - **Scale3x, Scale2xSFX and Scale3xSFX.** `DGX_VSCREEN_SMOOTH` at a scale
   of 3 is Scale3x. `DGX_VSCREEN_SMOOTH_SFX` is Scale2xSFX and Scale3xSFX by
   Sp00kyFox (2015), from the shaders of libretro: a corner is not filled
@@ -1959,11 +2146,11 @@ others are gone and need a one-line edit each, see the table below.
   Scale2xSFX. On a DSI display the processor makes every pixel, and
   smoothing costs its time. On the JC8012P4A1C, by squares, plain and SFX:
 
-  | Picture to 1280x800 | Squares | Scale2x or Scale3x | SFX |
-  | --- | --- | --- | --- |
-  | 640x400 at 2 | 19.0 ms | 31.3 ms | 33.6 ms |
-  | 426x266 at 3 | 14.9 ms | 21.8 ms | 27.7 ms |
-  | 320x200 at 4 | 9.9 ms | 24.9 ms | 28.1 ms |
+  | Picture to 1280x800 | Squares | Scale2x or Scale3x | SFX     |
+  | ------------------- | ------- | ------------------ | ------- |
+  | 640x400 at 2        | 19.0 ms | 31.3 ms            | 33.6 ms |
+  | 426x266 at 3        | 14.9 ms | 21.8 ms            | 27.7 ms |
+  | 320x200 at 4        | 9.9 ms  | 24.9 ms            | 28.1 ms |
 
 ## 0.6.6 - 2026-10-18
 
@@ -2203,6 +2390,7 @@ others are gone and need a one-line edit each, see the table below.
   rotated by 90°; 8 bits 0.108 ms; 1 bit 0.130 ms.
   New host test `test_image`: every depth, orientation, coloring and
   several clips against a plain model, pixel for pixel.
+
 - **Color tables for 8-bit virtual screens** (`dgx_lut.h`). Four functions
   fill the `uint16_t lut[256]` of RGB565 colors that
   `dgx_vscreen8_to_screen16()` and `dgx_vscreen8_region_to_screen16()`
@@ -2222,6 +2410,7 @@ others are gone and need a one-line edit each, see the table below.
   does not gather the rounding errors of RGB565; it rounds to the nearest,
   and the two ends are exact. Nothing is allocated. New host test
   `test_lut`.
+
 - Faster output to a display behind SPI or another bus with a window.
   `dgx_vscreen8_region_to_screen16()`, `dgx_vscreen8_to_screen16()`,
   `dgx_vscreen_to_screen()`, `dgx_vscreen_region_to_screen()` and their
@@ -2247,6 +2436,7 @@ others are gone and need a one-line edit each, see the table below.
   Very small areas gain nothing: one call per 1x1 or 2x2 pixels takes the
   same time within 0.6%, and one-pixel-wide columns are about 1% slower
   (69.1 → 70.0 ms for the screen as 320 columns).
+
 - SPI bus: `write_data_async()` queues a long transfer of pixels behind
   the one under way and then waits for that one, instead of waiting first
   and queuing after. When it returns, only the new transfer may still be

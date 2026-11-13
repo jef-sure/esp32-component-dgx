@@ -138,6 +138,7 @@ static bool panel_write_indexed(struct _dgx_bus_protocols_t *bus, uint16_t left,
 {
     (void)bus;
     ++indexed_calls;
+    if (picture->bytes == 2) return false; /* colors of 16 bits: this bus takes indices only */
     if ((int)width * height * 2 < indexed_least) return false;
     if (indexed_refuse_every && indexed_calls % indexed_refuse_every == 0) return false;
     /* a smoothed picture comes the other way, for the test to see that one */

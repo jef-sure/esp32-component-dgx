@@ -24,6 +24,9 @@ In short:
   under ESP-IDF 6.0 and 6.1 versions before 0.9.1 connect SPI outputs to
   GPIO0, the TE line of the panel.
 - Two positions have been tried: landscape, 480x272, and on its side, 272x480.
+- Use 16 bits for a picture that moves. At 18 bits a frame takes 20.6 ms at
+  40 MHz, longer than the 15.6 ms the panel takes to show one; see
+  [18 bits a pixel](#18-bits-a-pixel).
 
 ## The hardware and software
 
@@ -40,7 +43,7 @@ Table 1. The board and the software everything below was measured with.
 | ESP-IDF | 6.1; DGX builds for this board under 5.5.4 too |
 | SPI driver | `esp_driver_spi` of ESP-IDF, SPI2_HOST in quad mode |
 | Bus clock | 26.7 MHz (32 MHz asked for); also 16 and 40 MHz |
-| DGX | 0.8.2 to 0.9.1; what changed between them is in [How DGX got here](#how-dgx-got-here) |
+| DGX | 0.8.2 to 0.9.1, 18 bits 0.10.16; what changed between them is in [How DGX got here](#how-dgx-got-here) |
 
 ## Setting it up
 
@@ -109,7 +112,7 @@ either way.
 2. The maker's registers between 0xFF = 0xA5 and 0xFF = 0x00, byte for byte
    as `Arduino_NV3041A` of the maker's Arduino_GFX sends them: power, gate
    and source timings, gamma. They include COLMOD 0x01, which is RGB565 on
-   this controller; 0x00 would be RGB666.
+   this controller; for 18 bits the driver sends 0x00, RGB666, in its place.
 3. SLPOUT (0x11), then 120 ms. During this time the panel loads its factory
    defaults into the registers (7.2.9), so whatever the panel is to keep
    has to come after it. Before 0.9.0, MADCTL and the inversion were sent
@@ -215,6 +218,33 @@ What the tables show:
   what the drawing gets on the sending core, and the panel shows a frame
   every 15.6 ms (see [The TE line](#the-te-line)).
 
+## 18 bits a pixel
+
+Given 18 as `color_bits`, `dgx_nv3041a_init()` sends COLMOD 0x00, RGB666,
+among the maker's registers, and the rest of them as for 16 bits, 0x41 =
+0x03 too. A pixel then takes three bytes, each channel in bits 7..2 of its
+byte, as on the other panels: see [docs/18-bit-pixels-en.md](18-bit-pixels-en.md).
+Red and blue get six bits instead of five, and a frame takes 1.5 times as
+long.
+
+Table 6. The time of a whole frame of 480x272 at 40 MHz, in ms on average of
+20 frames, on the JC4827W543 with ESP-IDF 6.1 and DGX 0.10.16.
+
+| Depth | Bytes a frame | Filled with one color | Sent from a virtual screen in PSRAM |
+| --- | --- | --- | --- |
+| 16 bits | 261,120 | 13.39 | 13.79 |
+| 18 bits | 391,680 | 20.06 | 20.58 |
+
+At 18 bits a frame takes longer than the panel takes to show one, 15.6 ms
+(see [The TE line](#the-te-line)): 18 bits suit a picture that changes
+seldom, 16 bits one that moves.
+
+Once the panel has started, it takes a new COLMOD only between 0xFF = 0xA5
+and 0xFF = 0x00. Sent alone, COLMOD is ignored, and the panel goes on
+reading pixels in the old format: two bytes of a 16-bit frame read as part
+of a pixel of three show the picture squeezed to two thirds of the width,
+three times over, on the top two thirds of the glass.
+
 ## Stray pixels outside a window
 
 ### What it looks like
@@ -251,7 +281,7 @@ The maker's own driver shows the fault as well; see
 
 ### What was tried
 
-Table 6. Changes tried against the stray pixels on the JC4827W543 at 26.7 MHz
+Table 7. Changes tried against the stray pixels on the JC4827W543 at 26.7 MHz
 unless the row says otherwise, and what each did.
 
 | Change | Effect |
@@ -334,7 +364,7 @@ affected.
 
 ## Other parts of the board
 
-Table 7. The other parts of the board and their pins, from the maker's
+Table 8. The other parts of the board and their pins, from the maker's
 schematic (sheet ESP32-4827A043 V0.2). None of them has been tried with DGX.
 
 | Part | Pins |
@@ -382,3 +412,4 @@ panel.
 - 0.10.0 sends windows, commands and short pixels by the registers of the
   host, holds the host from a window to the end of a drawing, and lets a
   display made by `dgx_qspi_init()` keep the host between its drawings.
+- 0.10.16 sets up 18 bits a pixel.

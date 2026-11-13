@@ -208,15 +208,27 @@ void dgx_font_string_utf8_screen(        //
 /**
  * Mix the soft edges of the letters with ctx->bg instead of with what lies on
  * the screen: the screen is not read, so the edges are soft on a display
- * behind a bus too. The pixels the letters do not touch stay as they are.
+ * behind a bus too. The pixels the letters do not touch stay as they are:
+ * for text on a paper of a known color where what lies near the letters must
+ * stay, a line or a frame crossing the cell, another line of text set close.
+ * See "The paper of a text" in docs/api-en.md.
  */
 #define DGX_FONT_BG   0x1u
 /**
  * Fill the cell of the text with ctx->bg and draw the letters over it, their
- * edges mixed with it; implies DGX_FONT_BG. The cell is as high as the font,
+ * edges mixed with it; implies DGX_FONT_BG. For text drawn again over itself,
+ * a clock, a counter: the old text goes in the same call, and everything else
+ * in the cell with it. The cell is as high as the font,
  * yOffsetLowest to yBottomMax, whatever the letters, and runs from x to the
  * end of the text, wider where a letter sticks out: a number drawn again over
- * itself leaves nothing of the one before when it is as long.
+ * itself leaves nothing of the one before when it is as long. On a display
+ * of 16 bits a pixel behind a bus, which cannot be read, the cell is made by
+ * bands of its rows and sent through the colors of the levels of the font,
+ * every pixel once, so the text does not blink; where two glyphs meet, the
+ * greater level of the two counts. Elsewhere the cell is filled first and the
+ * letters drawn after: on a display of 18 or 24 bits behind a bus the cell
+ * shows only the paper for the time the letters take, and text that must not
+ * blink there is drawn into a virtual screen and sent whole.
  */
 #define DGX_FONT_FILL 0x2u
 /**
@@ -249,12 +261,16 @@ void dgx_font_string_utf8_screen(        //
  * DGX_FONT_BITMAP_DEPTH4) are soft: an edge pixel is the color mixed with
  * what is under it by how much of the pixel the letter covers. Without
  * DGX_FONT_BG the color under it is read from the screen, which a screen in
- * memory can do: a virtual screen of 12, 16, 18 or 24 bits, a DSI display, and
- * an 8-bit virtual screen, where a pixel is an amount of ink and the amounts
- * are mixed. A display behind a bus cannot be read, nor does a screen of one
- * bit have a color between: there such a font is drawn as with DGX_FONT_MONO,
- * unless DGX_FONT_BG gives the color under it. A font of one bit draws the
- * same with or without any flag but DGX_FONT_FILL.
+ * memory can do: a virtual screen of 12, 16, 18 or 24 bits, a DSI display, an
+ * 8-bit virtual screen, where a pixel is an amount of ink and the amounts are
+ * mixed, and a 4-bit one, where a pixel is a gray level in the high nibble, as
+ * on the SSD1322. A screen of 4 or 8 bits whose pixels are indices into a
+ * table of colors gets wrong colors at the edges: draw on it with
+ * DGX_FONT_MONO. A display behind a bus cannot be read, nor does a screen of
+ * one bit or of 32 bits have colors DGX mixes: there such a font is drawn as
+ * with DGX_FONT_MONO, unless DGX_FONT_BG gives the color under it to a
+ * display. A font of one bit draws the same with or without any flag but
+ * DGX_FONT_FILL.
  *
  * Drawn again over itself without the paper put back, soft text grows darker
  * at its edges, and drawn in the color of the paper it leaves a halo: erase it

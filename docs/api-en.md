@@ -148,8 +148,9 @@ at 0 to the color of the ink: `dgx_lut_gradient(lut, 0, 256, paper, ink)`, the
 two colors as `0xRRGGBB`, see
 [Tables for 8-bit screens](#tables-for-8-bit-screens). A display that mixes
 two colors itself, a DSI display of an ESP32-P4 with two frame buffers, takes
-such a table as its first and its last color and mixes the rest, within a
-step of a channel of the table; `DGX_VSCREEN_EXACT` for the last argument of the call asks for the
+such a table as its first and its last color and mixes the rest, within ±1
+of the table in red, green or blue, which the eye rarely sees;
+`DGX_VSCREEN_EXACT` for the last argument of the call asks for the
 colors of the table to the last bit. On any other screen a pen asked to be
 soft draws as a hard one; see
 [A soft edge](handwriting-en.md#a-soft-edge).
@@ -205,6 +206,42 @@ handwritten font shares only the glyph lookup with them and is drawn by the
 functions of the next section. Fonts made by the current `font2c` also tell the number of
 their ranges, so a glyph is found by halving instead of trying the ranges in
 order.
+
+#### The paper of a text: no flag, `DGX_FONT_BG` or `DGX_FONT_FILL`
+
+A soft font mixes the edges of its letters with something, and a text drawn
+again over itself has to take the old one away. The flags of the context say
+with what, and how much of the screen the text writes.
+
+Table 1. What each way writes and leaves, and what it is for.
+
+| Flags | What is written | What stays as it was | For |
+| --- | --- | --- | --- |
+| none | the letters; on a screen that is read, a virtual screen of 4 to 24 bits or a DSI display, their edges mixed with what lies under them; on any other, the font cut to one bit | everything around and between the letters | text over a picture on a screen that is read |
+| `DGX_FONT_BG` | the letters, their edges mixed with `bg`, whatever lies under them | everything around and between the letters | text on a paper of a known color where what lies near the letters must stay: a label over a line or a frame that crosses its cell, two lines set closer than the height of the font, a background with a pattern near the color of `bg`; on a screen that is read, the same look as on a display that is not |
+| `DGX_FONT_FILL` | the whole cell of the text: `bg` where no letter is, the letters over it | nothing in the cell | text drawn again over itself, a clock, a counter, a value: the old text goes in the same call, with no erase of its own |
+
+The cell of `DGX_FONT_FILL` is as high as the font, from `yOffsetLowest` to
+`yBottomMax`, whatever the letters, and runs from `x` to the end of the
+advances of the text, wider where a letter sticks out on either side.
+Everything else in it is painted over. A text shorter than the one before
+leaves the end of that one outside its cell: draw it as long every time,
+with spaces after it, which have their advances. `dgx_font_draw_char()` fills
+the cell of its one character.
+
+On a display of 16 bits a pixel behind a bus, an ILI9341 or an ST7789 for
+one, `DGX_FONT_FILL` sends the cell in one pass, every pixel of it once, so
+the old text does not vanish before the new one comes, and it is faster than
+`DGX_FONT_BG` there, which sends a window for every run of the letters. On
+one of 18 or 24 bits the cell is filled first and the letters drawn after:
+there a text that must not blink goes through a virtual screen. On a virtual
+screen and a DSI display nothing blinks either way. The times are in
+[What it costs in time](fonts-en.md#what-it-costs-in-time).
+
+A font of one bit has no edges: `DGX_FONT_BG` changes nothing for it, and
+`DGX_FONT_FILL` fills its cell as for a soft one. `DGX_FONT_MONO` and
+`DGX_FONT_HARD` go with either flag: the letters are cut, the paper is as the
+flag says.
 
 ### Handwritten fonts
 
@@ -290,6 +327,8 @@ example, and [docs/morphing-en.md](morphing-en.md) walks through all of
 it.
 
 ### Colors
+
+Which depths a display takes: [Color depths](panels-en.md#color-depths).
 
 The helpers in [include/dgx_colors.h](../include/dgx_colors.h) are parameterized
 color constructors, not stored color values. `DGX_RED(rgb_func)` substitutes
@@ -379,6 +418,7 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_vscreen8_region_to_screen16(dst, x, y, src, x_src, y_src, w, h, lut, flags)` | The same for a sub-region. |
 | `dgx_vscreen_to_argb8888(scr, x, y, w, h, lut, dst, dst_stride)` | Read a rectangle of a screen as 0xAARRGGBB colors, the layout of `SDL_PIXELFORMAT_ARGB8888`: for a window on a PC. An 8-bit screen goes through `lut`, or as grey without one. |
 | `dgx_overlay_set(display, layer, x, y, lut, alpha)` | Lay an 8-bit virtual screen over a 16-bit screen at `x`, `y` (`dgx_overlay.h`), or move it, or give it other colors: index 0 empty, the others the colors of `lut` mixed with what lies under them by `alpha` (0 to 255, in 32 steps). One layer a screen. Mixed into what comes from virtual screens: `dgx_vscreen8_to_screen16()`, `dgx_vscreen8_region_to_screen16()`, `dgx_vscreen_to_screen()`, `dgx_vscreen_region_to_screen()`, with all their flags; not into what is drawn straight on the screen. |
+| `dgx_overlay_set_alphas(display, alphas)` | A share of its own for every index, 0 to 255, times the `alpha` of the layer: a button solid and its shadow faint, the alpha of the layer still fading all. Kept when the layer is moved or gets other colors or another alpha, until it is taken away; NULL for 255 each. The place of the layer becomes changed. |
 | `dgx_overlay_clear(display)` | Take the layer away; its place becomes changed. |
 | `dgx_overlay_take_dirty(display, &x, &y, &w, &h)` | The rectangle the layer changed since the last call: drawn into, laid, moved, taken away. Put it again from the picture. |
 | `dgx_image_blit(dst, x, y, image, how)` | Draw a picture of 1, 4 or 8 bits from flash or RAM (`dgx_image.h`) into a linear 8-bit screen: value 0 transparent, a map or one color for the others, clipped, mirrored or rotated around its origin. Returns `ESP_ERR_NOT_SUPPORTED` for another destination. |
@@ -397,7 +437,9 @@ The last argument of the four transfers is 0 or these added together:
 | `DGX_VSCREEN_SMOOTH` | With a scale of 2, 3 or 4: Scale2x, Scale3x, Scale2x twice, instead of plain squares. |
 | `DGX_VSCREEN_SMOOTH_SFX` | The same by Scale2xSFX and Scale3xSFX: fewer lumps on thin lines, more work. |
 | `DGX_VSCREEN_ORIENTED(o)` | Turned or mirrored, `o` a `dgx_output_orientation_t`; scaled and smoothed first. |
-| `DGX_VSCREEN_EXACT` | Through a table only: its colors to the last bit, no hardware that mixes two colors. |
+| `DGX_VSCREEN_ALPHA(a)` | The picture over what lies under it by `a`, 0 to 255, in 32 steps: a virtual screen and a display that is read (DSI) give what they have, a display behind a bus that cannot be read has black under it. Steps of `a` make a crossfade, or a fade to black and from it. A pixel under an overlay layer is read with the layer in it. |
+| `DGX_VSCREEN_MASK` | Through a table only: the 8-bit picture is a mask, a pixel how much of `lut[255]` goes over what lies under it, 0 to 255, in 32 steps, times `DGX_VSCREEN_ALPHA`. A soft shape drawn once into an 8-bit screen is put on any picture of a virtual screen or a DSI display; on a display that cannot be read the flag changes nothing, so give it a table from the paper to the ink there. |
+| `DGX_VSCREEN_EXACT` | Through a table: its colors to the last bit, no hardware that mixes two colors. With `DGX_VSCREEN_ALPHA` on a DSI display, through a table or of 16 bits: mixed by the processor, not by the accelerator, which may give red, green or blue ±1 off, rarely seen by the eye. |
 
 Free any screen with `dgx_screen_destroy(&scr)`.
 

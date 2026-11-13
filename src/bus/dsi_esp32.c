@@ -33,6 +33,9 @@
 #include "freertos/semphr.h"
 
 #include "sdkconfig.h"
+#if CONFIG_DGX_DSI_LOCK_INTERRUPT_CODE
+#include "rom/cache.h"
+#endif
 #include "soc/mipi_dsi_bridge_struct.h"
 #include "soc/soc_caps.h"
 
@@ -40,6 +43,7 @@
 #include "dgx_fb_area_priv.h"
 #include "dgx_fb_flip_priv.h"
 #include "dgx_fb_tiles_priv.h"
+#include "dgx_dsi_scan_priv.h"
 #include "dgx_screen_functions.h"
 #include "dgx_screen_with_bus.h"
 
@@ -47,8 +51,11 @@
 
 /*
  * The 2D DMA of the chip moves a rectangle from one picture into another
- * past the processor and its cache, twice as fast as the display reads, and
- * can exchange the two bytes of a 16-bit pixel on the way. Only the private
+ * past the processor and its cache, and can exchange the two bytes of a
+ * 16-bit pixel on the way. How fast against the display depends on the
+ * board: from PSRAM to PSRAM twice as fast as the display of a JC1060P470
+ * (7-inch) reads, hardly faster than that of a JC8012P4A1C (10.1-inch) with
+ * the PSRAM at 200 MHz, 127 to 139 KB a millisecond against 124. Only the private
  * interface of IDF gives that: the public one, esp_async_color_convert.h of
  * IDF 6.0.3 and 6.1, copies and converts colors but does not exchange bytes.
  * A private interface may change in any release of IDF, so there is a way
@@ -88,7 +95,9 @@
 
 /*
  * The pixel processing accelerator of the chip fills a rectangle of a
- * picture with a color past the processor and its cache, four times as fast.
+ * picture with a color past the processor and its cache: four times as fast
+ * as the display of a JC1060P470 reads, two and a half to three times as
+ * fast as that of a JC8012P4A1C, 307 to 383 KB a millisecond.
  * This one has a public interface.
  */
 #if defined(__has_include) && SOC_PPA_SUPPORTED
@@ -99,7 +108,7 @@
  * The same accelerator mixes two colors by an 8-bit picture of how much of
  * the second there is: what a table of two colors does for an 8-bit screen.
  * It rounds in its own way, so a color between the two may differ from the
- * table by a step of a channel; a program that wants the colors of its
+ * table by ±1 in red, green or blue; a program that wants the colors of its
  * table and nothing else says so when it sends the screen, DGX_VSCREEN_EXACT.
  */
 #define DGX_DSI_PPA_MIX 1
@@ -164,8 +173,22 @@
 #endif
 
 typedef struct _dgx_dsi_bus_t dgx_dsi_bus_t;
+/*
+ * What writes behind the scan of the display, each at a speed of its own,
+ * which the bus measures as it goes: the 2D DMA copying from PSRAM and from
+ * internal memory, which on a JC8012P4A1C differ threefold, the accelerator
+ * filling, the accelerator mixing a band into the frame buffer.
+ */
+typedef enum {
+    DGX_DSI_SCAN_COPY,
+    DGX_DSI_SCAN_COPY_RAM,
+    DGX_DSI_SCAN_FILL,
+    DGX_DSI_SCAN_MIX,
+    DGX_DSI_SCAN_KINDS,
+} dgx_dsi_scan_kind_t;
 #if DGX_DSI_DMA2D || DGX_DSI_PPA_FILL
-static bool dgx_dsi_wait_scan_outside(dgx_dsi_bus_t *bus, uint32_t first, uint32_t last);
+static bool dgx_dsi_wait_scan_outside(dgx_dsi_bus_t *bus, uint32_t first, uint32_t last, dgx_dsi_scan_kind_t kind, uint32_t bytes);
+static void dgx_dsi_scan_timed(dgx_dsi_bus_t *bus, dgx_dsi_scan_kind_t kind, uint32_t bytes, uint32_t us);
 #endif
 static inline bool dgx_dsi_margin_short(const dgx_dsi_tuning_t *tuning);
 static inline bool dgx_dsi_lanes_full(const dgx_dsi_tuning_t *tuning);
@@ -175,8 +198,10 @@ static inline bool dgx_dsi_lanes_full(const dgx_dsi_tuning_t *tuning);
  * copied when the picture is finished. The display reads a frame buffer row
  * after row, so the piece is in time when it is there before the display
  * comes to its rows: it is copied after the display has taken the picture,
- * by the 2D DMA, which writes twice as fast as the display reads and is
- * started in the interrupt that tells the end of the frame. Until then
+ * by the 2D DMA, started in the interrupt that tells the end of the frame.
+ * On a JC1060P470 it writes twice as fast as the display reads, on a
+ * JC8012P4A1C hardly faster; a piece is left for later only where its
+ * measured speed keeps it ahead, see dgx_dsi_late_arm(). Until then
  * another batch may draw over the piece, and then it is not copied at all:
  * so tasks that redraw each its own part of the screen cost no copy.
  *
@@ -256,6 +281,12 @@ static void dgx_dsi_late_timed(dgx_dsi_late_t *late, uint32_t bytes, uint32_t us
 static void dgx_dsi_late_back(dgx_dsi_bus_t *bus);
 static void dgx_dsi_late_moved(dgx_dsi_bus_t *bus);
 static void dgx_dsi_late_clear(dgx_dsi_bus_t *bus, uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
+#if DGX_DSI_PPA_MIX
+static bool dgx_dsi_ppa_blend_band(dgx_dsi_bus_t *bus, const uint8_t *band, uint32_t x0, uint32_t y0, uint32_t columns, uint32_t rows,
+                                   uint32_t under);
+static bool dgx_dsi_ppa_mask_band(dgx_dsi_bus_t *bus, const uint8_t *band, uint8_t *opacity, uint32_t x0, uint32_t y0, uint32_t columns,
+                                  uint32_t rows, const uint8_t *unders, uint16_t ink);
+#endif
 #endif
 
 struct _dgx_dsi_bus_t {
@@ -295,8 +326,11 @@ struct _dgx_dsi_bus_t {
     bool                dma_exchange; /* the transfer under way exchanges the bytes of 16-bit pixels */
     /* the transfer under way: no piece was being copied when it started, its bytes, when it started */
     bool                dma_undisturbed;
+    bool                dma_behind_scan; /* it was started behind the scan, and its time is taken for those */
+    uint8_t             dma_scan_kind;   /* of copy: from PSRAM or from internal memory */
     uint32_t            dma_bytes;
     uint32_t            dma_started_us;
+    volatile uint32_t   dma_done_us;     /* and when it was done, from the interrupt */
     /*
      * What the transfer under way asks of the 2D DMA. The driver keeps the
      * address and reads it when it starts the transfer, which is later, in
@@ -355,6 +389,14 @@ struct _dgx_dsi_bus_t {
     uint32_t batches;      /* batches of drawing that ended with something drawn */
     uint32_t scan_waits;   /* behind the scan: times a write waited for the scan */
     uint32_t scan_wait_us; /* and how long in all */
+    uint32_t scan_late;    /* behind the scan: writes too slow for any moment the scan is out of their rows long enough */
+    /*
+     * Behind the scan: microseconds a megabyte takes to write, by kind, the
+     * slowest of the last writes; a guess until one is timed, and a bit of
+     * `scan_timed` set by kind when one has been.
+     */
+    uint32_t scan_mb_us[DGX_DSI_SCAN_KINDS];
+    uint8_t  scan_timed;
     /*
      * A DSI packet carries a command together with its parameters, so a
      * command is held back until its data comes, or until it is known that
@@ -676,6 +718,7 @@ static inline void dgx_dsi_read_out(dgx_dsi_bus_t *bus)
 static IRAM_ATTR bool dgx_dsi_dma_done(dma2d_channel_handle_t channel, dma2d_event_data_t *event, void *user)
 {
     BaseType_t woken = pdFALSE;
+    ((dgx_dsi_bus_t *)user)->dma_done_us = (uint32_t)esp_timer_get_time();
     xSemaphoreGiveFromISR(((dgx_dsi_bus_t *)user)->dma_done, &woken);
     return woken == pdTRUE;
 }
@@ -832,9 +875,10 @@ static bool dgx_dsi_dma_start(dgx_dsi_bus_t *bus, const uint8_t *from, uint32_t 
     esp_cache_msync(bus->dma_desc, 2u * sizeof(dma2d_descriptor_t),
                     ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_INVALIDATE | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
     bus->dma_exchange = exchange;
+    bus->dma_scan_kind = esp_ptr_external_ram(from) ? DGX_DSI_SCAN_COPY : DGX_DSI_SCAN_COPY_RAM;
     if (behind_scan) {
         const uint32_t first_row = (uint32_t)((size_t)(to - bus->area.fb) / to_pitch);
-        dgx_dsi_wait_scan_outside(bus, first_row, first_row + rows - 1u);
+        dgx_dsi_wait_scan_outside(bus, first_row, first_row + rows - 1u, (dgx_dsi_scan_kind_t)bus->dma_scan_kind, width * rows * bytes);
     }
     bus->dma_config = (dma2d_trans_config_t){
         .tx_channel_num = 1,
@@ -846,6 +890,7 @@ static bool dgx_dsi_dma_start(dgx_dsi_bus_t *bus, const uint8_t *from, uint32_t 
     xSemaphoreTake(bus->dma_done, 0); /* nothing is left over from a transfer that was given up */
     /* a transfer with no piece being copied meanwhile tells how fast the 2D DMA is here */
     bus->dma_undisturbed = bus->late && !bus->late->left;
+    bus->dma_behind_scan = behind_scan;
     bus->dma_bytes       = width * rows * bytes;
     bus->dma_started_us  = (uint32_t)esp_timer_get_time();
     return dma2d_enqueue(bus->dma_pool, &bus->dma_config, bus->dma_trans) == ESP_OK;
@@ -865,6 +910,8 @@ static void dgx_dsi_dma_wait(dgx_dsi_bus_t *bus)
     if (bus->dma_undisturbed && !bus->late->left) {
         dgx_dsi_late_timed(bus->late, bus->dma_bytes, (uint32_t)esp_timer_get_time() - bus->dma_started_us);
     }
+    /* and behind the scan how long a copy takes; the task may come here later than the copy is done */
+    if (bus->dma_behind_scan) dgx_dsi_scan_timed(bus, (dgx_dsi_scan_kind_t)bus->dma_scan_kind, bus->dma_bytes, bus->dma_done_us - bus->dma_started_us);
 }
 
 /* move a rectangle by the 2D DMA as dgx_dsi_dma_start() tells, and wait until it is there */
@@ -929,20 +976,18 @@ static void dgx_dsi_dma_init(dgx_dsi_bus_t *bus)
 #define DGX_DSI_SCAN_ROOM_US 150u
 /* from the moment the 2D DMA or the accelerator is asked to the first byte it writes, at most */
 #define DGX_DSI_DMA_START_US 400u
-
 /*
- * Where the scan of the display is, by the time since the end of the last
- * frame. The display reads the frame buffer row after row, a frame in the
- * time between two ends of a frame, and starts to read the first rows of a
- * frame `scan_lead` rows before it shows them.
+ * Behind the scan, before a write of the kind has been timed: KB the 2D DMA
+ * copies, the accelerator fills and the accelerator mixes in a millisecond,
+ * taken lower than any measured. A write is timed from this size on.
  */
-typedef struct {
-    uint32_t period_us; /* how long a frame takes */
-    uint32_t since_us;  /* the time since the end of the last frame, less than a period */
-    uint32_t now_us;    /* when the scan was looked at: `since_us` runs to it, and a wait counts from it */
-    uint32_t enter_us;  /* when, counted from that end, the scan comes to the rows asked about */
-    uint32_t leave_us;  /* and when it has read the last of them */
-} dgx_dsi_scan_t;
+#define DGX_DSI_SCAN_COPY_KB_A_MS     100u
+#define DGX_DSI_SCAN_COPY_RAM_KB_A_MS 200u
+#define DGX_DSI_SCAN_FILL_KB_A_MS     150u
+#define DGX_DSI_SCAN_MIX_KB_A_MS      60u
+#define DGX_DSI_SCAN_TIMED_FROM       32768u
+
+/* where the scan of the display is, dgx_dsi_scan_t, and when a write behind it may start: dgx_dsi_scan_priv.h */
 
 /* false when no frames are counted: the one-buffer way without the scan, or no display yet */
 static bool dgx_dsi_scan_rows(const dgx_dsi_bus_t *bus, uint32_t first, uint32_t last, dgx_dsi_scan_t *scan)
@@ -958,6 +1003,7 @@ static bool dgx_dsi_scan_rows(const dgx_dsi_bus_t *bus, uint32_t first, uint32_t
     scan->since_us              = since;
     scan->now_us                = now;
     scan->enter_us = first < bus->tuning.scan_lead ? 0u : (uint32_t)(((first_row - bus->tuning.scan_lead) * row_us_65536) >> 16);
+    scan->last_us  = last < bus->tuning.scan_lead ? 0u : (uint32_t)(((bus->lines_before + last - bus->tuning.scan_lead) * row_us_65536) >> 16);
     scan->leave_us = (uint32_t)(((bus->lines_before + last + 1u) * row_us_65536) >> 16);
     return true;
 }
@@ -1032,20 +1078,44 @@ static void dgx_dsi_wait_scan_window(dgx_dsi_bus_t *bus)
 #if DGX_DSI_DMA2D || DGX_DSI_PPA_FILL
 
 /*
- * Wait, if needed, until the display is not reading the rows `first`..`last`
- * and will not start to in the next moments. What is written from then on
- * faster than the display reads stays ahead of its scan: the rows are seen
- * whole in the frame that follows.
+ * Wait, if needed, for the moment `bytes` can be written into the rows
+ * `first`..`last` by the 2D DMA or the accelerator, row after row from the
+ * top, so that the display comes to each row only after it is written: the
+ * rows are seen whole in the frame that follows. How long the write takes
+ * is reckoned at the speed measured for its kind. A write that keeps up
+ * with the scan only has to start before the scan comes to the rows; a
+ * slower one has to start earlier by what it loses on them, and may have no
+ * such moment at all: it is then started when the scan has just left the
+ * rows, and counted in scan_late.
  */
-static bool dgx_dsi_wait_scan_outside(dgx_dsi_bus_t *bus, uint32_t first, uint32_t last)
+static bool dgx_dsi_wait_scan_outside(dgx_dsi_bus_t *bus, uint32_t first, uint32_t last, dgx_dsi_scan_kind_t kind, uint32_t bytes)
 {
     dgx_dsi_scan_t scan;
     if (!dgx_dsi_scan_rows(bus, first, last, &scan)) return false;
-    /* the DMA or the accelerator takes a moment to start: the scan must not come to the rows within it */
-    const uint32_t enter = scan.enter_us > bus->tuning.dma_start_us ? scan.enter_us - bus->tuning.dma_start_us : 0u;
-    if (scan.since_us < enter || scan.since_us >= scan.leave_us) return true;
-    dgx_dsi_wait_us(bus, scan.now_us, scan.leave_us - scan.since_us);
+    const uint32_t takes_us = (uint32_t)(((uint64_t)bytes * bus->scan_mb_us[kind]) >> 20);
+    bool           in_time;
+    /* the DMA or the accelerator takes a moment to start, and some room is kept */
+    const uint32_t wait_us =
+        dgx_dsi_scan_wait_for(&scan, last - first + 1u, (uint32_t)bus->tuning.dma_start_us + bus->tuning.scan_room_us, takes_us, &in_time);
+    if (!in_time) ++bus->scan_late;
+    if (wait_us) dgx_dsi_wait_us(bus, scan.now_us, wait_us);
     return true;
+}
+
+/*
+ * A write behind the scan of `bytes` took `us` from when it was asked for:
+ * the slowest of the last ones is kept, forgotten by an eighth a write. A
+ * small one tells more of the starting than of the writing and is not
+ * counted.
+ */
+static void dgx_dsi_scan_timed(dgx_dsi_bus_t *bus, dgx_dsi_scan_kind_t kind, uint32_t bytes, uint32_t us)
+{
+    if (bytes < DGX_DSI_SCAN_TIMED_FROM) return;
+    uint32_t      *mb_us = &bus->scan_mb_us[kind];
+    const uint32_t took = (uint32_t)(((uint64_t)us << 20) / bytes), less = *mb_us - (*mb_us >> 3);
+    /* the first one timed replaces the guess, which may be far either way */
+    *mb_us = !(bus->scan_timed >> kind & 1u) || took > less ? took : less;
+    bus->scan_timed |= (uint8_t)(1u << kind);
 }
 #endif
 
@@ -1566,6 +1636,45 @@ static uint32_t dgx_dsi_indexed_bands(uint32_t row_bytes, uint32_t rows, uint8_t
 }
 
 /*
+ * A band of rows of the panel mixed by the processor with the rows of the
+ * frame buffer it goes to, `under` of 32 of them, as the overlay layer is
+ * mixed: the columns x0.. of the rows y0.. of the panel.
+ */
+static void dgx_dsi_mix_band(const dgx_dsi_bus_t *bus, uint8_t *band, uint32_t x0, uint32_t y0, uint32_t columns, uint32_t rows, uint32_t under)
+{
+    const size_t pitch = (size_t)bus->area.fb_width * 2u;
+    for (uint32_t i = 0; i < rows; ++i) {
+        uint16_t       *out  = (uint16_t *)(void *)(band + (size_t)i * columns * 2u);
+        const uint16_t *fb   = (const uint16_t *)(const void *)(bus->area.fb + (size_t)(y0 + i) * pitch + (size_t)x0 * 2u);
+        const uint32_t  over = 32u - under;
+        for (uint32_t j = 0; j < columns; ++j) {
+            const uint32_t pre = ((out[j] | (uint32_t)out[j] << 16) & 0x07E0F81Fu) * over;
+            out[j]             = dgx_bus_overlay_mix(fb[j], pre, under);
+        }
+    }
+}
+
+/*
+ * A band of the indices of a mask, made through a table that gives every
+ * index itself, mixed by the processor with the rows of the frame buffer it
+ * goes to: `ink` over them, unders[index] of 32 of them left.
+ */
+static void dgx_dsi_mask_band(const dgx_dsi_bus_t *bus, uint8_t *band, uint32_t x0, uint32_t y0, uint32_t columns, uint32_t rows,
+                              const uint8_t *unders, uint16_t ink)
+{
+    const size_t   pitch  = (size_t)bus->area.fb_width * 2u;
+    const uint32_t spread = (ink | (uint32_t)ink << 16) & 0x07E0F81Fu;
+    for (uint32_t i = 0; i < rows; ++i) {
+        uint16_t       *out = (uint16_t *)(void *)(band + (size_t)i * columns * 2u);
+        const uint16_t *fb  = (const uint16_t *)(const void *)(bus->area.fb + (size_t)(y0 + i) * pitch + (size_t)x0 * 2u);
+        for (uint32_t j = 0; j < columns; ++j) {
+            const uint32_t below = unders[out[j] & 0xffu];
+            out[j]               = dgx_bus_overlay_mix(fb[j], spread * (32u - below), below);
+        }
+    }
+}
+
+/*
  * A picture of 8-bit indices through a table of colors, every index a
  * square of `scale` pixels, smoothed when asked, turned on the screen when
  * asked. Rows of the panel are made by the processor in a band of internal
@@ -1574,14 +1683,29 @@ static uint32_t dgx_dsi_indexed_bands(uint32_t row_bytes, uint32_t rows, uint8_t
  * makes the next one. A turned screen this way is not written pixel by
  * pixel through the window, each pixel a row of the panel away from the one
  * before.
+ *
+ * Mixed with what the frame buffer has, `under` of the picture, a band is
+ * mixed into it by the accelerator, which reads both and writes the result
+ * in one pass, or by the processor before the band is moved: when the
+ * colors are to be exact, and under an overlay layer, which is mixed over
+ * the result.
  */
 static bool dgx_dsi_write_indexed(struct _dgx_bus_protocols_t *_bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height,
                                   const dgx_bus_indexed_t *picture)
 {
     dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)_bus;
-    if (!bus->area.fb || bus->area.pixel_bytes != 2 || bus->area.swap_rb || !picture->scale) return false;
-    if ((uint32_t)width * height * 2u < bus->tuning.rows_from) return false;
+    if (!bus->area.fb || bus->area.pixel_bytes != 2 || bus->area.swap_rb || !picture->scale || picture->under > 32u) return false;
+    /* colors of 16 bits come in squares; smoothed they go the other way; a mask is of indices */
+    if (picture->bytes > 2 || (picture->bytes == 2 && (picture->smooth || picture->unders))) return false;
+    if (!picture->under && !picture->unders && (uint32_t)width * height * 2u < bus->tuning.rows_from) return false;
     if ((uint32_t)left + width > dgx_fb_area_width(&bus->area) || (uint32_t)top + height > dgx_fb_area_height(&bus->area)) return false;
+    const uint32_t under = picture->under;
+    const bool     reads = under || picture->unders; /* what the frame buffer has is mixed in */
+#if DGX_DSI_PPA_MIX
+    const bool by_accelerator = reads && bus->mixer && !picture->exact && !picture->overlay;
+#else
+    const bool by_accelerator = false;
+#endif
     uint16_t x0, y0, x1, y1;
     dgx_fb_area_to_panel(&bus->area, left, left + width - 1, top, top + height - 1, &x0, &y0, &x1, &y1);
     const uint32_t columns   = (uint32_t)x1 - x0 + 1u;
@@ -1612,8 +1736,11 @@ static bool dgx_dsi_write_indexed(struct _dgx_bus_protocols_t *_bus, uint16_t le
     if (bus->frames == 2) {
         dgx_dsi_draw_ready(bus);
         if (dgx_dsi_late_busy(bus)) dgx_dsi_late_clear(bus, x0, y0, x1, y1);
-        /* every pixel of the rectangle is written: of its tiles only what lies outside it is brought up to date */
-        dgx_dsi_tiles_ready(bus, left, left + width - 1, top, top + height - 1, true, true);
+        /*
+         * Every pixel of the rectangle is written: of its tiles only what lies outside it is brought up to date. Mixed
+         * with what is there, the inside too.
+         */
+        dgx_dsi_tiles_ready(bus, left, left + width - 1, top, top + height - 1, !reads, true);
     }
     /* the lines of a smoothed picture are begun once: the bands share what they are made of */
     dgx_scale_lines_t lines;
@@ -1624,6 +1751,19 @@ static bool dgx_dsi_write_indexed(struct _dgx_bus_protocols_t *_bus, uint16_t le
         const uint32_t n    = rows - r < band_rows ? rows - r : band_rows;
         /* made while the DMA moves the band before it */
         dgx_fb_area_indexed_rows(&bus->area, band[k], left, top, width, height, picture, (uint16_t)r, (uint16_t)n, &lines);
+#if DGX_DSI_PPA_MIX
+        if (by_accelerator) {
+            /* the accelerator mixes the band into the frame buffer, the one before it being there */
+            if (moving) dgx_dsi_dma_wait(bus);
+            moving = false;
+            /* the opacity of a mask goes into the other band, which nothing moves now: this one stays for the processor */
+            if (picture->unders ? dgx_dsi_ppa_mask_band(bus, band[k], band[k ^ 1u], x0, y0 + r, columns, n, picture->unders, picture->ink)
+                                : dgx_dsi_ppa_blend_band(bus, band[k], x0, y0 + r, columns, n, under))
+                continue;
+        }
+#endif
+        if (under) dgx_dsi_mix_band(bus, band[k], x0, y0 + r, columns, n, under);
+        if (picture->unders) dgx_dsi_mask_band(bus, band[k], x0, y0 + r, columns, n, picture->unders, picture->ink);
         if (picture->overlay) dgx_fb_area_overlay_rows(&bus->area, band[k], left, top, width, height, picture->overlay, (uint16_t)r, (uint16_t)n);
         if (moving) dgx_dsi_dma_wait(bus);
         uint8_t *to = bus->area.fb + (size_t)(y0 + r) * pitch_fb;
@@ -1834,6 +1974,97 @@ static void dgx_dsi_dispose_bus_func(struct _dgx_bus_protocols_t *_bus)
     free(bus);
 }
 
+#if CONFIG_DGX_DSI_LOCK_INTERRUPT_CODE
+/*
+ * The code every interrupt runs, kept in the instruction caches of both
+ * cores. On a JC8012P4A1C (ESP32-P4 v3.2), under the load a DSI display
+ * makes with the 2D DMA and the accelerator, a line of that cache now and
+ * then came from internal memory as zeros, and the program stopped with
+ * "Illegal instruction" in the spinlock of a critical section an interrupt
+ * entered: about once a minute or never, by where the code lay after a
+ * build, at a PSRAM of 200 MHz as of 250. A line kept in the cache is not
+ * read again. Kept are the port of FreeRTOS from its first function to its
+ * last (critical sections, the entry and exit of an interrupt, the tick),
+ * 2.6 KB in IDF 6.1, the handler every interrupt starts in and the atomic
+ * exchange of a spinlock: one way of the four in about 45 of the 64 sets.
+ * The names are those of IDF, taken weakly: one a version of IDF does not
+ * have is 0 and left out. Measured in docs/dsi-display-en.md.
+ */
+extern const char dgx_dsi_code_clear_mask[] __asm__("vPortClearInterruptMaskFromISR") __attribute__((weak));
+extern const char dgx_dsi_code_exit[] __asm__("vPortExitCriticalMultiCore") __attribute__((weak));
+extern const char dgx_dsi_code_enter[] __asm__("xPortEnterCriticalTimeout") __attribute__((weak));
+extern const char dgx_dsi_code_tick[] __asm__("SysTickIsrHandler") __attribute__((weak));
+extern const char dgx_dsi_code_int_enter[] __asm__("rtos_int_enter") __attribute__((weak));
+extern const char dgx_dsi_code_int_exit[] __asm__("rtos_int_exit") __attribute__((weak));
+extern const char dgx_dsi_code_handler[] __asm__("_interrupt_handler") __attribute__((weak));
+extern const char dgx_dsi_code_exchange[] __asm__("esp_cpu_compare_and_set") __attribute__((weak));
+
+/*
+ * `size` bytes from `from` kept in both instruction caches; 0 when they are.
+ * A lock takes only the lines a cache holds at the moment, and a line pushed
+ * out before it is lost to it: locked so after the display had started, the
+ * code was still read again now and then. A section of prelock, `section` 0
+ * or 1 of the two each cache has, locks a line of it whenever it is loaded.
+ * So the section is set, the lines are dropped and loaded again, now with
+ * their lock, and are locked by hand as well; a piece for no section, -1, is
+ * only loaded and locked. Nothing runs on this core in between.
+ */
+static int dgx_dsi_lock_code(int section, uintptr_t from, uint32_t size)
+{
+    const uint32_t      start = (uint32_t)from & ~63u, bytes = (size + ((uint32_t)from & 63u) + 63u) & ~63u;
+    static portMUX_TYPE lock  = portMUX_INITIALIZER_UNLOCKED;
+    portENTER_CRITICAL(&lock);
+    if (section >= 0) {
+        const struct lock_config config = {.gid = 0, .addr = start, .size = (uint16_t)bytes, .group = (uint16_t)section};
+        Cache_Enable_L1_CORE0_ICache_PreLock(&config);
+        Cache_Enable_L1_CORE1_ICache_PreLock(&config);
+        Cache_Invalidate_Addr(CACHE_MAP_L1_ICACHE_MASK, start, bytes);
+    }
+    uint32_t autoload = Cache_Start_L1_CORE0_ICache_Preload(start, bytes, 0);
+    while (!Cache_L1_CORE0_ICache_Preload_Done()) {
+    }
+    Cache_End_L1_CORE0_ICache_Preload(autoload);
+    autoload = Cache_Start_L1_CORE1_ICache_Preload(start, bytes, 0);
+    while (!Cache_L1_CORE1_ICache_Preload_Done()) {
+    }
+    Cache_End_L1_CORE1_ICache_Preload(autoload);
+    const int refused = Cache_Lock_Addr(CACHE_MAP_L1_ICACHE_MASK, start, bytes);
+    portEXIT_CRITICAL(&lock);
+    return refused;
+}
+
+static void dgx_dsi_lock_interrupt_code(void)
+{
+    static bool locked; /* once for every bus: the caches are those of the chip */
+    if (locked) return;
+    locked = true;
+    const uintptr_t port[] = {(uintptr_t)dgx_dsi_code_clear_mask, (uintptr_t)dgx_dsi_code_exit, (uintptr_t)dgx_dsi_code_enter,
+                              (uintptr_t)dgx_dsi_code_tick,       (uintptr_t)dgx_dsi_code_int_enter, (uintptr_t)dgx_dsi_code_int_exit};
+    uintptr_t       low = UINTPTR_MAX, high = 0;
+    for (size_t i = 0; i < sizeof(port) / sizeof(port[0]); ++i) {
+        if (!port[i]) continue;
+        low  = port[i] < low ? port[i] : low;
+        high = port[i] > high ? port[i] : high;
+    }
+    int refused = 0;
+    if (high) {
+        /* the last of them is short: 256 bytes from its start cover it; one way of the cache, 4 KB, at most */
+        const uint32_t span = (uint32_t)(high - low) + 256u;
+        if (span <= 4096u) {
+            refused += dgx_dsi_lock_code(0, low, span) != 0;
+        } else {
+            /* the port is not in one piece in this build: each function on its own, the longest is 532 bytes in IDF 6.1 */
+            for (size_t i = 0; i < sizeof(port) / sizeof(port[0]); ++i)
+                if (port[i]) refused += dgx_dsi_lock_code(-1, port[i], 640u) != 0;
+        }
+    }
+    if (dgx_dsi_code_handler) refused += dgx_dsi_lock_code(1, (uintptr_t)dgx_dsi_code_handler, 256u) != 0;
+    if (dgx_dsi_code_exchange) refused += dgx_dsi_lock_code(-1, (uintptr_t)dgx_dsi_code_exchange, 64u) != 0;
+    if (refused) ESP_LOGW(TAG, "the code of interrupts: %d pieces not kept in the instruction cache", refused);
+    else ESP_LOGI(TAG, "the code of interrupts kept in the instruction cache from 0x%08x, %u bytes", (unsigned)low, high ? (unsigned)(high - low) + 256u : 0u);
+}
+#endif
+
 dgx_bus_protocols_t *dgx_dsi_init(int bus_id, uint8_t data_lanes, uint32_t lane_bit_rate_mbps, int phy_ldo_chan, int phy_ldo_mv)
 {
     dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)calloc(1, sizeof(dgx_dsi_bus_t));
@@ -1903,6 +2134,10 @@ dgx_bus_protocols_t *dgx_dsi_init(int bus_id, uint8_t data_lanes, uint32_t lane_
         .psram_mhz = CONFIG_SPIRAM_SPEED,
 #endif
     };
+    bus->scan_mb_us[DGX_DSI_SCAN_COPY]     = 1024000u / DGX_DSI_SCAN_COPY_KB_A_MS;
+    bus->scan_mb_us[DGX_DSI_SCAN_COPY_RAM] = 1024000u / DGX_DSI_SCAN_COPY_RAM_KB_A_MS;
+    bus->scan_mb_us[DGX_DSI_SCAN_FILL] = 1024000u / DGX_DSI_SCAN_FILL_KB_A_MS;
+    bus->scan_mb_us[DGX_DSI_SCAN_MIX]  = 1024000u / DGX_DSI_SCAN_MIX_KB_A_MS;
     {
         /* a fact about the board for whoever reads the numbers, dgx_dsi_tuning_text() */
         esp_chip_info_t chip;
@@ -1926,6 +2161,9 @@ dgx_bus_protocols_t *dgx_dsi_init(int bus_id, uint8_t data_lanes, uint32_t lane_
         dgx_dsi_dispose_bus_func(&bus->protocols);
         return NULL;
     }
+#if CONFIG_DGX_DSI_LOCK_INTERRUPT_CODE
+    dgx_dsi_lock_interrupt_code();
+#endif
     return (dgx_bus_protocols_t *)bus;
 }
 
@@ -2160,6 +2398,14 @@ void dgx_dsi_counters(dgx_bus_protocols_t *_bus, dgx_dsi_counters_t *counters)
     counters->copy_waits         = 0;
     counters->copy_wait_us       = 0;
     counters->copy_kb_a_ms       = 0;
+    counters->scan_late          = bus->scan_late;
+    /* behind the scan, the speeds that have been measured */
+    uint32_t kb[DGX_DSI_SCAN_KINDS];
+    for (int k = 0; k < DGX_DSI_SCAN_KINDS; ++k) kb[k] = bus->scan_timed >> k & 1u ? (1024u * 1000u) / bus->scan_mb_us[k] : 0u;
+    if (bus->after_scan) counters->copy_kb_a_ms = kb[DGX_DSI_SCAN_COPY];
+    counters->copy_ram_kb_a_ms = kb[DGX_DSI_SCAN_COPY_RAM];
+    counters->fill_kb_a_ms = kb[DGX_DSI_SCAN_FILL];
+    counters->mix_kb_a_ms  = kb[DGX_DSI_SCAN_MIX];
 #if DGX_DSI_DMA2D
     if (bus->late) {
         counters->copied_bytes += bus->late->bytes;
@@ -2213,11 +2459,9 @@ static bool dgx_dsi_ppa_fill(dgx_dsi_bus_t *bus, uint8_t *picture, uint32_t rows
     const size_t span  = (size_t)(y1 - y0) * pitch + (size_t)(x1 - x0 + 1u) * bytes;
     /* what the cache holds of the place goes out before the wait for the scan, not after it */
     esp_cache_msync(first, span, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_INVALIDATE | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
-    /*
-     * The accelerator fills four times as fast as the display reads:
-     * started when the scan is not in the rows, it stays ahead of it.
-     */
-    if (behind_scan) dgx_dsi_wait_scan_outside(bus, y0, y1);
+    /* behind the scan: started so that the display comes to every row after it is filled */
+    const uint32_t filled = (x1 - x0 + 1u) * (y1 - y0 + 1u) * bytes;
+    if (behind_scan) dgx_dsi_wait_scan_outside(bus, y0, y1, DGX_DSI_SCAN_FILL, filled);
     const ppa_fill_oper_config_t fill = {
         .out = {
             .buffer         = picture,
@@ -2233,7 +2477,10 @@ static bool dgx_dsi_ppa_fill(dgx_dsi_bus_t *bus, uint8_t *picture, uint32_t rows
         .fill_argb_color = {.a = 0xff, .r = area->swap_rb ? b : r, .g = g, .b = area->swap_rb ? r : b},
         .mode            = PPA_TRANS_MODE_BLOCKING,
     };
-    return ppa_do_fill(bus->filler, &fill) == ESP_OK;
+    const uint32_t asked_us = (uint32_t)esp_timer_get_time();
+    if (ppa_do_fill(bus->filler, &fill) != ESP_OK) return false;
+    if (behind_scan) dgx_dsi_scan_timed(bus, DGX_DSI_SCAN_FILL, filled, (uint32_t)esp_timer_get_time() - asked_us);
+    return true;
 }
 
 #if DGX_DSI_PPA_MIX
@@ -2323,6 +2570,129 @@ static bool dgx_dsi_write_ink(struct _dgx_bus_protocols_t *_bus, uint16_t left, 
     if (ppa_do_blend(bus->mixer, &mix) != ESP_OK) return false;
     bus->rows_written = true;
     return true;
+}
+#endif /* DGX_DSI_PPA_MIX */
+
+#if DGX_DSI_PPA_MIX
+/* the accelerator mixes as `mix` tells, `bytes` of the frame buffer; behind the scan the time is taken */
+static bool dgx_dsi_ppa_mix_timed(dgx_dsi_bus_t *bus, const ppa_blend_oper_config_t *mix, uint32_t bytes)
+{
+    const uint32_t asked_us = (uint32_t)esp_timer_get_time();
+    if (ppa_do_blend(bus->mixer, mix) != ESP_OK) return false;
+    if (bus->after_scan) dgx_dsi_scan_timed(bus, DGX_DSI_SCAN_MIX, bytes, (uint32_t)esp_timer_get_time() - asked_us);
+    return true;
+}
+
+/*
+ * A band of rows of the panel mixed into the frame buffer by the
+ * accelerator, `under` of 32 of what the frame buffer has, at the columns
+ * x0.. of the rows y0..: it reads the band and the frame buffer and writes
+ * the result back in one pass. It rounds in its own way, so a channel may
+ * differ from the processor's mix by a step. Returns false when it has not
+ * been done.
+ */
+static bool dgx_dsi_ppa_blend_band(dgx_dsi_bus_t *bus, const uint8_t *band, uint32_t x0, uint32_t y0, uint32_t columns, uint32_t rows,
+                                   uint32_t under)
+{
+    const size_t pitch = (size_t)bus->area.fb_width * 2u;
+    if (!dgx_dsi_dma_takes(bus, band, (size_t)columns * 2u, 0, columns, rows, 2u)) return false;
+    if (!dgx_dsi_dma_takes(bus, bus->area.fb + (size_t)y0 * pitch, pitch, x0, columns, rows, 2u)) return false;
+    dgx_dsi_late_shares(bus);
+    if (bus->after_scan) dgx_dsi_wait_scan_outside(bus, y0, y0 + rows - 1u, DGX_DSI_SCAN_MIX, columns * rows * 2u);
+    const uint32_t                size = dgx_dsi_ppa_size(pitch * bus->area.fb_height);
+    const ppa_blend_oper_config_t mix  = {
+         .in_bg = {
+            .buffer         = bus->area.fb,
+            .pic_w          = bus->area.fb_width,
+            .pic_h          = bus->area.fb_height,
+            .block_w        = columns,
+            .block_h        = rows,
+            .block_offset_x = x0,
+            .block_offset_y = y0,
+            .blend_cm       = PPA_BLEND_COLOR_MODE_RGB565,
+        },
+         .in_fg = {
+            .buffer   = band,
+            .pic_w    = columns,
+            .pic_h    = rows,
+            .block_w  = columns,
+            .block_h  = rows,
+            .blend_cm = PPA_BLEND_COLOR_MODE_RGB565,
+        },
+         .out = {
+            .buffer         = bus->area.fb,
+            .buffer_size    = size,
+            .pic_w          = bus->area.fb_width,
+            .pic_h          = bus->area.fb_height,
+            .block_offset_x = x0,
+            .block_offset_y = y0,
+            .blend_cm       = PPA_BLEND_COLOR_MODE_RGB565,
+        },
+         .bg_alpha_update_mode = PPA_ALPHA_FIX_VALUE,
+         .bg_alpha_fix_val     = 255,
+         .fg_alpha_update_mode = PPA_ALPHA_FIX_VALUE,
+         .fg_alpha_fix_val     = ((32u - under) * 255u + 16u) / 32u,
+         .mode                 = PPA_TRANS_MODE_BLOCKING,
+    };
+    return dgx_dsi_ppa_mix_timed(bus, &mix, columns * rows * 2u);
+}
+
+/*
+ * A band of the indices of a mask mixed into the frame buffer by the
+ * accelerator: the indices become how opaque `ink` is over each pixel, a
+ * byte each in `opacity`, and the accelerator puts the ink over the frame
+ * buffer by them, as dgx_dsi_write_ink() does over its paper. It rounds in
+ * its own way. Returns false when it has not been done; the band of indices
+ * is left as it was.
+ */
+static bool dgx_dsi_ppa_mask_band(dgx_dsi_bus_t *bus, const uint8_t *band, uint8_t *opacity, uint32_t x0, uint32_t y0, uint32_t columns,
+                                  uint32_t rows, const uint8_t *unders, uint16_t ink)
+{
+    const size_t pitch = (size_t)bus->area.fb_width * 2u;
+    if (!dgx_dsi_dma_takes(bus, opacity, columns, 0, columns, rows, 1u)) return false;
+    if (!dgx_dsi_dma_takes(bus, bus->area.fb + (size_t)y0 * pitch, pitch, x0, columns, rows, 2u)) return false;
+    uint8_t opaque[256];
+    for (int i = 0; i < 256; ++i) opaque[i] = (uint8_t)(((32u - unders[i]) * 255u + 16u) / 32u);
+    const uint16_t *index = (const uint16_t *)(const void *)band;
+    for (size_t i = 0, all = (size_t)columns * rows; i < all; ++i) opacity[i] = opaque[index[i] & 0xffu];
+    dgx_dsi_late_shares(bus);
+    if (bus->after_scan) dgx_dsi_wait_scan_outside(bus, y0, y0 + rows - 1u, DGX_DSI_SCAN_MIX, columns * rows * 2u);
+    const uint32_t                size = dgx_dsi_ppa_size(pitch * bus->area.fb_height);
+    const ppa_blend_oper_config_t mix  = {
+         .in_bg = {
+            .buffer         = bus->area.fb,
+            .pic_w          = bus->area.fb_width,
+            .pic_h          = bus->area.fb_height,
+            .block_w        = columns,
+            .block_h        = rows,
+            .block_offset_x = x0,
+            .block_offset_y = y0,
+            .blend_cm       = PPA_BLEND_COLOR_MODE_RGB565,
+        },
+         .in_fg = {
+            .buffer   = opacity,
+            .pic_w    = columns,
+            .pic_h    = rows,
+            .block_w  = columns,
+            .block_h  = rows,
+            .blend_cm = PPA_BLEND_COLOR_MODE_A8,
+        },
+         .out = {
+            .buffer         = bus->area.fb,
+            .buffer_size    = size,
+            .pic_w          = bus->area.fb_width,
+            .pic_h          = bus->area.fb_height,
+            .block_offset_x = x0,
+            .block_offset_y = y0,
+            .blend_cm       = PPA_BLEND_COLOR_MODE_RGB565,
+        },
+         .bg_alpha_update_mode = PPA_ALPHA_FIX_VALUE,
+         .bg_alpha_fix_val     = 255,
+         .fg_alpha_update_mode = PPA_ALPHA_NO_CHANGE,
+         .fg_fix_rgb_val       = dgx_dsi_color_888(bus, ink),
+         .mode                 = PPA_TRANS_MODE_BLOCKING,
+    };
+    return dgx_dsi_ppa_mix_timed(bus, &mix, columns * rows * 2u);
 }
 #endif /* DGX_DSI_PPA_MIX */
 
@@ -2471,6 +2841,8 @@ bool dgx_dsi_tune(dgx_bus_protocols_t *_bus, const dgx_dsi_tuning_t *tuning)
 #if DGX_DSI_DMA2D
     /* pieces are left for later from the first picture on, not from the first copy that was timed */
     if (bus->late && tuning->dma_kb_a_ms) bus->late->mb_us = 1024000u / tuning->dma_kb_a_ms;
+    /* and behind the scan, until a copy there has been timed */
+    if (tuning->dma_kb_a_ms && !(bus->scan_timed & 1u << DGX_DSI_SCAN_COPY)) bus->scan_mb_us[DGX_DSI_SCAN_COPY] = 1024000u / tuning->dma_kb_a_ms;
 #endif
     return true;
 }

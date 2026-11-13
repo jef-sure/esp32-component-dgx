@@ -7,7 +7,7 @@ has been measured on it, and why the screen is updated the way it is. What a
 program needs to know to use such a display is shorter and lives in
 [dsi-usage-en.md](dsi-usage-en.md).
 
-The note describes the code of DGX 0.10.0. The bus is `src/bus/dsi_esp32.c`, the
+The note describes the code of DGX 0.10.16. The bus is `src/bus/dsi_esp32.c`, the
 frame buffer core `src/bus/fb_area.c`, the tile maps `src/bus/fb_tiles.c`,
 the swap of two buffers `src/bus/fb_flip.c`, the drivers
 `src/drivers/jd9165.c` and `src/drivers/jd9365.c`.
@@ -23,8 +23,11 @@ How to read this note.
 - **The text describes the current code.** How it changed from release to
   release is collected at the end, in "How it changed".
 - **Every number** is either measured on a board or marked as a calculation.
-  KB is 1024 bytes. Speeds are in KB/ms; the one reference point for them is
-  the display of the JD9165 (7"), which reads the frame buffer at 77 KB/ms.
+  KB is 1024 bytes. Speeds are in KB/ms. They are best weighed against how
+  fast the display itself reads its frame buffer while it goes over the
+  visible rows: the JD9165 (7") at 77 KB/ms, the JD9365 (10") at 124 KB/ms,
+  both measured. That is the bytes of one row of the buffer in the time of
+  one row of the panel, its blanking included; every panel has its own.
 
 ## Contents
 
@@ -52,6 +55,8 @@ How to read this note.
   `dgx_dsi_tune()`, `dgx_dsi_advise()`
 - [When the PSRAM cannot keep up](#when-the-psram-cannot-keep-up): flashes
   on the JD9365 (10")
+- [Illegal instruction on the 10.1-inch board](#illegal-instruction-on-the-101-inch-board):
+  lines of the instruction cache read as zeros, and the code kept in it
 - [A picture scrolled](#a-picture-scrolled)
 - [Summary measurements](#summary-measurements): the working time of a
   batch, frame rate
@@ -152,7 +157,7 @@ by the name and number from this table.
 | 12. Three light bands with pauses | as 11, with pauses of 7, 14 and 21 ms | three tasks |
 | 13. Three bands every other frame | as 7, a picture every second frame | three tasks |
 | 14. Columns by primitives every other frame | as 3, a picture every second frame | one task |
-| 23–26. Sources and a drawing task | three sources redraw their virtual screens and send a message to one task, which puts them to the display; the content is that of scenes 9, 11 and 7 | one drawing task |
+| 23–26. Sources and a drawing task | three sources redraw their virtual screens and send a message to one task, which puts them to the display; scenes 23, 24, 25 and 26 draw the same as scenes 11, 13, 7 and 9 | one drawing task |
 
 In the scenes with one buffer the bench holds the pace itself: a pause of
 16 ms where drawing goes right to the display, and a timer with the display's
@@ -306,8 +311,12 @@ buffer.
 The bus takes the window commands itself only after `dgx_dsi_video_start()`.
 Before that the driver sets the controller up, and the same numbers may be
 its registers: the JD9165 has registers 0x2A, 0x2B and 0x2C on page 1, and
-they reach the panel. At the debug log level the bus logs every command it
-sends with data.
+they reach the panel. The bus logs every command it sends to the panel with
+data, one ESP-IDF log line under the tag `DGX DSI BUS`: the command, the
+number of bytes and the first byte. The lines are at the Debug level, so they
+appear only after both the maximum log level in menuconfig
+(`CONFIG_LOG_MAXIMUM_LEVEL_DEBUG`) and the level of this tag
+(`esp_log_level_set("DGX DSI BUS", ESP_LOG_DEBUG)`) are raised to Debug.
 
 A panel driver on this bus is made of the same parts as the driver of any
 DGX display: a constructor, `dgx_jd9165_init()` or `dgx_jd9365_init()`, a
@@ -434,9 +443,12 @@ in memory one after another, and the cache evicts them in the same order;
 there are no gaps. Forcing them out was tried there and cost 9% of the time
 of putting the whole screen.
 
-**A pixel on a new row is a cache miss**, about 1.4 µs. A row of 1024 pixels
-fills in 0.026 ms, a column of 600 pixels in 0.5–0.8 ms depending on the
-cache size. In portrait orientation every fill becomes columns and goes
+**A pixel on a new row is a cache miss**, about 1.4 µs. On the 7" (JD9165,
+1024x600) a row of 1024 pixels fills in 0.026 ms, a column of 600 pixels in
+0.5–0.8 ms depending on the cache size. A fill goes by the rows of the
+screen. When the screen is turned a quarter round on the panel (portrait on
+the 7", landscape on the 10" with the JD9365 800x1280), a row of the screen
+lies in the frame buffer as a column, and every fill goes by columns,
 slowly.
 
 **The L2 cache takes internal RAM**, and its size is chosen at build time by
@@ -558,7 +570,7 @@ dgx_screen_t *scr = dgx_jd9165_init(bus, rst, 16, DgxScreenRGB, DgxDsiTwoFrames)
 | --- | --- | --- | --- |
 | `DgxDsiOneFrame`, one buffer | 1 | possible | none |
 | `DgxDsiTwoFrames`, two buffers | 2 | none | one more buffer in PSRAM |
-| `DgxDsiOneFrameAfterScan`, behind the scan | 1 | none for a large fill and for a virtual screen put by the 2D DMA; a large one the processor sends may tear, see "Behind the scan" | a wait of up to one frame for each such put and fill |
+| `DgxDsiOneFrameAfterScan`, behind the scan | 1 | none for what the 2D DMA and the accelerator write (a virtual screen put, a large fill) while it keeps ahead of the scan, short of the whole screen; for what the processor writes, none only in a small put (on the 7" a full-width band of up to 165 rows), the rest may tear as with one buffer; see "Behind the scan" | a wait of up to one frame for each such put and fill |
 
 ### One buffer
 
@@ -668,19 +680,33 @@ What happens to a batch that arrives when the picture is finished:
 
 Details.
 
-- The bus does not ask who draws. A batch of the same task goes into the
-  picture the same way as a batch of another.
+- The bus does not tell tasks apart. The next batch of the task that drew
+  the finished picture joins it the same way as a batch of another task.
 - The bus does not keep the pace. A program that draws more often than the
   display shows frames gets the last thing drawn in every frame and drew the
   rest for nothing: it has to hold itself back, see "How a program keeps the
   pace".
 - The bus does not order the tasks either. If it matters that every task
   gets into every frame, the program sees to it.
-- "Enough time" means: more remains of the frame than the longest of the
-  recent batches took, plus 2 ms. The bus measures the time of a batch
-  itself, from the first drawing to `update_screen()`. A long batch is
-  forgotten by an eighth with every following one. There is one estimate per
-  bus: a rare long batch among frequent short ones is forgotten in time.
+- "Enough time" means: more remains of the frame than the batch will take,
+  plus 2 ms. How long a batch will take is not known in advance, so the bus
+  goes by the past ones: it measures the time of every batch itself, from
+  the first drawing to `update_screen()`, and takes the longest of the recent
+  ones as the estimate.
+- "Recent" means that a long batch stops counting after a while. After every
+  batch the estimate becomes the larger of two numbers: the time of this
+  batch, or the previous estimate less an eighth. If a batch of 8 ms is
+  followed by batches of 1 ms, the estimate goes 7, 6.1, 5.4, 4.7 ms and so
+  on: about half after five batches, 1 ms after sixteen. One long batch does
+  not forbid joining for good, but right after it the bus is more careful.
+- There is one estimate per bus, not one for each task. If one task draws
+  long batches rarely and another draws short ones often, by the next long
+  batch the short ones have brought the estimate down to their own length.
+  The long batch then goes into a finished picture with less of the frame
+  left than it takes, does not make it, and the whole picture, the parts of
+  the other tasks included, is shown a frame later. Nothing half-drawn
+  reaches the screen. Such frames are counted by `kept_back` in
+  `dgx_dsi_counters()`.
 - The 2 ms are room for inaccuracy: the end of frame is predicted from the
   timing of the last one, and the interrupt may have come late.
 - The wait for the swap happens inside a drawing function, that is under the
@@ -729,9 +755,21 @@ timer code does not run in the drawing task, and the bus would have needed a
 lock of its own between them. Instead the condition itself was relaxed. The
 display reads the buffer row by row, and what has to be whole is not the
 picture at the moment of the report but each row at the moment the scan
-reaches it. The 2D DMA copies twice as fast as the scan reads, so a copy
-started in the blanking stays ahead of the scan. It is the same trick as in
-the "behind the scan" strategy, applied to the catch-up copy.
+reaches it. The copy goes row by row, as the scan does. If the 2D DMA
+started copying a piece before the scan entered its rows and finished before
+the scan left them, the scan overtakes it in no row and reads what has
+already been copied. It is the same trick as in the "behind the scan"
+strategy, applied to the catch-up copy.
+
+How many pieces make it this way depends on how much faster the DMA is than
+the scan. On the JD9165 (7") it is twice as fast, 150 KB/ms against 77, and
+a piece of any size makes it, except the topmost rows of the screen (see
+below). On the JD9365 (10") the scan reads at 124 KB/ms, and the DMA copies
+from PSRAM at 132–139 KB/ms with PSRAM at 200 MHz: only a tenth faster, less
+than the quarter of spare time the bus allows a copy. There only short
+pieces, and pieces lower on the screen that the scan reaches later, make it.
+The bus copies the rest at once, at the end of the batch. The speeds of both
+boards are in a table under "Behind the scan".
 
 How it is arranged.
 
@@ -754,16 +792,24 @@ How it is arranged.
 
 Details.
 
-- **Who owns the list.** Before the report to the driver the bus arms a
-  flag. Only one party can take it, an atomic exchange: either the
-  end-of-frame interrupt, which then starts the copy, or a task that draws
-  into the same picture or copies the pieces itself.
+- **Who deals with the pieces left for later.** The list of pieces left
+  for later (step 1) concerns three parties: the end-of-frame interrupt, a
+  task that draws into the same picture, and a task that waits for the
+  swap. Only one of them may deal with it, and there is no lock. So, having
+  made the list, the bus arms a flag before the report to the driver, and
+  the list goes to whoever clears the flag first by an atomic exchange. The
+  interrupt starts the copy. A task that draws into the same picture
+  cancels the list: its batch may draw over the pieces, and at its end the
+  list is made anew (step 2). A task that waits for the swap copies the
+  pieces itself (step 5). Whoever comes second finds the flag cleared and
+  leaves the pieces alone.
 - **The top of the screen.** The display reads the first rows of a frame
   right after the end of the previous one: it reaches row 4 after 0.7 ms.
   There is no staying ahead of the scan there, so for a piece that starts at
   the top edge the first 8 rows are copied at once.
 - **Why one at a time.** The DMA queue takes two pieces at once, and each
-  goes half as fast: 83 KB/ms against 77 KB/ms of the scan.
+  goes half as fast: on the JD9165 (7") 83 KB/ms against 77 KB/ms of the
+  scan.
 - **A put by the DMA and a fill by the PPA** started by a task during the
   copy slow it down the same way. The bus works out in advance whether the
   pieces will stay ahead of the scan at that speed. If so, only the one who
@@ -865,7 +911,9 @@ program takes the difference over a second.
 | `copied_late_bytes` | of them, copied after the swap, ahead of the scan |
 | `copied_late_behind` | pieces of such a copy that finished after the scan had passed their last row. Should stay zero |
 | `copy_waits`, `copy_wait_us` | how many times drawing waited for such a piece and how many microseconds in all |
-| `copy_kb_a_ms` | not a counter: the speed of the 2D DMA copy in KB/ms as the bus measured it. 0 until measured |
+| `copy_kb_a_ms` | not a counter: the speed of the 2D DMA copy in KB/ms as the bus measured it, behind the scan the copy from PSRAM. 0 until measured |
+| `scan_late` | behind the scan: writes by the 2D DMA or the PPA that had no moment to stay ahead of the scan, as tall as the screen or too slow, and were started when the scan left their rows |
+| `copy_ram_kb_a_ms`, `fill_kb_a_ms`, `mix_kb_a_ms` | not counters: behind the scan, the speeds the bus measured for copies from internal memory, fills and mixing by the PPA. 0 until measured |
 
 All counters are 32-bit and wrap. Bytes written by the processor, the DMA
 and the PPA are not counted.
@@ -974,9 +1022,14 @@ function `demo_pace()` of the `dsi_demo` example, fifteen lines or so. With
 and the pace is kept by the clock.
 
 Three ways of keeping the pace compared on the bench. JD9165 (7"), two
-buffers, 10 seconds a scene. The cells: how many times the next picture of
-the source came after one, two and three frames. Where the three tasks
-differ, a range is given.
+buffers, 10 seconds a scene, in which the display shows 609 frames. After
+each of its pictures a source looks how many frames have passed since its
+previous picture. The cells: how many times in the scene that gap was one,
+two and three frames. A source that draws a picture a frame goes evenly
+when nearly all 609 gaps are in the column "After 1 frame"; a source that
+draws every other frame, when about 304 are in the column "After 2". When
+the gaps are split between columns, the picture jerks. Where the three
+tasks differ, a range is given.
 
 | Source | Way | After 1 frame | After 2 | After 3 |
 | --- | --- | --- | --- | --- |
@@ -1023,21 +1076,24 @@ queue, puts it in one batch, and aims the end of that batch 4 ms before the
 end of frame, like any single drawing task. Its priority is above the
 sources'.
 
-JD9165 (7"), two buffers, 10 seconds a scene. The cells: how many times the
-next picture of the source came after one, two and three frames.
+JD9165 (7"), two buffers, 10 seconds a scene. The cells are as in the table
+above: how many times in 609 frames the gap between two pictures of a
+source in a row was one, two and three frames. An even pace is all gaps in
+one column. Each scene with messages draws the same as the scene with a
+mutex in the same row.
 
-| Three sources | Arrangement | After 1 frame | After 2 | After 3 |
+| What the three sources draw | Arrangement | After 1 frame | After 2 | After 3 |
 | --- | --- | --- | --- | --- |
-| Parts 320x100, a picture a frame | each draws itself under a mutex, pace by the clock | 609 | 0 | 0 |
-| | messages to one drawing task | 607 | 0 | 0 |
-| Light bands, a picture a frame | under a mutex | 608 | 0–1 | 0 |
-| | messages | 604–606 | 0–1 | 0 |
-| Heavy bands, every other frame | under a mutex | 1–53 | 198–302 | 1–53 |
-| | messages | 1 | 302 | 0 |
-| Heavy bands, a picture a frame | under a mutex | 192–243 | 183–206 | 0–5 |
-| | messages | two at 0–2, the third at 196 | two at 302–303, the third at 205 | 0 |
+| Three parts, a picture a frame | scene 9: each draws itself under a mutex, pace by the clock | 609 | 0 | 0 |
+| | scene 26: messages to one drawing task | 607 | 0 | 0 |
+| Three light bands, a picture a frame | scene 11, under a mutex | 608 | 0–1 | 0 |
+| | scene 23, messages | 604–606 | 0–1 | 0 |
+| Three bands every other frame | scene 13, under a mutex | 1–53 | 198–302 | 1–53 |
+| | scene 24, messages | 1 | 302 | 0 |
+| Three bands, a picture a frame | scene 7, under a mutex | 192–243 | 183–206 | 0–5 |
+| | scene 25, messages | two at 0–2, the third at 196 | two at 302–303, the third at 205 | 0 |
 
-- The heavy bands every other frame became even for all three sources: 302
+- The bands every other frame (scene 24) became even for all three sources: 302
   gaps out of 303 are two frames. Under a mutex no way gave that.
 - There are no waits for the display at all, and batches are not joined
   because there is nothing to join: one batch comes a frame. The catch-up
@@ -1126,32 +1182,61 @@ the display is protected only in part.
 
 It works in three ways, depending on what does the writing.
 
-**A put by the 2D DMA.** This is how an area of a virtual screen of 16 KB and
-more goes on a screen neither mirrored nor rotated, at its own size and not
-turned, with no overlay layer over it and no transparency, see "The 2D DMA and the PPA". The DMA
-writes at 150 KB/ms, the scan reads at 77 KB/ms: writing is twice as fast as
-the scan. So it is enough to start when the scan is outside the rows of the
-area. If it is above the area, it enters later than the write and does not
-catch up. If below, all the more. Nor can the write overtake the scan: it
-does not start behind it.
+**A put by the 2D DMA.** An area of a virtual screen of 16 KB and more put
+as it is, on a screen neither mirrored nor rotated, with no overlay layer
+over it and no transparency, goes by the 2D DMA in one piece, see "The 2D DMA
+and the PPA". A 16-bit or 8-bit picture put any other way goes by the 2D DMA
+too, in bands the processor makes one after another, see "An 8-bit screen
+through a colour table"; every band is a write of its own. The picture is
+whole as long as the processor makes the bands faster than the scan reads
+them; a picture smoothed at a large scale can be slower, and then the scan of
+the next frame catches up with the bands still to come.
 
-Before starting the DMA the bus waits for the scan to leave the rows of the
-area, then starts it. For the whole screen "outside the area" is the 35 rows
-of blanking, 0.9 ms a frame: the bus waits for them and puts the whole screen
-in 7.9 ms, staying ahead of the scan. So an area of any size, the whole
-screen included, goes without tearing on one buffer.
+The DMA writes the rows of the area from the top, and the display reads them
+from the top. A row is seen whole when the display comes to it after it is
+written. A write as fast as the scan, row for row, or faster only has to
+start before the scan comes to the first row of the area: from there it stays
+ahead. A slower one loses on every row, and it has to start earlier by all it
+loses over the rows of the area, or the scan comes to its last rows first.
+The bus measures how fast the DMA is as it goes, the slowest of the last
+copies, apart for copies from PSRAM and from internal memory, which differ
+threefold; until one is timed it takes 100 and 200 KB/ms. Before a copy it
+waits, if needed, for the first moment that is early enough, or for the scan
+to leave the rows of the area: from then a whole frame passes before the scan
+is back.
 
-An 8-bit screen through a table of colours goes by the 2D DMA too, in any
-orientation, but in bands the processor makes one after another, see "An
-8-bit screen through a colour table". Every band is started the same way.
-The picture is whole as long as the processor makes the bands faster than
-the scan reads them; a picture smoothed at a large scale can be slower, and
-then the scan of the next frame catches up with the bands still to come.
+How fast writes go against the scan, KB/ms, one frame buffer, PSRAM at
+200 MHz; the display reads a full row of the panel in the time it takes for a
+row, blanking included:
+
+| | JC1060P470 (7") | JC8012P4A1C (10") |
+| --- | --- | --- |
+| The display reads | 77 | 124 |
+| The 2D DMA copies from PSRAM | 149–160 | 132–139 |
+| The 2D DMA copies from internal memory, bands | 400 | 422–427 |
+| The PPA fills | 202–344 | 307–383 |
+| The PPA mixes a band into the frame buffer | 85 | 91 |
+
+On the 7-inch board a copy is twice as fast as the scan. On the 10-inch board
+a copy from PSRAM is a tenth faster, so anything else that uses the PSRAM
+meanwhile can slow it below the scan, and the PPA mixes slower than the scan:
+there the head start counts.
+
+An area as tall as the screen has no moment in time on either board. The end
+of a frame is counted where the display has read the last row of the frame
+buffer, and it reads the first rows of the next frame into its FIFO at once:
+they count as read at the end of the frame, and a write cannot start before
+it. Such a write is started when the scan leaves its rows, the display may
+come upon its first rows before they are written, and the write is counted in
+`scan_late` of `dgx_dsi_counters()`. On both boards every fill and every copy
+of the whole screen was counted so; halves, quarters and bands never were.
 
 **A fill by the accelerator.** A large rectangle is filled by the PPA
-accelerator, four times faster than the scan. The rule is the same: the bus
-waits for the scan to leave the rows of the rectangle and starts the fill.
-The rectangle appears whole.
+accelerator, at two and a half to four times the speed of the scan. It is
+started by the same rule, at the speed measured for fills. The rectangle
+appears whole unless it is as tall as the screen. A band of a picture mixed
+into the frame buffer by the PPA, with `DGX_VSCREEN_ALPHA` or a mask, is
+started the same way, at the speed measured for mixing.
 
 This has a consequence. A tall rectangle takes nearly all rows of the screen,
 and its fill can be started only in a short gap while the scan is in the
@@ -1167,9 +1252,8 @@ is no tearing at that. What must appear at once has to be drawn in a virtual
 screen and put in one piece, or two buffers taken.
 
 **Writing by the processor through a window.** This is how areas under
-16 KB, textures, 24 bits, a put under an overlay layer, a scaled or turned
-put of a 16-bit screen, any put of a 16-bit screen on a mirrored or rotated
-display, and every put when `CONFIG_DGX_DSI_PRIVATE_DMA2D` is off go. A
+16 KB, textures, 24 bits, a smoothed put of a 16-bit screen, and every put
+when `CONFIG_DGX_DSI_PRIVATE_DMA2D` is off go. A
 transparent put goes by `set_pixel`, pixel by pixel, and is not held back
 as it is written. The processor writes slower than
 the scan, so the rule here is different. Before writing pixels into a
@@ -1255,8 +1339,8 @@ These numbers read differently.
 - The processor writes slower than the scan. If the scan was in the area
   during the put, it went through the place being written, and that is a
   tear. The first column is the share of puts with tearing.
-- The DMA writes twice as fast as the scan and starts when the scan is not in
-  the area. If the scan entered the area later, the write is already ahead of
+- The DMA writes twice as fast as the scan here and starts when the scan is
+  not in the area. If the scan entered the area later, the write is already ahead of
   it, and it reads only the new. The second column does not mean tearing. It
   shows that the scan enters a band seldom, and the whole screen never: the
   put starts in the blanking.
@@ -1322,8 +1406,12 @@ length overflows.
 
 It is done with tiles. The panel is divided into tiles of 32x4 pixels, one
 bit a tile. There are two maps. Each has a 32-bit word per row of tiles; for
-1024x600 that is 150 words, 1200 bytes together. If the panel is wider than
-1024 pixels, the tile is made wider so that a row fits in a word.
+1024x600 that is 150 words, 1200 bytes together. The width of a tile is
+always a power of two: the number of a tile is a shift of the coordinate. If
+the panel is wider than 1024 pixels, the width of a tile is doubled, to 64,
+128 and so on, until a row fits in 32 tiles: a panel 1280 pixels wide gets
+tiles of 64x4, 20 a row. The JD9365 (10") is 800 pixels wide in its own
+orientation, so its tiles stay 32x4.
 
 | Map | What is marked in it |
 | --- | --- |
@@ -1722,8 +1810,10 @@ virtual screen first offers the rows to it, and if the bus declines, sends
 them through a window.
 
 A put offers the rows only at the picture's own size, not turned, with no
-overlay layer over it and no transparency; a scaled or turned 16-bit picture
-goes through a window. The DSI bus takes the rows when all of this holds:
+overlay layer over it, no transparency and no `DGX_VSCREEN_ALPHA`; a 16-bit
+picture scaled, turned, under a layer or mixed goes by `write_indexed` as
+colours of 16 bits, see below, and a smoothed or transparent one through a
+window. The DSI bus takes the rows when all of this holds:
 
 - the pixels are 16-bit, and red and blue do not change places;
 - the screen is neither mirrored nor rotated: the DMA writes only left to
@@ -1732,7 +1822,8 @@ goes through a window. The DSI bus takes the rows when all of this holds:
   through a window while the DMA is still starting. The board measurement
   lowers this threshold to 4–5 KB, see "Measuring the board".
 
-Otherwise the path through a window works.
+Otherwise the picture goes by `write_indexed`, and where that declines too,
+through a window.
 
 JD9165 (7"), one buffer, 256 KB cache, IDF 5.5.4; the cells hold the time of
 putting an area of a virtual screen to the display.
@@ -1823,13 +1914,25 @@ SFX looks at four more pixels around each one and costs 2 to 6 ms more a
 frame on the 10" than plain smoothing; Scale3x costs less than Scale2x twice,
 as it makes the larger picture in one pass.
 
+Since 0.10.16 `write_indexed` takes a picture of 16-bit colours as well,
+`bytes` 2 of `dgx_bus_indexed_t`, each kept the high byte first as a virtual
+screen keeps it: made larger and turned the same way, not smoothed. On a
+turned panel a row of it runs down a column of the picture, and read so,
+pixel after pixel a row of the picture apart, every pixel of a large picture
+is a line of the cache of its own. So the band is made 32 columns of the
+panel at a time: 32 rows of the picture, each read along itself as the rows
+of the panel go down. JD9365 (10"), PSRAM at 250 MHz, IDF 6.1, two buffers:
+a 16-bit picture of 1280x800 takes 68 ms by the bands and 77.6 ms through
+the window; read down its columns it took 571 ms.
+
 An overlay layer of the screen (`dgx_overlay.h`) is mixed into the same
 bands: after the processor has made a band, the part of it under the layer
 gets the layer's colours mixed in. The layer is read along its own rows
 whatever the orientation, empty indices four at a time, and a map of tiles
 of 32 by 32 pixels lets the empty parts be passed over whole. A 16-bit
 virtual screen under the layer cannot go by `write_rows`, which takes its
-rows as they lie, and goes through the window.
+rows as they lie: it went through the window until 0.10.16, as in the table
+below, and goes by `write_indexed` now.
 
 The same board and settings as the table above, with a bench of its own
 instead of the game: a 320x200 picture at `DGX_VSCREEN_SCALE(4)` to the whole
@@ -1854,6 +1957,83 @@ counts too, in the same bench without a layer:
 | Squares | 11.1 ms | 10.5 ms | 9.9 ms | 9.3 ms |
 | Smoothed | 27.2 ms | 26.2 ms | 25.8 ms | 25.2 ms |
 
+Indices with weights of their own, given by `dgx_overlay_set_alphas()`, are
+mixed by a weight looked up for every pixel. A layer whose indices all weigh
+alike keeps one weight for all of them, and an opaque one puts its colours
+without reading the band; each of the three is a loop of its own. The cost
+of the lookup, from a bench of DGX 0.10.16 on the same board with ESP-IDF
+6.1, the mixing alone over the whole screen in bands of 64 KB in internal
+memory, the panel turned as the display is, the scenes as above and "all" a
+layer with something in every pixel:
+
+| Layer | One weight | A weight for each index |
+| --- | --- | --- |
+| Buttons, alpha 160 | 3.17 ms | 3.25 ms |
+| Half, alpha 128 | 37.06 ms | 38.18 ms |
+| All, alpha 160 | 73.28 ms | 75.50 ms |
+
+**Mixed with the frame buffer.** With `DGX_VSCREEN_ALPHA(a)` a band is
+mixed with what the frame buffer has where it goes, `under` of
+`dgx_bus_indexed_t` the weight of that in 32 steps. With two buffers the
+tiles of the rectangle are first brought up to date inside it as well, not
+only around it.
+
+The band can be mixed with the frame buffer by the accelerator or by the
+processor, and their results differ a little.
+
+- The processor goes by the formula of DGX, the same one a virtual screen
+  and any other display are mixed by. The alpha `a` becomes a weight of the
+  picture in 32 steps, w = (a × 32 + 127) / 255, and each channel of a
+  pixel becomes (picture × w + buffer × (32 − w)) / 32 with the remainder
+  dropped. The processor mixes the band with the rows of the frame buffer,
+  and the 2D DMA moves it as it does without mixing.
+- The accelerator reads the band and the frame buffer and writes the result
+  back in one pass. It gets the weight as an 8-bit alpha, w × 255 / 32, and
+  rounds in its own way: the value of red, green or blue may differ from
+  the formula by ±1. This is the limit of accuracy of 16-bit colour itself:
+  red and blue have 32 values in it, green 64, so ±1 is 3.2% and 1.6% of
+  their range. The eye rarely sees such a difference.
+
+Without `DGX_VSCREEN_EXACT` the bus mixes by the accelerator, which is
+faster. It mixes by the processor in two cases: with `DGX_VSCREEN_EXACT`,
+and under an overlay layer. The layer is mixed over the result, so the band
+passes through the processor anyway.
+
+JD9365 (10"), PSRAM at 200 MHz, IDF 6.1, two buffers, the call timed alone:
+
+| Picture | No mixing | Alpha 128, accelerator | Alpha 128, processor, `DGX_VSCREEN_EXACT` |
+| --- | --- | --- | --- |
+| 320x200 indices at `DGX_VSCREEN_SCALE(4)` | 10.1 ms | 81 ms | 133 ms |
+| 16-bit, 1280x800 | 75 ms | 146 ms | 197 ms |
+
+Of 2000 pixels read back after such a put, the processor's mix gave all as
+the formula gives them. With the accelerator it depends on the alpha: at 64
+and 128 (weights 8 and 16 of 32) none was off, at 16, 100, 160, 200 and 240
+from 392 to 641 pixels were off, each by ±1 in red, green or blue.
+
+`DGX_VSCREEN_EXACT` is for when the pixels have to match to the bit what
+DGX gives elsewhere: the same picture mixed in a virtual screen or on
+another display, or a reference in a test. The eye rarely sees ±1, so a
+picture that is only looked at does not need the flag. The price is
+time: at alpha 128 the processor is slower
+than the accelerator by 50 ms and more, 133 ms against 81 and 197 against
+146.
+
+A transparent picture and a smoothed 16-bit one do not go by bands: the
+processor mixes them pixel by pixel through the screen, every pixel read
+back first, with `DGX_VSCREEN_EXACT` or without it. This is slow: a 16-bit
+picture of 1280x800 took 521 ms so.
+
+A mask, `DGX_VSCREEN_MASK`, goes the same way. Its picture is made into the
+band through a table that gives every index itself, and an index is then a
+weight: the processor puts `lut[255]` over the frame buffer by it, or the
+indices become a byte of opacity each in the other band, which nothing
+moves at that moment, and the accelerator puts the colour by them as
+`write_ink` does. Soft spots of 320x200 at `DGX_VSCREEN_SCALE(4)` over a
+16-bit picture on the whole screen, the same board and settings: 101 ms by
+the accelerator, at most ±1 off in a channel, 135 ms by the processor,
+exact; with an alpha of 128 the same.
+
 **Blending by the accelerator.** A colour table the accelerator cannot do:
 the indexed input is commented out in the IDF driver. It can do something
 else: blend a picture with one colour, taking the colour's opacity from an
@@ -1861,7 +2041,7 @@ else: blend a picture with one colour, taking the colour's opacity from an
 is how a pen with a soft edge draws, and its table runs from the colour of
 the paper to the colour of the ink. The put recognises such a table itself:
 none of its colours is further from the straight path between the first and
-the last than one step of red, green or blue. Then the bus is given two
+the last than 1 in the value of red, green or blue. Then the bus is given two
 colours, the first and the last. It fills the rectangle of the frame buffer
 with the first and blends the second into it; the destination is the
 rectangle itself. The processor moves not one pixel. There are no new calls
@@ -1883,11 +2063,11 @@ pairs of colours: all 614 400 pixels of the screen get the colour of their
 amount, zero ink gives exactly the paper, 255 exactly the ink, rectangles
 from one pixel up land in place. Between paper and ink the accelerator
 rounds in its own way, and no exact rule could be found: with the table of
-the `hw_soft_pen_demo` example it differs in 140 colours of 256, everywhere by
-one step of a channel. On one display all pictures with one table go one
+the `hw_soft_pen_demo` example it differs in 140 colours of 256, each time by
+±1 in red, green or blue. On one display all pictures with one table go one
 way.
 
-A channel step is 3.2% of the range of red or blue and 1.6% of green. In
+An error of ±1 is 3.2% of the range of red or blue and 1.6% of green. In
 brightness, with the colours of the same example, it comes to no more than
 2.3% of full when all three channels go one way, and 0.5% on average over the
 table. Only the colours between the first and the last differ, that is the
@@ -2269,6 +2449,10 @@ flashes.
 
 **What helped.** PSRAM at 250 MHz; or two frame buffers at 200 MHz.
 
+**What 250 MHz costs.** Nothing that has been proven. The "Illegal
+instruction" first laid at its door came from the instruction cache, at
+200 MHz as well, see "Illegal instruction on the 10.1-inch board".
+
 **The FIFO level of the bridge.** `fifo_flow_status.raw_buf_depth` (up to
 980) was read about 9.4 million times a second from the second core. With
 nothing drawn it drops to 0 exactly once a frame, for about 4130 reads, in
@@ -2297,6 +2481,94 @@ So the underrun report does not betray a flash: at 16 bits the flashes came
 without reports, at 24 bits there were far more reports than flashes. Why is
 unknown.
 
+## Illegal instruction on the 10.1-inch board
+
+On the JC8012P4A1C (ESP32-P4 revision 3.2, CPU at 400 MHz, ESP-IDF 6.1) a
+program that kept the display busy, pictures put whole one after another for
+long, stopped now and then with "Illegal instruction". Since 0.10.16 DGX
+keeps the code where it happened in the instruction cache, and with that the
+same load has not stopped. Whether another board of this kind shows it is
+not known. The 7-inch JC1060P470 (revision 1.3, CPU at 360 MHz) did not, in
+ten minutes of the same load.
+
+**What it is.** The program stopped in the code of FreeRTOS that takes the
+spinlock of a critical section, `xPortEnterCriticalTimeout()`, entered from
+an interrupt: most often at the start of a line of the cache (64 bytes) or
+two bytes after it. The registers the panic printed tell what ran there. The
+instruction `addi s1,s1,-563`, which starts two bytes before a line and ends
+in it, had left in `s1` the value of `ra`: it had run as `addi s1,ra,0`. Its
+upper half, the first bytes of the next line, had come as zeros, and so had
+the next instruction, 0x0000, which is no instruction. Halted at the panic,
+the code in internal RAM read back by JTAG matched the program's file byte
+for byte. So a line of the instruction cache now and then came from internal
+RAM as zeros, with the memory intact. No erratum of Espressif for revision 3
+tells of it; neither does the advisory for revision 3.2.
+
+**What decides it.** Where the code lies after a build: not the PSRAM clock,
+not the clock of the CPU. The same bench on the JC8012P4A1C, one frame buffer,
+fills, copies and pictures through a table one after another, each run ten
+minutes:
+
+| Build | `xPortEnterCriticalTimeout()` at | CPU, PSRAM | Stops |
+| --- | --- | --- | --- |
+| as it is | 0x4FF4A07A | 400, 200 MHz | 6, 8, 9 and 9 in four runs |
+| with power management on, the clock held | 0x4FF4A71C | 200 or 400, 200 MHz | none in two runs |
+| with a piece of 1696 bytes of code put before it | 0x4FF4A71A | 400, 200 MHz | none |
+| with a piece of 1664 bytes, exactly 26 lines, so the same instruction lies across a line again | 0x4FF4A6FA | 400, 200 MHz | 3, all at the moved address |
+| as it is, the code kept in the cache | 0x4FF4A07A | 400, 200 MHz | none, with a write to flash three times a second |
+
+The stop moved with the code, so it is the code at those offsets in a line
+that meets it, not a place in memory. Power management changes nothing here
+but where the code lies. The crossfade that first showed it, at 250 MHz,
+stopped about every 25 seconds in builds that had the function at
+0x4FF4A020; the builds at 200 MHz that ran clean had it elsewhere. So the
+200 and 250 MHz compared then were two layouts of the code as well, and
+whether the PSRAM clock adds to it at all is not known.
+
+**What DGX does.** `dgx_dsi_init()` keeps the code every interrupt runs in
+the L1 instruction caches of both cores: the port of FreeRTOS from its first
+function to its last (critical sections, the entry and exit of an interrupt,
+the tick), 2.5 KB in ESP-IDF 6.1 and 3.7 KB in 5.5.4, the handler every
+interrupt starts in, and the atomic exchange of a spinlock. Such a cache has
+16 KB, four ways of 64 sets of 64-byte lines. A piece of up to 4 KB takes
+one way in the sets it covers, and all other code keeps three ways there.
+
+The result: kept so, the program no longer stops. The bench that had stopped
+6 to 9 times in ten minutes did not stop at all, and `alpha_demo` at 250 MHz,
+which had stopped about every 25 seconds, ran twenty minutes.
+
+There is more than one way to keep code in the cache, and the first did not
+work. The same bench, the same layout of the code, ten minutes each:
+
+| How the code is kept | Stops |
+| --- | --- |
+| not at all | 6–9 |
+| locked by hand after the display has started | 9 |
+| locked by hand, the lines loaded into the cache first | 4 |
+| by the sections of prelock, as DGX does | none |
+
+A lock taken by hand takes only the lines the cache holds at that moment, and
+after the display has started other code has pushed some of them out. Each
+cache also has two sections of prelock: a line of such a section is locked
+whenever it is loaded. DGX sets them to the port and to the handler, drops
+those lines and loads them again, locked.
+
+A write to flash does not undo it, though ESP-IDF turns the caches off for
+every write. The bench wrote to NVS (`nvs_set_u32()` and `nvs_commit()`)
+three times a second, 1782 writes in ten minutes, and did not stop. A program
+that uses NVS or writes to flash another way has nothing to do.
+
+The calls are those of the ROM of the chip (`Cache_Enable_L1_CORE0_ICache_PreLock()`
+and the like), whose header says not to call them from a program; ESP-IDF
+has no other way to it. A program that keeps code in the cache itself turns
+`CONFIG_DGX_DSI_LOCK_INTERRUPT_CODE` off.
+
+A thread of the Espressif forum,
+[ESP32-P4 HP Core voltage issue](https://esp32.com/viewtopic.php?p=153253),
+tells of the same kind of failure, wrong instructions, on a board of its own
+whose core supply lay outside 1.20 to 1.27 V. The core supply of this board
+was not measured.
+
 ## A picture scrolled
 
 `dgx_scroll()` shifts what a rectangle of the screen shows within it. A panel
@@ -2315,8 +2587,9 @@ it lacks in both places together, as before any drawing that reads. Then
 `memmove()`, from the side the picture goes to, so that no row is overwritten
 before it is read. A rectangle of the screen is a rectangle of the panel
 however the screen lies on it, and shifting one is shifting the other: the
-screen may be mirrored and rotated. On a screen in portrait a shift along y
-is a shift along the panel's rows, within each row.
+screen may be mirrored and rotated. On a screen turned a quarter round on
+the panel a shift along y is a shift along the panel's rows, within each
+row.
 
 The `figures_scroll_demo` example, JD9165 (7"), 16 bits, two buffers, 128 KB
 cache, IDF 5.5.4. The first five rows are several shifts in one batch; the
@@ -2601,6 +2874,7 @@ the JD9165 (7") its aiming was only built.
 | 0.7.1 | disposing of the bus stops the copies the 2D DMA makes after a swap and waits for them before it deletes the panel and its frame buffers |
 | 0.7.2 | disposing of the bus right after a swap drops the pieces not yet started: it waited 250–500 ms for them and logged a false warning |
 | 0.9.3 | 0.9.2 was not released, its work came with this version. A display whose start failed can be made again on the same bus. Where frames are counted at the buffer switch, a batch finished in the last 0.3 ms of a frame waits one more frame, `DGX_FB_FLIP_SWITCH_US`, and the bus counts the frame first thing in its interrupt. A wait for the scan no longer ends at once when the end of a frame is due but not yet counted. The configuration of `dma2d_enqueue()` lives in the bus, not on the stack. With `CONFIG_LCD_DSI_ISR_CACHE_SAFE` or `CONFIG_DMA2D_ISR_IRAM_SAFE` but no `CONFIG_DMA2D_OPERATION_FUNC_IN_IRAM` the copy after the swap is off. A piece is left for that copy only when its rows start and end on cache lines. The interrupt that finishes a late piece reads the number of pieces before it marks its piece done. The bands of `write_indexed` are taken with `MALLOC_CAP_DMA` |
+| 0.10.16 | `write_indexed` takes 16-bit colours too: a 16-bit picture scaled, turned or under an overlay layer goes by bands instead of through the window; `DGX_VSCREEN_ALPHA` mixes a band with the frame buffer by the accelerator or by the processor; every index of an overlay layer may weigh its own; behind the scan a write of the 2D DMA or the PPA is started by its measured speed, early enough for a write slower than the scan; the code of interrupts is kept in the instruction cache against "Illegal instruction" on the 10-inch board |
 
 ### The strips of 0.5.4
 

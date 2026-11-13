@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "dgx_bitmap.h"
 #include "dgx_bits.h"
@@ -190,7 +191,7 @@ static int font_depth(const dgx_font_t *font)
 /* whether colors of this many bits are mixed, channel by channel; 8 bits are an amount of ink */
 static bool mixable_bits(int bits)
 {
-    return bits == 8 || bits == 12 || bits == 16 || bits == 18 || bits == 24;
+    return bits == 4 || bits == 8 || bits == 12 || bits == 16 || bits == 18 || bits == 24;
 }
 
 static uint32_t mix_channel(uint32_t under, uint32_t color, unsigned a, unsigned shift, uint32_t mask)
@@ -200,13 +201,16 @@ static uint32_t mix_channel(uint32_t under, uint32_t color, unsigned a, unsigned
 }
 
 /*
- * `color` over `under` by a of 255, rounded, each channel in its own width: 8 bits one amount of ink; 12 bits nibbles
+ * `color` over `under` by a of 255, rounded, each channel in its own width: 4 bits a gray level in the high nibble, as
+ * the SSD1322 has it; 8 bits one amount of ink; 12 bits nibbles
  * at 15..12, 11..8 and 7..4 (DGX_RGB_12); 16 bits 5, 6 and 5; 18 bits the six high bits of each byte (DGX_RGB_18);
  * 24 bits a byte each.
  */
 static uint32_t mix_color(int bits, uint32_t under, uint32_t color, unsigned a)
 {
     switch (bits) {
+    case 4:
+        return mix_channel(under, color, a, 4, 15);
     case 8:
         return mix_channel(under, color, a, 0, 0xff);
     case 12:
@@ -751,6 +755,132 @@ static void fill_cell(const dgx_font_context_t *ctx, int x, int y, const char *s
     dgx_fill_rectangle(ctx->scr, x + sx, y + sy, sw, sh, ctx->bg);
 }
 
+#ifdef DGX_FONT_VSCREEN_FAST_PATH
+/* a band of rows of the cell of a text, as levels of its font: what a glyph puts there, the greater level where two meet */
+typedef struct {
+    uint8_t *band;
+    int      width, first, rows; /* the band holds the rows first .. first + rows - 1 of the cell, `width` levels a row */
+    int      x0, y0;             /* where the glyph's box lies in the cell */
+    int      level;              /* the level of an ink pixel of a font of one bit */
+} cell_band_t;
+
+static void band_put(cell_band_t *b, int x, int y, int level)
+{
+    const int row = b->y0 + y - b->first, column = b->x0 + x;
+    if (row < 0 || row >= b->rows || column < 0 || column >= b->width) return;
+    uint8_t *at = b->band + (size_t)row * b->width + column;
+    if (level > *at) *at = (uint8_t)level;
+}
+
+static bool band_ink(void *user_data, int x, int y)
+{
+    cell_band_t *b = user_data;
+    band_put(b, x, y, b->level);
+    return true;
+}
+
+/*
+ * DGX_FONT_FILL on a display behind a bus that cannot be read, 16 bits a
+ * pixel: the cell of the text made by bands of its rows, the level of every
+ * pixel, 0 the paper, the greater one where two glyphs meet, and every band
+ * sent through a table of the colors of the levels, turned and scaled by the
+ * transfer of a virtual screen. Every pixel of the cell is written once, in
+ * one window a band: the old number does not go before the new one comes, as
+ * it does when the cell is filled with the paper first. The text drawn so is
+ * the one the paper and the letters drawn after it give, but where two
+ * glyphs meet with an edge each. Returns false, with nothing drawn, for
+ * another screen, a font that is not of bitmaps, or no memory for a band.
+ */
+static bool fill_in_one_pass(const dgx_font_context_t *ctx, int x, int y, const char *str, const uint32_t *table, int *advance)
+{
+    dgx_screen_t     *scr  = ctx->scr;
+    const dgx_font_t *font = ctx->font;
+    if (scr->screen_subtype != DgxPhysicalScreenWithBus || dgx_screen_is_readable(scr) || scr->color_bits != 16) return false;
+    if (font->f_type != DGX_FONT_BITMAP_LINES && font->f_type != DGX_FONT_BITMAP_STREAM && font->f_type != DGX_FONT_BITMAP_DEPTH2 &&
+        font->f_type != DGX_FONT_BITMAP_DEPTH4)
+        return false;
+    const int scale = ctx->scale ? ctx->scale : 1, depth = font_depth(font), top = (1 << depth) - 1, unit = 255 / top;
+    /* the cell in pixels of the font: from the start of the line to the end of its advances, wider where a letter sticks out */
+    int    pen = 0, left = 0, right = 0;
+    size_t idx = 0;
+    while (str[idx]) {
+        int16_t        step;
+        const glyph_t *g = dgx_font_find_glyph(decodeUTF8next(str, &idx), (dgx_font_t *)font, &step);
+        if (g && g->width > 0) {
+            if (pen + g->xOffset < left) left = pen + g->xOffset;
+            if (pen + g->xOffset + g->width > right) right = pen + g->xOffset + g->width;
+        }
+        pen += step;
+    }
+    if (pen > right) right = pen;
+    *advance = pen * scale;
+    const int width = right - left, height = font->yBottomMax - font->yOffsetLowest;
+    if (width <= 0 || height <= 0) return true;
+    /* the colors of the levels: mixed over the paper, or cut as DGX_FONT_HARD and DGX_FONT_MONO ask */
+    int cut = 0;
+    if (ctx->flags & DGX_FONT_HARD) cut = 1;
+    else if ((ctx->flags & DGX_FONT_MONO) || (depth > 1 && !table)) cut = (DGX_FONT_INK_THRESHOLD + unit - 1) / unit;
+    /* a band of 2 KB at most, a row at least; the table of 256 colors before it */
+    const int rows = width >= 2048 ? 1 : (2048 / width < height ? 2048 / width : height);
+    uint8_t  *memory = malloc(512u + (size_t)width * rows);
+    if (!memory) return false;
+    uint16_t *lut = (uint16_t *)(void *)memory;
+    for (int k = 0; k < 256; ++k) {
+        const int level = k > top ? top : k;
+        lut[k] = (uint16_t)(cut ? (level >= cut ? ctx->color : ctx->bg) : depth == 1 ? (level ? ctx->color : ctx->bg) : table[level]);
+    }
+    uint8_t      *band = memory + 512;
+    dgx_screen_t *picture = dgx_vscreen_from_array(band, width, rows, 8, DgxScreenRGB);
+    if (!picture) {
+        free(memory);
+        return false;
+    }
+    cell_band_t b = {.band = band, .width = width, .rows = rows};
+    for (int first = 0; first < height; first += rows) {
+        const int n = height - first < rows ? height - first : rows;
+        memset(band, 0, (size_t)width * n);
+        b.first = first;
+        int at = 0;
+        idx    = 0;
+        while (str[idx]) {
+            int16_t        step;
+            const glyph_t *g = dgx_font_find_glyph(decodeUTF8next(str, &idx), (dgx_font_t *)font, &step);
+            if (g && g->width > 0 && g->bitmap) {
+                b.x0 = at + g->xOffset - left;
+                b.y0 = g->yOffset - font->yOffsetLowest;
+                /* the rows of the glyph in this band */
+                const int from = b.first - b.y0 > 0 ? b.first - b.y0 : 0, to = b.first + n - b.y0 < g->height ? b.first + n - b.y0 : g->height;
+                if (from < to) {
+                    if (depth == 1) {
+                        dgx_bw_bitmap_t bmap = dgx_bw_bitmap_make_of((uint8_t *)g->bitmap, g->width, g->height, font->f_type == DGX_FONT_BITMAP_STREAM);
+                        b.level              = 1;
+                        dgx_bw_bitmap_foreach_set(&bmap, band_ink, &b);
+                    } else {
+                        const int pitch = (g->width * depth + 7) / 8;
+                        for (int gy = from; gy < to; ++gy) {
+                            const uint8_t *row = g->bitmap + gy * pitch;
+                            for (int gx = 0; gx < g->width; ++gx) {
+                                const int level = glyph_level(row, gx, depth, top);
+                                if (level) band_put(&b, gx, gy, level);
+                            }
+                        }
+                    }
+                }
+            }
+            at += step;
+        }
+        /* where the band lies on the screen, as a rectangle of the upright text turned */
+        int sx, sy, sw, sh;
+        text_rect(ctx->orientation, left * scale, (font->yOffsetLowest + first) * scale, width * scale, n * scale, &sx, &sy, &sw, &sh);
+        dgx_vscreen8_region_to_screen16(scr, x + sx, y + sy, picture, 0, 0, width, n, lut,
+                                        DGX_VSCREEN_SCALE(scale) | DGX_VSCREEN_ORIENTED(ctx->orientation) | DGX_VSCREEN_EXACT);
+    }
+    dgx_screen_destroy(&picture);
+    free(memory);
+    return true;
+}
+#endif
+
 int dgx_font_draw(const dgx_font_context_t *ctx, int x, int y, const char *str)
 {
     if (!ctx || !ctx->scr || !ctx->font || !str) return 0;
@@ -759,6 +889,13 @@ int dgx_font_draw(const dgx_font_context_t *ctx, int x, int y, const char *str)
     uint32_t   colors[16];
     const uint32_t *table = soft_table(ctx, colors);
     dgx_screen_progress_up(ctx->scr);
+#ifdef DGX_FONT_VSCREEN_FAST_PATH
+    int advance;
+    if ((ctx->flags & DGX_FONT_FILL) && fill_in_one_pass(ctx, x, y, str, table, &advance)) {
+        dgx_screen_progress_down(ctx->scr);
+        return advance;
+    }
+#endif
     if (ctx->flags & DGX_FONT_FILL) fill_cell(ctx, x, y, str);
     int    pen = 0;
     size_t idx = 0;
@@ -786,6 +923,13 @@ int dgx_font_draw_char(const dgx_font_context_t *ctx, int x, int y, uint32_t cod
         else
             one[0] = (char)(0xF0 | code_point >> 18), one[1] = (char)(0x80 | ((code_point >> 12) & 0x3F)),
             one[2] = (char)(0x80 | ((code_point >> 6) & 0x3F)), one[3] = (char)(0x80 | (code_point & 0x3F));
+#ifdef DGX_FONT_VSCREEN_FAST_PATH
+        int whole;
+        if (one[0] && fill_in_one_pass(ctx, x, y, one, table, &whole)) {
+            dgx_screen_progress_down(ctx->scr);
+            return whole;
+        }
+#endif
         if (one[0]) fill_cell(ctx, x, y, one);
     }
     const int advance = font_char(ctx, x, y, code_point, table);

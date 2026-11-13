@@ -107,6 +107,26 @@ static void dgx_overlay_look(dgx_overlay_t *overlay)
     }
 }
 
+/*
+ * The weight of every index in 32 steps, its color times it and the weight of what lies under it: the share of the
+ * index times the alpha of the layer, rounded to 255, then to 32, so that 255 for an index leaves the alpha of the
+ * layer as it is.
+ */
+static void dgx_overlay_weigh(dgx_overlay_t *overlay)
+{
+    bool same = true;
+    for (int i = 0; i < 256; ++i) {
+        const uint32_t alpha  = ((uint32_t)overlay->alphas[i] * overlay->alpha + 127u) / 255u;
+        const uint32_t weight = (alpha * 32u + 127u) / 255u;
+        overlay->under[i]     = (uint8_t)(32u - weight);
+        overlay->pre[i]       = ((overlay->lut[i] | (uint32_t)overlay->lut[i] << 16) & 0x07E0F81Fu) * weight;
+        if (i > 1 && overlay->under[i] != overlay->under[1]) same = false;
+    }
+    /* the indices that weigh alike are mixed by one weight, as fast as before the weights of the indices */
+    overlay->bus.under  = overlay->under[1];
+    overlay->bus.unders = same ? NULL : overlay->under;
+}
+
 /* the layer taken away; the screen keeps what it has changed until that is taken */
 static void dgx_overlay_detach(dgx_overlay_t *overlay)
 {
@@ -121,6 +141,8 @@ static void dgx_overlay_detach(dgx_overlay_t *overlay)
     free(overlay->tiles);
     overlay->tiles = NULL;
     bus->tiles     = NULL;
+    /* the shares of the indices belong to the layer */
+    memset(overlay->alphas, 255, sizeof(overlay->alphas));
 }
 
 void dgx_overlay_forget(dgx_screen_t *scr)
@@ -145,6 +167,7 @@ bool dgx_overlay_set(dgx_screen_t *display, dgx_screen_t *layer, int x, int y, c
         if (!overlay) return false;
         overlay->display = display;
         display->overlay = overlay;
+        memset(overlay->alphas, 255, sizeof(overlay->alphas));
     }
     dgx_bus_overlay_t *bus = &overlay->bus;
     if (!overlay->layer) {
@@ -165,12 +188,23 @@ bool dgx_overlay_set(dgx_screen_t *display, dgx_screen_t *layer, int x, int y, c
     bus->pitch  = (uint32_t)layer->width;
     bus->x      = x;
     bus->y      = y;
-    /* the weight of the layer in 32 steps, and its colors times it */
-    const uint32_t weight = ((uint32_t)alpha * 32u + 127u) / 255u;
-    bus->under            = 32u - weight;
-    for (int i = 0; i < 256; ++i) overlay->pre[i] = ((lut[i] | (uint32_t)lut[i] << 16) & 0x07E0F81Fu) * weight;
+    memcpy(overlay->lut, lut, sizeof(overlay->lut));
+    overlay->alpha = alpha;
+    dgx_overlay_weigh(overlay);
     bus->pre = overlay->pre;
     dgx_overlay_look(overlay);
+    if (bus->right >= bus->left) dgx_overlay_changed(overlay, bus->left, bus->top, bus->right, bus->bottom);
+    return true;
+}
+
+bool dgx_overlay_set_alphas(dgx_screen_t *display, const uint8_t *alphas)
+{
+    dgx_overlay_t *overlay = display->overlay;
+    if (!overlay || overlay->display != display || !overlay->layer) return false;
+    if (alphas) memcpy(overlay->alphas, alphas, sizeof(overlay->alphas));
+    else memset(overlay->alphas, 255, sizeof(overlay->alphas));
+    dgx_overlay_weigh(overlay);
+    const dgx_bus_overlay_t *bus = &overlay->bus;
     if (bus->right >= bus->left) dgx_overlay_changed(overlay, bus->left, bus->top, bus->right, bus->bottom);
     return true;
 }
@@ -197,6 +231,31 @@ bool dgx_overlay_take_dirty(dgx_screen_t *display, int *x, int *y, int *width, i
     return changed;
 }
 
+/*
+ * The run of indices that are not empty from j on, in a row kept two bytes a pixel with the high one first; where it
+ * ends. `way` is a constant at every call, so that each way is a loop of its own with no branch in it: on the CYD a
+ * test of the weight of every pixel made the mixing a tenth slower, mixing without one a tenth faster.
+ */
+static inline __attribute__((always_inline)) uint32_t dgx_overlay_row_run(const dgx_bus_overlay_t *overlay, uint8_t *at, const uint8_t *index,
+                                                                         uint32_t j, uint32_t n, dgx_overlay_way_t way)
+{
+    const uint32_t *pre = overlay->pre;
+    for (; j < n && index[j]; ++j) {
+        uint8_t       *pixel = at + 2 * j;
+        const uint32_t color = pre[index[j]];
+        if (way == DGX_OVERLAY_PUT) {
+            pixel[0] = (uint8_t)(color >> 13 | color >> 29);
+            pixel[1] = (uint8_t)(color >> 5 | color >> 21);
+            continue;
+        }
+        const uint32_t below = way == DGX_OVERLAY_ONE ? overlay->under : overlay->unders[index[j]];
+        const uint16_t mixed = dgx_bus_overlay_mix((uint16_t)(pixel[0] << 8 | pixel[1]), color, below);
+        pixel[0]             = (uint8_t)(mixed >> 8);
+        pixel[1]             = (uint8_t)mixed;
+    }
+    return j;
+}
+
 void dgx_overlay_row(const dgx_bus_overlay_t *overlay, uint8_t *row, int x, int y, int count)
 {
     if (y < overlay->top || y > overlay->bottom) return;
@@ -204,17 +263,13 @@ void dgx_overlay_row(const dgx_bus_overlay_t *overlay, uint8_t *row, int x, int 
     if (from > to) return;
     const uint8_t  *index = overlay->pixels + (size_t)(y - overlay->y) * overlay->pitch + (size_t)(from - overlay->x);
     uint8_t        *at    = row + 2 * (from - x);
-    const uint32_t  n = (uint32_t)(to - from + 1), under = overlay->under;
-    const uint32_t *pre = overlay->pre;
-    const int32_t lx = from - overlay->x, ly = y - overlay->y;
+    const uint32_t  n = (uint32_t)(to - from + 1);
+    const int32_t   lx = from - overlay->x, ly = y - overlay->y;
+    const dgx_overlay_way_t way = dgx_overlay_way_of(overlay);
     for (uint32_t j = dgx_overlay_next_in(overlay, index, lx, ly, 0, n); j < n; j = dgx_overlay_next_in(overlay, index, lx, ly, j, n)) {
-        /* a run of indices that are not empty */
-        for (; j < n && index[j]; ++j) {
-            uint8_t       *pixel = at + 2 * j;
-            const uint16_t mixed = under ? dgx_bus_overlay_mix((uint16_t)(pixel[0] << 8 | pixel[1]), pre[index[j]], under)
-                                         : (uint16_t)((pre[index[j]] >> 5) | (pre[index[j]] >> 21));
-            pixel[0]             = (uint8_t)(mixed >> 8);
-            pixel[1]             = (uint8_t)mixed;
-        }
+        /* a run of indices that are not empty, by the loop of the way the layer weighs */
+        j = way == DGX_OVERLAY_PUT     ? dgx_overlay_row_run(overlay, at, index, j, n, DGX_OVERLAY_PUT)
+            : way == DGX_OVERLAY_ONE ? dgx_overlay_row_run(overlay, at, index, j, n, DGX_OVERLAY_ONE)
+                                     : dgx_overlay_row_run(overlay, at, index, j, n, DGX_OVERLAY_EACH);
     }
 }

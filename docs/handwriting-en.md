@@ -461,9 +461,10 @@ color of the ink, and such a display is given not the table but its first
 color and its last: the rest it mixes by the bytes of the page, and the
 processor carries no pixel. For now that is a DSI display of an ESP32-P4
 with two frame buffers. The paper and all the ink come out as the table has
-them. A color between them may differ from the table by one step of a
-channel: 3.2% of the range of red or blue and 1.6% of green, in brightness
-2.3% of full at most and 0.5% on the average. `DGX_VSCREEN_EXACT` in place of
+them. A color between them may differ from the table by ±1 in red, green
+or blue, the limit of accuracy of 16-bit color: 3.2% of the range of red or
+blue and 1.6% of green, in brightness 2.3% of full at most and 0.5% on the
+average. The eye rarely sees it. `DGX_VSCREEN_EXACT` in place of
 `false` asks for the colors of the table to the last bit, and the page goes
 through the table then. Where there is nothing to mix with, the flag changes
 nothing.
@@ -681,7 +682,7 @@ On an ESP32 the same drawing takes up to a third longer, and going through
 the strokes up to twice as long, by where the linker has put the tables of
 the font: code and the font share one flash cache. Two settings,
 `CONFIG_DGX_HW_FONT_IN_IRAM` and `CONFIG_DGX_BEZIER_IN_IRAM`, keep the code
-of the layout and the code of the pen in IRAM, 4.1 and 9.3 KB, and the time
+of the layout and the code of the pen in IRAM, 4.1 and 10.3 KB, and the time
 no longer depends on a build; both are off by default. The timings are in
 [pen-en.md](pen-en.md#the-flash-cache).
 

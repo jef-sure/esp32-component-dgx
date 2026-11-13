@@ -5328,7 +5328,375 @@ C 36
 D 28
 G 1 0
 G 1 1
-## nv3041a refused 18 rgb
+## nv3041a 18 rgb
+M 1 2
+G 1 0
+M 4 2
+G 4 1
+W 10
+G 4 0
+W 10
+G 4 1
+W 120
+C 01
+S
+W 120
+C ff
+D a5
+C 36
+D c0
+C 3a
+D 00
+C 41
+D 03
+C 44
+D 15
+C 45
+D 15
+C 7d
+D 03
+C c1
+D ab
+C c2
+D 17
+C c3
+D 10
+C c6
+D 3a
+C c7
+D 25
+C c8
+D 11
+C 7a
+D 49
+C 6f
+D 2f
+C 78
+D 4b
+C c9
+D 00
+C 67
+D 33
+C 51
+D 4b
+C 52
+D 7c
+C 53
+D 1c
+C 54
+D 77
+C 46
+D 0a
+C 47
+D 2a
+C 48
+D 0a
+C 49
+D 1a
+C 56
+D 43
+C 57
+D 42
+C 58
+D 3c
+C 59
+D 64
+C 5a
+D 41
+C 5b
+D 3c
+C 5c
+D 02
+C 5d
+D 3c
+C 5e
+D 1f
+C 60
+D 80
+C 61
+D 3f
+C 62
+D 21
+C 63
+D 07
+C 64
+D e0
+C 65
+D 01
+C ca
+D 20
+C cb
+D 52
+C cc
+D 10
+C cd
+D 42
+C d0
+D 20
+C d1
+D 52
+C d2
+D 10
+C d3
+D 42
+C d4
+D 0a
+C d5
+D 32
+C 80
+D 04
+C a0
+D 00
+C 81
+D 07
+C a1
+D 05
+C 82
+D 06
+C a2
+D 04
+C 86
+D 2c
+C a6
+D 2a
+C 87
+D 46
+C a7
+D 44
+C 83
+D 39
+C a3
+D 39
+C 84
+D 3a
+C a4
+D 3a
+C 85
+D 3f
+C a5
+D 3f
+C 88
+D 08
+C a8
+D 08
+C 89
+D 0f
+C a9
+D 0f
+C 8a
+D 17
+C aa
+D 17
+C 8b
+D 10
+C ab
+D 10
+C 8c
+D 16
+C ac
+D 16
+C 8d
+D 14
+C ad
+D 14
+C 8e
+D 11
+C ae
+D 11
+C 8f
+D 14
+C af
+D 14
+C 90
+D 06
+C b0
+D 06
+C 91
+D 0f
+C b1
+D 0f
+C 92
+D 16
+C b2
+D 16
+C ff
+D 00
+C 11
+S
+W 120
+C 36
+D c0
+C 21
+S
+W 20
+S
+C 2a
+D 00 00 01 df
+C 2b
+D 00 00 01 0f
+C 2c
+P 3133440 d2e61dd39a70ab25
+S
+C 29
+S
+W 100
+G 1 1
+# turn lr tb
+C 36
+D c0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb
+C 36
+D 80
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt
+C 36
+D 40
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt
+C 36
+D 00
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr tb swap
+C 36
+D e0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl tb swap
+C 36
+D a0
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn lr bt swap
+C 36
+D 60
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# turn rl bt swap
+C 36
+D 20
+S
+C 2a
+D 00 01 00 01
+C 2b
+D 00 02 00 02
+C 2c
+P 24 d93c71186c015df1
+S
+C 2a
+D 00 03 00 0c
+C 2b
+D 00 04 00 09
+C 2c
+P 1440 2bbd46ad73b28695
+S
+# fill
+S
+C 2a
+D 00 00 01 0f
+C 2b
+D 00 00 01 df
+C 2c
+P 3133440 4313d6ca6a5a1d25
+S
+G 1 0
+G 1 1
+## nv3041a refused 12 rgb
 ## st77916 16 rgb
 M 1 2
 G 1 0

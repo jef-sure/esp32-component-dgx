@@ -172,6 +172,26 @@ const dgx_panel_t dgx_panel_st7789_76x284 = {
     .init           = st7789p3_init_cmds,
 };
 
+/*
+ * The 135 columns of the 1.14" glass from column 52 of the 240, its 240 rows
+ * from row 40 of the 320: in the middle, which an odd 105 columns left over
+ * put one column nearer the start. Mirrored, the panel counts from the other
+ * end, 53. TFT_eSPI and Adafruit_ST7789 put it so: 52 without MX, 53 with it.
+ */
+const dgx_panel_t dgx_panel_st7789_135x240 = {
+    .name           = "ST 7789",
+    .width          = 135,
+    .height         = 240,
+    .memory_width   = 240,
+    .memory_height  = 320,
+    .x_offset       = 52,
+    .y_offset       = 40,
+    .colmod         = {0x33, 0x55, 0x66},
+    .reset_low_ms   = 100,
+    .reset_after_ms = 100,
+    .init           = st7789_init_cmds,
+};
+
 // Initialize the display
 dgx_screen_t *dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo, st7789_resolution_t resolution)
 {
@@ -188,6 +208,10 @@ dgx_screen_t *dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
     case ST7789_RESOLUTION_284x76:
         panel = &dgx_panel_st7789_76x284;
         break;
+    case ST7789_RESOLUTION_135x240:
+    case ST7789_RESOLUTION_240x135:
+        panel = &dgx_panel_st7789_135x240;
+        break;
     default:
         ESP_LOGE(TAG, "Unsupported ST7789 resolution %d", (int)resolution);
         return NULL;
@@ -198,7 +222,7 @@ dgx_screen_t *dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t 
      * comes after the functions of the screen, which take the screen as not
      * turned: the screen says how it lies, as the panel is told.
      */
-    if (scr && (resolution == ST7789_RESOLUTION_320x240 || resolution == ST7789_RESOLUTION_284x76))
+    if (scr && (resolution == ST7789_RESOLUTION_320x240 || resolution == ST7789_RESOLUTION_284x76 || resolution == ST7789_RESOLUTION_240x135))
         dgx_panel_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
     return scr;
 }

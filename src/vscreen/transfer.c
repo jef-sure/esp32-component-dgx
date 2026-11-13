@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "dgx_alpha_priv.h"
 #include "dgx_arch.h"
 #include "dgx_bits.h"
 #include "dgx_draw.h"
@@ -35,6 +36,7 @@ typedef struct {
     uint8_t scale;  /* 1 to 255 */
     uint8_t smooth; /* 0, DGX_BUS_SMOOTH or DGX_BUS_SMOOTH_SFX; 0 at any scale but 2, 3 and 4 */
     uint8_t turn;   /* a dgx_output_orientation_t: bit 0 the columns of the source from the right, bit 1 its rows from the bottom, bit 2 the axes swapped */
+    uint32_t weight; /* of the picture over what lies under it, 0 to 32: 32 without DGX_VSCREEN_ALPHA */
 } dgx_transfer_asked_t;
 
 static dgx_transfer_asked_t dgx_transfer_asked(uint32_t flags)
@@ -46,6 +48,7 @@ static dgx_transfer_asked_t dgx_transfer_asked(uint32_t flags)
     /* SFX is a way of smoothing: its bit means nothing without DGX_VSCREEN_SMOOTH, which DGX_VSCREEN_SMOOTH_SFX holds */
     asked.smooth      = asked.scale < 2 || asked.scale > 4 || !(flags & DGX_VSCREEN_SMOOTH) ? 0 : flags & 8u ? DGX_BUS_SMOOTH_SFX : DGX_BUS_SMOOTH;
     asked.turn        = (uint8_t)((flags >> 16) & 7u);
+    asked.weight      = dgx_alpha_weight(flags);
     return asked;
 }
 
@@ -151,20 +154,23 @@ static inline bool dgx_transfer_virtual(const dgx_screen_t *scr)
 /* ------------------------------------------------------------------------- */
 
 /*
- * A row of 16-bit pixels into the halves, the overlay layer of the screen
- * mixed in on the way: the pixels from x on of the row y of the screen.
+ * A row of pixels of `bytes` each into the halves, mixed on the way with
+ * what lies under them by the alpha of the transfer, then with the overlay
+ * layer of a 16-bit screen: the pixels from x on of the row y of the screen.
  */
-static void dgx_vscreen_send_row_over(dgx_vscreen_halves_t *h, const uint8_t *src, uint32_t bytes, const dgx_bus_overlay_t *overlay, int x, int y)
+static void dgx_vscreen_send_row_over(dgx_vscreen_halves_t *h, const uint8_t *src, uint32_t len, uint8_t bytes, const dgx_bus_overlay_t *overlay,
+                                      const dgx_alpha_t *alpha, int x, int y)
 {
-    while (bytes) {
+    while (len) {
         const uint32_t room  = dgx_vscreen_halves_room(h);
-        const uint32_t chunk = bytes < room ? bytes : room;
+        const uint32_t chunk = len < room ? len : room;
         memcpy(h->at, src, chunk);
-        dgx_overlay_row(overlay, h->at, x, y, (int)(chunk / 2u));
-        x += (int)(chunk / 2u);
+        if (alpha) dgx_alpha_row_on(alpha, h->scr, h->at, x, y, chunk / bytes, bytes);
+        if (overlay) dgx_overlay_row(overlay, h->at, x, y, (int)(chunk / 2u));
+        x += (int)(chunk / bytes);
         h->at += chunk;
         src += chunk;
-        bytes -= chunk;
+        len -= chunk;
         if (chunk == room) dgx_vscreen_halves_send(h);
     }
 }
@@ -264,23 +270,30 @@ static void dgx_transfer_copy_holes(uint8_t *restrict to, const uint8_t *restric
 }
 
 /*
- * n pixels of a row put, the pixels from x on of the row y of the
- * destination: those of value 0 left out when transparent, the overlay
- * layer of a 16-bit screen mixed in when there is one.
+ * n pixels of a row put into the memory of a virtual screen of `bits`, the
+ * pixels from x on of its row y: those of value 0 left out when
+ * transparent, mixed with what lies there by the alpha of the transfer, the
+ * overlay layer of a 16-bit screen mixed in when there is one.
  */
-static void dgx_transfer_row(uint8_t *restrict to, const uint8_t *restrict from, int n, uint8_t bytes, bool transparent,
-                             const dgx_bus_overlay_t *over, int x, int y)
+static void dgx_transfer_row(uint8_t *restrict to, const uint8_t *restrict from, int n, uint8_t bytes, uint8_t bits, bool transparent,
+                             const dgx_bus_overlay_t *over, const dgx_alpha_t *alpha, int x, int y)
 {
-    if (!over) {
+    if (!over && !alpha) {
         if (transparent) dgx_transfer_copy_holes(to, from, n, bytes);
         else memcpy(to, from, (size_t)n * bytes);
         return;
     }
-    for (int c = 0; c < n; ++c, from += 2, to += 2) {
-        const uint16_t color = (uint16_t)(from[0] << 8 | from[1]);
+    if (!over && !transparent) {
+        /* a crossfade: the row mixed with itself as it lies */
+        dgx_alpha_row(to, to, from, (uint32_t)n, bits, alpha->weight);
+        return;
+    }
+    for (int c = 0; c < n; ++c, from += bytes, to += bytes) {
+        uint32_t color = dgx_vscreen_value(from, bytes);
         if (transparent && !color) continue;
-        const uint16_t mixed = dgx_overlay_pixel(over, x + c, y, color);
-        to[0] = (uint8_t)(mixed >> 8), to[1] = (uint8_t)mixed;
+        if (alpha) color = dgx_alpha_apply(alpha, bits, dgx_vscreen_value(to, bytes), color);
+        if (over) color = dgx_overlay_pixel(over, x + c, y, (uint16_t)color);
+        dgx_vscreen_put_value(to, bytes, color);
     }
 }
 
@@ -289,8 +302,8 @@ static void dgx_transfer_row(uint8_t *restrict to, const uint8_t *restrict from,
  * would be read after they are put: they go through a copy a piece at a
  * time, from the end of the row they move towards.
  */
-static void dgx_transfer_row_onto_itself(uint8_t *to, const uint8_t *from, int n, uint8_t bytes, bool transparent, const dgx_bus_overlay_t *over,
-                                         int x, int y)
+static void dgx_transfer_row_onto_itself(uint8_t *to, const uint8_t *from, int n, uint8_t bytes, uint8_t bits, bool transparent,
+                                         const dgx_bus_overlay_t *over, const dgx_alpha_t *alpha, int x, int y)
 {
     uint8_t    copy[256];
     const int  piece = (int)sizeof(copy) / 4; /* pixels of up to four bytes */
@@ -299,7 +312,7 @@ static void dgx_transfer_row_onto_itself(uint8_t *to, const uint8_t *from, int n
         const int k  = n - done < piece ? n - done : piece;
         const int at = back ? n - done - k : done;
         memcpy(copy, from + (size_t)at * bytes, (size_t)k * bytes);
-        dgx_transfer_row(to + (size_t)at * bytes, copy, k, bytes, transparent, over, x + at, y);
+        dgx_transfer_row(to + (size_t)at * bytes, copy, k, bytes, bits, transparent, over, alpha, x + at, y);
         done += k;
     }
 }
@@ -311,7 +324,8 @@ static void dgx_transfer_row_onto_itself(uint8_t *to, const uint8_t *from, int n
  * copied a row at a time; anything else pixel by pixel. A transparent one
  * goes so to a virtual screen only: false is returned for a display then.
  */
-static bool dgx_transfer_as_it_is(dgx_screen_t *dst, const dgx_transfer_place_t *p, dgx_screen_t *src, const dgx_bus_overlay_t *over, bool transparent)
+static bool dgx_transfer_as_it_is(dgx_screen_t *dst, const dgx_transfer_place_t *p, dgx_screen_t *src, const dgx_bus_overlay_t *over,
+                                  const dgx_alpha_t *alpha, bool transparent)
 {
     dgx_vscreen_t *scr_src = (dgx_vscreen_t *)src;
     const int      sx = p->u, sy = p->v;
@@ -319,18 +333,18 @@ static bool dgx_transfer_as_it_is(dgx_screen_t *dst, const dgx_transfer_place_t 
     const bool     rows = bytes && dgx_vscreen_is_linear(src);
     /* a transparent picture goes to a display behind a window by its runs, the general way; to a display that is memory, pixel by pixel below */
     if (transparent && dst->screen_subtype == DgxPhysicalScreenWithBus && !dgx_screen_is_readable(dst)) return false;
-    if (!transparent && !over && rows && dgx_vscreen_rows_to_bus(dst, p->x, p->y, scr_src, sx, sy, p->w, p->h)) {
+    if (!transparent && !over && !alpha && rows && dgx_vscreen_rows_to_bus(dst, p->x, p->y, scr_src, sx, sy, p->w, p->h)) {
         /* the bus has taken the pixels as they lie in memory */
         return true;
     }
-    if (!transparent && !over && rows && dgx_vscreen_in_place_to_bus(dst, p->x, p->y, scr_src, sx, sy, p->w, p->h, bytes)) return true;
+    if (!transparent && !over && !alpha && rows && dgx_vscreen_in_place_to_bus(dst, p->x, p->y, scr_src, sx, sy, p->w, p->h, bytes)) return true;
     /* through the halves: also a rectangle the bus has lost on its way from PSRAM, which is sent again so */
     if (rows && !transparent && dgx_transfer_bus_takes(dst, bytes)) {
         dgx_vscreen_halves_t halves;
         dgx_vscreen_halves_window(&halves, dst, p->x, p->y, p->w, p->h, bytes);
         for (int r = 0; r < p->h; ++r) {
             const uint8_t *from = DGX_VSCR_PTR(scr_src, DGX_VSCR_OFFSET(scr_src, sx, sy + r));
-            if (over) dgx_vscreen_send_row_over(&halves, from, (uint32_t)p->w * bytes, over, p->x, p->y + r);
+            if (over || alpha) dgx_vscreen_send_row_over(&halves, from, (uint32_t)p->w * bytes, bytes, over, alpha, p->x, p->y + r);
             else dgx_vscreen_send_row(&halves, from, (uint32_t)p->w * bytes);
         }
         dgx_vscreen_halves_end(&halves);
@@ -349,14 +363,14 @@ static bool dgx_transfer_as_it_is(dgx_screen_t *dst, const dgx_transfer_place_t 
         const uint8_t  *from_row = DGX_VSCR_PTR(scr_src, DGX_VSCR_OFFSET(scr_src, sx, sy + first));
         uint8_t        *to_row   = DGX_VSCR_PTR(scr_dst, DGX_VSCR_OFFSET(scr_dst, p->x, p->y + first));
         for (int k = 0, y = p->y + first; k < p->h; ++k, y += dy, from_row += from_step, to_row += to_step) {
-            if (!transparent && !over) {
+            if (!transparent && !over && !alpha) {
                 /* memmove() of the ESP32 goes a byte at a time, memcpy() by words */
                 if (along) memmove(to_row, from_row, (size_t)p->w * bytes);
                 else memcpy(to_row, from_row, (size_t)p->w * bytes);
             } else if (along) {
-                dgx_transfer_row_onto_itself(to_row, from_row, p->w, bytes, transparent, over, p->x, y);
+                dgx_transfer_row_onto_itself(to_row, from_row, p->w, bytes, dst->color_bits, transparent, over, alpha, p->x, y);
             } else {
-                dgx_transfer_row(to_row, from_row, p->w, bytes, transparent, over, p->x, y);
+                dgx_transfer_row(to_row, from_row, p->w, bytes, dst->color_bits, transparent, over, alpha, p->x, y);
             }
         }
         return true;
@@ -382,6 +396,7 @@ static bool dgx_transfer_as_it_is(dgx_screen_t *dst, const dgx_transfer_place_t 
                 const int c     = back ? w - 1 - j : j;
                 uint32_t  color = src->get_pixel(src, sx + c, sy + r);
                 if (transparent && !color) continue;
+                if (alpha) color = dgx_alpha_pixel(alpha, dst, x + c, y + r, color);
                 if (over) color = dgx_overlay_pixel(over, x + c, y + r, (uint16_t)color);
                 dst->set_pixel(dst, x + c, y + r, color);
             }
@@ -393,6 +408,7 @@ static bool dgx_transfer_as_it_is(dgx_screen_t *dst, const dgx_transfer_place_t 
         for (int c = 0; c < w; ++c) {
             uint32_t color = from ? dgx_read_buf_value(bits, &from, c) : src->get_pixel(src, sx + c, sy + r);
             if (transparent && !color) continue;
+            if (alpha) color = dgx_alpha_pixel(alpha, dst, x + c, y + r, color);
             if (over) color = dgx_overlay_pixel(over, x + c, y + r, (uint16_t)color);
             dst->set_pixel(dst, x + c, y + r, color);
         }
@@ -410,7 +426,8 @@ static bool dgx_transfer_as_it_is(dgx_screen_t *dst, const dgx_transfer_place_t 
  * row of it, forth or back. Returns false when the source is not rows of
  * whole bytes in memory, or the bus has no buffer for a pixel.
  */
-static bool dgx_transfer_turned_to_bus(dgx_screen_t *dst, const dgx_transfer_place_t *p, dgx_screen_t *src, const dgx_bus_overlay_t *over)
+static bool dgx_transfer_turned_to_bus(dgx_screen_t *dst, const dgx_transfer_place_t *p, dgx_screen_t *src, const dgx_bus_overlay_t *over,
+                                       const dgx_alpha_t *alpha)
 {
     if (dst->screen_subtype != DgxPhysicalScreenWithBus || !dgx_vscreen_is_linear(src)) return false;
     const size_t bip = dgx_vscreen_pixel_bytes(src->color_bits);
@@ -458,6 +475,7 @@ static bool dgx_transfer_turned_to_bus(dgx_screen_t *dst, const dgx_transfer_pla
                 for (int i = 0; i < n; ++i, from += step, to += 4) to[0] = from[0], to[1] = from[1], to[2] = from[2], to[3] = from[3];
                 break;
             }
+            if (alpha) dgx_alpha_row_on(alpha, dst, halves.at, x, p->y + r, (uint32_t)n, (uint8_t)bip);
             if (over) dgx_overlay_row(over, halves.at, x, p->y + r, n);
             halves.at = to;
             count -= n;
@@ -469,13 +487,45 @@ static bool dgx_transfer_turned_to_bus(dgx_screen_t *dst, const dgx_transfer_pla
     return true;
 }
 
+/*
+ * A 16-bit picture to a display whose bus puts pictures itself, a DSI one:
+ * as colors of 16 bits, made larger, turned, mixed with an overlay layer and
+ * with what the display has, by bands of its own instead of through the
+ * window. Not smoothed and not transparent; mixed only where the display is
+ * read, as black under the picture is mixed in the halves. Returns false
+ * when the bus has not done it.
+ */
+static bool dgx_transfer16_by_bus(dgx_screen_t *dst, const dgx_transfer_place_t *p, dgx_screen_t *src, const dgx_bus_overlay_t *over,
+                                  const dgx_alpha_t *alpha, const dgx_transfer_asked_t *asked)
+{
+    if (dst->screen_subtype != DgxPhysicalScreenWithBus || dst->color_bits != 16 || src->color_bits != 16) return false;
+    if (asked->transparent || asked->smooth || !dgx_vscreen_is_linear(src) || (alpha && !alpha->read)) return false;
+    dgx_bus_protocols_t *bus = ((dgx_screen_with_bus_t *)dst)->bus;
+    if (!bus->write_indexed) return false;
+    const dgx_bus_indexed_t picture = {
+        .pixels      = ((dgx_vscreen_t *)src)->v_array,
+        .bytes       = 2,
+        .pitch       = (uint32_t)src->width * 2u,
+        .width       = (uint32_t)src->width,
+        .height      = (uint32_t)src->height,
+        .x           = (uint32_t)p->u,
+        .y           = (uint32_t)p->v,
+        .scale       = p->scale,
+        .orientation = p->turn,
+        .overlay     = over,
+        .under       = alpha ? (uint8_t)(32u - alpha->weight) : 0u,
+        .exact       = asked->exact,
+    };
+    return bus->write_indexed(bus, (uint16_t)p->x, (uint16_t)p->y, (uint16_t)p->w, (uint16_t)p->h, &picture);
+}
+
 /* ------------------------------------------------------------------------- */
 /*  8 bits through a table, as it is                                         */
 /* ------------------------------------------------------------------------- */
 
 /*
  * Is the table two colors and what lies between them? It is when every color of it is not further
- * than a step of red, of green and of blue from the straight way between its first color and its
+ * than 1 in red, in green and in blue from the straight way between its first color and its
  * last: a table a program has made for a pen with a soft edge, from the paper to the ink, however it
  * rounded. Such a table a bus with hardware that mixes two colors does not need: the first color, the
  * last one and the bytes of the screen are enough for it.
@@ -535,7 +585,7 @@ static void dgx_vscreen8_lut_scaled(uint8_t *restrict to, const uint8_t *restric
  * transparent, to a display behind a bus: the colors of the next half are
  * made while the one before it goes to the display.
  */
-static void dgx_transfer8_upright_to_bus(dgx_screen_t *dst, const dgx_transfer_place_t *p, const dgx_bus_indexed_t *picture)
+static void dgx_transfer8_upright_to_bus(dgx_screen_t *dst, const dgx_transfer_place_t *p, const dgx_bus_indexed_t *picture, const dgx_alpha_t *alpha)
 {
     const uint32_t       scale = p->scale, cut_x = (uint32_t)p->u % scale, cut_y = (uint32_t)p->v % scale;
     const uint8_t       *first = picture->pixels + (size_t)((uint32_t)p->v / scale) * picture->pitch + (uint32_t)p->u / scale;
@@ -549,6 +599,7 @@ static void dgx_transfer8_upright_to_bus(dgx_screen_t *dst, const dgx_transfer_p
         if (whole_rows) {
             /* a row is never cut: the half is looked at after it */
             dgx_vscreen8_lut_scaled(halves.at, ink, cut_x, p->w, scale, lut);
+            if (alpha) dgx_alpha_row_on(alpha, dst, halves.at, p->x, p->y + br, (uint32_t)p->w, 2u);
             if (picture->overlay) dgx_overlay_row(picture->overlay, halves.at, p->x, p->y + br, p->w);
             halves.at += row_bytes;
             if (!dgx_vscreen_halves_room(&halves)) dgx_vscreen_halves_send(&halves);
@@ -559,6 +610,7 @@ static void dgx_transfer8_upright_to_bus(dgx_screen_t *dst, const dgx_transfer_p
             const int room = (int)(dgx_vscreen_halves_room(&halves) / 2u);
             const int n    = p->w - bc < room ? p->w - bc : room;
             dgx_vscreen8_lut_scaled(halves.at, ink, cut_x + (uint32_t)bc, n, scale, lut);
+            if (alpha) dgx_alpha_row_on(alpha, dst, halves.at, p->x + bc, p->y + br, (uint32_t)n, 2u);
             if (picture->overlay) dgx_overlay_row(picture->overlay, halves.at, p->x + bc, p->y + br, n);
             halves.at += 2 * n;
             bc += n;
@@ -569,11 +621,56 @@ static void dgx_transfer8_upright_to_bus(dgx_screen_t *dst, const dgx_transfer_p
 }
 
 /*
+ * A row of an upright picture of indices into the memory of a 16-bit virtual
+ * screen, mixed with what lies there: n pixels, a pixel of the source a run
+ * of `scale` of them, the first run `run` long. Without `unders` each run is
+ * its color of the table by `weight`, with them `ink` by the weight of its
+ * index, made ready once a run. A function of its own, called once a row:
+ * inlined into the transfer, which has many values to keep, its loop kept
+ * them on the stack and read them there for every pixel. On an ESP32 that
+ * made a crossfade in memory 8 times as long as a plain put.
+ */
+static __attribute__((noinline)) void dgx_transfer8_mix_row(uint8_t *to, const uint8_t *from, int n, uint32_t run, uint32_t scale,
+                                                            const uint16_t *lut, bool transparent, const uint8_t *unders, uint16_t ink,
+                                                            uint32_t weight)
+{
+    if (scale == 1 && !unders) {
+        /* the usual crossfade: a pixel of the source a pixel */
+        const uint32_t under = 32u - weight;
+        for (int i = 0; i < n; ++i, to += 2) {
+            const uint8_t index = from[i];
+            if (transparent && !index) continue;
+            const uint32_t color = lut[index];
+            const uint16_t mixed = dgx_bus_overlay_mix((uint16_t)(to[0] << 8 | to[1]), ((color | color << 16) & 0x07E0F81Fu) * weight, under);
+            to[0] = (uint8_t)(mixed >> 8), to[1] = (uint8_t)mixed;
+        }
+        return;
+    }
+    for (int bc = 0; bc < n; ++from, run = scale) {
+        const uint8_t  index = *from;
+        int            k     = (int)run < n - bc ? (int)run : n - bc;
+        const uint16_t color = unders ? ink : lut[index];
+        const uint32_t w     = unders ? 32u - unders[lut[index] & 0xffu] : weight;
+        /* a hole, or a pixel of a mask with no ink: what lies there stays */
+        if ((transparent && !index) || !w) {
+            bc += k, to += 2 * k;
+            continue;
+        }
+        const uint32_t pre = ((color | (uint32_t)color << 16) & 0x07E0F81Fu) * w;
+        for (; k; --k, ++bc, to += 2) {
+            const uint16_t mixed = dgx_bus_overlay_mix((uint16_t)(to[0] << 8 | to[1]), pre, 32u - w);
+            to[0] = (uint8_t)(mixed >> 8), to[1] = (uint8_t)mixed;
+        }
+    }
+}
+
+/*
  * An upright picture of indices in squares, not smoothed, into a virtual
  * screen of 16 bits a pixel: every pixel looked up where it lies, as a
  * point of a dot font is stamped many times a text, with nothing to set up.
  */
-static void dgx_transfer8_upright_to_memory(dgx_screen_t *dst, const dgx_transfer_place_t *p, const dgx_bus_indexed_t *picture, bool transparent)
+static void dgx_transfer8_upright_to_memory(dgx_screen_t *dst, const dgx_transfer_place_t *p, const dgx_bus_indexed_t *picture, bool transparent,
+                                            const dgx_alpha_t *alpha)
 {
     dgx_vscreen_t  *scr_dst = (dgx_vscreen_t *)dst;
     const uint32_t  scale = p->scale, cut_x = (uint32_t)p->u % scale, cut_y = (uint32_t)p->v % scale;
@@ -582,11 +679,17 @@ static void dgx_transfer8_upright_to_memory(dgx_screen_t *dst, const dgx_transfe
     for (int br = 0; br < p->h; ++br) {
         const uint8_t *ink = first + ((uint32_t)br + cut_y) / scale * picture->pitch;
         uint8_t       *to  = DGX_VSCR_PTR(scr_dst, DGX_VSCR_OFFSET(scr_dst, p->x, p->y + br));
-        if (picture->overlay) {
+        if (alpha && !picture->overlay) {
+            dgx_transfer8_mix_row(to, ink, p->w, scale - cut_x, scale, lut, transparent, alpha->unders, alpha->ink, alpha->weight);
+            continue;
+        }
+        if (picture->overlay || alpha) {
             for (int bc = 0; bc < p->w; ++bc, to += 2) {
                 const uint8_t index = ink[((uint32_t)bc + cut_x) / scale];
                 if (transparent && !index) continue;
-                const uint16_t color = dgx_overlay_pixel(picture->overlay, p->x + bc, p->y + br, lut[index]);
+                uint16_t color = lut[index];
+                if (alpha) color = (uint16_t)dgx_alpha_apply(alpha, 16u, (uint16_t)(to[0] << 8 | to[1]), color);
+                if (picture->overlay) color = dgx_overlay_pixel(picture->overlay, p->x + bc, p->y + br, color);
                 to[0] = (uint8_t)(color >> 8), to[1] = (uint8_t)color;
             }
             continue;
@@ -614,7 +717,7 @@ static void dgx_transfer8_upright_to_memory(dgx_screen_t *dst, const dgx_transfe
 }
 
 /* the same pixel by pixel through the screen, the pixels of index 0 left out: for a display whose pixels are memory */
-static void dgx_transfer8_upright_pixels(dgx_screen_t *dst, const dgx_transfer_place_t *p, const dgx_bus_indexed_t *picture)
+static void dgx_transfer8_upright_pixels(dgx_screen_t *dst, const dgx_transfer_place_t *p, const dgx_bus_indexed_t *picture, const dgx_alpha_t *alpha)
 {
     /* copied out: after every call through the screen the compiler would read them again */
     const int                x = p->x, y = p->y, w = p->w, h = p->h;
@@ -622,7 +725,7 @@ static void dgx_transfer8_upright_pixels(dgx_screen_t *dst, const dgx_transfer_p
     const uint16_t          *lut   = picture->lut;
     const dgx_bus_overlay_t *over  = picture->overlay;
     const uint8_t           *first = picture->pixels + (size_t)((uint32_t)p->v / scale) * pitch + (uint32_t)p->u / scale;
-    if (scale == 1 && !over) {
+    if (scale == 1 && !over && !alpha) {
         /* the usual sprite: an index a pixel, nothing to mix in */
         for (int br = 0; br < h; ++br, first += pitch) {
             for (int bc = 0; bc < w; ++bc) {
@@ -636,8 +739,9 @@ static void dgx_transfer8_upright_pixels(dgx_screen_t *dst, const dgx_transfer_p
         for (int bc = 0; bc < w; ++bc) {
             const uint8_t index = ink[scale == 1 ? (uint32_t)bc : ((uint32_t)bc + cut_x) / scale];
             if (!index) continue;
-            const uint16_t color = lut[index];
-            dst->set_pixel(dst, x + bc, y + br, over ? dgx_overlay_pixel(over, x + bc, y + br, color) : color);
+            uint32_t color = lut[index];
+            if (alpha) color = dgx_alpha_pixel(alpha, dst, x + bc, y + br, color);
+            dst->set_pixel(dst, x + bc, y + br, over ? dgx_overlay_pixel(over, x + bc, y + br, (uint16_t)color) : color);
         }
     }
 }
@@ -730,12 +834,13 @@ static void dgx_transfer_pixels(const dgx_transfer_rows_t *t, const void *line, 
 
 /* the pixels i .. i + n - 1 of the row r through the window of a display, the window being set already */
 static void dgx_transfer_send(dgx_transfer_rows_t *t, dgx_vscreen_halves_t *halves, const void *line, uint32_t i, uint32_t n, int x, int y,
-                              const dgx_bus_overlay_t *over)
+                              const dgx_bus_overlay_t *over, const dgx_alpha_t *alpha)
 {
     while (n) {
         const uint32_t room  = dgx_vscreen_halves_room(halves) / t->bytes;
         const uint32_t chunk = n < room ? n : room;
         dgx_transfer_pixels(t, line, i, chunk, halves->at);
+        if (alpha) dgx_alpha_row_on(alpha, halves->scr, halves->at, x, y, chunk, t->bytes);
         if (over) dgx_overlay_row(over, halves->at, x, y, (int)chunk);
         halves->at += chunk * t->bytes;
         i += chunk, x += (int)chunk, n -= chunk;
@@ -743,8 +848,29 @@ static void dgx_transfer_send(dgx_transfer_rows_t *t, dgx_vscreen_halves_t *halv
     }
 }
 
+/*
+ * A line of indices of a turned, smoothed or larger picture into the memory
+ * of a 16-bit virtual screen, mixed with what lies there as by
+ * dgx_transfer8_mix_row(): n points of `line`, forward or, with `dir` -1,
+ * from its end back. A function of its own for the same reason.
+ */
+static __attribute__((noinline)) void dgx_transfer8_mix_line(uint8_t *to, const uint8_t *line, uint32_t n, int dir, const uint16_t *lut,
+                                                             bool transparent, const uint8_t *unders, uint16_t ink, uint32_t weight)
+{
+    const uint8_t *from = dir > 0 ? line : line + n - 1u;
+    for (uint32_t i = 0; i < n; ++i, from += dir, to += 2) {
+        const uint8_t index = *from;
+        if (transparent && !index) continue;
+        const uint32_t color = unders ? ink : lut[index];
+        const uint32_t w     = unders ? 32u - unders[lut[index] & 0xffu] : weight;
+        if (!w) continue; /* a pixel of a mask with no ink */
+        const uint16_t mixed = dgx_bus_overlay_mix((uint16_t)(to[0] << 8 | to[1]), ((color | color << 16) & 0x07E0F81Fu) * w, 32u - w);
+        to[0] = (uint8_t)(mixed >> 8), to[1] = (uint8_t)mixed;
+    }
+}
+
 static void dgx_transfer_rows(dgx_screen_t *dst, const dgx_transfer_place_t *p, dgx_transfer_rows_t *t, bool transparent,
-                              const dgx_bus_overlay_t *over)
+                              const dgx_bus_overlay_t *over, const dgx_alpha_t *alpha)
 {
     /*
      * A transparent picture goes to a display behind a window by its runs, a
@@ -756,7 +882,7 @@ static void dgx_transfer_rows(dgx_screen_t *dst, const dgx_transfer_place_t *p, 
         if (!transparent) {
             dgx_vscreen_halves_t halves;
             dgx_vscreen_halves_window(&halves, dst, p->x, p->y, p->w, p->h, t->bytes);
-            for (int r = 0; r < p->h; ++r) dgx_transfer_send(t, &halves, dgx_transfer_line(t, r), 0, t->count, p->x, p->y + r, over);
+            for (int r = 0; r < p->h; ++r) dgx_transfer_send(t, &halves, dgx_transfer_line(t, r), 0, t->count, p->x, p->y + r, over, alpha);
             dgx_vscreen_halves_end(&halves);
             return;
         }
@@ -770,7 +896,7 @@ static void dgx_transfer_rows(dgx_screen_t *dst, const dgx_transfer_place_t *p, 
                 if (end == i) break;
                 dgx_vscreen_halves_t halves;
                 dgx_vscreen_halves_window(&halves, dst, p->x + (int)i, p->y + r, (int)(end - i), 1, t->bytes);
-                dgx_transfer_send(t, &halves, line, i, end - i, p->x + (int)i, p->y + r, over);
+                dgx_transfer_send(t, &halves, line, i, end - i, p->x + (int)i, p->y + r, over, alpha);
                 dgx_vscreen_halves_end(&halves);
                 i = end;
             }
@@ -782,13 +908,18 @@ static void dgx_transfer_rows(dgx_screen_t *dst, const dgx_transfer_place_t *p, 
         for (int r = 0; r < p->h; ++r) {
             const void *line = dgx_transfer_line(t, r);
             uint8_t    *to   = DGX_VSCR_PTR(scr_dst, DGX_VSCR_OFFSET(scr_dst, p->x, p->y + r));
-            if (!transparent && !over) {
+            if (!transparent && !over && !alpha) {
                 dgx_transfer_pixels(t, line, 0, t->count, to);
+                continue;
+            }
+            if (alpha && !over && t->lut && dst->color_bits == 16) {
+                dgx_transfer8_mix_line(to, (const uint8_t *)line, t->count, t->dir, t->lut, transparent, alpha->unders, alpha->ink, alpha->weight);
                 continue;
             }
             for (uint32_t i = 0; i < t->count; ++i, to += t->bytes) {
                 if (transparent && !dgx_transfer_key(t, line, i)) continue;
                 uint32_t color = dgx_transfer_color(t, line, i);
+                if (alpha) color = dgx_alpha_apply(alpha, dst->color_bits, dgx_vscreen_value(to, t->bytes), color);
                 if (over) color = dgx_overlay_pixel(over, p->x + (int)i, p->y + r, (uint16_t)color);
                 dgx_vscreen_put_value(to, t->bytes, color);
             }
@@ -807,6 +938,7 @@ static void dgx_transfer_rows(dgx_screen_t *dst, const dgx_transfer_place_t *p, 
             const uint32_t key   = lut ? ((const uint8_t *)line)[point] : ((const uint32_t *)line)[point];
             if (transparent && !key) continue;
             uint32_t color = lut ? lut[key] : key;
+            if (alpha) color = dgx_alpha_pixel(alpha, dst, x + (int)i, y + r, color);
             if (over) color = dgx_overlay_pixel(over, x + (int)i, y + r, (uint16_t)color);
             dst->set_pixel(dst, x + (int)i, y + r, color);
         }
@@ -871,14 +1003,25 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
     const dgx_transfer_asked_t asked = dgx_transfer_asked(flags);
     dgx_transfer_place_t       p;
     if (!dgx_transfer_place(_scr_dst, _scr_src, x_dst, y_dst, x_src, y_src, width, height, &asked, &p)) return;
+    /* the alpha of the transfer: what lies under is read where the destination can be, black under it elsewhere */
+    const dgx_alpha_t  alpha_of = {.weight = asked.weight, .read = dgx_screen_is_readable(_scr_dst)};
+    const dgx_alpha_t *alpha    = asked.weight < 32u ? &alpha_of : NULL;
+    if (alpha && !alpha->weight && alpha->read) return; /* nothing of the picture, and what lies under stays */
     if (_scr_dst == _scr_src && (p.scale > 1 || p.turn) && dgx_transfer_aside(_scr_dst, x_dst, y_dst, x_src, y_src, width, height, flags, &asked, &p))
         return;
     /* the overlay layer of a 16-bit screen over the rectangle is mixed in on the way */
     const dgx_bus_overlay_t *over = _scr_dst->color_bits == 16 ? dgx_overlay_over(_scr_dst, p.x, p.y, p.x + p.w - 1, p.y + p.h - 1) : NULL;
     dgx_screen_progress_up(_scr_dst);
-    if (p.scale == 1 && !p.turn && dgx_transfer_as_it_is(_scr_dst, &p, _scr_src, over, asked.transparent)) {
+    /* a picture put as it is goes as rows of memory where the bus takes them; one it would put another way, by the bus as a picture of colors */
+    const bool plain = p.scale == 1 && !p.turn && !over && !alpha && !asked.transparent && dgx_vscreen_pixel_bytes(_scr_src->color_bits) &&
+                       dgx_vscreen_is_linear(_scr_src);
+    if (plain && dgx_vscreen_rows_to_bus(_scr_dst, p.x, p.y, (dgx_vscreen_t *)_scr_src, p.u, p.v, p.w, p.h)) {
+        /* the bus has taken the pixels as they lie in memory */
+    } else if (dgx_transfer16_by_bus(_scr_dst, &p, _scr_src, over, alpha, &asked)) {
+        /* the bus has made the picture into its bands */
+    } else if (p.scale == 1 && !p.turn && dgx_transfer_as_it_is(_scr_dst, &p, _scr_src, over, alpha, asked.transparent)) {
         /* as it lies in memory */
-    } else if (p.scale == 1 && !asked.transparent && dgx_transfer_turned_to_bus(_scr_dst, &p, _scr_src, over)) {
+    } else if (p.scale == 1 && !asked.transparent && dgx_transfer_turned_to_bus(_scr_dst, &p, _scr_src, over, alpha)) {
         /* turned through one window */
     } else {
         /* the values of the pixels, read from memory where the source is rows of whole bytes */
@@ -891,7 +1034,7 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
         }
         dgx_transfer_rows_t t;
         if (dgx_transfer_rows_begin(&t, &p, NULL, &source, asked.smooth, bytes)) {
-            dgx_transfer_rows(_scr_dst, &p, &t, asked.transparent, over);
+            dgx_transfer_rows(_scr_dst, &p, &t, asked.transparent, over, alpha);
             free(t.scratch);
         }
     }
@@ -918,6 +1061,39 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
     const dgx_transfer_asked_t asked = dgx_transfer_asked(flags);
     dgx_transfer_place_t       p;
     if (!dgx_transfer_place(_scr_dst, _scr_src, x_dst, y_dst, x_src, y_src, width, height, &asked, &p)) return;
+    /*
+     * The alpha of the transfer. Over black, on a display that cannot be read, it is in the colors of the table, and
+     * every way of the transfer puts them as they are; where the destination is read, every pixel is mixed.
+     */
+    dgx_alpha_t        alpha_of = {.weight = asked.weight, .read = dgx_screen_is_readable(_scr_dst)};
+    const bool         mask     = (flags & DGX_VSCREEN_MASK) && alpha_of.read;
+    const dgx_alpha_t *alpha    = (asked.weight < 32u && alpha_of.read) || mask ? &alpha_of : NULL;
+    uint16_t           faded[256];
+    uint8_t            unders[256];
+    if (mask) {
+        /*
+         * A mask: an index is how much of lut[255] goes over what lies under
+         * it, times the alpha of the transfer, in 32 steps. The picture goes
+         * through the table of indices, and its indices are mixed as weights.
+         */
+        const uint32_t alpha_255 = 255u - (flags >> 24);
+        uint32_t       any       = 0;
+        for (uint32_t i = 0; i < 256u; ++i) {
+            const uint32_t share = (i * alpha_255 + 127u) / 255u, w = (share * 32u + 127u) / 255u;
+            unders[i] = (uint8_t)(32u - w);
+            any |= w;
+        }
+        if (!any) return; /* nothing of the ink, and what lies under stays */
+        alpha_of.unders = unders;
+        alpha_of.ink    = lut[255];
+        lut             = dgx_alpha_indices();
+    } else if (alpha && !alpha->weight) {
+        return; /* nothing of the picture, and what lies under stays */
+    }
+    if (asked.weight < 32u && !alpha_of.read) {
+        dgx_alpha_lut(faded, lut, asked.weight);
+        lut = faded;
+    }
     dgx_vscreen_t *scr_src = (dgx_vscreen_t *)_scr_src;
     /* the whole source, and where the rectangle starts in it made larger and turned */
     const dgx_bus_indexed_t picture = {
@@ -933,13 +1109,19 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
         .lut         = lut,
         /* the overlay layer of the screen, when it is over the rectangle */
         .overlay = dgx_overlay_over(_scr_dst, p.x, p.y, p.x + p.w - 1, p.y + p.h - 1),
+        /* mixed with what a display that is read has there, by a bus that can */
+        .under  = alpha && !mask ? (uint8_t)(32u - alpha->weight) : 0u,
+        .exact  = asked.exact,
+        .unders = mask ? unders : NULL,
+        .ink    = mask ? alpha_of.ink : 0u,
     };
     const bool upright_squares = !p.turn && !asked.smooth;
     dgx_screen_progress_up(_scr_dst);
     bool done = false;
     if (_scr_dst->screen_subtype == DgxPhysicalScreenWithBus && !asked.transparent) {
         dgx_bus_protocols_t *bus = ((dgx_screen_with_bus_t *)_scr_dst)->bus;
-        if (upright_squares && p.scale == 1 && !picture.overlay && !asked.exact && bus->write_ink && dgx_vscreen8_two_colors(lut)) {
+        /* the two colors of a bus are put over what was there; its pictures of indices it mixes with that itself, or refuses */
+        if (upright_squares && p.scale == 1 && !picture.overlay && !alpha && !asked.exact && bus->write_ink && dgx_vscreen8_two_colors(lut)) {
             /* the bus mixes the two colors of the table itself */
             const uint8_t *first = picture.pixels + (size_t)p.v * picture.pitch + (size_t)p.u;
             done = bus->write_ink(bus, (uint16_t)p.x, (uint16_t)p.y, (uint16_t)p.w, (uint16_t)p.h, first, picture.pitch, lut[0], lut[255]);
@@ -948,22 +1130,22 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
         if (!done && bus->write_indexed) done = bus->write_indexed(bus, (uint16_t)p.x, (uint16_t)p.y, (uint16_t)p.w, (uint16_t)p.h, &picture);
         /* through the halves of the buffer of the bus; a bus without one is given the pixels one at a time below */
         if (!done && upright_squares && dgx_transfer_bus_takes(_scr_dst, 2)) {
-            dgx_transfer8_upright_to_bus(_scr_dst, &p, &picture);
+            dgx_transfer8_upright_to_bus(_scr_dst, &p, &picture, alpha);
             done = true;
         }
     } else if (upright_squares && dgx_vscreen_is_linear(_scr_dst)) {
-        dgx_transfer8_upright_to_memory(_scr_dst, &p, &picture, asked.transparent);
+        dgx_transfer8_upright_to_memory(_scr_dst, &p, &picture, asked.transparent, alpha);
         done = true;
     }
     if (!done && upright_squares && asked.transparent && dgx_screen_is_readable(_scr_dst)) {
         /* holes onto a display that is memory: a pixel costs less there than a window for a run */
-        dgx_transfer8_upright_pixels(_scr_dst, &p, &picture);
+        dgx_transfer8_upright_pixels(_scr_dst, &p, &picture, alpha);
         done = true;
     }
     if (!done) {
         dgx_transfer_rows_t t;
         if (dgx_transfer_rows_begin(&t, &p, &picture, NULL, asked.smooth, 2u)) {
-            dgx_transfer_rows(_scr_dst, &p, &t, asked.transparent, picture.overlay);
+            dgx_transfer_rows(_scr_dst, &p, &t, asked.transparent, picture.overlay, alpha);
             free(t.scratch);
         }
     }

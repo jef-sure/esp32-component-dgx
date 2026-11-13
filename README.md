@@ -38,6 +38,8 @@ Every picture in this README was drawn by DGX's own code, run on a PC.
   - [Pixel art made larger](#pixel-art-made-larger)
   - [A sprite or an icon from flash](#a-sprite-or-an-icon-from-flash)
   - [A palette, a fade and a flash](#a-palette-a-fade-and-a-flash)
+  - [Crossfade between two pictures](#crossfade-between-two-pictures)
+  - [A soft shape stamped anywhere](#a-soft-shape-stamped-anywhere)
   - [Translucent buttons over a picture](#translucent-buttons-over-a-picture)
   - [Morph one glyph into another](#morph-one-glyph-into-another)
   - [Handwritten text](#handwritten-text)
@@ -46,6 +48,7 @@ Every picture in this README was drawn by DGX's own code, run on a PC.
   - [Rotate the screen](#rotate-the-screen)
   - [Draw from several tasks](#draw-from-several-tasks)
   - [An Arduino sketch](#an-arduino-sketch)
+  - [LVGL on top of DGX](#lvgl-on-top-of-dgx)
   - [An effect on the computer](#an-effect-on-the-computer)
 - [Examples](#examples)
 - [How fast](#how-fast)
@@ -110,14 +113,14 @@ dgx_font_string_utf8_screen(scr, 10, 18, "Hello world",
                             NULL, NULL);
 ```
 
-[examples/screen_demo](examples/screen_demo) is the same program in full,
+[examples/screen_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/screen_demo) is the same program in full,
 for an ILI9341 on the usual pins of an ESP32.
 
 ## Recipes
 
 Short answers to the things people look for first. Most recipes name a
 complete example to run and read; the functions are listed in the
-[API reference](docs/api-en.md#api-reference).
+[API reference](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#api-reference).
 
 ### Animation without flicker
 
@@ -152,8 +155,8 @@ if (dgx_screen_take_dirty(frame, &left, &top, &width, &height)) {
 }
 ```
 
-Example: [examples/hw_soft_pen_demo](examples/hw_soft_pen_demo). More calls:
-[Virtual screens](docs/api-en.md#virtual-screens-api).
+Example: [examples/hw_soft_pen_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/hw_soft_pen_demo). More calls:
+[Virtual screens](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#virtual-screens-api).
 
 ### A monochrome OLED
 
@@ -216,14 +219,14 @@ dgx_font_string_utf8_screen(scr, 10, 30, "Привет", color, DgxOutputNormal,
                             YourFontRegular16(), NULL, NULL);
 ```
 
-Details: [font2c/README.md](font2c/README.md).
+Details: [font2c/README.md](https://github.com/jef-sure/esp32-component-dgx/blob/main/font2c/README.md).
 
 A glyph that comes out wrong on the panel is fixed by hand in the font
-editor, [font-editor/index.html](font-editor/README.md): open the `.c`,
+editor, [font-editor/index.html](https://github.com/jef-sure/esp32-component-dgx/blob/main/font-editor/README.md): open the `.c`,
 redraw the glyph and save the patch, `YourFontRegular16.patch.json`. Then
 make the font again with it, `./font2c/font2c -p YourFontRegular16.patch.json
 path/to/YourFont.ttf 16 ...`; a font made at build time finds its patch by
-itself, see "Glyphs fixed by hand" in [docs/fonts-en.md](docs/fonts-en.md).
+itself, see "Glyphs fixed by hand" in [docs/fonts-en.md](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/fonts-en.md).
 
 ### Fonts made at build time
 
@@ -253,21 +256,21 @@ characters of the need's texts and no others; an existing font must
 already have them, or the build stops. The build machine needs a C compiler
 with FreeType, and fontconfig; a project without needs requires nothing
 extra. Needs, sizes, characters, the rules, needs from a component and what
-the build produces: [docs/fonts-en.md](docs/fonts-en.md)
-([Russian](docs/fonts-ru.md)). The example: [fonts_demo](examples/fonts_demo).
+the build produces: [docs/fonts-en.md](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/fonts-en.md)
+([Russian](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/fonts-ru.md)). The example: [fonts_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/fonts_demo).
 
 DGX does not check font licenses; you do. Each build lists every font the
 program uses, with what its file says about its license, in
 `build/dgx_fonts/fonts-used.txt`. A `deny` line in the rules keeps a font
 out, even when a component asks for it by name; the rule `strict` admits
 only the fonts the rules allow. See
-[Fonts and their licenses](docs/fonts-en.md#fonts-and-their-licenses).
+[Fonts and their licenses](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/fonts-en.md#fonts-and-their-licenses).
 
 ### Text with soft edges
 
-A font of 4 bits a pixel keeps how much of each pixel a letter covers, and
-the edges of its letters are mixed with what lies under them instead of
-standing in steps. Ask for one with `BITS 4` (`BITS 2` makes a smaller font
+A font of 4 bits a pixel is anti-aliased: it keeps how much of each pixel a
+letter covers, and the edges of its letters are mixed with what lies under
+them instead of standing in steps. Ask for one with `BITS 4` (`BITS 2` makes a smaller font
 with coarser edges), or with `font2c -b 4`:
 
 <picture>
@@ -298,21 +301,33 @@ Where the colors under an edge come from:
 - A virtual screen of 12, 16, 18 or 24 bits and a DSI display hold their
   pixels, and the edges are mixed with them: text over a picture needs no
   flag. On an 8-bit virtual screen a pixel is an amount of ink, and the
-  amounts are mixed.
+  amounts are mixed; on a 4-bit one, as the SSD1322 keeps, a gray level. On a
+  screen of 4 or 8 bits whose pixels are indices into a table of colors the
+  mixed edges come out in wrong colors: draw there with `DGX_FONT_MONO`.
 - A display behind a bus (an ILI9341, an ST7789, ...) cannot be read, so the
   program names the paper: `DGX_FONT_BG` mixes the edges with `bg`, and
   `DGX_FONT_FILL` also fills the cell of the text with it, as high as the
   font: a number drawn again over itself replaces the one before without an
-  erase and without a flicker. Without either, such a display and a screen
-  of one bit draw the font cut to one bit, as `DGX_FONT_MONO` asks for
-  anywhere.
+  erase. On a display of 16 bits a pixel the cell goes in one pass, every
+  pixel of it written once, so the number does not blink; on one of 18 or 24
+  bits the cell is filled first and the letters drawn after, and a number
+  that must not blink there is drawn into a virtual screen and sent whole.
+  Without either flag, such a display and a screen of one bit draw the font
+  cut to one bit, as `DGX_FONT_MONO` asks for anywhere. Cut so, a small font
+  comes out heavier and its stems uneven, one a pixel wider than the next,
+  as each lies on the pixels: name the paper, or take a font of one bit.
 - `DGX_FONT_HARD` draws every pixel a letter touches in full: it erases soft
   text, which drawn again in the color of the paper would leave a halo.
 
+Which of the three to take, what each writes and leaves, and how much the
+cell of `DGX_FONT_FILL` takes:
+[The paper of a text](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#the-paper-of-a-text-no-flag-dgx_font_bg-or-dgx_font_fill)
+in the API reference.
+
 Fonts of one bit draw as before with a context too, and the old calls draw a
 soft font as a context without flags does. The example:
-[soft_text_demo](examples/soft_text_demo); the depth, its cost in flash and
-its limits: [Soft edges](docs/fonts-en.md#soft-edges) in docs/fonts-en.md.
+[soft_text_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/soft_text_demo); the depth, its cost in flash and
+its limits: [Soft edges](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/fonts-en.md#soft-edges) in docs/fonts-en.md.
 
 ### A gauge
 
@@ -362,7 +377,7 @@ dgx_solid_circle(scr, cx, cy, 2, white);
 for (int i = 1; i <= 3; ++i) dgx_draw_arc(scr, cx, cy, i * 9, i * 9, 45, 135, 3, white);
 ```
 
-Example: [examples/figures_scroll_demo](examples/figures_scroll_demo).
+Example: [examples/figures_scroll_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/figures_scroll_demo).
 
 ### A circle with a soft edge
 
@@ -391,8 +406,8 @@ dgx_vscreen8_to_screen16(lcd, 0, 100, band, lut, 0);
 The circle covers what is under it, as the hard one does.
 `DGX_PEN_SOFT | DGX_PEN_MAX | r` keeps the larger ink instead, as the pen
 does, and is then the dot of the pen byte for byte. On any other screen the
-circle is the hard one. Details: [A soft circle](docs/pen-en.md#a-soft-circle)
-in docs/pen-en.md; the call: [Drawing primitives](docs/api-en.md#drawing-primitives).
+circle is the hard one. Details: [A soft circle](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/pen-en.md#a-soft-circle)
+in docs/pen-en.md; the call: [Drawing primitives](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#drawing-primitives).
 
 ### Scrolling text
 
@@ -431,9 +446,9 @@ mounted:
 dgx_vscreen_to_screen(lcd, 0, 0, page, DGX_VSCREEN_ORIENTED(DgxOutputRotate90CW));
 ```
 
-Example: [examples/figures_scroll_demo](examples/figures_scroll_demo), a
+Example: [examples/figures_scroll_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/figures_scroll_demo), a
 terminal and a chart on both kinds of display. The rules are under
-[Drawing primitives](docs/api-en.md#drawing-primitives).
+[Drawing primitives](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#drawing-primitives).
 
 ### A picture at any size and angle
 
@@ -464,9 +479,9 @@ frame. The quad must be convex; the mapping is affine, without perspective.
 For a whole number of times larger, a quarter turn or a mirror image, the
 flags of a transfer do the same pixel for pixel, faster and with smoothing:
 see [Pixel art made larger](#pixel-art-made-larger).
-Examples: [examples/texture_demo](examples/texture_demo) scales, rotates and
+Examples: [examples/texture_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/texture_demo) scales, rotates and
 wobbles a card (`card_corners()`),
-[examples/flip_clock_demo](examples/flip_clock_demo) folds the digits of a
+[examples/flip_clock_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/flip_clock_demo) folds the digits of a
 split-flap clock.
 
 ### Pixel art made larger
@@ -504,7 +519,7 @@ parts. Put a sprite with transparent pixels into the scene in RAM rather than
 straight on a display behind a bus, which takes a transparent picture as runs
 of pixels, a window each. Any other size or angle is a textured quad, see
 [A picture at any size and angle](#a-picture-at-any-size-and-angle).
-Example: [examples/pixel_scale_demo](examples/pixel_scale_demo) shows every
+Example: [examples/pixel_scale_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/pixel_scale_demo) shows every
 way in turn, with the time each takes.
 
 ### A sprite or an icon from flash
@@ -546,7 +561,7 @@ turns round stays where it stands. A 1-bit picture is drawn in `color`; an
 `dgx_vscreen_to_screen()`, the source is constant data rather than a
 screen, it is clipped, and it can be recolored; mirrored or not, it costs
 the same.
-Example: [examples/sprite_palette_demo](examples/sprite_palette_demo).
+Example: [examples/sprite_palette_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/sprite_palette_demo).
 
 ### A palette, a fade and a flash
 
@@ -583,19 +598,130 @@ steps does not gather rounding errors. A color given as one number is
 `0xRRGGBB`, as `dgx_rgb_to_24()` and `DGX_*(dgx_rgb_to_24)` make it. The
 table of a soft pen from the paper to the ink is
 `dgx_lut_gradient(lut, 0, 256, paper, ink)`.
-Example: [examples/sprite_palette_demo](examples/sprite_palette_demo).
+Example: [examples/sprite_palette_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/sprite_palette_demo).
+
+### Crossfade between two pictures
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/jef-sure/esp32-component-dgx/main/docs/images/crossfade-dark.png">
+  <img src="https://raw.githubusercontent.com/jef-sure/esp32-component-dgx/main/docs/images/crossfade-light.png" width="632" alt="A landscape and a picture of tiles mixed by five values of alpha, from the landscape alone to the tiles alone">
+</picture>
+
+`DGX_VSCREEN_ALPHA(a)` in the flags of a transfer mixes the picture with
+what lies under it: 255 is the picture alone, as without the flag, 128 half
+and half, 0 nothing of it. Steps of `a` from one frame to the next fade one
+picture into another:
+
+```c
+// a DSI display reads its frame buffer: the night straight over the day, both in one frame
+for (int step = 0; step <= 32; ++step) {
+    dgx_screen_progress_up(lcd);
+    dgx_vscreen8_to_screen16(lcd, 0, 0, day, day_lut, DGX_VSCREEN_SCALE(4));
+    dgx_vscreen8_to_screen16(lcd, 0, 0, night, night_lut, DGX_VSCREEN_SCALE(4) | DGX_VSCREEN_ALPHA(step * 255 / 32));
+    dgx_screen_progress_down(lcd);
+}
+```
+
+Under the picture is what the destination holds where it can be read: the
+memory of a virtual screen, the frame buffer of a DSI display;
+`dgx_screen_is_readable()` tells which. A display behind SPI, QSPI or a
+parallel bus is not read, and black lies under a picture there: the same
+flag fades a picture to black and from it straight on such a display. For a
+crossfade there, make the second picture the
+[overlay layer](#translucent-buttons-over-a-picture) at the alpha of the
+frame and put the first under it. The layer is mixed into the picture on
+the way, and a frame takes as long as the bus takes to send it:
+
+```c
+// a display behind SPI: the night as the overlay layer, as large as the place it covers; the day put under it
+dgx_overlay_set(lcd, night, 0, 0, night_lut, a);
+dgx_vscreen8_to_screen16(lcd, 0, 0, day, day_lut, DGX_VSCREEN_SCALE(2));
+
+// a fade to black: nothing to read
+dgx_vscreen8_to_screen16(lcd, 0, 0, day, day_lut, DGX_VSCREEN_SCALE(2) | DGX_VSCREEN_ALPHA(a));
+```
+
+A layer is not made larger, and its index 0 is empty: draw the second
+picture as large as the place it covers, with no pixel of index 0. Where
+that takes too much memory, mix the two in a 16-bit virtual screen and send
+it:
+
+```c
+dgx_vscreen8_to_screen16(mix, 0, 0, day, day_lut, 0);
+dgx_vscreen8_to_screen16(mix, 0, 0, night, night_lut, DGX_VSCREEN_ALPHA(a));
+dgx_vscreen_to_screen(lcd, 0, 0, mix, DGX_VSCREEN_SCALE(2));
+```
+
+Each channel is mixed in 32 steps, as the overlay layer mixes. The flag
+goes with all the others: the picture is mixed as it is put, scaled,
+smoothed, turned, with its pixels of value 0 left out. On a DSI display the
+accelerator of the chip mixes, now and then ±1 off in red, green or blue,
+which the eye rarely sees; `DGX_VSCREEN_EXACT` has the processor mix to the
+last bit.
+Example: [examples/alpha_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/alpha_demo).
+
+### A soft shape stamped anywhere
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/jef-sure/esp32-component-dgx/main/docs/images/mask-dark.png">
+  <img src="https://raw.githubusercontent.com/jef-sure/esp32-component-dgx/main/docs/images/mask-light.png" width="492" alt="A disc with a soft edge and the word DGX, drawn once as amounts of ink, then put seven times over a landscape in four colors, turned, larger and fainter">
+</picture>
+
+Draw a shape once into an 8-bit virtual screen as amounts of ink, 0 for
+none and 255 for all, its edges soft by the soft pen or a font of 4 bits.
+`DGX_VSCREEN_MASK` then puts it over any picture in the color of
+`lut[255]`, at any place, larger, turned and fainter:
+
+```c
+// the shape: a disc with a soft edge and a word in a font of 4 bits, as in "Text with soft edges"
+dgx_screen_t *badge = dgx_vscreen_init(72, 36, 8, DgxScreenRGB);
+dgx_fill_rectangle(badge, 0, 0, 72, 36, 0);
+dgx_solid_circle(badge, 17, 18, DGX_PEN_SOFT | 15, 255);
+const dgx_font_context_t word = {.scr = badge, .font = dgx_font_label(), .color = 255};
+dgx_font_draw(&word, 37, 24, "DGX");
+
+// its color: only lut[255] counts
+static uint16_t gold[256];
+gold[255] = DGX_GOLD(dgx_rgb_to_16);
+
+dgx_vscreen8_to_screen16(scene, 8, 8, badge, gold, DGX_VSCREEN_MASK);
+// twice as large, a quarter turned, at 110 of 255
+dgx_vscreen8_to_screen16(scene, 66, 64, badge, gold,
+                         DGX_VSCREEN_MASK | DGX_VSCREEN_SCALE(2) |
+                         DGX_VSCREEN_ORIENTED(DgxOutputRotate90CW) | DGX_VSCREEN_ALPHA(110));
+```
+
+A pixel of the shape is how much of the color goes over what lies under it,
+in 32 steps, times the alpha of `DGX_VSCREEN_ALPHA`. Under it is what the
+destination holds: a virtual screen, as `scene` here, or a DSI display. On
+a display behind a bus, which cannot be read, the flag changes nothing: the
+amounts go through the table as colors. Give it a table from the paper to
+the ink there, `dgx_lut_gradient(lut, 0, 256, paper, ink)`, with
+`DGX_VSCREEN_TRANSPARENT` to leave out the pixels without ink; over a
+picture, put the shape into the virtual screen of the scene and send that.
+Example: [examples/alpha_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/alpha_demo).
 
 ### Translucent buttons over a picture
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/jef-sure/esp32-component-dgx/main/docs/images/overlay-dark.png">
+  <img src="https://raw.githubusercontent.com/jef-sure/esp32-component-dgx/main/docs/images/overlay-light.png" width="516" alt="Three buttons with a faint shadow over a picture of tiles and rings: the layer solid, and the whole layer at 150 of 255">
+</picture>
+
 A screen can have one overlay layer: an 8-bit virtual screen that lies over
-a part of it, with its own colors and one transparency for all of them.
-Index 0 is empty. Whatever goes to the screen from a virtual screen is mixed
-with the layer on the way, so the picture shows through the buttons.
+a part of it, with its own colors and one transparency for all of them,
+which each color may take a share of. Index 0 is empty. Whatever goes to
+the screen from a virtual screen is mixed with the layer on the way, so the
+picture shows through the buttons.
 
 ```c
 dgx_screen_t *buttons = dgx_vscreen_init(1280, 800, 8, DgxScreenRGB);
 dgx_solid_circle(buttons, 120, 680, 60, 1);                  // index 1
 dgx_overlay_set(display, buttons, 0, 0, button_lut, 160);    // 160 of 255: mostly the button
+static uint8_t shares[256];
+memset(shares, 255, sizeof(shares));
+shares[2] = 96;                                              // index 2, the shadow of a button, fainter
+dgx_overlay_set_alphas(display, shares);
 
 // every frame: the places the layer changed are put again from the picture, a 320x200 frame shown x4 at (0, 0)
 int x, y, w, h;
@@ -624,6 +750,9 @@ static uint16_t paper[256];   // every index black
 dgx_vscreen8_region_to_screen16(display, 0, 0, buttons, 0, 0, 32, 600, paper, 0);
 dgx_vscreen8_region_to_screen16(display, 992, 0, buttons, 992, 0, 32, 600, paper, 0);
 ```
+
+Example: [examples/alpha_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/alpha_demo) fades a layer of
+buttons in and out over a picture that scrolls.
 
 ### Morph one glyph into another
 
@@ -680,14 +809,14 @@ dgx_morph_glow_present(glow, t, scr, left, top);
 dgx_font_make_morph_struct_destroy(&digit);
 ```
 
-Examples: [examples/glyph_morph_demo](examples/glyph_morph_demo) (one large
-symbol, sized to the screen), [examples/morph_demo](examples/morph_demo)
+Examples: [examples/glyph_morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/glyph_morph_demo) (one large
+symbol, sized to the screen), [examples/morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/morph_demo)
 (words, letter by letter),
-[examples/weather_morph_demo](examples/weather_morph_demo) and
-[examples/life_morph_demo](examples/life_morph_demo). How the plan is made,
+[examples/weather_morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/weather_morph_demo) and
+[examples/life_morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/life_morph_demo). How the plan is made,
 the other renderers and your own patterns in place of glyphs are in
-[docs/morphing-en.md](docs/morphing-en.md)
-([Russian](docs/morphing-ru.md)).
+[docs/morphing-en.md](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/morphing-en.md)
+([Russian](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/morphing-ru.md)).
 
 ### Handwritten text
 
@@ -747,10 +876,10 @@ an 8-bit virtual screen, where `color` is an amount of ink up to 255; send
 it to the display through a color table that runs from the paper color to
 the ink color.
 
-Examples: [examples/hw_font_demo](examples/hw_font_demo),
-[examples/hw_soft_pen_demo](examples/hw_soft_pen_demo). Details:
-[docs/handwriting-en.md](docs/handwriting-en.md)
-([Russian](docs/handwriting-ru.md)).
+Examples: [examples/hw_font_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/hw_font_demo),
+[examples/hw_soft_pen_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/hw_soft_pen_demo). Details:
+[docs/handwriting-en.md](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/handwriting-en.md)
+([Russian](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/handwriting-ru.md)).
 
 ### Morph handwritten text
 
@@ -781,7 +910,7 @@ dgx_hw_morph_destroy(&morph);
 
 `dgx_hw_morph_text_create()` morphs letter by letter instead, each letter
 with a progress of its own, so the letters that stay the same do not move:
-a clock, for one. Example: [examples/hw_morph_demo](examples/hw_morph_demo).
+a clock, for one. Example: [examples/hw_morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/hw_morph_demo).
 
 ### A MIPI-DSI display without tearing
 
@@ -800,10 +929,10 @@ draw_picture(lcd);
 dgx_screen_progress_down(lcd);
 ```
 
-Example: [examples/dsi_demo](examples/dsi_demo). The other update modes, an
+Example: [examples/dsi_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/dsi_demo). The other update modes, an
 even frame rate and board settings:
-[docs/dsi-usage-en.md](docs/dsi-usage-en.md)
-([Russian](docs/dsi-usage-ru.md)).
+[docs/dsi-usage-en.md](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/dsi-usage-en.md)
+([Russian](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/dsi-usage-ru.md)).
 
 ### Rotate the screen
 
@@ -818,14 +947,14 @@ A virtual screen is not turned; it is put on the display turned, with
 `DGX_VSCREEN_ORIENTED(o)` among the flags of the transfer, see
 [Scrolling text](#scrolling-text).
 
-See [Coordinates and orientation](docs/api-en.md#coordinates-and-orientation).
+See [Coordinates and orientation](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#coordinates-and-orientation).
 
 ### Draw from several tasks
 
 A screen takes one task at a time. Let one task own the display and draw,
 and let the others send it messages or finished virtual screens; or guard
 each batch with a mutex of your own. Both ways are in
-[Drawing from several tasks](docs/api-en.md#drawing-from-several-tasks).
+[Drawing from several tasks](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#drawing-from-several-tasks).
 
 ### An Arduino sketch
 
@@ -901,12 +1030,19 @@ void loop()
 ```
 
 Sharing a bus with the `SPI`, `SD` and `Wire` libraries of Arduino, and the
-same project built by PlatformIO: [docs/arduino-en.md](docs/arduino-en.md).
+same project built by PlatformIO: [docs/arduino-en.md](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/arduino-en.md).
 
 Everything else in this README, fonts made at build time included, works in
 a sketch unchanged.
 
-Example: [examples/arduino_demo](examples/arduino_demo).
+Example: [examples/arduino_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/arduino_demo).
+
+### LVGL on top of DGX
+
+[jef-sure/dgx-lvgl](https://components.espressif.com/components/jef-sure/dgx-lvgl)
+([source](https://github.com/jef-sure/esp32-component-dgx-lvgl)) makes any
+16-bit screen of DGX an LVGL display, on SPI, QSPI, the 8-bit parallel bus
+or MIPI-DSI.
 
 ### An effect on the computer
 
@@ -945,7 +1081,7 @@ void app_main(void)
 }
 ```
 
-A Makefile beside `main/` builds it; [examples/morph_demo](examples/morph_demo)
+A Makefile beside `main/` builds it; [examples/morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/morph_demo)
 has one to copy, with an object file for every source:
 
 ```make
@@ -970,8 +1106,8 @@ Several windows for a board with several displays, the mouse as a finger on
 the touch panel and the keyboard as its buttons, what the title of the
 window tells of the board, the options, the variables of the environment and
 scripts, and the build by ESP-IDF for its linux target:
-[docs/host-window-en.md](docs/host-window-en.md). Example:
-[examples/morph_demo](examples/morph_demo).
+[docs/host-window-en.md](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/host-window-en.md). Example:
+[examples/morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/morph_demo).
 
 ## Examples
 
@@ -990,34 +1126,36 @@ idf.py flash monitor
 
 | Example | Board | What it shows |
 | --- | --- | --- |
-| [screen_demo](examples/screen_demo) | ESP32 with an ILI9341 | a graphics test: fills, text, lines, rectangles, circles, triangles |
-| [arduino_demo](examples/arduino_demo) | CYD | DGX in an Arduino sketch: `setup()`, `loop()` and Arduino as an ESP-IDF component |
-| [fonts_demo](examples/fonts_demo) | CYD | fonts made at build time: a title in millimeters, a paragraph in a face picked by rules, a clock in a bundled font |
-| [soft_text_demo](examples/soft_text_demo) | CYD | fonts of 4 bits a pixel beside fonts of one bit on light and dark paper, a counter drawn over itself, text over a picture; the times of drawing a line |
-| [dsi_demo](examples/dsi_demo) | JC1060P470 or JC8012P4A1C (ESP32-P4, 7-inch or 10.1-inch MIPI-DSI) | the same kind of test for a DSI display, update modes, an even frame rate, the board measured and the numbers kept |
-| [figures_scroll_demo](examples/figures_scroll_demo) | CYD or JC1060P470 | a pie chart, arcs, a Wi-Fi icon, a scrolling terminal and chart; prints timings |
-| [graphicstest](examples/graphicstest) | CYD, JC4827W543 or JC1060P470 | the PDQ graphics test of Adafruit_GFX, TFT_eSPI and LovyanGFX made with DGX, its table in the log and on the screen; see [How fast](#how-fast) |
-| [texture_demo](examples/texture_demo) | CYD | a textured card scaled, rotated and wobbled |
-| [sprite_palette_demo](examples/sprite_palette_demo) | CYD | sprites of 1, 4 and 8 bits in maps of colors, mirrored, turned and clipped; day, night, lightning and a fade by the color table alone |
-| [pixel_scale_demo](examples/pixel_scale_demo) | CYD, JC1060P470 or JC8012P4A1C | a small picture two, three and four times as large by squares, Scale2x and Scale3x, Scale2xSFX and Scale3xSFX, each timed |
-| [flip_clock_demo](examples/flip_clock_demo) | CYD | a split-flap clock built on textured quads |
-| [morph_demo](examples/morph_demo) | CYD | words morphing letter by letter; also on the computer, by `make run` or for the linux target of ESP-IDF ([An effect on the computer](#an-effect-on-the-computer)) |
-| [glyph_morph_demo](examples/glyph_morph_demo) | CYD | one large symbol morphing into the next |
-| [weather_morph_demo](examples/weather_morph_demo) | CYD | the weather symbols of a clock morphing in the order weather takes |
-| [life_morph_demo](examples/life_morph_demo) | CYD | Conway's Game of Life with morphing generations |
-| [hw_font_demo](examples/hw_font_demo) | CYD | a text written by hand, stroke by stroke |
-| [hw_morph_demo](examples/hw_morph_demo) | CYD | handwritten words morphing one into another |
-| [hw_soft_pen_demo](examples/hw_soft_pen_demo) | CYD or JC1060P470 | handwriting with a soft pen, lines that move to make room |
-| [ssd1322_demo](examples/ssd1322_demo) | ESP32 with a 3.12" SSD1322 OLED on the 8-bit parallel bus | 16 grays, text in two fonts, lines and circles, a gray ramp |
+| [screen_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/screen_demo) | ESP32 with an ILI9341 | a graphics test: fills, text, lines, rectangles, circles, triangles |
+| [arduino_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/arduino_demo) | CYD | DGX in an Arduino sketch: `setup()`, `loop()` and Arduino as an ESP-IDF component |
+| [fonts_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/fonts_demo) | CYD | fonts made at build time: a title in millimeters, a paragraph in a face picked by rules, a clock in a bundled font |
+| [soft_text_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/soft_text_demo) | CYD | fonts of 4 bits a pixel beside fonts of one bit on light and dark paper, a counter drawn over itself, text over a picture; the times of drawing a line |
+| [dsi_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/dsi_demo) | JC1060P470 or JC8012P4A1C (ESP32-P4, 7-inch or 10.1-inch MIPI-DSI) | the same kind of test for a DSI display, update modes, an even frame rate, the board measured and the numbers kept |
+| [figures_scroll_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/figures_scroll_demo) | CYD or JC1060P470 | a pie chart, arcs, a Wi-Fi icon, a scrolling terminal and chart; prints timings |
+| [graphicstest](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/graphicstest) | CYD, JC4827W543 or JC1060P470 | the PDQ graphics test of Adafruit_GFX, TFT_eSPI and LovyanGFX made with DGX, its table in the log and on the screen; see [How fast](#how-fast) |
+| [texture_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/texture_demo) | CYD | a textured card scaled, rotated and wobbled |
+| [sprite_palette_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/sprite_palette_demo) | CYD | sprites of 1, 4 and 8 bits in maps of colors, mirrored, turned and clipped; day, night, lightning and a fade by the color table alone |
+| [pixel_scale_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/pixel_scale_demo) | CYD, JC1060P470 or JC8012P4A1C | a small picture two, three and four times as large by squares, Scale2x and Scale3x, Scale2xSFX and Scale3xSFX, each timed |
+| [alpha_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/alpha_demo) | CYD, JC1060P470 or JC8012P4A1C | two pictures fading into each other, a soft shape put by a mask many times over a picture, a translucent layer of buttons with a faint shadow over a picture that scrolls; each timed |
+| [flip_clock_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/flip_clock_demo) | CYD | a split-flap clock built on textured quads |
+| [morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/morph_demo) | CYD | words morphing letter by letter; also on the computer, by `make run` or for the linux target of ESP-IDF ([An effect on the computer](#an-effect-on-the-computer)) |
+| [glyph_morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/glyph_morph_demo) | CYD | one large symbol morphing into the next |
+| [weather_morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/weather_morph_demo) | CYD | the weather symbols of a clock morphing in the order weather takes |
+| [life_morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/life_morph_demo) | CYD | Conway's Game of Life with morphing generations |
+| [hw_font_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/hw_font_demo) | CYD | a text written by hand, stroke by stroke |
+| [hw_morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/hw_morph_demo) | CYD | handwritten words morphing one into another |
+| [hw_soft_pen_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/hw_soft_pen_demo) | CYD or JC1060P470 | handwriting with a soft pen, lines that move to make room |
+| [ssd1322_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/ssd1322_demo) | ESP32 with a 3.12" SSD1322 OLED on the 8-bit parallel bus | 16 grays, text in two fonts, lines and circles, a gray ramp |
 
-A CYD is an ESP32-2432S028R: an ESP32 with a 320x240 ILI9341 on SPI.
+A CYD (Cheap Yellow Display) is an ESP32-2432S028R: an ESP32 with a
+320x240 ILI9341 on SPI.
 
 ## How fast
 
 The PDQ graphics test that Adafruit_GFX, TFT_eSPI and LovyanGFX ship, with
 each library on the same CYD: an ESP32 at 240 MHz, the ILI9341 on SPI at
 40 MHz, upright at 240x320. DGX runs it as
-[examples/graphicstest](examples/graphicstest); the others run their own
+[examples/graphicstest](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/graphicstest); the others run their own
 sketch, built with the Arduino core. A time ends when the display has the
 last pixel.
 
@@ -1125,7 +1263,7 @@ a program there draws in memory: the test takes 8.6 s on the display and 1.2 s
 in memory.
 
 How it was measured, the other boards, and the numbers published for these
-libraries: [docs/benchmarks-en.md](docs/benchmarks-en.md).
+libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/benchmarks-en.md).
 
 ## What's in the box
 
@@ -1151,7 +1289,8 @@ libraries: [docs/benchmarks-en.md](docs/benchmarks-en.md).
   corners, circles, ellipses, their arcs and sectors, filled and textured
   quads, a rectangle scrolled any way — and an arc gauge helper.
 - UTF-8 text rendering with 8-way orientation, glyph lookup, layout and bounds
-  queries, plus a small "morph" helper for animating between glyphs.
+  queries, fonts of 2 or 4 bits a pixel with soft (anti-aliased) edges, plus
+  a small "morph" helper for animating between glyphs.
 - Handwritten fonts: symbols kept as pen paths of Bezier curves, written at
   any size with a pen of any thickness, letters joined, at once or stroke by
   stroke at the pace of a pen.
@@ -1170,23 +1309,23 @@ Beyond the recipes:
 
 | Document | What is in it |
 | --- | --- |
-| [API reference](docs/api-en.md) | every call by header, the flags, colors and tables, buses, batches, several tasks, orientation, Kconfig options, known gaps |
-| [Supported panels](docs/panels-en.md) | the controllers, their constructors and options, a panel of your own module |
-| [Fonts made at build time](docs/fonts-en.md) ([ru](docs/fonts-ru.md)) | needs, sizes, characters, rules, licenses, soft edges, patches |
-| [font2c](font2c/README.md), [the font editor](font-editor/README.md) | converting fonts by hand, fixing glyphs |
-| [Handwriting](docs/handwriting-en.md) ([ru](docs/handwriting-ru.md)), [the pen](docs/pen-en.md) ([ru](docs/pen-ru.md)) | handwritten fonts, writing at the pace of a pen, the soft pen and what it costs |
-| [Morphing](docs/morphing-en.md) ([ru](docs/morphing-ru.md)) | the dot morphs and their renderers |
-| [A MIPI-DSI display](docs/dsi-usage-en.md) ([ru](docs/dsi-usage-ru.md)), [how it is built](docs/dsi-display-en.md) ([ru](docs/dsi-display-ru.md)) | using the DSI displays of an ESP32-P4, and the measurements behind it |
-| [The window on the computer](docs/host-window-en.md) | several windows, mouse and keyboard, the figures of the title, scripts, the linux target of ESP-IDF |
-| [An Arduino sketch](docs/arduino-en.md) | Arduino libraries sharing a bus with a display, PlatformIO |
-| [Benchmarks](docs/benchmarks-en.md) ([ru](docs/benchmarks-ru.md)) | the numbers behind [How fast](#how-fast) |
-| [18-bit color](docs/18-bit-pixels-en.md) ([ru](docs/18-bit-pixels-ru.md)), [a shorter first piece](docs/first-piece-en.md) ([ru](docs/first-piece-ru.md)), [the NV3041A of a JC4827W543](docs/nv3041a-en.md) ([ru](docs/nv3041a-ru.md)) | RGB666 on SPI and parallel panels, how a picture starts on the wire sooner, a hard QSPI panel and how it was tamed |
-| [How DGX is built and tested](docs/development-en.md) | how the parts fit together, the host tests, the layout of the repository |
+| [API reference](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md) | every call by header, the flags, colors and tables, buses, batches, several tasks, orientation, Kconfig options, known gaps |
+| [Supported panels](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/panels-en.md) | the controllers, their constructors and options, a panel of your own module |
+| [Fonts made at build time](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/fonts-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/fonts-ru.md)) | needs, sizes, characters, rules, licenses, soft edges, patches |
+| [font2c](https://github.com/jef-sure/esp32-component-dgx/blob/main/font2c/README.md), [the font editor](https://github.com/jef-sure/esp32-component-dgx/blob/main/font-editor/README.md) | converting fonts by hand, fixing glyphs |
+| [Handwriting](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/handwriting-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/handwriting-ru.md)), [the pen](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/pen-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/pen-ru.md)) | handwritten fonts, writing at the pace of a pen, the soft pen and what it costs |
+| [Morphing](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/morphing-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/morphing-ru.md)) | the dot morphs and their renderers |
+| [A MIPI-DSI display](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/dsi-usage-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/dsi-usage-ru.md)), [how it is built](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/dsi-display-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/dsi-display-ru.md)) | using the DSI displays of an ESP32-P4, and the measurements behind it |
+| [The window on the computer](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/host-window-en.md) | several windows, mouse and keyboard, the figures of the title, scripts, the linux target of ESP-IDF |
+| [An Arduino sketch](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/arduino-en.md) | Arduino libraries sharing a bus with a display, PlatformIO |
+| [Benchmarks](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/benchmarks-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/benchmarks-ru.md)) | the numbers behind [How fast](#how-fast) |
+| [18-bit color](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/18-bit-pixels-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/18-bit-pixels-ru.md)), [a shorter first piece](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/first-piece-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/first-piece-ru.md)), [the NV3041A of a JC4827W543](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/nv3041a-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/nv3041a-ru.md)) | RGB666 on SPI and parallel panels, how a picture starts on the wire sooner, a hard QSPI panel and how it was tamed |
+| [How DGX is built and tested](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/development-en.md) | how the parts fit together, the host tests, the layout of the repository |
 
 ## License
 
-Copyright (c) 2021-2026 Anton Petrusevich. See [LICENSE](LICENSE).
+Copyright (c) 2021-2026 Anton Petrusevich. See [LICENSE](https://github.com/jef-sure/esp32-component-dgx/blob/main/LICENSE).
 
 The fonts in `src/fonts/` are under the licenses of the fonts they were made
-from: [src/fonts/README.md](src/fonts/README.md) names each, and
-[src/fonts/licenses](src/fonts/licenses) holds their texts.
+from: [src/fonts/README.md](https://github.com/jef-sure/esp32-component-dgx/blob/main/src/fonts/README.md) names each, and
+[src/fonts/licenses](https://github.com/jef-sure/esp32-component-dgx/tree/main/src/fonts/licenses) holds their texts.

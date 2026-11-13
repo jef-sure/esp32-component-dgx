@@ -39,6 +39,15 @@ extern "C" {
 #define DGX_PANEL_CLEAR_FIRST 0x02u
 
 /**
+ * Depths for `depths` of dgx_panel_t, for a panel one of whose pixel formats
+ * has the COLMOD 0, as RGB666 of the NV3041A.
+ */
+#define DGX_PANEL_DEPTH_12 0x01u
+#define DGX_PANEL_DEPTH_16 0x02u
+#define DGX_PANEL_DEPTH_18 0x04u
+#define DGX_PANEL_DEPTH_24 0x08u
+
+/**
  * @brief What a panel is, for dgx_panel_init(). It is kept by its pointer: a description that lives as long as the screen.
  *
  * The glass is width by height pixels upright and lies at x_offset, y_offset
@@ -53,7 +62,8 @@ typedef struct dgx_panel_t {
     uint16_t    memory_width;             /**< Columns of the memory of the controller, 0 for as many as the glass has. */
     uint16_t    memory_height;            /**< Rows of it, 0 for as many as the glass has. */
     uint16_t    x_offset, y_offset;       /**< Where the glass begins in that memory, upright. */
-    uint8_t     colmod[3];                /**< COLMOD for 12, 16 and 18 bits a pixel; 0 for a depth that is not set up. */
+    uint8_t     colmod[4];                /**< COLMOD for 12, 16, 18 and 24 bits a pixel; 0 for a depth that is not set up, where `depths` is 0. */
+    uint8_t     depths;                   /**< The depths set up, DGX_PANEL_DEPTH_*; 0 for those with a COLMOD that is not 0. */
     uint8_t     madctl;                   /**< MADCTL of the upright picture with the colors in RGB order; MX, MY, MV and BGR are turned on it. */
     uint8_t     ramrd;                    /**< The command that reads memory, 0 for none. */
     uint8_t     reset_high_ms;            /**< The reset line high so long first; 0 to begin with it low. */
@@ -73,7 +83,8 @@ typedef struct dgx_panel_t {
  * @param panel      Its description, kept by the pointer.
  * @param rst        The reset line, GPIO_NUM_NC for none.
  * @param backlight  The backlight line, GPIO_NUM_NC for none.
- * @param color_bits 12, 16 or 18, as `panel` has a COLMOD for it.
+ * @param color_bits 12, 16, 18 or 24, as `panel` sets it up. The panels of DGX on SPI, QSPI and the
+ *                   parallel bus have none for 24: their controllers take 24 bits only over RGB and DSI.
  * @param cbo        The order of the colors.
  * @return The screen, or NULL for a depth the panel does not take or without memory.
  */

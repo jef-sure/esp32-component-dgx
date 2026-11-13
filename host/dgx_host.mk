@@ -20,7 +20,7 @@ DGX_HOST_SRCS_SCREEN  := $(addprefix $(DGX_ROOT)/src/screen/, screen.c screen_bu
 DGX_HOST_SRCS_DRAW    := $(addprefix $(DGX_ROOT)/src/draw/, draw.c lines.c circles.c polygons.c ellipse.c bezier.c segment.c texture.c \
                            scroll.c gauge.c rectangles.c)
 # virtual screens and their transfers, scaling and smoothing, the overlay, sprites, tables of colors, the page screen
-DGX_HOST_SRCS_VSCREEN := $(addprefix $(DGX_ROOT)/src/vscreen/, vscreen.c transfer.c bw_screen.c image.c lut.c scale.c overlay.c)
+DGX_HOST_SRCS_VSCREEN := $(addprefix $(DGX_ROOT)/src/vscreen/, vscreen.c transfer.c alpha.c bw_screen.c image.c lut.c scale.c overlay.c)
 # bitmap and dot fonts, handwritten text and its morphs
 DGX_HOST_SRCS_TEXT    := $(addprefix $(DGX_ROOT)/src/text/, font.c font_morph.c hw_font.c hw_morph.c)
 # the dot morphing framework and its renderers
