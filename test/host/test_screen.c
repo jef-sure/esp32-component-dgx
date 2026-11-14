@@ -53,6 +53,13 @@ static void test_user_data(void)
     dgx_screen_destroy(&a), dgx_screen_destroy(&b);
 }
 
+static int disposed;
+
+static void bus_gone(struct _dgx_bus_protocols_t *bus)
+{
+    ++disposed;
+}
+
 int main(void)
 {
     dgx_screen_t *s = dgx_vscreen_init(20, 10, 16, DgxScreenRGB);
@@ -72,6 +79,50 @@ int main(void)
     CHECK(calls == 0);
     CHECK(dgx_screen_progress_down(s) == 0);
     CHECK(calls == 1 && last_is(1, 17, 1, 9));
+
+    /* the same under the names of a batch */
+    calls = 0;
+    CHECK(dgx_screen_batch_begin(s) == 1);
+    dgx_set_pixel(s, 1, 1, 0xffff);
+    CHECK(dgx_screen_batch_begin(s) == 2);
+    dgx_set_pixel(s, 17, 9, 0xffff);
+    CHECK(dgx_screen_batch_end(s) == 1 && calls == 0);
+    CHECK(dgx_screen_batch_end(s) == 0 && calls == 1 && last_is(1, 17, 1, 9));
+
+    /* a virtual screen is no display: nothing to turn, light or dim, and nothing to wait for */
+    CHECK(dgx_screen_orientation(s, DgxScreenRightLeft, DgxScreenTopBottom, true) == ESP_ERR_NOT_SUPPORTED);
+    CHECK(s->width == 20 && s->height == 10 && s->dir_x == DgxScreenLeftRight && !s->swap_xy);
+    CHECK(dgx_screen_backlight(s, true) == ESP_ERR_NOT_SUPPORTED);
+    CHECK(dgx_screen_display(s, false) == ESP_ERR_NOT_SUPPORTED);
+    CHECK(dgx_screen_brightness(s, 128) == ESP_ERR_NOT_SUPPORTED);
+    dgx_screen_wait(s);
+
+    /* a color by the depth of the screen; below 12 bits, the brightness as the depth holds it */
+    CHECK(dgx_screen_rgb(s, 255, 128, 8) == dgx_rgb_to_16(255, 128, 8));
+    {
+        dgx_screen_t d = {.color_bits = 12};
+        CHECK(dgx_screen_rgb(&d, 255, 128, 8) == dgx_rgb_to_12(255, 128, 8));
+        d.color_bits = 18;
+        CHECK(dgx_screen_rgb(&d, 255, 128, 8) == dgx_rgb_to_18(255, 128, 8));
+        d.color_bits = 24;
+        CHECK(dgx_screen_rgb(&d, 255, 128, 8) == 0xFF8008u);
+        d.color_bits = 8;
+        CHECK(dgx_screen_rgb(&d, 0, 0, 0) == 0 && dgx_screen_rgb(&d, 255, 255, 255) == 255 && dgx_screen_rgb(&d, 0, 255, 0) == 149);
+        d.color_bits = 4;
+        CHECK(dgx_screen_rgb(&d, 0, 0, 0) == 0 && dgx_screen_rgb(&d, 255, 255, 255) == 15 && dgx_screen_rgb(&d, 128, 128, 128) == 8);
+        d.color_bits = 1;
+        CHECK(dgx_screen_rgb(&d, 0, 0, 0) == 0 && dgx_screen_rgb(&d, 255, 255, 255) == 1);
+        CHECK(dgx_screen_rgb(&d, 127, 127, 127) == 0 && dgx_screen_rgb(&d, 129, 129, 129) == 1);
+    }
+
+    /* a bus given up by its call: dispose() once, the pointer cleared, a cleared one left alone */
+    {
+        dgx_bus_protocols_t wire = {.dispose = bus_gone}, *bus = &wire;
+        dgx_bus_dispose(&bus);
+        CHECK(disposed == 1 && bus == NULL);
+        dgx_bus_dispose(&bus);
+        CHECK(disposed == 1 && bus == NULL);
+    }
 
     /* empty batch does not flush */
     calls = 0;

@@ -1,7 +1,8 @@
 /*
  * polygons.c
  *
- *  A solid triangle and a solid quadrilateral, filled by rows.
+ *  A triangle and a quadrilateral filled by rows, and the outline of a
+ *  triangle.
  *  Copyright (c) 2021-2026 Anton Petrusevich
  *      Author: Anton Petrusevich
  */
@@ -11,9 +12,10 @@
 
 #include "dgx_bits.h"
 #include "dgx_draw.h"
+#include "../dgx_hot_priv.h"
 
 /* ------------------------------------------------------------------------- */
-/*  dgx_draw_triangle_solid                                                  */
+/*  dgx_fill_triangle                                                        */
 /* ------------------------------------------------------------------------- */
 #define DGX_SORT3PUD(x0, y0, x1, y1, x2, y2)  \
     do {                                       \
@@ -31,53 +33,105 @@
         }                                      \
     } while (0)
 
-void dgx_draw_triangle_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color)
+/*
+ * A side of a triangle walked down its rows as dgx_draw_line() draws it: the
+ * pixels of the line in each row, from the first to the last. A line is
+ * walked from its upper end there, and so is a side here, by the same
+ * arithmetic: the pixels are the same.
+ */
+typedef struct {
+    int x;     /* where the side comes into the row it is in */
+    int x2;    /* the x of its lower end */
+    int adx, ady, sx, err;
+    int steps; /* of a shallow side: the steps along x that are left */
+} dgx_side_t;
+
+/* a side from its upper end: y1 <= y2 */
+static inline __attribute__((always_inline)) void dgx_side_begin(dgx_side_t *s, int x1, int y1, int x2, int y2)
 {
-    int a, b, y, last;
+    s->x = x1, s->x2 = x2;
+    s->adx = DGX_ABS(x2 - x1), s->ady = y2 - y1;
+    s->sx    = x1 < x2 ? 1 : -1;
+    s->err   = s->adx - s->ady;
+    s->steps = s->adx;
+}
+
+/*
+ * The pixels of the side in the row it is in widen *a .. *b; the side goes on to its next row. Inline: called
+ * for two or three sides in every row of a triangle, it is most of what a small triangle costs.
+ */
+static inline __attribute__((always_inline)) void dgx_side_row(dgx_side_t *s, int *a, int *b)
+{
+    const int from = s->x;
+    int       to   = from;
+    if (s->ady == 0) {
+        /* level: the whole side lies in the row */
+        to = s->x2;
+    } else if (s->adx > s->ady) {
+        /* shallow: the row ends where the line goes down, the last one at the end of the side */
+        for (bool down = false; s->steps && !down; --s->steps) {
+            const int e2 = 2 * s->err;
+            s->err -= s->ady;
+            if (e2 <= s->adx) {
+                s->err += s->adx;
+                down = true;
+            } else {
+                to += s->sx;
+            }
+            s->x += s->sx;
+        }
+    } else if (s->adx < s->ady) {
+        /* steep: a pixel a row */
+        const int e2 = 2 * s->err;
+        s->err += s->adx;
+        if (e2 >= -s->ady) {
+            s->err -= s->ady;
+            s->x += s->sx;
+        }
+    } else {
+        s->x += s->sx; /* the diagonal */
+    }
+    if (from < *a) *a = from;
+    if (to < *a) *a = to;
+    if (from > *b) *b = from;
+    if (to > *b) *b = to;
+}
+
+/*
+ * A row of the triangle runs from the leftmost to the rightmost pixel its
+ * sides have in that row, so the three lines of dgx_draw_triangle() are in
+ * the triangle and are its border.
+ */
+DGX_HOT void dgx_fill_triangle(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color)
+{
     DGX_SORT3PUD(x0, y0, x1, y1, x2, y2);
-    dgx_screen_progress_up(scr);
-    if (y0 == y2) {
-        a = b = x0;
-        if (x1 < a) a = x1;
-        else if (x1 > b) b = x1;
-        if (x2 < a) a = x2;
-        else if (x2 > b) b = x2;
-        scr->fill_rectangle(scr, a, y0, b - a + 1, 1, color);
-        dgx_screen_progress_down(scr);
-        return;
-    }
-    int dx01 = x1 - x0;
-    int dy01 = y1 - y0;
-    int dx02 = x2 - x0;
-    int dy02 = y2 - y0;
-    int dx12 = x2 - x1;
-    int dy12 = y2 - y1;
-    int32_t sa = 0;
-    int32_t sb = 0;
-    last = (y1 == y2) ? y1 : y1 - 1;
-    for (y = y0; y <= last; y++) {
-        a = x0 + sa / dy01;
-        b = x0 + sb / dy02;
-        sa += dx01;
-        sb += dx02;
-        if (a > b) DGX_INT_SWAP(a, b);
+    dgx_side_t longest, upper, lower;
+    dgx_side_begin(&longest, x0, y0, x2, y2);
+    dgx_side_begin(&upper, x0, y0, x1, y1);
+    dgx_side_begin(&lower, x1, y1, x2, y2);
+    dgx_screen_batch_begin(scr);
+    for (int y = y0; y <= y2; ++y) {
+        int a = longest.x, b = a;
+        dgx_side_row(&longest, &a, &b);
+        if (y <= y1) dgx_side_row(&upper, &a, &b);
+        if (y >= y1) dgx_side_row(&lower, &a, &b);
         scr->fill_rectangle(scr, a, y, b - a + 1, 1, color);
     }
-    sa = (int32_t)dx12 * (y - y1);
-    sb = (int32_t)dx02 * (y - y0);
-    for (; y <= y2; y++) {
-        a = x1 + sa / dy12;
-        b = x0 + sb / dy02;
-        sa += dx12;
-        sb += dx02;
-        if (a > b) DGX_INT_SWAP(a, b);
-        scr->fill_rectangle(scr, a, y, b - a + 1, 1, color);
-    }
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
+}
+
+/* the outline: three lines, each the line of the screen, in one batch */
+DGX_HOT void dgx_draw_triangle(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color)
+{
+    dgx_screen_batch_begin(scr);
+    dgx_draw_line(scr, x0, y0, x1, y1, color);
+    dgx_draw_line(scr, x1, y1, x2, y2, color);
+    dgx_draw_line(scr, x2, y2, x0, y0, color);
+    dgx_screen_batch_end(scr);
 }
 
 /* ------------------------------------------------------------------------- */
-/*  dgx_draw_polygon4_solid                                                  */
+/*  dgx_fill_polygon4                                                        */
 /* ------------------------------------------------------------------------- */
 static int dgx_polygon4_intersection_x(int x0, int y0, int x1, int y1, int y)
 {
@@ -107,8 +161,7 @@ static int dgx_polygon4_reflex(const int vx[4], const int vy[4])
     return -1;
 }
 
-void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3,
-                             uint32_t color)
+void dgx_fill_polygon4(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3, uint32_t color)
 {
     int vx[4] = {x0, x1, x2, x3};
     int vy[4] = {y0, y1, y2, y3};
@@ -124,14 +177,14 @@ void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
     const int reflex = dgx_polygon4_reflex(vx, vy);
     if (reflex >= 0) {
         const int a = (reflex + 1) & 3, b = (reflex + 2) & 3, c = (reflex + 3) & 3;
-        dgx_screen_progress_up(scr);
-        dgx_draw_triangle_solid(scr, vx[reflex], vy[reflex], vx[a], vy[a], vx[b], vy[b], color);
-        dgx_draw_triangle_solid(scr, vx[reflex], vy[reflex], vx[b], vy[b], vx[c], vy[c], color);
-        dgx_screen_progress_down(scr);
+        dgx_screen_batch_begin(scr);
+        dgx_fill_triangle(scr, vx[reflex], vy[reflex], vx[a], vy[a], vx[b], vy[b], color);
+        dgx_fill_triangle(scr, vx[reflex], vy[reflex], vx[b], vy[b], vx[c], vy[c], color);
+        dgx_screen_batch_end(scr);
         return;
     }
 
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     for (int y = dirty_top; y <= dirty_bottom; ++y) {
         int xs[4];
         int count = 0;
@@ -185,5 +238,5 @@ void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
             scr->fill_rectangle(scr, xs[i], y, xs[i + 1] - xs[i] + 1, 1, color);
         }
     }
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }

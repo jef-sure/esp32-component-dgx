@@ -43,7 +43,7 @@
 #include "dgx_font.h"
 #include "dgx_lut.h"
 #include "driver/spi_common.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/GLCD5x7.h"
 #include "had_240x320.h"
 
@@ -90,7 +90,7 @@ static uint32_t push(void)
 {
     const int64_t start = esp_timer_get_time();
     dgx_vscreen8_to_screen16(lcd, 0, 0, mem, lut, 0);
-    if (lcd->wait_buffer) lcd->wait_buffer(lcd);
+    dgx_screen_wait(lcd);
     return (uint32_t)(esp_timer_get_time() - start);
 }
 
@@ -102,7 +102,7 @@ static int64_t micros(void)
 /* the clock is read when the display has everything */
 static uint32_t since(int64_t start)
 {
-    if (tft->wait_buffer) tft->wait_buffer(tft);
+    dgx_screen_wait(tft);
     return (uint32_t)(micros() - start);
 }
 
@@ -120,7 +120,8 @@ static struct {
 static void print(const char *s)
 {
     /* the baseline of the font is 7 rows below the top of its cell */
-    dgx_font_string_utf8_screen(tft, cursor.x, cursor.y + 7 * cursor.size, s, cursor.color, DgxOutputNormal, cursor.size, GLCD5x7(), NULL, NULL);
+    const dgx_font_context_t text = {.scr = tft, .font = GLCD5x7(), .color = cursor.color, .scale = cursor.size};
+    dgx_font_draw(&text, cursor.x, cursor.y + 7 * cursor.size, s);
     cursor.x += 6 * cursor.size * (int)strlen(s);
 }
 
@@ -141,7 +142,7 @@ static uint32_t test_had(void)
     }
     const unsigned bytes = tft->color_bits / 8u;
     fill_screen(BLACK);
-    if (tft->wait_buffer) tft->wait_buffer(tft);
+    dgx_screen_wait(tft);
     int64_t start = micros();
     for (int i = 0; i < 0x10; i++) {
         const uint32_t color = color565((i << 4) | i, (i << 4) | i, (i << 4) | i);
@@ -165,13 +166,13 @@ static uint32_t test_had(void)
                 if (n == PIXELS) {
                     tft->write_area(tft, half[k], 8 * bytes * PIXELS);
                     k ^= 1, n = 0;
-                    if (tft->wait_buffer) tft->wait_buffer(tft); /* the half to be filled next is no longer sent */
+                    dgx_screen_wait(tft); /* the half to be filled next is no longer sent */
                 }
             }
             now ^= color;
         }
         if (n) tft->write_area(tft, half[k], 8 * bytes * n);
-        if (tft->wait_buffer) tft->wait_buffer(tft);
+        dgx_screen_wait(tft);
     }
     uint32_t t = since(start);
     free(half[0]), free(half[1]);
@@ -197,7 +198,7 @@ static uint32_t test_text(void)
 {
     char line[24];
     fill_screen(BLACK);
-    if (tft->wait_buffer) tft->wait_buffer(tft);
+    dgx_screen_wait(tft);
     int64_t start = micros();
     cursor.x = cursor.y = 0;
     /* setTextColor(TFT_WHITE, TFT_BLACK): the cells of the first line are filled first */
@@ -249,7 +250,7 @@ static uint32_t test_lines(uint32_t color)
     int      x1, y1, x2, y2;
     for (int corner = 0; corner < 4; ++corner) {
         fill_screen(BLACK);
-        if (tft->wait_buffer) tft->wait_buffer(tft);
+        dgx_screen_wait(tft);
         x1 = corner & 1 ? W - 1 : 0;
         y1 = corner & 2 ? H - 1 : 0;
         y2 = corner & 2 ? 0 : H - 1;
@@ -265,7 +266,7 @@ static uint32_t test_lines(uint32_t color)
 static uint32_t test_fast_lines(uint32_t color1, uint32_t color2)
 {
     fill_screen(BLACK);
-    if (tft->wait_buffer) tft->wait_buffer(tft);
+    dgx_screen_wait(tft);
     int64_t start = micros();
     for (int y = 0; y < H; y += 5) dgx_fill_rectangle(tft, 0, y, W, 1, color1);
     for (int x = 0; x < W; x += 5) dgx_fill_rectangle(tft, x, 0, 1, H, color2);
@@ -276,7 +277,7 @@ static uint32_t test_rects(uint32_t color)
 {
     const int cx = W / 2, cy = H / 2, n = W < H ? W : H;
     fill_screen(BLACK);
-    if (tft->wait_buffer) tft->wait_buffer(tft);
+    dgx_screen_wait(tft);
     int64_t start = micros();
     for (int i = 2; i < n; i += 6) dgx_draw_rectangle(tft, cx - i / 2, cy - i / 2, i, i, color);
     return since(start);
@@ -287,7 +288,7 @@ static uint32_t test_filled_rects(uint32_t color1, uint32_t color2)
     const int cx = W / 2 - 1, cy = H / 2 - 1, n = W < H ? W : H;
     uint32_t  t = 0;
     fill_screen(BLACK);
-    if (tft->wait_buffer) tft->wait_buffer(tft);
+    dgx_screen_wait(tft);
     for (int i = n; i > 0; i -= 6) {
         const int i2    = i / 2;
         int64_t   start = micros();
@@ -303,10 +304,10 @@ static uint32_t test_filled_circles(int radius, uint32_t color)
 {
     const int r2 = radius * 2;
     fill_screen(BLACK);
-    if (tft->wait_buffer) tft->wait_buffer(tft);
+    dgx_screen_wait(tft);
     int64_t start = micros();
     for (int x = radius; x < W; x += r2) {
-        for (int y = radius; y < H; y += r2) dgx_solid_circle(tft, x, y, radius, color);
+        for (int y = radius; y < H; y += r2) dgx_fill_circle(tft, x, y, radius, color);
     }
     return since(start);
 }
@@ -333,7 +334,7 @@ static uint32_t test_triangles(void)
 {
     const int cx = W / 2 - 1, cy = H / 2 - 1, n = cx < cy ? cx : cy;
     fill_screen(BLACK);
-    if (tft->wait_buffer) tft->wait_buffer(tft);
+    dgx_screen_wait(tft);
     int64_t start = micros();
     for (int i = 0; i < n; i += 5) draw_triangle(cx, cy - i, cx - i, cy + i, cx + i, cy + i, color565(0, 0, i));
     return since(start);
@@ -344,10 +345,10 @@ static uint32_t test_filled_triangles(void)
     const int cx = W / 2 - 1, cy = H / 2 - 1;
     uint32_t  t = 0;
     fill_screen(BLACK);
-    if (tft->wait_buffer) tft->wait_buffer(tft);
+    dgx_screen_wait(tft);
     for (int i = cx < cy ? cx : cy; i > 10; i -= 5) {
         int64_t start = micros();
-        dgx_draw_triangle_solid(tft, cx, cy - i, cx - i, cy + i, cx + i, cy + i, color565(0, i, i));
+        dgx_fill_triangle(tft, cx, cy - i, cx - i, cy + i, cx + i, cy + i, color565(0, i, i));
         t += since(start);
         draw_triangle(cx, cy - i, cx - i, cy + i, cx + i, cy + i, color565(i, i, 0));
     }
@@ -358,7 +359,7 @@ static uint32_t test_round_rects(void)
 {
     const int cx = W / 2 - 1, cy = H / 2 - 1, w = W < H ? W : H;
     fill_screen(BLACK);
-    if (tft->wait_buffer) tft->wait_buffer(tft);
+    dgx_screen_wait(tft);
     int64_t start = micros();
     for (int i = 0; i < w; i += 6) dgx_draw_round_rectangle(tft, cx - i / 2, cy - i / 2, i, i, i / 8, color565(i, 0, 0));
     return since(start);
@@ -368,7 +369,7 @@ static uint32_t test_filled_round_rects(void)
 {
     const int cx = W / 2 - 1, cy = H / 2 - 1;
     fill_screen(BLACK);
-    if (tft->wait_buffer) tft->wait_buffer(tft);
+    dgx_screen_wait(tft);
     int64_t start = micros();
     for (int i = W < H ? W : H; i > 20; i -= 6) dgx_fill_round_rectangle(tft, cx - i / 2, cy - i / 2, i, i, i / 8, color565(0, i, 0));
     return since(start);
@@ -450,7 +451,7 @@ static dgx_screen_t *display_init(void)
 {
     dgx_bus_protocols_t *bus = dgx_dsi_init(0, 2, 750, 3, 2500);
     dgx_screen_t        *scr = bus ? dgx_jd9165_init(bus, GPIO_NUM_0, GPIO_NUM_23, 16, DgxScreenRGB, DgxDsiOneFrame) : NULL;
-    if (scr) dgx_jd9165_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true); /* upright, 600x1024 */
+    if (scr) dgx_screen_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true); /* upright, 600x1024 */
     return scr;
 }
 #elif CONFIG_IDF_TARGET_ESP32S3
@@ -463,7 +464,7 @@ static dgx_screen_t *display_init(void)
     dgx_bus_protocols_t *bus = dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_21, GPIO_NUM_48, GPIO_NUM_40, GPIO_NUM_39, GPIO_NUM_47, GPIO_NUM_45,
                                              40 * 1000 * 1000, 0);
     dgx_screen_t *scr = bus ? dgx_nv3041a_init(bus, GPIO_NUM_NC, GPIO_NUM_1, 16, DgxScreenRGB) : NULL;
-    if (scr) dgx_nv3041a_orientation(scr, DgxScreenLeftRight, DgxScreenBottomTop, true); /* upright, 272x480 */
+    if (scr) dgx_screen_orientation(scr, DgxScreenLeftRight, DgxScreenBottomTop, true); /* upright, 272x480 */
     return scr;
 }
 #else
@@ -475,7 +476,7 @@ static dgx_screen_t *display_init(void)
 {
     dgx_bus_protocols_t *bus = dgx_spi_init(SPI2_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_13, GPIO_NUM_12, GPIO_NUM_14, GPIO_NUM_15, GPIO_NUM_2, 40 * 1000 * 1000, 0);
     dgx_screen_t        *scr = bus ? dgx_ili9341_init(bus, GPIO_NUM_NC, GPIO_NUM_21, 16, DgxScreenRGB) : NULL;
-    if (scr) dgx_ili9341_orientation(scr, DgxScreenLeftRight, DgxScreenTopBottom, false); /* upright, 240x320 */
+    if (scr) dgx_screen_orientation(scr, DgxScreenLeftRight, DgxScreenTopBottom, false); /* upright, 240x320 */
     return scr;
 }
 #endif

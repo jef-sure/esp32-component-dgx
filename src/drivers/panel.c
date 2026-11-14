@@ -17,6 +17,7 @@
 #include "dgx_screen_functions.h"
 #include "dgx_spi_area_protocol.h"
 #include "esp_log.h"
+#include "../dgx_hot_priv.h"
 
 static const char TAG[] = "DGX PANEL";
 
@@ -24,6 +25,8 @@ static const char TAG[] = "DGX PANEL";
 #define DGX_PANEL_RASET  0x2Bu
 #define DGX_PANEL_RAMWR  0x2Cu
 #define DGX_PANEL_MADCTL 0x36u
+#define DGX_PANEL_DISPOFF 0x28u
+#define DGX_PANEL_DISPON  0x29u
 
 #define DGX_PANEL_MY  0x80u
 #define DGX_PANEL_MX  0x40u
@@ -104,7 +107,7 @@ uint8_t *dgx_panel_adj_colmod(dgx_screen_with_bus_t *scr, const struct _dgx_lcd_
 }
 
 /* the set_area of every display behind a bus, but with both bounds of the window sent every time: DGX_PANEL_BOTH_BOUNDS */
-static void dgx_panel_set_area_both(dgx_screen_t *_scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
+DGX_HOT static void dgx_panel_set_area_both(dgx_screen_t *_scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
 {
     dgx_screen_with_bus_t *scr = (dgx_screen_with_bus_t *)_scr;
     if (left > right) {
@@ -152,6 +155,22 @@ static void dgx_panel_depths(const dgx_panel_t *panel, char *text, size_t size)
         at += (size_t)snprintf(text + at, size - at, "%s%d", i == 0 ? "" : i == n - 1 ? " and " : ", ", taken[i]);
 }
 
+/* DISPON or DISPOFF: the panel shows its memory or does not, and keeps it */
+static esp_err_t dgx_panel_display(dgx_screen_t *_scr, bool on)
+{
+    dgx_screen_with_bus_t *scr = (dgx_screen_with_bus_t *)_scr;
+    scr->bus->write_command(scr->bus, on ? DGX_PANEL_DISPON : DGX_PANEL_DISPOFF);
+    /* a bus that sends a command together with its data holds it back until it knows there is none */
+    if (scr->bus->sync_write) scr->bus->sync_write(scr->bus);
+    return ESP_OK;
+}
+
+static const dgx_screen_control_t dgx_panel_control = {
+    .orientation = dgx_panel_orientation,
+    .backlight   = dgx_panel_backlight,
+    .display     = dgx_panel_display,
+};
+
 dgx_screen_t *dgx_panel_init(dgx_bus_protocols_t *bus, const dgx_panel_t *panel, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits,
                              dgx_color_order_t cbo)
 {
@@ -186,6 +205,7 @@ dgx_screen_t *dgx_panel_init(dgx_bus_protocols_t *bus, const dgx_panel_t *panel,
     s->screen_name        = panel->name;
     s->screen_submodel    = 0;
     s->screen_subtype     = DgxPhysicalScreenWithBus;
+    s->control            = &dgx_panel_control;
     dgx_panel_shifts(&scr->base);
     dgx_screen_with_bus_init_area(&scr->base, DGX_PANEL_CASET, DGX_PANEL_RASET, DGX_PANEL_RAMWR, DGX_SCREEN_AREA_PROTO_STD16);
     if (panel->scroll_lines) dgx_screen_with_bus_scroll_init(&scr->base, panel->scroll_lines, panel->scroll_area_cmd, panel->scroll_start_cmd);

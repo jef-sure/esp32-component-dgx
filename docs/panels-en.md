@@ -53,17 +53,17 @@ Common parameters:
   modules show red as red with the BGR bit of the controller set, so there
   `DgxScreenRGB` sets that bit, the other way round from the other drivers.
   If red and blue are exchanged on your module, pass the other value.
-- `resolution` (ST7789) — the panel: `ST7789_RESOLUTION_240x240`,
-  `ST7789_RESOLUTION_240x320`, or `ST7789_RESOLUTION_320x240` for a 240x320
-  panel in landscape; `ST7789_RESOLUTION_76x284` or
-  `ST7789_RESOLUTION_284x76` for the 2.25" bar (an ST7789P3, colors in BGR
-  order, not yet tried on a module); `ST7789_RESOLUTION_135x240` or
-  `ST7789_RESOLUTION_240x135` for the 1.14" glass, which lies 52 columns and
+- `resolution` (ST7789) — the panel: `DGX_ST7789_240X240`,
+  `DGX_ST7789_240X320`, or `DGX_ST7789_320X240` for a 240x320
+  panel in landscape; `DGX_ST7789_76X284` or
+  `DGX_ST7789_284X76` for the 2.25" bar (an ST7789P3, colors in BGR
+  order, not yet tried on a module); `DGX_ST7789_135X240` or
+  `DGX_ST7789_240X135` for the 1.14" glass, which lies 52 columns and
   40 rows into the memory of the controller. Swapping the axes in
   `dgx_st7789_orientation()` turns the screen between the two shapes.
-- `resolution` (ST7735) — the panel: `ST7735_RESOLUTION_128x160`, or
-  `ST7735_RESOLUTION_160x128` for it in landscape;
-  `ST7735_RESOLUTION_80x160` or `ST7735_RESOLUTION_160x80` for the 0.96" IPS
+- `resolution` (ST7735) — the panel: `DGX_ST7735_128X160`, or
+  `DGX_ST7735_160X128` for it in landscape;
+  `DGX_ST7735_80X160` or `DGX_ST7735_160X80` for the 0.96" IPS
   glass. Its controller is set for 128x160 on the module, the glass lies 24
   columns into it, and its colors need no inversion and go in BGR order on
   the usual modules: Adafruit starts it as `INITR_MINI160x80`. A module
@@ -71,7 +71,14 @@ Common parameters:
   see [A panel of your own module](#a-panel-of-your-own-module). Before 0.11
   the constructor had no such argument and made the 128x160.
 
-Color panels, ST7920, SSD1306, SSD1309, SH1106, SSD1322 and SSD1680 also
+Every display is turned, lit and dimmed by the same calls, whatever its
+driver: `dgx_screen_orientation()`, `dgx_screen_backlight()`,
+`dgx_screen_display()` and `dgx_screen_brightness()`, see
+[Controlling a display](api-en.md#controlling-a-display) for what each
+display does for them. The calls named after a driver below do the same and
+stay.
+
+Color panels, ST7920, SSD1306, SSD1309, SH1106, SSD1322 and SSD1680
 expose an orientation setter (`dgx_<driver>_orientation(scr, dir_x, dir_y,
 swap_xy)`). A color controller is told its scan direction. An ST7920 has no
 command for that, and the OLED controllers mirror by their segments and rows
@@ -226,22 +233,22 @@ A controller with a COLMOD of 0 for a depth it takes, as the NV3041A has for
 RGB666, names the depths set up in `depths` instead:
 `DGX_PANEL_DEPTH_16 | DGX_PANEL_DEPTH_18`.
 
-For SSD1306, pick a geometry from `ssd1306_resolution_t`: `SSD1306_128X32`,
-`SSD1306_128X64`, `SSD1306_96X16`, `SSD1306_64X48` or `SSD1306_72X40`.
+For SSD1306, pick a geometry from `dgx_ssd1306_resolution_t`: `DGX_SSD1306_128X32`,
+`DGX_SSD1306_128X64`, `DGX_SSD1306_96X16`, `DGX_SSD1306_64X48` or `DGX_SSD1306_72X40`.
 
 SSD1309 is the controller of the larger modules, 2.42 inches as a rule. It
 takes the commands of the SSD1306 but has no charge pump, so its constructor
-has no supply argument: `dgx_ssd1309_init(bus, SSD1309_128X64, rst)`, or
-`SSD1309_128X32`. The init commands are those of the u8g2 driver. Some
+has no supply argument: `dgx_ssd1309_init(bus, DGX_SSD1309_128X64, rst)`, or
+`DGX_SSD1309_128X32`. The init commands are those of the u8g2 driver. Some
 modules wire the first column of the glass to segment 2 of the controller
 and show the picture shifted right by two pixels: tell the driver with
 `dgx_ssd1309_column_offset(scr, 2)`.
 
 SSD1322 is the 16-gray OLED controller of the 256x64 modules (Newhaven
-NHD-3.12-25664 and the 3.12" clones): `dgx_ssd1322_init(bus, SSD1322_256X64,
+NHD-3.12-25664 and the 3.12" clones): `dgx_ssd1322_init(bus, DGX_SSD1322_256X64,
 rst)`. Other modules wire their glass to other parts of its memory:
-`SSD1322_256X64_ZJY`, `SSD1322_240X128`, `SSD1322_240X128_TOPWIN` and
-`SSD1322_128X64` (Newhaven NHD-2.7-12864WDW3); their settings come from u8g2
+`DGX_SSD1322_256X64_ZJY`, `DGX_SSD1322_240X128`, `DGX_SSD1322_240X128_TOPWIN` and
+`DGX_SSD1322_128X64` (Newhaven NHD-2.7-12864WDW3); their settings come from u8g2
 and have not been tried on a module. The controller writes its memory in
 groups of four pixels, so the driver keeps the picture in a 4-bit virtual
 screen (8 KB for 256x64) and sends what has changed. A color is a gray level, 0 (dark) to 15 (bright), in the high
@@ -260,16 +267,16 @@ under the SSD1306 driver shows garbage in the top eight rows and nothing
 below, because it does not know the addressing commands of the SSD1306 and
 takes the whole picture into one page. It has 132 segments and the page
 addressing mode only, so the driver sends a changed rectangle page by page,
-each with its own address. `dgx_sh1106_init(bus, SH1106_128X64, rst)` or
-`SH1106_64X32`, the 0.42-inch glass. The glass takes a run of the segments:
+each with its own address. `dgx_sh1106_init(bus, DGX_SH1106_128X64, rst)` or
+`DGX_SH1106_64X32`, the 0.42-inch glass. The glass takes a run of the segments:
 from segment 2 for 128 columns and from 32 for 64, as u8g2 has it; if a
 module of yours shows a blank stripe at an edge, pass the segment of its
 first column to `dgx_sh1106_column_offset()`. The init commands are those
 of the u8g2 driver written for the controller after its datasheet.
 
 SSD1680 is the controller of the e-paper modules of black, white and red:
-`dgx_ssd1680_init(bus, SSD1680_128X296_BWR, rst, busy)` for the 2.9" module
-of WeAct Studio, seen right on a module, or `SSD1680_122X250_BWR` for its
+`dgx_ssd1680_init(bus, DGX_SSD1680_128X296_BWR, rst, busy)` for the 2.9" module
+of WeAct Studio, seen right on a module, or `DGX_SSD1680_122X250_BWR` for its
 2.13" one, not tried. The driver keeps the picture as the controller takes
 it, two planes of a bit a pixel, 9.5 KB for the 2.9", and drawing changes
 only that. `dgx_ssd1680_refresh()` sends it and has the glass change: all of

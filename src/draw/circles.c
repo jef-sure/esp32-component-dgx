@@ -10,6 +10,7 @@
 #include <stdbool.h>
 
 #include "dgx_draw_priv.h"
+#include "../dgx_hot_priv.h"
 
 /*
  * The points (xa..xb, yoff) of the upper right eighth of a circle and their
@@ -21,7 +22,7 @@
  * again. So the runs follow one another with the columns or the rows kept:
  * of the eight only the first and the fifth set both.
  */
-static void dgx_draw_circle_eighths(dgx_screen_t *scr, int x, int y, int yoff, int xa, int xb, uint32_t color)
+DGX_HOT static void dgx_draw_circle_eighths(dgx_screen_t *scr, int x, int y, int yoff, int xa, int xb, uint32_t color)
 {
     if (xa == 0) {
         dgx_draw_row_run(scr, x - xb, x + xb, y - yoff, color);
@@ -45,7 +46,7 @@ static void dgx_draw_circle_eighths(dgx_screen_t *scr, int x, int y, int yoff, i
  * the diagonal, and every point of it is reflected into the other seven.
  * The points of the eighth that lie in one row go as one run.
  */
-void dgx_draw_circle_runs(dgx_screen_t *scr, int x, int y, int r, uint32_t color)
+DGX_HOT void dgx_draw_circle_runs(dgx_screen_t *scr, int x, int y, int r, uint32_t color)
 {
     if (r < 0) return;
     if (y + r < 0 || y - r >= scr->height || x - r >= scr->width || x + r < 0) return;
@@ -59,7 +60,7 @@ void dgx_draw_circle_runs(dgx_screen_t *scr, int x, int y, int r, uint32_t color
     int xs  = 0;
     int ys  = r;
     int run = 0; /* the first point of the row the walk is in */
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     while (xs < ys) {
         int row = ys;
         int end = xs;
@@ -77,7 +78,7 @@ void dgx_draw_circle_runs(dgx_screen_t *scr, int x, int y, int r, uint32_t color
         }
     }
     dgx_draw_circle_eighths(scr, x, y, ys, run, xs, color);
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }
 
 /*
@@ -90,7 +91,7 @@ void dgx_draw_circle_runs(dgx_screen_t *scr, int x, int y, int r, uint32_t color
  * and a column is a pixel in every row it crosses. To a display that takes a
  * window it is all the same.
  */
-void dgx_draw_solid_circle_rows(dgx_screen_t *scr, int x, int y, int r, uint32_t color)
+DGX_HOT void dgx_draw_solid_circle_rows(dgx_screen_t *scr, int x, int y, int r, uint32_t color)
 {
     if (r < 0) return;
     if (y + r < 0 || y - r >= scr->height || x - r >= scr->width || x + r < 0) return;
@@ -104,7 +105,7 @@ void dgx_draw_solid_circle_rows(dgx_screen_t *scr, int x, int y, int r, uint32_t
     int xs   = 0;
     int ys   = r;
     int band = 0; /* the nearest to the middle of the rows that reach ys to each side */
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     while (1) {
         int  reach = ys;
         int  end   = xs;
@@ -135,5 +136,5 @@ void dgx_draw_solid_circle_rows(dgx_screen_t *scr, int x, int y, int r, uint32_t
         if (!more) break;
         band = xs;
     }
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }

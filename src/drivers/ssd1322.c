@@ -23,7 +23,7 @@
 #include "drivers/ssd1322.h"
 
 #include "dgx_arch.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "esp_log.h"
 
 #include "../vscreen/dgx_soft_turn_priv.h"
@@ -130,11 +130,11 @@ typedef struct {
 } ssd1322_module_t;
 
 static const ssd1322_module_t ssd1322_modules[] = {
-    [SSD1322_256X64]         = {256, 64, 28, 1, {0x14, 0x11}, st_init_cmds},       /* upright on a 3.12" clone */
-    [SSD1322_256X64_ZJY]     = {256, 64, 24, 1, {0x16, 0x11}, st_init_cmds},       /* u8g2 issue 2386 */
-    [SSD1322_240X128]        = {240, 128, 24, 1, {0x36, 0x11}, st_init_cmds},      /* u8g2 issue 2092 */
-    [SSD1322_240X128_TOPWIN] = {240, 128, 24, 1, {0x36, 0x01}, st_init_cmds},      /* u8g2 discussion 2308 */
-    [SSD1322_128X64]         = {128, 64, 28, 2, {0x16, 0x11}, st_init_cmds_nhd27}, /* NHD-2.7-12864WDW3 */
+    [DGX_SSD1322_256X64]         = {256, 64, 28, 1, {0x14, 0x11}, st_init_cmds},       /* upright on a 3.12" clone */
+    [DGX_SSD1322_256X64_ZJY]     = {256, 64, 24, 1, {0x16, 0x11}, st_init_cmds},       /* u8g2 issue 2386 */
+    [DGX_SSD1322_240X128]        = {240, 128, 24, 1, {0x36, 0x11}, st_init_cmds},      /* u8g2 issue 2092 */
+    [DGX_SSD1322_240X128_TOPWIN] = {240, 128, 24, 1, {0x36, 0x01}, st_init_cmds},      /* u8g2 discussion 2308 */
+    [DGX_SSD1322_128X64]         = {128, 64, 28, 2, {0x16, 0x11}, st_init_cmds_nhd27}, /* NHD-2.7-12864WDW3 */
 };
 
 typedef struct _dgx_ssd1322_t {
@@ -253,7 +253,27 @@ void dgx_ssd1322_display_mode(dgx_screen_t *_scr, uint8_t mode)
     dgx_ssd1322_command((dgx_ssd1322_t *)_scr, cmds[mode], NULL, 0);
 }
 
-dgx_screen_t *dgx_ssd1322_init(dgx_bus_protocols_t *bus, ssd1322_resolution_t resolution, gpio_num_t rst)
+/* the picture on or off, the memory of the controller kept: no pixel is lit while it is off */
+static esp_err_t dgx_ssd1322_display(dgx_screen_t *_scr, bool on)
+{
+    dgx_ssd1322_command((dgx_ssd1322_t *)_scr, on ? SSD1322_CMD_DISPLAYON : SSD1322_CMD_DISPLAYOFF, NULL, 0);
+    return ESP_OK;
+}
+
+/* the contrast has the 256 steps of the call; the master current, dgx_ssd1322_brightness(), stays as it is set */
+static esp_err_t dgx_ssd1322_level(dgx_screen_t *_scr, uint8_t level)
+{
+    dgx_ssd1322_contrast(_scr, level);
+    return ESP_OK;
+}
+
+static const dgx_screen_control_t dgx_ssd1322_control = {
+    .orientation = dgx_ssd1322_orientation,
+    .display     = dgx_ssd1322_display,
+    .brightness  = dgx_ssd1322_level,
+};
+
+dgx_screen_t *dgx_ssd1322_init(dgx_bus_protocols_t *bus, dgx_ssd1322_resolution_t resolution, gpio_num_t rst)
 {
     if ((unsigned)resolution >= sizeof(ssd1322_modules) / sizeof(ssd1322_modules[0])) {
         ESP_LOGE(TAG, "unsupported resolution %d", (int)resolution);
@@ -283,6 +303,7 @@ dgx_screen_t *dgx_ssd1322_init(dgx_bus_protocols_t *bus, ssd1322_resolution_t re
     scr->base.base.screen_name    = "SSD1322";
     scr->base.base.screen_subtype = DgxVirtualBackScreen;
     scr->base.base.update_screen  = dgx_ssd1322_update_screen; /* the rest, destroy too, is the virtual screen's */
+    scr->base.base.control        = &dgx_ssd1322_control;
     scr->bus                      = bus;
     scr->module                   = m;
     if (rst != GPIO_NUM_NC) {

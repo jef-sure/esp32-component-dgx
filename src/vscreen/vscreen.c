@@ -14,11 +14,11 @@
 #include "dgx_bits.h"
 #include "dgx_draw.h"
 #include "dgx_screen_functions.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "dgx_overlay_priv.h"
 #include "dgx_vscreen_priv.h"
 
-/* dgx_vscreen_t is defined publicly in drivers/vscreen.h; what moves pictures between screens is in transfer.c */
+/* dgx_vscreen_t is defined publicly in dgx_vscreen.h; what moves pictures between screens is in transfer.c */
 
 static const char TAG[] = "DGX V-Screen";
 

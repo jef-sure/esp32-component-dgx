@@ -144,7 +144,7 @@ pixel past its edge.
 A line of an odd width has a middle pixel, and the points of the curve are
 its centres. An even width has none: one side has to be a pixel wider. That
 pixel is given to the right of the direction the line goes in, the same way
-`dgx_draw_line_thick()` does, so a figure drawn always in one direction is
+`dgx_draw_thick_line()` does, so a figure drawn always in one direction is
 thicker consistently inwards. The middle line of a piece runs half a pixel to
 the right of its points, and the disc at its end is centred between pixels.
 
@@ -459,7 +459,7 @@ row of the soft edge they add, and the hard pen nothing: the ends in `float`
 cost nothing beside the work of a figure, which counts in whole numbers. A
 segment with a disc at either end takes the time of the curve of one piece
 between the same points, or up to a microsecond less, and a hard segment
-without discs the time of `dgx_draw_line_thick()`. A segment of 278 pixels by
+without discs the time of `dgx_draw_thick_line()`. A segment of 278 pixels by
 a soft pen of 3 drawn on in 50 calls of `dgx_draw_thick_segment_part()` takes
 14.9 µs a call on the average and 21 µs at the most, 0.74 ms in all, and 223
 µs at once; without discs 11.7 µs a call. Every call begins a figure anew, and
@@ -468,7 +468,7 @@ cost three times the segment at once.
 
 ## A soft circle
 
-`dgx_solid_circle()` takes `DGX_PEN_SOFT` in its radius: `DGX_PEN_SOFT | r`.
+`dgx_fill_circle()` takes `DGX_PEN_SOFT` in its radius: `DGX_PEN_SOFT | r`.
 On an 8-bit virtual screen the circle then has the edge of the dot of a soft
 pen 2r + 1 wide. A pixel no further than r from the centre gets all the ink, a
 pixel nearer than r + 1 gets a share, and half the ink falls at r + 0.5, where

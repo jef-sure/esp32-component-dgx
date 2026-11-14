@@ -39,6 +39,13 @@ extern "C" {
  * A single color is 0xRRGGBB, as dgx_rgb_to_24() and DGX_RED(dgx_rgb_to_24)
  * make it.
  *
+ * The renderers of the dot morphs take a table of another kind, which these
+ * functions do not fill: dgx_morph_glow_set_lut() and
+ * dgx_morph_sprite_set_lut() of dgx_morph_render.h want uint32_t lut[256]
+ * in the pixel format of the screen they draw on, of any depth. Fill it
+ * with dgx_screen_rgb(scr, r, g, b) or dgx_rgb_to_16() and the like, entry
+ * by entry.
+ *
  * Fades and flashes mix the RGB888 palette kept by the caller and convert the
  * result to RGB565 each time, so a fade done step by step does not gather the
  * rounding errors of RGB565. Mixing rounds to the nearest value: t = 0 gives a

@@ -726,28 +726,6 @@ fail:
     return NULL;
 }
 
-float dgx_morph_progress(int64_t start_us, int64_t now_us, int64_t duration_us)
-{
-    if (duration_us <= 0) return 1.0f;
-    float t = (float)(now_us - start_us) / (float)duration_us;
-    return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
-}
-
-float dgx_morph_ease(dgx_morph_easing_t easing, float t)
-{
-    switch (easing) {
-    case DGX_MORPH_EASE_IN_OUT:
-        return t < 0.5f ? t * t * 2.0f : 1.0f - (1.0f - t) * (1.0f - t) * 2.0f;
-    case DGX_MORPH_EASE_IN_OUT_3:
-        return t < 0.5f ? t * t * t * 4.0f : 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t) * 4.0f;
-    case DGX_MORPH_SMOOTHSTEP:
-        return t * t * (3.0f - 2.0f * t);
-    case DGX_MORPH_LINEAR:
-    default:
-        return t;
-    }
-}
-
 static bool dgx_morph_pixel(dgx_point_2d_t a, dgx_point_2d_t b, float t, int x, int y, int cell, dgx_point_2d_t *p)
 {
     int64_t px = (int64_t)x + cell / 2 + (int64_t)a.x * cell + (int64_t)((b.x - a.x) * (float)cell * t);

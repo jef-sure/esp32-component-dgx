@@ -17,7 +17,7 @@
 #include "dgx_hw_font.h"
 #include "dgx_screen.h"
 #include "drivers/ili9341.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/DroidSansRegular9.h"
 #include "fonts/TerminusTTFMedium12.h"
 #include "fonts/font0ss.h"
@@ -112,7 +112,8 @@ static void write_in(dgx_screen_t *card, const char *text, int x, int y, int w, 
     float scale = by_width < by_height ? by_width : by_height;
     int   tx = x + (int)lroundf((w - (right - left + 1) * scale) / 2 - left * scale);
     int   ty = y + (int)lroundf((h - (bottom - top + 1) * scale) / 2 - top * scale);
-    dgx_hw_draw_text(card, tx, ty, font, text, scale, pen, color, true);
+    const dgx_hw_context_t hand = {.scr = card, .font = font, .scale_x = scale, .width = pen, .color = color, .joined = true};
+    dgx_hw_draw(&hand, tx, ty, text);
 }
 
 /*
@@ -132,8 +133,8 @@ static void draw_card(dgx_screen_t *card)
     const glyph_t *c = dgx_font_find_glyph('C', DroidSansRegular9(), &advance);
     if (c) {
         /* the letter is put by its base line: its box goes around the middle of the circle */
-        dgx_font_char_to_screen(card, (int16_t)(cx - c->xOffset - c->width / 2), (int16_t)(cy - c->yOffset - c->height / 2), 'C', red,
-                                DgxOutputNormal, 1, DroidSansRegular9(), NULL, NULL);
+        const dgx_font_context_t sign = {.scr = card, .font = DroidSansRegular9(), .color = red};
+        dgx_font_draw_char(&sign, cx - c->xOffset - c->width / 2, cy - c->yOffset - c->height / 2, 'C');
     }
     dgx_draw_circle(card, cx, cy, r, red);
 }
@@ -154,10 +155,10 @@ void app_main(void)
         bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_BACKLIGHT, 16, DgxScreenRGB);
     if (!screen) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return;
     }
-    dgx_ili9341_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    dgx_screen_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
     uint32_t back = DGX_BLACK(dgx_rgb_to_16);
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, back);
 
@@ -169,18 +170,19 @@ void app_main(void)
         dgx_screen_destroy(&card);
         dgx_screen_destroy(&frame);
         dgx_screen_destroy(&screen);
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return;
     }
     draw_card(card);
     int frame_x = (screen->width - FRAME_SIDE) / 2;
     int frame_y = screen->height - FRAME_SIDE - 4;
+    /* the name of an act: every pixel of the font as 2 x 2 */
+    const dgx_font_context_t title = {.scr = screen, .font = TerminusTTFMedium12(), .color = DGX_WHITE(dgx_rgb_to_16), .scale = 2};
 
     for (int round = 0;; ++round) {
         const act_t *act = &acts[round % ACTS];
         dgx_fill_rectangle(screen, 0, 0, screen->width, frame_y, back);
-        dgx_font_string_utf8_screen(screen, 8, 16, act->name, DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 2, TerminusTTFMedium12(),
-                                    NULL, NULL);
+        dgx_font_draw(&title, 8, 16, act->name);
 
         int64_t start_us = esp_timer_get_time(), now_us, drawing_us = 0;
         int     frames = 0;

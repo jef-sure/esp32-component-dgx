@@ -46,7 +46,7 @@ typedef dgx_bit_matrix_t *(*seed_func_t)(void);
 
 static dgx_bit_matrix_t *seed_from_cells(int width, int height, const int8_t cells[][2], size_t count)
 {
-    dgx_bit_matrix_t *life = dgx_matrix_init((uint16_t)width, (uint16_t)height);
+    dgx_bit_matrix_t *life = dgx_matrix_create((uint16_t)width, (uint16_t)height);
     if (!life) return NULL;
     for (size_t i = 0; i < count; ++i) {
         dgx_matrix_set_point(life, cells[i][0], cells[i][1], true);
@@ -96,7 +96,7 @@ static dgx_bit_matrix_t *seed_pulsar(void)
     };
     const int side = 15;
     const int center = side / 2;
-    dgx_bit_matrix_t *life = dgx_matrix_init(side, side);
+    dgx_bit_matrix_t *life = dgx_matrix_create(side, side);
     if (!life) return NULL;
     for (int arm = 0; arm < 2; ++arm) {
         for (int i = 0; i < 3; ++i) {
@@ -142,7 +142,7 @@ static const struct {
 /* Conway's rules on a finite field: cells outside it are dead. */
 static dgx_bit_matrix_t *next_generation(const dgx_bit_matrix_t *now)
 {
-    dgx_bit_matrix_t *next = dgx_matrix_init(now->width, now->height);
+    dgx_bit_matrix_t *next = dgx_matrix_create(now->width, now->height);
     if (!next) return NULL;
     for (int y = 0; y < now->height; ++y) {
         for (int x = 0; x < now->width; ++x) {
@@ -232,10 +232,10 @@ void app_main(void)
         bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_BACKLIGHT, 16, DgxScreenRGB);
     if (!screen) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return;
     }
-    dgx_ili9341_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    dgx_screen_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
 
     gpio_config_t button_config = {
         .pin_bit_mask = 1ULL << EXAMPLE_BUTTON_PIN_NUM,

@@ -59,7 +59,7 @@ bool dgx_hw_text_box(dgx_font_t *font, const char *text, int *left, int *top, in
     if (!font || font->f_type != DGX_FONT_HW || !font->hw) return false;
     dgx_hw_line_begin(&line, font);
     while (text[idx]) {
-        uint32_t cp = decodeUTF8next(text, &idx);
+        uint32_t cp = dgx_utf8_next(text, &idx);
         int      shift;
         if (cp == '\n') {
             dgx_hw_line_begin(&line, font);
@@ -265,7 +265,7 @@ bool dgx_hw_writer_next(dgx_hw_writer_t *w, dgx_hw_stroke_t *stroke)
                 continue;
             }
             /* the symbols of the run are placed once more, as they were */
-            w->post_g = dgx_hw_line_place(&w->post_line, decodeUTF8next(w->text, &w->post_idx), &w->post_shift);
+            w->post_g = dgx_hw_line_place(&w->post_line, dgx_utf8_next(w->text, &w->post_idx), &w->post_shift);
             ++w->post_number;
             w->post_k = 0;
             continue;
@@ -314,7 +314,7 @@ bool dgx_hw_writer_next(dgx_hw_writer_t *w, dgx_hw_stroke_t *stroke)
             continue;
         }
         size_t         next = w->idx;
-        uint32_t       cp = decodeUTF8next(w->text, &next);
+        uint32_t       cp = dgx_utf8_next(w->text, &next);
         int16_t        advance;
         const glyph_t *g = cp == '\n' ? 0 : dgx_font_find_glyph(cp, w->font, &advance);
         /* two symbols are joined only when the first has an end connection and the second a begin connection */
@@ -349,7 +349,7 @@ bool dgx_hw_writer_next(dgx_hw_writer_t *w, dgx_hw_stroke_t *stroke)
         w->joined_next = false;
         if (w->joined && g->hw->end_connection && w->text[w->idx]) {
             size_t         after = w->idx;
-            uint32_t       cp_next = decodeUTF8next(w->text, &after);
+            uint32_t       cp_next = dgx_utf8_next(w->text, &after);
             const glyph_t *g_next = cp_next == '\n' ? 0 : dgx_font_find_glyph(cp_next, w->font, &advance);
             w->joined_next = g_next && g_next->hw->begin_connection;
         }
@@ -432,7 +432,7 @@ static bool dgx_hw_writing_stroke(dgx_hw_writing_t *w)
 bool dgx_hw_writing_draw_to(dgx_hw_writing_t *w, float effort)
 {
     if (w->finished) return true;
-    dgx_screen_progress_up(w->scr);
+    dgx_screen_batch_begin(w->scr);
     for (;;) {
         if (!w->in_stroke) {
             if (!dgx_hw_writing_stroke(w)) {
@@ -450,7 +450,7 @@ bool dgx_hw_writing_draw_to(dgx_hw_writing_t *w, float effort)
         if (effort > w->start) dgx_bezier_draw_to(&w->curve, (effort - w->start) / w->effort);
         break;
     }
-    dgx_screen_progress_down(w->scr);
+    dgx_screen_batch_end(w->scr);
     return w->finished;
 }
 
@@ -466,4 +466,44 @@ void dgx_hw_draw_text_xy(dgx_screen_t *scr, int x, int y, dgx_font_t *font, cons
     dgx_hw_writing_t w;
     dgx_hw_writing_begin_xy(&w, scr, x, y, font, text, scale_x, scale_y, width, color, joined, 0);
     dgx_hw_writing_draw_to(&w, INFINITY);
+}
+
+void dgx_hw_writing_begin_with(dgx_hw_writing_t *w, const dgx_hw_context_t *ctx, int x, int y, const char *text)
+{
+    float scale_x, scale_y;
+    dgx_hw_context_scales(ctx, &scale_x, &scale_y);
+    dgx_hw_writing_begin_xy(w, ctx->scr, x, y, ctx->font, text, scale_x, scale_y, dgx_hw_context_pen(ctx), ctx->color, ctx->joined,
+                            &ctx->pace);
+}
+
+void dgx_hw_draw(const dgx_hw_context_t *ctx, int x, int y, const char *text)
+{
+    dgx_hw_writing_t w;
+    dgx_hw_writing_begin_with(&w, ctx, x, y, text);
+    dgx_hw_writing_draw_to(&w, INFINITY);
+}
+
+bool dgx_hw_bounds(const dgx_hw_context_t *ctx, const char *text, int *left, int *top, int *width, int *height)
+{
+    dgx_hw_box_t box = {0, 0, 0, 0, false};
+    const int    pen = dgx_hw_context_pen(ctx);
+    float        scale_x, scale_y;
+    dgx_hw_context_scales(ctx, &scale_x, &scale_y);
+    /* as the text is drawn: a scale that is not above 0 is 0, and a pen below 1 draws nothing */
+    if (!(scale_x > 0)) scale_x = 0;
+    if (!(scale_y > 0)) scale_y = 0;
+    if (pen > 0 && ctx->font && ctx->font->f_type == DGX_FONT_HW && ctx->font->hw) {
+        dgx_hw_writer_t w;
+        dgx_hw_stroke_t s;
+        dgx_hw_writer_begin(&w, ctx->font, text, ctx->joined);
+        while (dgx_hw_writer_next(&w, &s)) {
+            float px[4], py[4];
+            int   l, r, t, b;
+            for (int i = 0; i < s.type; ++i) px[i] = s.x[i] * scale_x, py[i] = s.y[i] * scale_y;
+            dgx_hw_extent(px, s.type, pen, &l, &r);
+            dgx_hw_extent(py, s.type, pen, &t, &b);
+            dgx_hw_box_add(&box, l, r, t, b);
+        }
+    }
+    return dgx_hw_box_give(&box, left, top, width, height);
 }

@@ -14,6 +14,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "hal/spi_ll.h"
+#include "../dgx_hot_priv.h"
 
 static const char TAG[] = "DGX QSPI BUS";
 
@@ -65,7 +66,7 @@ typedef struct _dgx_qspi_bus_t
  * read of the register as well: a transfer took 5.8 us so on the
  * JC4827W543 (ESP32-S3, 40 MHz), and 3.0 us without.
  */
-static void dgx_qspi_direct_send(dgx_qspi_bus_t *bus, uint8_t op, uint8_t cmd, const uint8_t *data, uint32_t len)
+DGX_HOT static void dgx_qspi_direct_send(dgx_qspi_bus_t *bus, uint8_t op, uint8_t cmd, const uint8_t *data, uint32_t len)
 {
     const bool fresh = !bus->dev.direct;
     spi_dev_t *hw    = (spi_dev_t *)dgx_spi_dev_direct_begin(&bus->dev);
@@ -93,7 +94,7 @@ static void dgx_qspi_direct_send(dgx_qspi_bus_t *bus, uint8_t op, uint8_t cmd, c
 }
 
 /* a command and its parameters on one line; the pixels on their way go first */
-static void dgx_qspi_send_command_with(dgx_qspi_bus_t *bus, uint8_t cmd, const uint8_t *data, uint32_t len)
+DGX_HOT static void dgx_qspi_send_command_with(dgx_qspi_bus_t *bus, uint8_t cmd, const uint8_t *data, uint32_t len)
 {
     if (bus->dev.held && len <= SOC_SPI_MAXIMUM_BUFFER_SIZE * 8u) {
         dgx_qspi_direct_send(bus, DGX_QSPI_OP_COMMAND, cmd, data, len);
@@ -117,14 +118,14 @@ static void dgx_qspi_send_command_with(dgx_qspi_bus_t *bus, uint8_t cmd, const u
 }
 
 /* the command that was held back has no data */
-static void dgx_qspi_flush_command(dgx_qspi_bus_t *bus)
+DGX_HOT static void dgx_qspi_flush_command(dgx_qspi_bus_t *bus)
 {
     if (!bus->command_pending) return;
     bus->command_pending = false;
     dgx_qspi_send_command_with(bus, bus->command, NULL, 0);
 }
 
-static void dgx_qspi_send_command(struct _dgx_bus_protocols_t *_bus, uint8_t cmd)
+DGX_HOT static void dgx_qspi_send_command(struct _dgx_bus_protocols_t *_bus, uint8_t cmd)
 {
     dgx_qspi_bus_t *bus = (dgx_qspi_bus_t *)_bus;
     dgx_qspi_flush_command(bus);
@@ -143,7 +144,7 @@ static void dgx_qspi_send_commands(struct _dgx_bus_protocols_t *_bus, const uint
     dgx_qspi_flush_command(bus);
 }
 
-static void dgx_qspi_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
+DGX_HOT static void dgx_qspi_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
 {
     dgx_qspi_bus_t *bus = (dgx_qspi_bus_t *)_bus;
     if (len == 0) return;
@@ -165,7 +166,7 @@ static void dgx_qspi_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t 
  * host, those after the first with 0x3C; a longer one goes to the queue of
  * the driver, see dgx_spi_dev_to_queue().
  */
-static void dgx_qspi_send_piece(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
+DGX_HOT static void dgx_qspi_send_piece(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
 {
     dgx_qspi_bus_t *bus = (dgx_qspi_bus_t *)_bus;
     if (bus->dev.held) {
@@ -191,7 +192,7 @@ static void dgx_qspi_send_piece(struct _dgx_bus_protocols_t *_bus, const uint8_t
 }
 
 /* pixels, in pieces no longer than the buffer of the bus, see dgx_spi_send_pieces(); the pieces after the first go on with 0x3C */
-static void dgx_qspi_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
+DGX_HOT static void dgx_qspi_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
 {
     if (len == 0) {
         ESP_LOGE(TAG, "dgx_qspi_send_data_async len == 0!");
@@ -206,7 +207,7 @@ static void dgx_qspi_send_data_async(struct _dgx_bus_protocols_t *_bus, const ui
  * that a window set and then waited for still sends them with it, not as
  * 0x3C after a 0x2C alone. Another command sends it bare, as before.
  */
-static void dgx_qspi_sync_write(struct _dgx_bus_protocols_t *_bus)
+DGX_HOT static void dgx_qspi_sync_write(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_qspi_bus_t *bus = (dgx_qspi_bus_t *)_bus;
     if (bus->command != DGX_QSPI_RAMWR) dgx_qspi_flush_command(bus);

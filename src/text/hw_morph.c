@@ -30,7 +30,7 @@ static bool dgx_hw_way_of(dgx_hw_way_t *way, dgx_font_t *font, const char *text,
     dgx_hw_writer_begin(&w, font, text, joined);
     while (dgx_hw_writer_next(&w, &s)) ++way->number;
     way->length = 0;
-    for (size_t idx = 0; text[idx]; ++way->length) decodeUTF8next(text, &idx);
+    for (size_t idx = 0; text[idx]; ++way->length) dgx_utf8_next(text, &idx);
     /* symbols are numbered in 16 bits */
     if (way->length > UINT16_MAX) return false;
     if (room < way->number) room = way->number;
@@ -170,7 +170,7 @@ void dgx_hw_morph_draw_xy(const dgx_hw_morph_t *m, float t, dgx_screen_t *scr, i
     /* as a text is written: a size that is not above nothing is nothing */
     if (!(scale_x > 0)) scale_x = 0;
     if (!(scale_y > 0)) scale_y = 0;
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     for (int i = 0; i < m->number; ++i) {
         const dgx_hw_curve_t *a = &m->from[i], *b = &m->to[i];
         dgx_point_2d_t        p[4];
@@ -182,7 +182,45 @@ void dgx_hw_morph_draw_xy(const dgx_hw_morph_t *m, float t, dgx_screen_t *scr, i
         }
         dgx_draw_bezier4(scr, p, 0, width, color);
     }
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
+}
+
+void dgx_hw_morph_draw_with(const dgx_hw_morph_t *m, float t, const dgx_hw_context_t *ctx, int x, int y)
+{
+    float scale_x, scale_y;
+    dgx_hw_context_scales(ctx, &scale_x, &scale_y);
+    dgx_hw_morph_draw_xy(m, t, ctx->scr, x, y, scale_x, scale_y, dgx_hw_context_pen(ctx), ctx->color);
+}
+
+bool dgx_hw_morph_bounds(const dgx_hw_morph_t *m, const dgx_hw_context_t *ctx, int *left, int *top, int *width, int *height)
+{
+    dgx_hw_box_t box = {0, 0, 0, 0, false};
+    const int    pen = dgx_hw_context_pen(ctx), thick = pen & ~DGX_HW_PEN_BITS;
+    float        scale_x, scale_y;
+    dgx_hw_context_scales(ctx, &scale_x, &scale_y);
+    if (!(scale_x > 0)) scale_x = 0;
+    if (!(scale_y > 0)) scale_y = 0;
+    if (m && pen > 0) {
+        /*
+         * A point of a frame lies between its two ends, and a curve stays within
+         * its points: the box of all the points, each as a screen may have it,
+         * holds the middle of the pen in every frame.
+         */
+        for (int i = 0; i < m->number; ++i) {
+            for (int k = 0; k < 8; ++k) {
+                const dgx_hw_curve_t *c = k < 4 ? &m->from[i] : &m->to[i];
+                const float           px = c->x[k & 3] * scale_x, py = c->y[k & 3] * scale_y;
+                dgx_hw_box_add(&box, (int)dgx_hw_pixel_low(px), (int)dgx_hw_pixel_high(px), (int)dgx_hw_pixel_low(py),
+                               (int)dgx_hw_pixel_high(py));
+            }
+        }
+        /* half the pen either way: the spare pixel of an even width may lie on either side */
+        if (box.any) {
+            box.left -= thick / 2, box.top -= thick / 2;
+            box.right += thick / 2, box.bottom += thick / 2;
+        }
+    }
+    return dgx_hw_box_give(&box, left, top, width, height);
 }
 
 bool dgx_hw_morph_box(const dgx_hw_morph_t *m, int *left, int *top, int *right, int *bottom)

@@ -12,8 +12,23 @@
 #include <string.h>
 
 #include "dgx_bits.h"
+#include "dgx_draw.h"
 #include "dgx_image.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
+
+/*
+ * Drawing by values or through a map needs a linear 8-bit virtual screen,
+ * and recognizing one needs vscreen.c, which is optional in the component
+ * build. A picture in one color does not need it.
+ */
+#if !defined(ESP_PLATFORM) || defined(CONFIG_DGX_ENABLE_VSCREEN)
+#define DGX_IMAGE_INDEXED 1
+#else
+#define DGX_IMAGE_INDEXED 0
+#endif
 
 /*
  * A row of the destination, n pixels from dst on, taken from a row of the
@@ -128,6 +143,64 @@ static inline void image_column(uint8_t *restrict dst, const uint8_t *restrict s
     }
 }
 
+/* whether the pixel in column sx of a picture row is nonzero */
+static inline bool image_inked(const uint8_t *row, unsigned format, int sx)
+{
+    switch (format) {
+    case DGX_IMAGE_1BPP:
+        return ((row[sx >> 3] << (sx & 7)) & 0x80u) != 0;
+    case DGX_IMAGE_4BPP:
+        return ((sx & 1 ? row[sx >> 1] : row[sx >> 1] >> 4) & 15u) != 0;
+    default:
+        return row[sx] != 0;
+    }
+}
+
+/*
+ * A picture in one color on any screen. Covers rows top .. bottom - 1 and
+ * columns left .. right - 1 of the destination; (box_x, box_y) is where the
+ * corner of the turned picture lies there. Nonzero pixels are gathered into
+ * runs along each row, and each run is drawn as a rectangle one pixel high
+ * by the screen's own fill, the way glyph rows are drawn: a display behind a
+ * bus gets one window per run instead of one per pixel. Zero pixels are left
+ * alone.
+ */
+static void image_runs(dgx_screen_t *dst, const dgx_image_t *image, uint32_t color, bool swapped, bool x_back, bool y_back, int left, int top,
+                       int right, int bottom, int box_x, int box_y)
+{
+    const int      w = image->width, h = image->height, n = right - left, u = left - box_x;
+    const unsigned format = image->format;
+    const size_t   stride = ((size_t)w * format + 7u) / 8u;
+    for (int y = top; y < bottom; ++y) {
+        const int v = y - box_y;
+        /* the source pixel of the first pixel in this row, and the step to the next: along a picture row, or down a picture column */
+        int       sx = x_back ? w - 1 - (swapped ? v : u) : (swapped ? v : u);
+        int       sy = y_back ? h - 1 - (swapped ? u : v) : (swapped ? u : v);
+        const int dx = swapped ? 0 : x_back ? -1 : 1, dy = !swapped ? 0 : y_back ? -1 : 1;
+        int       run = -1; /* where the current run starts, -1 for none */
+        for (int i = 0; i < n; ++i, sx += dx, sy += dy) {
+            if (image_inked(image->data + (size_t)sy * stride, format, sx)) {
+                if (run < 0) run = i;
+            } else if (run >= 0) {
+                dgx_fill_rectangle(dst, left + run, y, i - run, 1, color);
+                run = -1;
+            }
+        }
+        if (run >= 0) dgx_fill_rectangle(dst, left + run, y, n - run, 1, color);
+    }
+}
+
+/* a linear 8-bit virtual screen: the only destination for values and maps */
+static inline bool image_indexed_screen(const dgx_screen_t *dst)
+{
+#if DGX_IMAGE_INDEXED
+    return dst->color_bits == 8 && dgx_vscreen_is_linear(dst);
+#else
+    (void)dst;
+    return false;
+#endif
+}
+
 esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *image, const dgx_image_blit_t *how)
 {
     static const dgx_image_blit_t as_is = {0};
@@ -136,7 +209,10 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
     const uint8_t format = image->format;
     if (format != DGX_IMAGE_1BPP && format != DGX_IMAGE_4BPP && format != DGX_IMAGE_8BPP) return ESP_ERR_INVALID_ARG;
     if ((unsigned)how->orientation > (unsigned)DgxOutputTransverse) return ESP_ERR_INVALID_ARG;
-    if (dst->color_bits != 8 || !dgx_vscreen_is_linear(dst)) return ESP_ERR_NOT_SUPPORTED;
+    /* one color (a 1-bit picture or a silhouette) goes to any screen; values and maps are indices of an 8-bit virtual screen */
+    const bool one_color = format == DGX_IMAGE_1BPP || (how->flags & DGX_IMAGE_SILHOUETTE);
+    const bool indexed   = image_indexed_screen(dst);
+    if (!indexed && !one_color) return ESP_ERR_NOT_SUPPORTED;
     const int w = image->width, h = image->height;
     if (!w || !h) return ESP_OK;
 
@@ -169,12 +245,21 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
     bottom = DGX_MIN(bottom, box_y + box_h);
     if (right <= left || bottom <= top) return ESP_OK;
 
+    if (!indexed) {
+        /* the screen draws the runs itself, in one batch */
+        dgx_screen_batch_begin(dst);
+        image_runs(dst, image, how->color, swapped, x_back, y_back, left, top, right, bottom, box_x, box_y);
+        dgx_screen_batch_end(dst);
+        return ESP_OK;
+    }
+
     /* what a value p that is not 0 becomes: ink[p], or p itself at 8 bits without a map */
     uint8_t        table[256];
     const uint8_t *ink   = table;
     const int      top_p = (1 << format) - 1;
-    if (format == DGX_IMAGE_1BPP || (how->flags & DGX_IMAGE_SILHOUETTE)) {
-        memset(table + 1, how->color, (size_t)top_p);
+    const uint8_t  index = (uint8_t)how->color; /* of an 8-bit screen */
+    if (one_color) {
+        memset(table + 1, index, (size_t)top_p);
     } else if (how->map) {
         memcpy(table + 1, how->map, (size_t)top_p);
     } else if (format == DGX_IMAGE_4BPP) {
@@ -183,7 +268,7 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
         ink = NULL;
     }
 
-    dgx_screen_progress_up(dst);
+    dgx_screen_batch_begin(dst);
     const size_t   stride = ((size_t)w * format + 7u) / 8u;
     const int      n      = right - left;
     const int      pitch  = dst->width;
@@ -201,8 +286,8 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
                 if (x_back) image_row8_back(row, src + sx, n, ink);
                 else image_row8_fwd(row, src + sx, n, ink);
             } else {
-                if (x_back) image_row1_back(row, src, sx, n, how->color);
-                else image_row1_fwd(row, src, sx, n, how->color);
+                if (x_back) image_row1_back(row, src, sx, n, index);
+                else image_row1_fwd(row, src, sx, n, index);
             }
         }
     } else {
@@ -217,6 +302,6 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
         }
     }
     dgx_screen_touch(dst, left, right - 1, top, bottom - 1);
-    dgx_screen_progress_down(dst);
+    dgx_screen_batch_end(dst);
     return ESP_OK;
 }

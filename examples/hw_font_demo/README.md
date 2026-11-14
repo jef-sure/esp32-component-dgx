@@ -11,7 +11,7 @@ any thickness, and written stroke by stroke.
    which the widest line fits the width of the screen and all the lines, a
    line height of the font apart, fit its height; the thickness of the pen
    follows the size. Each line stands in the middle.
-2. `dgx_hw_writing_begin()` prepares a line and `dgx_hw_writing_draw_to()`
+2. `dgx_hw_writing_begin_with()` prepares a line and `dgx_hw_writing_draw_to()`
    writes it on by the clock: the pen goes through `EXAMPLE_TEMPO` units of
    effort a second, and only what is new is drawn. Letters are joined, the
    postponed strokes — the breve of «й» — are written when the pen leaves the

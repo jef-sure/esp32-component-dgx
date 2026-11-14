@@ -24,6 +24,58 @@ application
               └─ vscreen_2h             → composes two child screens
 ```
 
+The functions a display behind a bus runs for every window and every short
+transfer, and the basic shapes made of such windows, carry `DGX_HOT`
+(`src/dgx_hot_priv.h`). The linker fragment that `CMakeLists.txt` writes
+gathers them in one piece of flash, so that on an ESP32 they cannot push each
+other out of its flash cache: see
+[Where the code lies in flash](benchmarks-en.md#where-the-code-lies-in-flash).
+A new function on that way gets the mark. The piece has to stay shorter than
+16 KB, a way of that cache; the link map of a build shows it as the
+`.dgx_hot` sections.
+
+## How calls are named and shaped
+
+The rules a new call follows. Calls written before some of them differ and
+keep working; where a call got a new name, the earlier one stays, see
+[Earlier names](api-en.md#earlier-names).
+
+- **Names.** `dgx_<thing>_<verb>()`. A filled figure is `dgx_fill_*()`, an
+  outline or a line `dgx_draw_*()`. A call that takes its choices in a
+  structure beside one that takes none ends in `_with`:
+  `dgx_spi_init_with()`, `dgx_morph_create_with()`. Types are
+  `typedef struct dgx_xxx_t { ... } dgx_xxx_t;`, constants `DGX_XXX`.
+- **Making and freeing.** `_init()` makes a screen or a bus, freed by
+  `dgx_screen_destroy(&scr)` and `dgx_bus_dispose(&bus)`. `_create()` makes
+  any other object on the heap, and its `_destroy(&object)` takes the address
+  of the pointer, clears it, and accepts `NULL` and a pointer to `NULL`.
+  `_begin()` fills a structure the caller owns: nothing to free.
+- **Results.** A constructor returns the object or `NULL`, with the reason in
+  the log. An operation a screen may not support returns `esp_err_t`, with
+  `ESP_ERR_NOT_SUPPORTED` for that. A question returns `bool`.
+- **Coordinates.** `int` in the arguments of a call, `int16_t` in stored
+  data: glyphs, points, tables. A rectangle a program gives is `x, y, width,
+  height`. The functions of a screen itself, `set_area()`, `update_screen()`
+  and `dgx_screen_touch()`, take bounds, `left, right, top, bottom`, both
+  ends inclusive.
+- **Angles.** Degrees, counter-clockwise, 90 up. The sweep of a gauge is the
+  one exception: positive is clockwise, as a dial reads.
+- **Looks are arguments.** How a drawing looks is said in the call: the pen
+  in the width (`DGX_PEN_SOFT | width`), the way of a transfer in its flags
+  (`DGX_VSCREEN_*`), a text in its context. A screen has no drawing mode.
+- **Callbacks.** `user_data` is the first argument.
+- **A faster way is not a new call.** A special case hardware or a shorter
+  loop can serve is recognised inside the call a program already makes.
+
+Headers are for a program or for a driver.
+
+Table 1. Which headers a program includes and which only a driver of a new display needs.
+
+| For | Headers |
+| --- | --- |
+| a program | `dgx_screen.h`, `dgx_draw.h`, `dgx_font.h`, `dgx_hw_font.h`, `dgx_vscreen.h`, `dgx_image.h`, `dgx_lut.h`, `dgx_overlay.h`, `dgx_gauge.h`, `dgx_ease.h`, `dgx_morph.h`, `dgx_morph_sources.h`, `dgx_morph_render.h`, `dgx_matrix_morph.h`, `dgx_colors.h`, `dgx_bits.h`, `dgx_bitmap.h`, `dgx_bw_screen.h`, `drivers/<panel>.h`, `drivers/dgx_panel.h`, `drivers/vscreen_2h.h`, `bus/dgx_<bus>_esp32.h`, `fonts/<font>.h` |
+| a driver | `dgx_screen_with_bus.h`, `dgx_screen_functions.h`, `dgx_spi_area_protocol.h`, `drivers/dgx_lcd_init.h`, `bus/dgx_bus_protocols.h`, `dgx_arch.h`; what they declare is not kept stable between versions as the calls of a program are |
+
 ## Host tests
 
 The platform-independent code (matrices, morphing, renderers, virtual and page

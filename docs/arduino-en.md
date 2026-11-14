@@ -19,7 +19,7 @@ Two Arduino libraries meet DGX on the hardware:
   ```cpp
   Wire.begin(21, 22, 400000);
   auto i2c = (i2c_master_bus_handle_t)i2cBusHandle(0);
-  dgx_screen_t *oled = dgx_ssd1306_init(dgx_i2c_init_on_bus(i2c, 0x3C, 400000), SSD1306_128X64, 0, GPIO_NUM_NC);
+  dgx_screen_t *oled = dgx_ssd1306_init(dgx_i2c_init_on_bus(i2c, 0x3C, 400000), DGX_SSD1306_128X64, 0, GPIO_NUM_NC);
   ```
 
 ## PlatformIO

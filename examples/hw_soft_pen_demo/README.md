@@ -14,8 +14,8 @@ What it shows:
   of 8 bits a pixel, where a byte is an amount of ink, sent to the display
   through a table that runs from the color of the paper to the color of the
   ink. Only what has changed goes to the display, `dgx_screen_take_dirty()`;
-- a size of its own along a line and up it, `dgx_hw_writing_begin_xy()` and
-  `dgx_hw_draw_text_xy()`: the two upper lines keep their width when they get
+- a size of its own along a line and up it, `scale_x` and `scale_y` of the
+  context of `dgx_hw_writing_begin_with()` and `dgx_hw_draw()`: the two upper lines keep their width when they get
   lower, the last line is as large as the first one on the screen though it
   has more letters, and the pen stays round;
 - a move that is no morph: a frame is the two lines drawn anew at a size and a

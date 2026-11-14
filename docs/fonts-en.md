@@ -73,7 +73,8 @@ need:
 ```c
 #include "dgx_fonts.h"
 
-dgx_font_string_utf8_screen(scr, 10, 40, "Привет", ink, DgxOutputNormal, 1, dgx_font_text(), NULL, NULL);
+const dgx_font_context_t text = {.scr = scr, .font = dgx_font_text(), .color = ink};
+dgx_font_draw(&text, 10, 40, "Привет");
 dgx_di_keyboard_open(&kb, scr, DGX_FONTS_BOARD_WIDTH_MM, DGX_FONTS_BOARD_HEIGHT_MM, keys, keys_size, dgx_font_keys(), &field);
 ```
 
@@ -91,8 +92,8 @@ keys: DejaVu Sans Book 24 px (4 mm), 148 glyphs
 
 A need is one line, `dgx_font_need(<name> ...)`. The name is a C
 identifier: it names the function, `dgx_font_<name>()`. A name that
-collides with a function of DGX itself (`dgx_font_string_bounds` and the
-like) is rejected, and so are two names that differ only in case, since
+collides with a function of DGX itself (`dgx_font_draw`, `dgx_font_bounds`
+and the like) is rejected, and so are two names that differ only in case, since
 their macros would not. The same name declared in two places, a component
 and the program, with the same keywords is one need: the characters of both
 are put together before the face is picked. With different keywords the two

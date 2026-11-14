@@ -50,7 +50,7 @@ dgx_bit_matrix_t *dgx_morph_glyph_matrix(dgx_font_t *font, uint32_t code_point)
     if (!font || font->f_type == DGX_FONT_HW) return NULL; /* a handwritten font has pen paths, not pixels */
     int left, top, right, bottom;
     if (!dgx_morph_font_box(font, &left, &top, &right, &bottom)) return NULL;
-    dgx_bit_matrix_t *m = dgx_matrix_init((uint16_t)(right - left), (uint16_t)(bottom - top));
+    dgx_bit_matrix_t *m = dgx_matrix_create((uint16_t)(right - left), (uint16_t)(bottom - top));
     if (!m) return NULL;
 
     int16_t x_advance;
@@ -78,28 +78,18 @@ dgx_bit_matrix_t *dgx_matrix_from_bw_bitmap(dgx_bw_bitmap_t *bmap)
         bmap->width > UINT16_MAX || bmap->height > UINT16_MAX) {
         return NULL;
     }
-    dgx_bit_matrix_t *m = dgx_matrix_init((uint16_t)bmap->width, (uint16_t)bmap->height);
+    dgx_bit_matrix_t *m = dgx_matrix_create((uint16_t)bmap->width, (uint16_t)bmap->height);
     if (!m) return NULL;
     dgx_morph_glyph_ctx_t ctx = { .matrix = m, .x0 = 0, .y0 = 0 };
     dgx_bw_bitmap_foreach_set(bmap, dgx_morph_glyph_set, &ctx);
     return m;
 }
 
-size_t dgx_morph_text_length(const char *utf8)
-{
-    if (!utf8) return 0;
-    size_t len = strlen(utf8), idx = 0, count = 0;
-    while (idx < len) {
-        decodeUTF8next(utf8, &idx);
-        ++count;
-    }
-    return count;
-}
 
 /* Returns ' ' past the end of the string. */
 static uint32_t dgx_morph_text_next(const char *utf8, size_t len, size_t *idx)
 {
-    return utf8 && *idx < len ? decodeUTF8next(utf8, idx) : ' ';
+    return utf8 && *idx < len ? dgx_utf8_next(utf8, idx) : ' ';
 }
 
 dgx_morph_text_t *dgx_morph_text_create(
@@ -112,7 +102,7 @@ dgx_morph_text_t *dgx_morph_text_create(
 {
     if (!font) return NULL;
     if (!length) {
-        size_t a = dgx_morph_text_length(from), b = dgx_morph_text_length(to);
+        size_t a = dgx_utf8_length(from), b = dgx_utf8_length(to);
         length = a > b ? a : b;
     }
     dgx_morph_text_t *text = calloc(1, sizeof(*text) + length * sizeof(dgx_morph_t *));

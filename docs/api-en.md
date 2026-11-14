@@ -13,11 +13,13 @@ together: the recipes of the [README](../README.md#recipes).
   - [Virtual screens](#virtual-screens-api)
   - [Arc gauge](#arc-gauge)
   - [Bus backends](#bus-backends)
+  - [Controlling a display](#controlling-a-display)
   - [Flush control and batching](#flush-control-and-batching)
 - [Drawing from several tasks](#drawing-from-several-tasks)
 - [Coordinates and orientation](#coordinates-and-orientation)
 - [Build options](#build-options)
 - [Known gaps](#known-gaps)
+- [Earlier names](#earlier-names)
 
 ## The calls
 
@@ -35,9 +37,10 @@ Declared in [include/dgx_draw.h](../include/dgx_draw.h):
 | `dgx_get_pixel(scr, x, y)` | Read one pixel: virtual screens, panels drawn through a virtual back screen and a DSI display only; see [Known gaps](#known-gaps). |
 | `dgx_screen_is_readable(scr)` | `true` when the screen gives back the pixels drawn on it, `false` for a display that keeps them in the panel behind a bus. |
 | `dgx_draw_line(scr, x1, y1, x2, y2, color)` | Single-pixel line by Bresenham's algorithm; the same pixels whichever end it is given from. |
-| `dgx_draw_line_thick(scr, x1, y1, x2, y2, width, color)` | Thick line: the rectangle of `width` around the way, its ends cut square; as wide at every angle, and of width 1 the line of `dgx_draw_line()`. |
+| `dgx_draw_thick_line(scr, x1, y1, x2, y2, width, color)` | Thick line: the rectangle of `width` around the way, its ends cut square; as wide at every angle, and of width 1 the line of `dgx_draw_line()`. |
 | `dgx_draw_thick_segment(scr, x1, y1, x2, y2, width, color)` | Straight segment by the pen of the curves, its ends in `float`. `DGX_PEN_SOFT \| width` gives it a soft edge, `DGX_PEN_START_DISC` and `DGX_PEN_END_DISC` round ends; without them an end is cut straight and sharp, and the next segment goes on from it without a seam. |
 | `dgx_draw_thick_segment_part(scr, x1, y1, x2, y2, width, color, part)` | Draw the same segment on as far as the pen has got along it, `part->t` 0 .. 1, in a `dgx_segment_part_t` filled with zeros before the first call; only what is new is drawn. A disc is drawn when a call first asks for it: `DGX_PEN_START_DISC` at the start, `DGX_PEN_END_DISC` where the pen is. Returns `true` when the pen has reached the end. |
+| `dgx_draw_polyline(scr, points, count, width, color)` | A line through `count` points, an array of `dgx_point_2d_t`, by the same pen: a graph, an outline. Every joint is round, whatever the turn, and with a soft pen no darker than the line. The two ends are cut straight unless `DGX_PEN_START_DISC` and `DGX_PEN_END_DISC` round them. A hard pen of 1 draws the lines of `dgx_draw_line()`. A closed outline is a list whose last point repeats the first. |
 | `dgx_draw_bezier3(scr, points, pieces, width, color)` | Thick quadratic Bezier curve by three `dgx_point_2d_t` points, drawn by `pieces` straight pieces; 0 finds their number from the points, within half a pixel of the curve. `DGX_PEN_SOFT \| width` gives it a soft edge. |
 | `dgx_draw_bezier4(scr, points, pieces, width, color)` | Thick cubic Bezier curve by four points. |
 | `dgx_bezier3_begin(b, scr, points, pieces, width, color)`, `dgx_bezier4_begin(...)` | Prepare the same curves in a `dgx_bezier_t` for drawing part by part, to animate writing. |
@@ -47,16 +50,18 @@ Declared in [include/dgx_draw.h](../include/dgx_draw.h):
 | `dgx_fill_rectangle(scr, x, y, w, h, color)` | Filled rectangle; a negative `w` or `h` takes it to the left of `x` or up from `y`, on every screen. |
 | `dgx_draw_rectangle(scr, x, y, w, h, color)` | Outline of the rectangle `dgx_fill_rectangle()` fills, a pixel wide. |
 | `dgx_draw_round_rectangle(scr, x, y, w, h, r, color)` | Outline of a rectangle with round corners: each a quarter of `dgx_draw_circle()` of radius `r`, so a square of 2r + 1 is that circle and `r` 0 the plain outline; a radius too large is cut to (the shorter side - 1) / 2. |
-| `dgx_fill_round_rectangle(scr, x, y, w, h, r, color)` | The same rectangle filled, its corners quarters of `dgx_solid_circle()`. |
+| `dgx_fill_round_rectangle(scr, x, y, w, h, r, color)` | The same rectangle filled, its corners quarters of `dgx_fill_circle()`. |
 | `dgx_draw_circle(scr, x, y, r, color)` | Circle outline by the midpoint algorithm. |
-| `dgx_solid_circle(scr, x, y, r, color)` | Filled circle, the same outline filled by rows. `DGX_PEN_SOFT \| r` gives it the soft edge of a pen, see below the table. |
+| `dgx_fill_circle(scr, x, y, r, color)` | Filled circle, the same outline filled by rows. `DGX_PEN_SOFT \| r` gives it the soft edge of a pen, see below the table. |
 | `dgx_draw_ellipse(scr, x, y, rx, ry, color)` | Ellipse outline, a pixel wide, by the rule of the midpoint algorithm: with equal radii it is `dgx_draw_circle()` pixel for pixel. |
-| `dgx_draw_arc(scr, x, y, rx, ry, from, to, width, color)` | Arc of an ellipse, of a circle with equal radii, between two angles in degrees, by a pen of `width`; `DGX_PEN_SOFT \| width` gives it a soft edge. A hard pen of 1 draws the pixels of the outline between the rays. |
-| `dgx_solid_sector(scr, x, y, rx, ry, from, to, color)` | Filled sector of an ellipse between two angles; a whole turn is the ellipse filled. |
+| `dgx_fill_ellipse(scr, x, y, rx, ry, color)` | The same ellipse filled: the whole turn of `dgx_fill_sector()`, pixel for pixel. Its edge is hard; a soft circle is `dgx_fill_circle()`. |
+| `dgx_draw_arc(scr, x, y, rx, ry, from, to, width, color)` | Arc of an ellipse, of a circle with equal radii, between two angles in degrees, counter-clockwise with 90 up, by a pen of `width`; `DGX_PEN_SOFT \| width` gives it a soft edge. A hard pen of 1 draws the pixels of the outline between the rays. |
+| `dgx_fill_sector(scr, x, y, rx, ry, from, to, color)` | Filled sector of an ellipse between two angles, counted as those of the arc; a whole turn is the ellipse filled. |
 | `dgx_scroll(scr, x, y, w, h, dx, dy, color)` | Move what a rectangle shows by `dx`, `dy` within it, any way, and fill what it has left with `color`. In memory where a screen is read, by the scroll of the panel where an ILI9341 or an ST77916 can. Returns `ESP_OK`, or `ESP_ERR_NOT_SUPPORTED` when neither is possible. |
 | `dgx_scroll_no_fill(scr, x, y, w, h, dx, dy)` | The same move without the fill: what the picture has left is for the caller to draw. On a panel that scrolls itself the move is its commands alone. |
-| `dgx_draw_triangle_solid(scr, x0, y0, x1, y1, x2, y2, color)` | Filled triangle. |
-| `dgx_draw_polygon4_solid(scr, x0..y3, color)` | Filled simple quadrilateral (convex or concave). |
+| `dgx_draw_triangle(scr, x0, y0, x1, y1, x2, y2, color)` | Outline of a triangle: its three lines, a pixel wide, in one update. It is the border of `dgx_fill_triangle()` with the same corners, pixel for pixel. |
+| `dgx_fill_triangle(scr, x0, y0, x1, y1, x2, y2, color)` | Filled triangle: every row from the leftmost to the rightmost pixel the lines of its sides have there, so two triangles with a side in common leave no gap. |
+| `dgx_fill_polygon4(scr, x0..y3, color)` | Filled simple quadrilateral (convex or concave). |
 | `dgx_draw_texture_quad(scr, quad, texture, tx, ty, tw, th)` | Stretch a region of a virtual screen onto a convex quadrilateral (affine, nearest texel). |
 | `dgx_draw_texture_rect(scr, x, y, w, h, texture, tx, ty, tw, th)` | Scale a region of a virtual screen into a rectangle. |
 
@@ -77,7 +82,7 @@ pen of the curves led along it, with round ends:
 
 ```c
 /* the sign of Wi-Fi: a dot and three arcs of a quarter of a turn over it */
-dgx_solid_circle(band, cx, cy, dot, ink);
+dgx_fill_circle(band, cx, cy, dot, ink);
 for (int i = 1; i <= 3; ++i) {
     dgx_draw_arc(band, cx, cy, i * step, i * step, 45, 135, DGX_PEN_SOFT | pen, ink);
 }
@@ -156,7 +161,7 @@ soft draws as a hard one; see
 [A soft edge](handwriting-en.md#a-soft-edge).
 
 A filled circle takes the same bit in its radius:
-`dgx_solid_circle(scr, x, y, DGX_PEN_SOFT | r, ink)` has the edge of the dot of
+`dgx_fill_circle(scr, x, y, DGX_PEN_SOFT | r, ink)` has the edge of the dot of
 a soft pen 2r + 1 wide. It covers what is under it, as the hard circle does:
 the inside gets the ink, lighter or darker than the paper, and the edge is
 mixed with what was there; color 0 draws a circle of paper with a soft edge.
@@ -181,12 +186,13 @@ Declared in [include/dgx_font.h](../include/dgx_font.h):
 | `dgx_font_draw_char(ctx, x, y, codePoint)` | One character by a context; with `DGX_FONT_FILL` it fills the cell of the one character. |
 | `dgx_font_bounds(ctx, str, top, height)` | Measure a text as `dgx_font_draw()` draws it, scale counted: returns its length along the line, fills the top from the base line and the height. |
 | `DGX_FONT_BG`, `DGX_FONT_FILL`, `DGX_FONT_MONO`, `DGX_FONT_HARD` | The flags of a context: mix soft edges with `bg`; fill the cell with `bg` too; draw a soft font cut to one bit; draw every pixel a letter touches in full. |
-| `dgx_font_string_utf8_screen(scr, x, y, str, color, orientation, scale, font, draw_func, param)` | Render a UTF-8 string. Pass `NULL, NULL` for the last two for default rendering. |
-| `dgx_font_char_to_screen(scr, x, y, codePoint, color, orientation, scale, font, draw_func, param)` | Render one code point. |
-| `dgx_font_string_bounds(str, font, ycorner, height)` | Measure a string; returns width, fills top offset and height. |
 | `dgx_font_find_glyph(codePoint, font, xAdvance)` | Look up a single glyph. |
-| `decodeUTF8next(chr, idx)` | Decode the next UTF-8 code point. |
-| `dgx_font_make_morph_struct(...)` / `dgx_font_make_morph_struct_destroy(...)` | Build/free a glyph-to-glyph morph descriptor for animation, dot i to dot i; drawn by `dgx_morph_symbol_draw()`. |
+| `dgx_utf8_next(str, idx)` | Decode the next UTF-8 code point and move the byte index `idx` past it: `for (size_t i = 0; str[i];) cp = dgx_utf8_next(str, &i);` walks a string. A byte that begins no valid sequence gives U+FFFD. |
+| `dgx_utf8_length(str)` | The number of code points in a UTF-8 string; 0 for `NULL`. |
+| `dgx_font_morph_create(font, fromCP, toCP, from_x, from_y, to_x, to_y, scale)` / `dgx_font_morph_destroy(&ms)` | Build/free a glyph-to-glyph morph descriptor for animation, dot i to dot i; drawn by `dgx_morph_symbol_draw()`. |
+| `dgx_font_string_utf8_screen(scr, x, y, str, color, orientation, scale, font, draw_func, param)` | The earlier form of `dgx_font_draw()`, with everything in the arguments; it stays. Pass `NULL, NULL` for the last two for default rendering. It draws as a context with no flags does. |
+| `dgx_font_char_to_screen(scr, x, y, codePoint, color, orientation, scale, font, draw_func, param)` | The earlier form of `dgx_font_draw_char()`. |
+| `dgx_font_string_bounds(str, font, ycorner, height)` | The earlier form of `dgx_font_bounds()`, at scale 1: returns the width, fills the top offset and the height. |
 | `dgx_bw_bitmap_foreach_set(bmap, func, user_data)` | From [include/dgx_bitmap.h](../include/dgx_bitmap.h): iterate set pixels of a 1-bpp bitmap; zero bytes skip 8 pixels at once (LINES format). |
 | `dgx_font_<need>()` | A font made at build time for a need declared in CMake, from the generated `dgx_fonts.h`, together with `DGX_FONT_<NEED>_MADE`, `_PX`, `_MM`, `DGX_FONT_NEEDS(X)` and `DGX_FONTS_BOARD_*`; see [Fonts made at build time](../README.md#fonts-made-at-build-time). |
 
@@ -253,20 +259,29 @@ thickness of the pen are chosen at drawing, and letters are joined.
 
 | Function | Description |
 | --- | --- |
-| `dgx_hw_draw_text(scr, x, y, font, text, scale, width, color, joined)` | Write a UTF-8 text at once. `x, y` is the start of the line on its base line, `scale` pixels per cell of the font's grid (a line is `symbol_size_y` cells high), `width` the thickness of the pen, `joined` joined writing; `\n` starts the next line. |
-| `dgx_hw_text_box(font, text, left, top, right, bottom)` | The box the text takes, in cells from the start of its first line: to choose a size and a place. |
-| `dgx_hw_writing_begin(writing, scr, x, y, font, text, scale, width, color, joined, pace)` | Prepare a text for writing by the pace of a pen; draws nothing. |
+| `dgx_hw_context_t` | How a text is drawn, filled by the names of its members: `scr`, `font`, `scale_x` pixels per cell of the font's grid across (a line is `symbol_size_y` cells high), `scale_y` down (0: as `scale_x`), `width` the thickness of the pen, `color`, `joined` for joined writing, `pace` for writing. A member left out is zero, its default: a scale of 1, a pen of 1. One context serves every call below. |
+| `dgx_hw_draw(ctx, x, y, text)` | Write a UTF-8 text at once. `x, y` is the start of the line on its base line; `\n` starts the next line. |
+| `dgx_hw_bounds(ctx, text, &left, &top, &width, &height)` | The pixels `dgx_hw_draw()` paints, counted from its `x, y`, the pen included: to choose a size and a place. `false` when nothing would be painted. The box holds every pixel; a side is exact as a rule, often a pixel larger. |
+| `dgx_hw_writing_begin_with(writing, ctx, x, y, text)` | Prepare a text for writing by the pace of a pen, `ctx.pace`; draws nothing. The context is copied. |
 | `dgx_hw_writing_draw_to(writing, effort)` | Write on until the pen has gone through `effort`, adding only what is new; returns `true` when the text is finished. |
 | `dgx_hw_text_effort(font, text, joined, pace)` | The whole effort of a text; `t * effort` leads the writing by a progress `t` of 0 .. 1. |
-| `dgx_hw_pace(font, k)` | How effort is counted: an element takes `length + k * pieces`, a dot and a move of the pen in the air as much as the hyphen of the font. |
-| `dgx_hw_writer_begin(writer, font, text, joined)` / `dgx_hw_writer_next(writer, stroke)` | The strokes of a text one by one in the order of writing, in cells: for a drawing of your own. |
-| `dgx_hw_line_begin(line, font)` / `dgx_hw_line_place(line, code_point, shift)` | Where each next symbol of a line stands. |
-| `dgx_hw_draw_text_xy(...)`, `dgx_hw_writing_begin_xy(...)`, `dgx_hw_morph_draw_xy(...)` | The same as their namesakes with `scale_x, scale_y` in place of `scale`: a text narrow and tall or wide and low. The pen stays round. |
+| `dgx_hw_pace(font, k)` | How effort is counted: an element takes `length + k * pieces`, a dot and a move of the pen in the air as much as the hyphen of the font. A pace of zeros counts the length alone. |
 | `dgx_hw_morph_create(font, from, to, joined)` / `dgx_hw_morph_destroy(&morph)` | Plan the morph of a line into a line as a whole: the whole way of the pen into the whole way of the pen. |
 | `dgx_hw_morph_text_create(font, from, to, joined)` / `dgx_hw_morph_text_destroy(&text)` | Plan it letter by letter: `text->letters[i]` is a morph for every position, each led by its own `t`. |
-| `dgx_hw_morph_draw(morph, t, scr, x, y, scale, width, color)` | Draw the frame at `t` of 0 .. 1 on a cleared place. |
+| `dgx_hw_morph_draw_with(morph, t, ctx, x, y)` | Draw the frame at `t` of 0 .. 1 on a cleared place. `dgx_morph_progress()` and `dgx_morph_ease()` give the `t` by the clock, see [Dot morphing framework](#dot-morphing-framework). |
+| `dgx_hw_morph_bounds(morph, ctx, &left, &top, &width, &height)` | The pixels no frame leaves, counted as those of `dgx_hw_bounds()`. |
 | `dgx_hw_morph_shift(morph, from_x, from_y, to_x, to_y)` / `dgx_hw_morph_text_shift(...)` | Move the two texts, each by its own shift in cells: to centre both, say. |
-| `dgx_hw_morph_box(morph, left, top, right, bottom)` | The box no frame leaves, in cells. |
+| `dgx_hw_text_box(font, text, left, top, right, bottom)`, `dgx_hw_morph_box(morph, left, top, right, bottom)` | The same boxes in cells of the grid, before any size is chosen: for laying out in cells. |
+| `dgx_hw_writer_begin(writer, font, text, joined)` / `dgx_hw_writer_next(writer, stroke)` | The strokes of a text one by one in the order of writing, in cells: for a drawing of your own. |
+| `dgx_hw_line_begin(line, font)` / `dgx_hw_line_place(line, code_point, shift)` | Where each next symbol of a line stands. |
+| `dgx_hw_draw_text(scr, x, y, font, text, scale, width, color, joined)`, `dgx_hw_writing_begin(writing, scr, x, y, font, text, scale, width, color, joined, pace)`, `dgx_hw_morph_draw(morph, t, scr, x, y, scale, width, color)` and their `_xy` twins with `scale_x, scale_y` | The earlier form of the three drawing calls, with every setting as an argument; they stay and draw the same. A scale or a width of 0 draws nothing there. |
+
+```c
+dgx_hw_context_t pen = {.scr = scr, .font = font0ss(), .scale_x = 0.4f, .width = 3, .color = ink, .joined = true};
+int left, top, width, height;
+if (dgx_hw_bounds(&pen, text, &left, &top, &width, &height))                              // in the middle of the screen
+    dgx_hw_draw(&pen, (scr->width - width) / 2 - left, (scr->height - height) / 2 - top, text);
+```
 
 A stroke of any kind is a cubic curve, so a text is a list of cubic curves in
 the order of writing and a morph is a list of pairs of them; a frame is every
@@ -313,13 +328,14 @@ another; declared in [include/dgx_matrix_morph.h](../include/dgx_matrix_morph.h)
 
 | Part | API | Description |
 | --- | --- | --- |
-| Data | `dgx_bit_matrix_t`, `dgx_matrix_*()` | Packed 1-bit grid; inline `get_point`/`set_point`; `clear`, `clone`, `copy`, `equals`. |
+| Data | `dgx_bit_matrix_t`, `dgx_matrix_*()` | Packed 1-bit grid: `dgx_matrix_create(width, height)` and `dgx_matrix_destroy(&matrix)`; inline `get_point`/`set_point`; `clear`, `clone`, `copy`, `equals`. |
 | Sources | `dgx_morph_glyph_matrix(font, cp)`, `dgx_matrix_from_bw_bitmap(bmap)` | Glyph of a dot or bitmap font as a matrix in the font-wide box; any 1-bpp bitmap as a matrix. |
 | Morph | `dgx_morph_create(from, to, sources, user_data)` | Plans flights in cell coordinates. `sources` decides where each new cell flies in from: `dgx_morph_sources_life` (all live neighbors) `dgx_morph_sources_cells` (the nearest free cell, searched vector by vector over the whole grid, so a line that moved flies as a whole), `dgx_morph_sources_cells_within` (the same no further than a radius, an `int` that `user_data` points to), or your own callback, which is many times slower when it defers pass after pass. Sides above 32767 cells are rejected. `dgx_morph_create_with(..., &options)` takes a `dgx_morph_options_t`: with `DGX_MORPH_ORPHANS_MERGE` an old cell nobody took flies into the nearest cell of `to`, along its figure first, and goes out there instead of fading in place; `merge_radius` bounds the way, 0 is no limit. |
 | Text | `dgx_morph_text_create(font, from, to, length, sources, user_data)`, `dgx_morph_text_duration_us()` | One morph per letter between two UTF-8 strings; the shorter one is padded with spaces. `changed` tells how many letters actually move. |
-| Frame | `dgx_morph_draw(morph, t, x, y, cell, trail, dot, user_data)`, `dgx_morph_progress()` | Stateless: emits the dots of progress `t` in pixels through a `dgx_morph_dot_func_t`. |
-| Dot by dot | `dgx_morph_symbol_draw(morph, t, dot, user_data)` | Emits the dots of a `dgx_font_make_morph_struct()` plan, where dot i of one glyph flies to dot i of the other, through the same `dgx_morph_dot_func_t`. A glyph out of nothing lights up, one into nothing goes out; dots that meet in one pixel are emitted once, so the glow does not make them fat. |
-| Renderers | `dgx_morph_glow_*` / `dgx_morph_sprite_*` | Additive glow with phosphor persistence, two bytes a pixel at any color depth, or an intensity-scaled dot sprite put over what is there. Both map brightness to colors through a replaceable 256-entry LUT in the screen format (16, 18 or 24 bits); the sprite also draws into an 8-bit screen, where it puts the brightness itself, or the value of its LUT for it. |
+| Frame | `dgx_morph_draw(morph, t, x, y, cell, trail, dot, user_data)` | Stateless: emits the dots of progress `t` in pixels through a `dgx_morph_dot_func_t`. |
+| Time | `dgx_morph_progress(start_us, now_us, duration_us)`, `dgx_morph_ease(easing, t)` | The progress 0 .. 1 by the clock, and the same eased: `DGX_MORPH_LINEAR`, `DGX_MORPH_EASE_IN_OUT`, `DGX_MORPH_EASE_IN_OUT_3`, `DGX_MORPH_SMOOTHSTEP`. Inline, in [include/dgx_ease.h](../include/dgx_ease.h): available without `CONFIG_DGX_ENABLE_MORPH`, to the handwriting morphs as well. |
+| Dot by dot | `dgx_morph_symbol_draw(morph, t, dot, user_data)` | Emits the dots of a `dgx_font_morph_create()` plan, where dot i of one glyph flies to dot i of the other, through the same `dgx_morph_dot_func_t`. A glyph out of nothing lights up, one into nothing goes out; dots that meet in one pixel are emitted once, so the glow does not make them fat. |
+| Renderers | `dgx_morph_glow_*` / `dgx_morph_sprite_*` | Additive glow with phosphor persistence, two bytes a pixel at any color depth, or an intensity-scaled dot sprite put over what is there. Both map brightness to colors through a replaceable 256-entry LUT, `uint32_t lut[256]` in the pixel format of the screen (16, 18 or 24 bits), filled entry by entry with `dgx_screen_rgb()` or `dgx_rgb_to_16()` and the like; it is not the `uint16_t` table of [Tables for 8-bit screens](#tables-for-8-bit-screens); the sprite also draws into an 8-bit screen, where it puts the brightness itself, or the value of its LUT for it. |
 | Filter | `dgx_morph_glow_set_filter(glow, filter, user_data)`, `dgx_morph_glow_blur` | One more pass over a copy of every finished glow frame right before it is shown; it does not get into the phosphor. The ready blur smooths the steps of glyphs turned into dots; in one pass it works row by row and needs no copy. |
 
 [Morph one glyph into another](../README.md#morph-one-glyph-into-another) is a short
@@ -365,6 +381,15 @@ red, which gives the nearest of its three inks, `DGX_BWR_BLACK`,
 `DGX_ORANGE`, `DGX_NAVY`, `DGX_GOLD`, `DGX_SILVER`, `DGX_SKYBLUE` and more.
 For most ESP32 TFT panels here, `DGX_RGB_16` is the right choice.
 
+Code that does not know the depth it will run at, a library or one program
+for several boards, asks the screen: `dgx_screen_rgb(scr, r, g, b)` from
+[include/dgx_screen.h](../include/dgx_screen.h) packs a color as the depth of
+`scr` takes it, at run time. On 12, 16, 18 and 24 bits it gives what the
+packers above give. A screen of fewer bits has no colors and gets the
+brightness of the color: 0 or 1 on a 1-bit screen, 0 .. 15 on a 4-bit one,
+0 .. 255 on an 8-bit one. The inks of e-paper are not a brightness:
+`dgx_rgb_to_bwr()` gives them.
+
 #### Tables for 8-bit screens
 
 A pixel of an 8-bit virtual screen is an index, or an amount of ink, and it
@@ -404,13 +429,14 @@ Virtual screens let you draw into RAM first and decide later when and where to
 push the result — handy for flicker-free animation, off-screen composition,
 shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 8-bit assets. Declared in
-[include/drivers/vscreen.h](../include/drivers/vscreen.h) (color) and
-[include/dgx_bw_screen.h](../include/dgx_bw_screen.h) (1-bit):
+[include/dgx_vscreen.h](../include/dgx_vscreen.h) (color) and
+[include/dgx_bw_screen.h](../include/dgx_bw_screen.h) (1-bit);
+`dgx_vscreen.h`, where the first one was before, includes it:
 
 | Function | Description |
 | --- | --- |
 | `dgx_vscreen_init(width, height, color_bits, cbo)` | Allocate a color RAM screen. |
-| `dgx_vscreen_from_array(v_array, width, height, color_bits, cbo)` | Make a RAM screen over memory the program owns: a camera frame, a decoded picture, a buffer of another library. Nothing is copied, and `dgx_screen_destroy()` leaves the memory alone. Rows lie one right after another, the high byte of a pixel first; when the rows of the memory are longer than the picture, `width` is their length and the picture goes by `dgx_vscreen_region_to_screen()`. |
+| `dgx_vscreen_from_array(v_array, width, height, color_bits, cbo)` | Make a RAM screen over memory the program owns: a camera frame, a decoded picture, a buffer of another library. Nothing is copied, and `dgx_screen_destroy()` leaves the memory alone. Rows lie one right after another, the high byte of a pixel first; when the rows of the memory are longer than the picture, `width` is their length and the picture goes by `dgx_vscreen_region_to_screen()`. The memory may be read-only, a `const` array in flash given as `(void *)logo`, when the screen is only read: put on a display or copied, never drawn on. See [A picture from flash](#a-picture-from-flash). |
 | `dgx_vscreen_array_set(scr, pixels, width, height)` | Point such a screen at other memory of any size. It costs a few assignments, so one screen can serve every band a renderer gives. |
 | `dgx_vscreen_clone(src)` | Allocate a copy with the same geometry and pixels. |
 | `dgx_vscreen_copy(dst, src)` | Copy a whole same-sized screen. |
@@ -423,7 +449,7 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_overlay_set_alphas(display, alphas)` | A share of its own for every index, 0 to 255, times the `alpha` of the layer: a button solid and its shadow faint, the alpha of the layer still fading all. Kept when the layer is moved or gets other colors or another alpha, until it is taken away; NULL for 255 each. The place of the layer becomes changed. |
 | `dgx_overlay_clear(display)` | Take the layer away; its place becomes changed. |
 | `dgx_overlay_take_dirty(display, &x, &y, &w, &h)` | The rectangle the layer changed since the last call: drawn into, laid, moved, taken away. Put it again from the picture. |
-| `dgx_image_blit(dst, x, y, image, how)` | Draw a picture of 1, 4 or 8 bits from flash or RAM (`dgx_image.h`) into a linear 8-bit screen: value 0 transparent, a map or one color for the others, clipped, mirrored or rotated around its origin. Returns `ESP_ERR_NOT_SUPPORTED` for another destination. |
+| `dgx_image_blit(dst, x, y, image, how)` | Draw a picture of 1, 4 or 8 bits from flash or RAM (`dgx_image.h`): value 0 transparent, a map or one color for the others, clipped, mirrored or rotated around its origin. A picture in one color, of 1 bit or any other with `DGX_IMAGE_SILHOUETTE`, goes on any screen, a display of any depth too, in a color of that screen. By its values or through a map it goes into a linear 8-bit virtual screen only, and returns `ESP_ERR_NOT_SUPPORTED` for another destination. See [A picture from flash](#a-picture-from-flash). |
 | `dgx_bw_init(width, height)` | Allocate a 1-bit monochrome RAM screen. |
 | `dgx_vscreen_2h_init(left, right)` | Compose two screens as one wide logical screen. |
 | `dgx_vscreen_is_linear(scr)` | True when the screen is a `dgx_vscreen_t` with row-major pixels in `v_array`. |
@@ -444,6 +470,71 @@ The last argument of the four transfers is 0 or these added together:
 | `DGX_VSCREEN_EXACT` | Through a table: its colors to the last bit, no hardware that mixes two colors. With `DGX_VSCREEN_ALPHA` on a DSI display, through a table or of 16 bits: mixed by the processor, not by the accelerator, which may give red, green or blue ±1 off, rarely seen by the eye. |
 
 Free any screen with `dgx_screen_destroy(&scr)`.
+
+#### A picture from flash
+
+Table 2. Which call shows a picture kept in flash, by the kind of the picture.
+
+| Picture | Kept as | Shown by | RAM it takes |
+| --- | --- | --- | --- |
+| an icon or a logo in one color | `dgx_image_t` of `DGX_IMAGE_1BPP`: rows from the top, the first pixel in the high bit, each row from a new byte | `dgx_image_blit()` on any screen, with `.color` a color of that screen | none |
+| a sprite of up to 256 colors | `dgx_image_t` of 4 or 8 bits, or an 8-bit array | `dgx_image_blit()` into an 8-bit virtual screen, which goes to the display through a table; or `dgx_vscreen_from_array()` over the array and `dgx_vscreen8_to_screen16()` | the 8-bit screen, or none |
+| a picture in the pixels of the display | a `const uint8_t` array, for 16 bits two bytes a pixel, the high byte first | `dgx_vscreen_from_array((void *)logo, w, h, 16, cbo)` once, then `dgx_vscreen_to_screen()` with any flags | none |
+
+```c
+// a 16x16 icon in one color, straight on the display
+static const uint8_t bell[32] = { /* 16 rows of 2 bytes */ };
+static const dgx_image_t icon = {.width = 16, .height = 16, .format = DGX_IMAGE_1BPP, .data = bell};
+dgx_image_blit(scr, 100, 20, &icon, &(dgx_image_blit_t){.color = dgx_screen_rgb(scr, 255, 200, 0)});
+
+// a picture of the depth of the display, kept in flash
+static const uint8_t logo[120 * 40 * 2] = { /* RGB565, the high byte of a pixel first */ };
+dgx_screen_t *picture = dgx_vscreen_from_array((void *)logo, 120, 40, 16, DgxScreenRGB);
+dgx_vscreen_to_screen(scr, 0, 0, picture, 0);
+```
+
+The zero bits of an icon leave the screen as it was: for an opaque icon fill
+its box first. On a display behind a bus every run of set pixels along a row
+is one window, as with the rows of a letter.
+
+A screen over flash is read by the processor and sent through the buffer of
+the bus in pieces, on MIPI-DSI through the two bands the bus makes for such
+pictures (64 KB each by default, `CONFIG_DGX_DSI_INDEXED_BAND_KB`): it does
+not go by DMA where it lies, as the same picture in RAM does. What it costs
+is reading the flash chip. A picture that is shown again and fits the cache
+of the chip is read from the cache; a larger one is read from flash every
+time. Through a table or made larger the processor makes the pixels either
+way, and flash costs nothing more.
+
+Table 3. One transfer to a 16-bit MIPI-DSI display with one frame buffer, the same picture from flash and from PSRAM; ESP32-P4, PSRAM at 200 MHz, a second-level cache of 256 KB.
+
+| Picture | 7-inch JC1060P470, from flash | from PSRAM | 10.1-inch JC8012P4A1C, from flash | from PSRAM |
+| --- | --- | --- | --- | --- |
+| 256x160 of 16 bits (80 KB), as it is | 1.5 ms | 0.6 ms | 1.4 ms | 0.7 ms |
+| 640x400 of 16 bits (500 KB), as it is | 65.9 ms | 3.3 ms | 35.2 ms | 3.9 ms |
+| 256x160 of 8 bits through a table | 1.0 ms | 1.0 ms | 0.9 ms | 0.9 ms |
+| 256x160 of 16 bits, twice as large | 4.4 ms | 4.4 ms | 3.9 ms | 3.9 ms |
+
+On both boards every kind of transfer from flash gave the pixels of the same
+transfer from PSRAM, read back from the frame buffer.
+
+Behind SPI or QSPI the wire takes most of the time, and flash adds only the
+copy through the buffer of the bus.
+
+Table 4. One transfer of a 16-bit picture as it is to a display behind a bus, from flash and from internal RAM.
+
+| Board | Picture | From flash | From RAM |
+| --- | --- | --- | --- |
+| CYD: ESP32, ILI9341 on SPI at 40 MHz | 144x96 (27 KB) | 6.3 ms | 5.7 ms |
+| ESP32-S3, round ST77916 on QSPI at 40 MHz | 144x96 (27 KB) | 1.50 ms | 1.44 ms |
+| ESP32, ST7735 of 0.96 inch on SPI at 10 MHz | 48x32 (3 KB) | 2.7 ms | 2.5 ms |
+
+These displays cannot be read back: the picture from flash was shown beside
+the same picture from RAM.
+
+Never draw on such a screen or give it as a destination. A `uint16_t` array
+written as numbers has the low byte of a pixel first on these chips: write
+the picture as bytes.
 
 ### Arc gauge
 
@@ -473,8 +564,10 @@ Declared under [include/bus/](../include/bus):
 | `dgx_dsi_init(bus_id, data_lanes, lane_bit_rate_mbps, phy_ldo_chan, phy_ldo_mv)` | MIPI-DSI bus of ESP32-P4. `phy_ldo_chan` and `phy_ldo_mv` name the regulator of the chip that powers the DSI PHY, 3 and 2500 on the usual boards; -1 when it is powered otherwise. |
 
 Each returns a `dgx_bus_protocols_t *` to hand to a driver constructor. The
-program disposes of a backend with `bus->dispose(bus)` after the screens on
-it are destroyed.
+program gives up a backend with `dgx_bus_dispose(&bus)` after the screens on
+it are destroyed; the call clears the pointer, as `dgx_screen_destroy(&scr)`
+clears that of a screen. `dgx_bus_dispose(&bus)`, the member the call goes
+through, is the earlier way to write it.
 
 A display often shares its bus with other devices: a touch controller or a
 clock chip on I2C, an SD card or a touch controller on SPI. Who owns the bus
@@ -501,13 +594,13 @@ depends on the constructor:
   Named an SPI host that `dgx_spi_init()` or `dgx_qspi_init()` has set up,
   the first two add a display of DGX to it, as those constructors do.
   On SPI and QSPI the display holds the host from a window to the end of its
-  drawing, or of a batch opened with `dgx_screen_progress_up()`: the other
+  drawing, or of a batch opened with `dgx_screen_batch_begin()`: the other
   devices take it between drawings, and one used from inside such a batch,
   in the same task, would wait for ever.
   An SPI host must have DMA and a `max_transfer_sz` of 0 or at least 4092
   bytes; DGX sends pieces as long as the host takes, see below. An I80 bus must be 8 bits wide with a `max_transfer_bytes` of at
   least 4096; the program sends to its own panels on it only after
-  `scr->wait_buffer(scr)`.
+  `dgx_screen_wait(scr)`.
 
 ```c
 // an SSD1306 and a touch controller on one I2C bus the program owns
@@ -518,7 +611,7 @@ i2c_master_bus_config_t cfg = {
 i2c_master_bus_handle_t i2c;
 ESP_ERROR_CHECK(i2c_new_master_bus(&cfg, &i2c));
 dgx_bus_protocols_t *bus = dgx_i2c_init_on_bus(i2c, 0x3c, 400000);
-dgx_screen_t *scr = dgx_ssd1306_init(bus, SSD1306_128X64, 0, GPIO_NUM_NC);
+dgx_screen_t *scr = dgx_ssd1306_init(bus, DGX_SSD1306_128X64, 0, GPIO_NUM_NC);
 // ... i2c_master_bus_add_device(i2c, ...) for the touch controller ...
 ```
 
@@ -590,6 +683,49 @@ For a program the same header has `dgx_dsi_show()`, `dgx_dsi_counters()`,
 `dgx_dsi_bench()`, `dgx_dsi_tune()`, `dgx_dsi_tuning()`, `dgx_dsi_advise()`
 and `dgx_dsi_tuning_text()` with the structure `dgx_dsi_tuning_t`.
 
+### Controlling a display
+
+Declared in [include/dgx_screen.h](../include/dgx_screen.h). The same five
+calls work for every display; each driver answers through a table of its own,
+and a call the display has no use for returns `ESP_ERR_NOT_SUPPORTED`. The
+calls named after a driver, `dgx_ili9341_orientation()`,
+`dgx_st7789_backlight()` and the like, do the same and stay.
+
+| Function | Description |
+| --- | --- |
+| `dgx_screen_orientation(scr, dir_x, dir_y, swap_xy)` | Turn or mirror the picture: `dir_x` is `DgxScreenLeftRight` or `DgxScreenRightLeft`, `dir_y` is `DgxScreenTopBottom` or `DgxScreenBottomTop`, `swap_xy` swaps the axes. The width and height of the screen follow. A color display is not redrawn: turn it before drawing. See [Coordinates and orientation](#coordinates-and-orientation). |
+| `dgx_screen_backlight(scr, on)` | The backlight line given to the constructor, high for on. `ESP_ERR_NOT_SUPPORTED` for a screen made with `GPIO_NUM_NC`. The line is only switched: a program that dims the backlight gives `GPIO_NUM_NC` and drives the line by its own PWM. |
+| `dgx_screen_display(scr, on)` | The picture shown or not. The display keeps its memory and the screen takes drawing meanwhile. An OLED off lights no pixel, which is what saves it from burn-in. A TFT stops showing its memory and its backlight stays as it is. |
+| `dgx_screen_brightness(scr, level)` | How bright an OLED is, 0 the dimmest it has, 255 the brightest; 0 is dim, not off. |
+| `dgx_screen_wait(scr)` | Wait until the display has taken everything sent to it: before the memory the pixels came from is freed or changed, before timing, before another device of the same bus is used. Nothing to wait for on a virtual screen. |
+
+Table 5. What each display does for the four calls; a dash is `ESP_ERR_NOT_SUPPORTED`.
+
+| Display | Orientation | Backlight | Display on/off | Brightness |
+| --- | --- | --- | --- | --- |
+| ILI9341, ST7789, ST7735, GC9A01, NV3041A, ST77916, a panel of `dgx_panel_init()` | by the controller | the line | DISPON / DISPOFF | - |
+| a window on the computer | as the panel | - | the window goes dark | - |
+| SSD1351 | by the controller | - | yes | the master current, 16 steps |
+| SSD1306, SSD1309, SH1106 | in the memory of the screen | - | yes | the contrast, 256 steps |
+| SSD1322 | in the memory of the screen | - | yes | the contrast, 256 steps; `dgx_ssd1322_brightness()` sets the master current |
+| SSD1680 (e-paper) | yes | - | - | - |
+| ST7565R | - | the line | yes | - |
+| ST7920 | in the memory of the screen | the line | yes | - |
+| JD9165, JD9365 (MIPI-DSI) | by the bus, in the frame buffer | the line | DISPON / DISPOFF beside the video | - |
+| a virtual screen | - | - | - | - |
+
+```c
+dgx_screen_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true); // landscape on a CYD
+if (dgx_screen_brightness(scr, night ? 16 : 255) == ESP_ERR_NOT_SUPPORTED) {
+    dgx_screen_backlight(scr, !night);                                     // not an OLED: its backlight then
+}
+```
+
+What only one controller has keeps the name of its driver:
+`dgx_ssd1322_grayscale()`, `dgx_ssd1322_display_mode()`,
+`dgx_sh1106_column_offset()`, `dgx_ssd1680_refresh()` and the like, see
+[Supported panels](panels-en.md).
+
 ### Flush control and batching
 
 For a physical display that should not be updated after every primitive, draw
@@ -603,7 +739,7 @@ Some screens stage changes and commit them when `update_screen()` is called
 what it changed with `dgx_screen_touch()`; the screen keeps one pending dirty
 rectangle. Outside a batch the rectangle is committed at once. Inside a batch
 (`in_progress > 0`) rectangles are merged, and the outermost
-`dgx_screen_progress_down()` commits their bounding box with a single
+`dgx_screen_batch_end()` commits their bounding box with a single
 `update_screen()` call. One transfer of a larger area is usually cheaper than
 several small ones: setting up a transfer costs more latency than the pixels
 themselves. On drivers that transmit pixels immediately from `write_area()`,
@@ -619,19 +755,19 @@ Declared in [include/dgx_screen.h](../include/dgx_screen.h):
 
 | API | Description |
 | --- | --- |
-| `dgx_screen_progress_up(scr)` | Open a batch (nesting counter). Returns the new depth. |
-| `dgx_screen_progress_down(scr)` | Close a batch; at depth `0` commits the pending dirty area. Returns the new depth. |
+| `dgx_screen_batch_begin(scr)` | Open a batch; batches nest. Returns the new depth. `dgx_screen_batch_begin()` is its earlier name. |
+| `dgx_screen_batch_end(scr)` | Close a batch; the outermost one commits the pending dirty area. Returns the new depth. `dgx_screen_batch_end()` is its earlier name. |
 | `dgx_screen_touch(scr, left, right, top, bottom)` | Mark an area as changed (inclusive, clipped). For code that writes pixels directly, e.g. into `v_array`. |
 | `dgx_screen_flush(scr)` | Commit the pending dirty area now. |
 | `dgx_screen_take_dirty(scr, &left, &top, &width, &height)` | Take the pending dirty area and clear it without committing; `false` when nothing has changed. For a virtual screen shown by parts: open a batch before anything is drawn and keep it open, see [Animation without flicker](../README.md#animation-without-flicker). |
 | `dgx_screen_destroy(&scr)` | Destroy a screen allocated by a driver or virtual screen constructor. |
 
 ```c
-dgx_screen_progress_up(scr);
+dgx_screen_batch_begin(scr);
 dgx_fill_rectangle(scr, x, y, w, h, bg);
 dgx_draw_line(scr, x1, y1, x2, y2, fg);
-dgx_font_string_utf8_screen(scr, x, y, "42", fg, DgxOutputNormal, 1, font, NULL, NULL);
-dgx_screen_progress_down(scr);   // one update_screen() for everything above
+dgx_font_draw(&text, x, y, "42");   // text: a dgx_font_context_t with scr, font and color
+dgx_screen_batch_end(scr);   // one update_screen() for everything above
 ```
 
 A virtual screen of `dgx_vscreen_init()` or `dgx_vscreen_from_array()` has an
@@ -676,9 +812,9 @@ before anything is drawn and leave it open.
 
 Guidelines:
 
-- Most applications only need `progress_up`/`progress_down` around a group of
-  drawing calls, or nothing at all.
-- Always pair every `up` with one `down`; do not modify `in_progress` directly.
+- Most applications only need `dgx_screen_batch_begin()` and
+  `dgx_screen_batch_end()` around a group of drawing calls, or nothing at all.
+- Always pair every begin with one end; do not modify `in_progress` directly.
 - If you write pixels behind the primitives' back, call `dgx_screen_touch()`
   for that area.
 - A display on SPI or QSPI holds its host for the whole of a batch. Another
@@ -723,7 +859,7 @@ well, and is less to write when each task has a part of the screen of its
 own.
 
 - Lock a batch, not a primitive. What is drawn between
-  `dgx_screen_progress_up()` and `dgx_screen_progress_down()` is shown
+  `dgx_screen_batch_begin()` and `dgx_screen_batch_end()` is shown
   together, so the mutex goes around the two. The depth of batches is kept
   by the screen, not by the task: two tasks that open batches on one screen
   without a mutex make one batch of them.
@@ -760,9 +896,13 @@ Virtual screens use a single canonical layout:
 - `set_area` and `write_area` always use those canonical bounds and traverse
   left-to-right, top-to-bottom.
 
-Hardware panel drivers have their own orientation setters
-(`dgx_st7789_orientation()`, `dgx_gc9a01_orientation()` and so on) that
-reprogram the controller's scan direction. Text rendering takes an explicit
+A display is turned by `dgx_screen_orientation(scr, dir_x, dir_y, swap_xy)`,
+whatever its driver, see [Controlling a display](#controlling-a-display); the
+setters named after a driver (`dgx_st7789_orientation()`,
+`dgx_gc9a01_orientation()` and so on) take the same three arguments. A color
+panel reprograms the scan direction of its controller, a monochrome one turns
+the picture in the memory of its screen, a DSI display in its frame buffer.
+Text rendering takes an explicit
 `dgx_output_orientation_t`, which means you can draw rotated or mirrored text
 on any screen without touching the framebuffer layout. Turned text is the
 upright text turned around the top left corner of the pixel `x`, `y` it is
@@ -887,3 +1027,28 @@ A couple of practical limitations are worth knowing up front:
   as it is, and `font2c` refuses a patch for it. A glyph that comes out
   wrong is fixed in a font of one bit, or by another size or face. See
   [Soft edges](fonts-en.md#soft-edges).
+
+## Earlier names
+
+Calls and constants that got another name. The earlier one compiles as it
+did and does the same; new code uses the name on the right.
+
+Table 6. Earlier names and what stands for them now.
+
+| Earlier | Now |
+| --- | --- |
+| `dgx_solid_circle()`, `dgx_solid_sector()` | `dgx_fill_circle()`, `dgx_fill_sector()` |
+| `dgx_draw_triangle_solid()`, `dgx_draw_polygon4_solid()` | `dgx_fill_triangle()`, `dgx_fill_polygon4()` |
+| `dgx_draw_line_thick()` | `dgx_draw_thick_line()` |
+| `dgx_screen_progress_up()`, `dgx_screen_progress_down()` | `dgx_screen_batch_begin()`, `dgx_screen_batch_end()` |
+| `scr->wait_buffer(scr)` | `dgx_screen_wait(scr)` |
+| `bus->dispose(bus)` | `dgx_bus_dispose(&bus)` |
+| `dgx_ili9341_orientation()`, `dgx_st7789_backlight()` and the others named after a driver; `dgx_gc9a01_display_off()`, `dgx_gc9a01_display_on()` | `dgx_screen_orientation()`, `dgx_screen_backlight()`, `dgx_screen_display()` |
+| `dgx_font_string_utf8_screen()`, `dgx_font_char_to_screen()`, `dgx_font_string_bounds()` | `dgx_font_draw()`, `dgx_font_draw_char()`, `dgx_font_bounds()` with a `dgx_font_context_t` |
+| `dgx_hw_draw_text()`, `dgx_hw_writing_begin()`, `dgx_hw_morph_draw()` and their `_xy` twins | `dgx_hw_draw()`, `dgx_hw_writing_begin_with()`, `dgx_hw_morph_draw_with()` with a `dgx_hw_context_t` |
+| `decodeUTF8next()`, `dgx_morph_text_length()` | `dgx_utf8_next()`, `dgx_utf8_length()` |
+| `dgx_font_make_morph_struct()`, `dgx_font_make_morph_struct_destroy()` | `dgx_font_morph_create()`, `dgx_font_morph_destroy()` |
+| `dgx_matrix_init()` | `dgx_matrix_create()` |
+| `SSD1306_128X64`, `SSD1309_128X64`, `SH1106_128X64`, `SSD1322_256X64`, `SSD1680_128X296_BWR` and the like, with `ssd1306_resolution_t` and the like | the same with `DGX_` and `dgx_` in front: `DGX_SSD1306_128X64`, `dgx_ssd1306_resolution_t` |
+| `ST7789_RESOLUTION_240x240`, `ST7735_RESOLUTION_128x160` and the like | `DGX_ST7789_240X240`, `DGX_ST7735_128X160` |
+| `#include "drivers/vscreen.h"` | `#include "dgx_vscreen.h"` |

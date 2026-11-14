@@ -82,7 +82,7 @@ static bool count_letters(void)
 {
     letter_count = 0;
     for (size_t word = 0; word < WORD_COUNT; ++word) {
-        size_t count = dgx_morph_text_length(words[word]);
+        size_t count = dgx_utf8_length(words[word]);
         if (count > letter_count) letter_count = count;
     }
     return letter_count && letter_count <= DEMO_MAX_LETTERS;
@@ -173,7 +173,7 @@ void app_main(void)
         ESP_LOGE(TAG, "dgx_host_screen_init failed");
         return;
     }
-    dgx_panel_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    dgx_screen_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
 #else
     dgx_bus_protocols_t *bus = dgx_spi_init(
         EXAMPLE_LCD_HOST, SPI_DMA_CH_AUTO,
@@ -189,10 +189,10 @@ void app_main(void)
         bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_BACKLIGHT, 16, DgxScreenRGB);
     if (!screen) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return;
     }
-    dgx_ili9341_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    dgx_screen_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
 #endif
 
     font = TerminusTTFMedium12();

@@ -45,7 +45,7 @@
 #include "dgx_lut.h"
 #include "dgx_overlay.h"
 #include "dgx_screen.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
 
 /* shown on the screen and in the log; changed at every flash of a build to be looked at */
@@ -144,10 +144,10 @@ static dgx_screen_t *display_init(void)
         dgx_ili9341_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_BACKLIGHT, 16, DgxScreenRGB);
     if (!display) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return NULL;
     }
-    dgx_ili9341_orientation(display, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    dgx_screen_orientation(display, DgxScreenRightLeft, DgxScreenTopBottom, true);
     return display;
 }
 
@@ -191,9 +191,9 @@ static void draw_landscape(dgx_screen_t *pic)
     dgx_lut_gradient(lut_a, 0, 64, 0x102a6a, 0xb4dcff);
     lut_a[64] = c16(0xffd84a), lut_a[65] = c16(0x2f6b2a), lut_a[66] = c16(0x4f9a3c);
     for (int y = 0; y < ph; ++y) dgx_fill_rectangle(pic, 0, y, pw, 1, (uint32_t)(y * 63 / (ph - 1)));
-    dgx_solid_circle(pic, pw * 3 / 4, ph / 3, ph / 7, 64);
-    dgx_solid_circle(pic, pw / 4, ph + ph / 3, ph * 3 / 5, 65);
-    dgx_solid_circle(pic, pw * 4 / 5, ph + ph / 2, ph * 3 / 4, 66);
+    dgx_fill_circle(pic, pw * 3 / 4, ph / 3, ph / 7, 64);
+    dgx_fill_circle(pic, pw / 4, ph + ph / 3, ph * 3 / 5, 65);
+    dgx_fill_circle(pic, pw * 4 / 5, ph + ph / 2, ph * 3 / 4, 66);
 }
 
 /* picture B: tiles of two colors under rings of warm ones */
@@ -212,7 +212,7 @@ static void draw_tiles(dgx_screen_t *pic)
 static void draw_shape(dgx_screen_t *m)
 {
     dgx_fill_rectangle(m, 0, 0, m->width, m->height, 0);
-    dgx_solid_circle(m, 20, 20, DGX_PEN_SOFT | 17, 255);
+    dgx_fill_circle(m, 20, 20, DGX_PEN_SOFT | 17, 255);
     const dgx_font_context_t word = {.scr = m, .font = dgx_font_word(), .color = 255};
     dgx_font_draw(&word, 42, 28, "DGX");
 }
@@ -241,10 +241,10 @@ static void scene_crossfade(void)
         const int64_t t0 = now_us();
         if (readable) {
             /* the frame buffer is read: the second picture mixed straight over the first */
-            dgx_screen_progress_up(display);
+            dgx_screen_batch_begin(display);
             put(display, pic_a, lut_a, 0);
             put(display, pic_b, lut_b, DGX_VSCREEN_ALPHA(a));
-            dgx_screen_progress_down(display);
+            dgx_screen_batch_end(display);
         } else {
             /* mixed in memory, then sent whole */
             put(mix, pic_a, lut_a, 0);
@@ -308,7 +308,7 @@ static void scene_shapes(void)
     int           frames = 0, puts = 0;
     for (const int64_t end = now_us() + SCENE_MS * 1000; now_us() < end; ++frames) {
         const int64_t t0 = now_us();
-        dgx_screen_progress_up(dst);
+        dgx_screen_batch_begin(dst);
         put(dst, frames / 40 % 2 ? pic_b : pic_a, frames / 40 % 2 ? lut_b : lut_a, 0);
         for (int i = 0; i < 12; ++i) {
             /* around a circle that turns, every shape turned its own way, some twice as large, some fainter */
@@ -320,7 +320,7 @@ static void scene_shapes(void)
             dgx_vscreen8_to_screen16(dst, x, y, shape, lut_ink[i % 4], flags);
             ++puts;
         }
-        dgx_screen_progress_down(dst);
+        dgx_screen_batch_end(dst);
         if (!readable) dgx_vscreen_to_screen(display, 0, BAND, mix, DGX_VSCREEN_SCALE(scale));
         busy += now_us() - t0;
         vTaskDelay(1);
@@ -344,8 +344,8 @@ static void scene_overlay(void)
     dgx_fill_rectangle(layer, 0, 0, lw, lh, 0);
     for (int i = 0; i < 3; ++i) {
         const int cx = lw * (1 + 2 * i) / 6, cy = lh / 2;
-        dgx_solid_circle(layer, cx + r / 5, cy + r / 5, r, 2);
-        dgx_solid_circle(layer, cx, cy, r, 1);
+        dgx_fill_circle(layer, cx + r / 5, cy + r / 5, r, 2);
+        dgx_fill_circle(layer, cx, cy, r, 1);
         dgx_draw_circle(layer, cx, cy, r / 2, 3);
     }
     static uint16_t lut_l[256];
@@ -363,10 +363,10 @@ static void scene_overlay(void)
         if (!frames) dgx_overlay_set_alphas(display, shares);
         /* the picture moves along: its two parts, and the layer mixed into what goes under it */
         const int dx = frames * 2 % pw;
-        dgx_screen_progress_up(display);
+        dgx_screen_batch_begin(display);
         dgx_vscreen8_region_to_screen16(display, 0, BAND, pic_b, dx, 0, pw - dx, ph, lut_b, DGX_VSCREEN_SCALE(scale));
         if (dx) dgx_vscreen8_region_to_screen16(display, (pw - dx) * scale, BAND, pic_b, 0, 0, dx, ph, lut_b, DGX_VSCREEN_SCALE(scale));
-        dgx_screen_progress_down(display);
+        dgx_screen_batch_end(display);
         int x, y, w, h;
         dgx_overlay_take_dirty(display, &x, &y, &w, &h); /* the whole picture is put every frame */
         busy += now_us() - t0;

@@ -22,10 +22,16 @@ extern "C" {
  * GxEPD2_290_C90c. The glass of the 2.13" module is Yingruida E0213A179;
  * GxEPD2 drives it as GxEPD2_213_Z98c.
  */
-typedef enum {
-    SSD1680_128X296_BWR, ///< 2.9": WeAct Studio 2.9" Epaper Module with red
-    SSD1680_122X250_BWR, ///< 2.13": WeAct Studio 2.13" Epaper Module with red; not checked on a module
-} ssd1680_resolution_t;
+typedef enum dgx_ssd1680_resolution_t {
+    DGX_SSD1680_128X296_BWR, ///< 2.9": WeAct Studio 2.9" Epaper Module with red
+    DGX_SSD1680_122X250_BWR, ///< 2.13": WeAct Studio 2.13" Epaper Module with red; not checked on a module
+    /* the names of before; they stay */
+    SSD1680_128X296_BWR = DGX_SSD1680_128X296_BWR,
+    SSD1680_122X250_BWR = DGX_SSD1680_122X250_BWR,
+} dgx_ssd1680_resolution_t;
+
+/** The name the type had before; it stays. */
+typedef dgx_ssd1680_resolution_t ssd1680_resolution_t;
 
 /**
  * @brief Send the picture to the panel and start showing it.
@@ -96,14 +102,14 @@ void dgx_ssd1680_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_ori
  * high keeps it waiting, with an error in the log every minute.
  *
  * @param bus        Bus backend returned by dgx_spi_init().
- * @param resolution The module (see ssd1680_resolution_t).
+ * @param resolution The module (see dgx_ssd1680_resolution_t).
  * @param rst        Reset GPIO; GPIO_NUM_NC if the line is not wired: the controller then never sleeps, for only a
  *                   reset wakes it.
  * @param busy       BUSY GPIO, an input; it has to be wired.
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy(), which waits for a refresh
  *         under way to end.
  */
-dgx_screen_t *dgx_ssd1680_init(dgx_bus_protocols_t *bus, ssd1680_resolution_t resolution, gpio_num_t rst, gpio_num_t busy);
+dgx_screen_t *dgx_ssd1680_init(dgx_bus_protocols_t *bus, dgx_ssd1680_resolution_t resolution, gpio_num_t rst, gpio_num_t busy);
 
 #ifdef __cplusplus
 // @formatter:off

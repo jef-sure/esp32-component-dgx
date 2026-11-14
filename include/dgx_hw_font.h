@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "dgx_draw.h"
+#include "dgx_ease.h" /* dgx_morph_progress() and dgx_morph_ease(): the t of a morph by the clock */
 #include "dgx_font.h"
 
 #ifdef __cplusplus
@@ -24,7 +25,10 @@ extern "C" {
  * the glyphs of any font, dgx_font_find_glyph(); a glyph points to its
  * elements and to its dgx_hw_symbol_t, the font to its dgx_hw_font_t. The
  * drawing is another matter: letters are joined, the size and the pen are
- * chosen at drawing, so dgx_font_char_to_screen() and the like do not draw it.
+ * chosen at drawing, so dgx_font_draw() and the like do not draw it. A text
+ * is drawn from a dgx_hw_context_t: dgx_hw_draw() writes it at once,
+ * dgx_hw_writing_begin_with() at the pace of a pen, and
+ * dgx_hw_morph_draw_with() draws a frame of one text turning into another.
  */
 
 /* the version of the "hw-font" format these tables repeat */
@@ -173,7 +177,8 @@ static inline int16_t dgx_hw_pixel(float v)
  * a line, y from the base line of the first line, negative above it; "\n"
  * starts the next line. It is the box of the symbols themselves; the curves
  * joining letters lie between them. A pen of some thickness needs half of it
- * around the box.
+ * around the box. For the pixels a text paints on a screen, with its size and
+ * its pen counted, see dgx_hw_bounds().
  *
  * @param font  A font of type DGX_FONT_HW.
  * @param text  UTF-8 text.
@@ -283,8 +288,92 @@ bool dgx_hw_writer_next(dgx_hw_writer_t *writer, dgx_hw_stroke_t *stroke);
 float dgx_hw_text_effort(dgx_font_t *font, const char *text, bool joined, const dgx_hw_pace_t *pace);
 
 /*
- * A text being written on a screen. Filled by dgx_hw_writing_begin(); the
- * fields are not for the caller.
+ * Drawing on a screen.
+ *
+ * A program fills a dgx_hw_context_t with what stays the same from one text
+ * to the next and passes it with the place and the text. dgx_hw_draw() writes
+ * a text at once. dgx_hw_writing_begin_with() and dgx_hw_writing_draw_to()
+ * write it stroke by stroke at the pace of a pen. dgx_hw_morph_draw_with()
+ * draws a frame of a morph. dgx_hw_bounds() and dgx_hw_morph_bounds() give
+ * the pixels these paint. The calls that take every setting as an argument,
+ * dgx_hw_draw_text() and the others, are the earlier form of the same and
+ * stay.
+ */
+
+/**
+ * @brief How handwritten text is drawn: the screen, the font, the size, the
+ * pen and the ink.
+ *
+ * Fill it by the names of its members. Zero is the default of each, so
+ * `{.scr = display, .font = f, .scale_x = 0.25f, .width = 3, .color = c}` is
+ * a text a quarter of the size of the grid, written by a hard pen 3 pixels
+ * thick. Members may be added at the end. The calls neither change the
+ * context nor keep its pointer: one context may serve the whole program, and
+ * a text in another color is a copy with that member changed.
+ */
+typedef struct dgx_hw_context_t {
+    dgx_screen_t *scr;     ///< Where the text goes. The two bounds calls do not read it.
+    dgx_font_t   *font;    ///< A font of type DGX_FONT_HW. The morph calls do not read it: a morph keeps the font it was planned with.
+    float         scale_x; ///< Pixels in a cell of the grid across; 0 is the same as 1. A line of text is symbol_size_y cells high.
+    float         scale_y; ///< Pixels in a cell down; 0 is the same as scale_x.
+    int           width;   ///< Thickness of the pen in pixels; 0 is the same as 1. With DGX_PEN_SOFT added its edge is soft, see dgx_draw.h.
+    uint32_t      color;   ///< Color of the ink, in the format of the screen. For a soft pen the amount of ink, and 0 takes ink off.
+    bool          joined;  ///< Joined writing, see dgx_hw_writer_begin(). The morph calls do not read it.
+    dgx_hw_pace_t pace;    ///< How the effort of writing is counted, see dgx_hw_pace(); zero counts the length alone. Read for writing only.
+} dgx_hw_context_t;
+
+/**
+ * @brief Write a text of a handwritten font on a screen at once.
+ *
+ * "\n" starts the next line, symbol_size_y cells lower. The whole text
+ * reaches the screen as one update.
+ *
+ * With scale_x and scale_y that differ the text is narrow and tall or wide
+ * and low. The pen stays round and as thick as it is: it is not stretched.
+ * How letters are placed and joined does not depend on the size.
+ *
+ * @param ctx  How: see dgx_hw_context_t.
+ * @param x,y  Where the first line starts: its left end on the base line.
+ * @param text UTF-8 text.
+ */
+void dgx_hw_draw(const dgx_hw_context_t *ctx, int x, int y, const char *text);
+
+/**
+ * @brief The pixels dgx_hw_draw() paints, to choose the size and the place of a text.
+ *
+ * The box is counted from the x, y given to dgx_hw_draw(): a text drawn at
+ * x, y paints columns x + left to x + left + width - 1 and rows y + top to
+ * y + top + height - 1. What is above the base line has a negative @p top.
+ * The thickness of the pen is counted, and so are the curves that join
+ * letters.
+ *
+ * The box holds every pixel painted, wherever the text is put and whether a
+ * pen asked to be soft is soft on that screen or not. It is not always tight.
+ * A side is exact as a rule and one pixel larger often; a few pixels larger
+ * is rare. The reasons: a curve is drawn as straight pieces, a pen of an even
+ * width has a spare pixel that falls on either side, and points are rounded
+ * to pixels only once the place is known.
+ *
+ * To put a text in the middle of a screen:
+ * @code
+ * int l, t, w, h;
+ * if (dgx_hw_bounds(&ctx, text, &l, &t, &w, &h))
+ *     dgx_hw_draw(&ctx, (scr->width - w) / 2 - l, (scr->height - h) / 2 - t, text);
+ * @endcode
+ *
+ * @param ctx  Its font, scale_x, scale_y, width and joined are read.
+ * @param text UTF-8 text.
+ * @param left,top     Out, each may be NULL: the top left corner of the box, from x, y.
+ * @param width,height Out, each may be NULL: its size in pixels.
+ * @return false when nothing would be painted: the text has no symbol of the
+ *         font, or the font is not a handwritten one. The outputs are zeros
+ *         then.
+ */
+bool dgx_hw_bounds(const dgx_hw_context_t *ctx, const char *text, int *left, int *top, int *width, int *height);
+
+/*
+ * A text being written on a screen. Filled by dgx_hw_writing_begin_with();
+ * the fields are not for the caller.
  */
 typedef struct {
     dgx_hw_writer_t writer;
@@ -303,21 +392,17 @@ typedef struct {
 } dgx_hw_writing_t;
 
 /**
- * @brief Prepares a text for writing on a screen by the pace of a pen; draws nothing.
+ * @brief Prepare a text for writing on a screen at the pace of a pen; draws nothing.
  *
- * @param writing The state.
- * @param scr     The screen.
- * @param x,y     Where the line starts: its left end on the base line.
- * @param font    A font of type DGX_FONT_HW.
+ * What the context holds is copied: it may change or go once the call
+ * returns. dgx_hw_writing_draw_to() then writes the text on.
+ *
+ * @param writing The state, filled here.
+ * @param ctx     How: see dgx_hw_context_t. Its pace is how the effort is counted.
+ * @param x,y     Where the first line starts: its left end on the base line.
  * @param text    UTF-8 text; it must live as long as the writing goes.
- * @param scale   Pixels in a cell of the grid of the font; its line is symbol_size_y cells high.
- * @param width   Thickness of the pen in pixels; with DGX_PEN_SOFT added its edge is soft, see dgx_draw.h.
- * @param color   Color of the ink; for a soft pen the amount of ink, and 0 takes ink off.
- * @param joined  Joined writing, see dgx_hw_writer_begin().
- * @param pace    How the effort is counted, see dgx_hw_pace(); NULL: by the length alone.
  */
-void dgx_hw_writing_begin(dgx_hw_writing_t *writing, dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text, float scale,
-                          int width, uint32_t color, bool joined, const dgx_hw_pace_t *pace);
+void dgx_hw_writing_begin_with(dgx_hw_writing_t *writing, const dgx_hw_context_t *ctx, int x, int y, const char *text);
 
 /**
  * @brief Writes a text on, up to the effort the pen has gone through.
@@ -333,6 +418,30 @@ void dgx_hw_writing_begin(dgx_hw_writing_t *writing, dgx_screen_t *scr, int x, i
  * @return true when the text is finished.
  */
 bool dgx_hw_writing_draw_to(dgx_hw_writing_t *writing, float effort);
+
+/*
+ * The earlier form of dgx_hw_writing_begin_with() and dgx_hw_draw(), with
+ * every setting as an argument. These calls stay and draw the same. Zero is
+ * no default here: a scale of 0 is a text of no size, and a width of 0 draws
+ * nothing.
+ */
+
+/**
+ * @brief Prepares a text for writing on a screen by the pace of a pen; draws nothing.
+ *
+ * @param writing The state.
+ * @param scr     The screen.
+ * @param x,y     Where the line starts: its left end on the base line.
+ * @param font    A font of type DGX_FONT_HW.
+ * @param text    UTF-8 text; it must live as long as the writing goes.
+ * @param scale   Pixels in a cell of the grid of the font; its line is symbol_size_y cells high.
+ * @param width   Thickness of the pen in pixels; with DGX_PEN_SOFT added its edge is soft, see dgx_draw.h.
+ * @param color   Color of the ink; for a soft pen the amount of ink, and 0 takes ink off.
+ * @param joined  Joined writing, see dgx_hw_writer_begin().
+ * @param pace    How the effort is counted, see dgx_hw_pace(); NULL: by the length alone.
+ */
+void dgx_hw_writing_begin(dgx_hw_writing_t *writing, dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text, float scale,
+                          int width, uint32_t color, bool joined, const dgx_hw_pace_t *pace);
 
 /**
  * @brief Writes a text of a handwritten font on a screen at once.
@@ -418,10 +527,44 @@ void dgx_hw_morph_destroy(dgx_hw_morph_t **morph);
 void dgx_hw_morph_shift(dgx_hw_morph_t *morph, float from_x, float from_y, float to_x, float to_y);
 
 /**
- * @brief Draws a frame of a morph.
+ * @brief Draw a frame of a morph.
  *
- * Nothing is erased: a frame is drawn on a cleared place, a virtual screen as
- * a rule. Every curve of the frame is drawn like one of dgx_hw_draw_text().
+ * Nothing is erased: draw a frame on a cleared place, as a rule on a virtual
+ * screen. Every curve of the frame is drawn like a stroke of dgx_hw_draw(),
+ * and the frame reaches the screen as one update.
+ *
+ * @param morph The morph; NULL draws nothing.
+ * @param t     0: the first text, 1: the second one; put through an easing if needed.
+ * @param ctx   Its scr, scale_x, scale_y, width and color are read.
+ * @param x,y   Where (0, 0) of the two texts is: the left end of the first
+ *              line on its base line, unless dgx_hw_morph_shift() has moved them.
+ */
+void dgx_hw_morph_draw_with(const dgx_hw_morph_t *morph, float t, const dgx_hw_context_t *ctx, int x, int y);
+
+/**
+ * @brief The pixels no frame of a morph leaves, as dgx_hw_bounds() gives them for a text.
+ *
+ * It is the box of the points of all its curves with half the thickness of
+ * the pen around it: a Bezier curve does not leave its points, and neither
+ * does one between two of them. It holds every pixel of every frame and may
+ * be larger than the two texts themselves. The letters of a
+ * dgx_hw_morph_text_t are morphs: the box of such a text is the box that
+ * holds the boxes of them all.
+ *
+ * @param morph The morph.
+ * @param ctx   Its scale_x, scale_y and width are read.
+ * @param left,top     Out, each may be NULL: the top left corner of the box,
+ *                     from the x, y given to dgx_hw_morph_draw_with().
+ * @param width,height Out, each may be NULL: its size in pixels.
+ * @return false for NULL or a morph of no curves; the outputs are zeros then.
+ */
+bool dgx_hw_morph_bounds(const dgx_hw_morph_t *morph, const dgx_hw_context_t *ctx, int *left, int *top, int *width, int *height);
+
+/**
+ * @brief dgx_hw_morph_draw_with() in its earlier form, with every setting as an argument.
+ *
+ * It stays and draws the same. Zero is no default here: a scale of 0 is a
+ * frame of no size, and a width of 0 draws nothing.
  *
  * @param morph The morph; NULL draws nothing.
  * @param t     0: the first text, 1: the second one; put through an easing if needed.
@@ -437,6 +580,7 @@ void dgx_hw_morph_draw_xy(const dgx_hw_morph_t *morph, float t, dgx_screen_t *sc
 
 /**
  * @brief The box no frame of a morph leaves, in cells, as dgx_hw_text_box().
+ * For pixels on a screen see dgx_hw_morph_bounds().
  *
  * It is the box of the points of all its curves: a Bezier curve does not
  * leave its points, and neither does one between two of them. It may be

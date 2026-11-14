@@ -245,6 +245,20 @@ typedef struct _dgx_bus_protocols_t {
     const void *wire;
 } dgx_bus_protocols_t;
 
+/**
+ * @brief Give up a bus made by dgx_spi_init(), dgx_i2c_init() and the like, once its screens are destroyed.
+ *
+ * The same as `bus->dispose(bus)`, with the pointer cleared as
+ * dgx_screen_destroy() clears that of a screen.
+ *
+ * @param pbus In/out pointer to the bus pointer; set to NULL on return. A pointer to NULL is valid.
+ */
+static inline void dgx_bus_dispose(dgx_bus_protocols_t **pbus)
+{
+    if (*pbus && (*pbus)->dispose) (*pbus)->dispose(*pbus);
+    *pbus = NULL;
+}
+
 #ifdef __cplusplus
 // @formatter:off
 }

@@ -10,10 +10,16 @@ extern "C" {
 // @formatter:on
 #endif
 
-typedef enum {
-    SSD1309_128X64,
-    SSD1309_128X32
-} ssd1309_resolution_t;
+typedef enum dgx_ssd1309_resolution_t {
+    DGX_SSD1309_128X64,
+    DGX_SSD1309_128X32,
+    /* the names of before; they stay */
+    SSD1309_128X64 = DGX_SSD1309_128X64,
+    SSD1309_128X32 = DGX_SSD1309_128X32,
+} dgx_ssd1309_resolution_t;
+
+/** The name the type had before; it stays. */
+typedef dgx_ssd1309_resolution_t ssd1309_resolution_t;
 
 /**
  * @brief Set the SSD1309 contrast/brightness.
@@ -66,11 +72,11 @@ void dgx_ssd1309_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_ori
  * u8g2 driver of the controller.
  *
  * @param bus        Bus backend returned by dgx_spi_init() or dgx_i2c_init().
- * @param resolution Panel geometry (see ssd1309_resolution_t).
+ * @param resolution Panel geometry (see dgx_ssd1309_resolution_t).
  * @param rst        Reset GPIO (use GPIO_NUM_NC if the panel has no reset line).
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */
-dgx_screen_t *dgx_ssd1309_init(dgx_bus_protocols_t *bus, ssd1309_resolution_t resolution, gpio_num_t rst);
+dgx_screen_t *dgx_ssd1309_init(dgx_bus_protocols_t *bus, dgx_ssd1309_resolution_t resolution, gpio_num_t rst);
 
 #ifdef __cplusplus
 // @formatter:off

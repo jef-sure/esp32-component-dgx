@@ -119,11 +119,23 @@ typedef struct dgx_font_ {
 
 /**
  * @brief Decode the next UTF-8 code point from a string.
- * @param chr Pointer to the UTF-8 string.
+ *
+ * The way to walk a string character by character:
+ * `for (size_t i = 0; str[i];) { uint32_t cp = dgx_utf8_next(str, &i); ... }`.
+ * A byte that begins no valid sequence gives U+FFFD and is skipped; the
+ * terminator gives 0 and is not passed.
+ *
+ * @param str The UTF-8 string.
  * @param idx In/out byte index; advanced past the decoded code point.
  * @return The decoded Unicode code point.
  */
-uint32_t decodeUTF8next(const char *chr, size_t *idx);
+uint32_t dgx_utf8_next(const char *str, size_t *idx);
+
+/** @return The number of code points in a UTF-8 string, as dgx_utf8_next() walks it; 0 for NULL. */
+size_t dgx_utf8_length(const char *str);
+
+/** The name dgx_utf8_next() had before; it stays. */
+#define decodeUTF8next dgx_utf8_next
 
 /**
  * @brief Look up the glyph for a code point in a font.
@@ -337,7 +349,7 @@ void dgx_font_make_point8(dgx_screen_t *vpoint);
  * has more than the other come out of its last dot, or go into it; a glyph
  * out of nothing comes out of its middle. dgx_morph_symbol_draw() draws it
  * with the renderers of the morphing framework. Free the result with
- * dgx_font_make_morph_struct_destroy().
+ * dgx_font_morph_destroy().
  *
  * @param font  Dot-model font.
  * @param fromCP Source code point.
@@ -347,24 +359,28 @@ void dgx_font_make_point8(dgx_screen_t *vpoint);
  * @param scale  Integer scale factor.
  * @return Newly allocated morph descriptor, or NULL on failure.
  */
-dgx_font_symbol_morph_t *dgx_font_make_morph_struct(  //
-    dgx_font_t *font,                                 //
-    uint32_t fromCP,                                  //
-    uint32_t toCP,                                    //
-    int from_x,                                       //
-    int from_y,                                       //
-    int to_x,                                         //
-    int to_y,                                         //
-    int scale                                         //
+dgx_font_symbol_morph_t *dgx_font_morph_create(  //
+    dgx_font_t *font,                            //
+    uint32_t fromCP,                             //
+    uint32_t toCP,                               //
+    int from_x,                                  //
+    int from_y,                                  //
+    int to_x,                                    //
+    int to_y,                                    //
+    int scale                                    //
 );
 
 /**
- * @brief Destroy a morph descriptor created by dgx_font_make_morph_struct().
+ * @brief Destroy a morph descriptor created by dgx_font_morph_create().
  * @param ms In/out pointer to the descriptor; set to NULL on return. NULL
  *           and a pointer to NULL are valid, as when the descriptor was not
  *           made.
  */
-void dgx_font_make_morph_struct_destroy(dgx_font_symbol_morph_t **ms);
+void dgx_font_morph_destroy(dgx_font_symbol_morph_t **ms);
+
+/** The names dgx_font_morph_create() and dgx_font_morph_destroy() had before; they stay. */
+#define dgx_font_make_morph_struct         dgx_font_morph_create
+#define dgx_font_make_morph_struct_destroy dgx_font_morph_destroy
 
 #ifdef __cplusplus
 // @formatter:off

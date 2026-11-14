@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "dgx_bits.h"
+#include "../dgx_hot_priv.h"
 
 /* a word of a pixel buffer: the buffer is bytes, and is written by words where pixels repeat */
 typedef uint32_t __attribute__((may_alias)) dgx_pixel_word_t;
@@ -21,12 +22,12 @@ typedef uint32_t __attribute__((may_alias)) dgx_pixel_word_t;
 #define DGX_FILL_BY_WORDS 0
 #endif
 
-void dgx_fill_rows_16(uint8_t *row, size_t pitch, uint32_t width, uint32_t height, uint32_t color)
+DGX_HOT void dgx_fill_rows_16(uint8_t *row, size_t pitch, uint32_t width, uint32_t height, uint32_t color)
 {
     for (; height; --height, row += pitch) dgx_fill_pixels_16(row, width, color);
 }
 
-void dgx_fill_pixels(uint8_t color_bits, uint8_t *lp, uint32_t idx, uint32_t count, uint32_t color)
+DGX_HOT void dgx_fill_pixels(uint8_t color_bits, uint8_t *lp, uint32_t idx, uint32_t count, uint32_t color)
 {
     switch (color_bits) {
     case 1:

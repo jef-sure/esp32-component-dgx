@@ -24,7 +24,7 @@
 #include "dgx_fonts.h"
 #include "dgx_screen.h"
 #include "drivers/ili9341.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 static const char *TAG = "soft_text_demo";
 
@@ -145,10 +145,10 @@ void app_main(void)
     dgx_screen_t *lcd = dgx_ili9341_init(bus, (gpio_num_t)PIN_RST, (gpio_num_t)PIN_BACKLIGHT, 16, DgxScreenRGB);
     if (!lcd) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return;
     }
-    dgx_ili9341_orientation(lcd, DgxScreenRightLeft, DgxScreenTopBottom, true); /* landscape, 320x240 */
+    dgx_screen_orientation(lcd, DgxScreenRightLeft, DgxScreenTopBottom, true); /* landscape, 320x240 */
     picture = dgx_vscreen_init(150, 48, 16, DgxScreenRGB);
     if (!picture) {
         ESP_LOGE(TAG, "no memory for the picture");

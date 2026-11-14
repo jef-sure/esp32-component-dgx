@@ -41,8 +41,8 @@ dgx_screen_t *lcd = dgx_jd9165_init(bus, GPIO_NUM_0, GPIO_NUM_23, 16, DgxScreenR
   a virtual screen, and a pixel can be read back.
 - The backlight is a GPIO of the board and is left to the application.
 
-Group drawing into batches with `dgx_screen_progress_up()` and
-`dgx_screen_progress_down()`. Anything drawn outside a batch is sent to the
+Group drawing into batches with `dgx_screen_batch_begin()` and
+`dgx_screen_batch_end()`. Anything drawn outside a batch is sent to the
 display at once. A batch is sent as it goes and at its end, which is ten
 times faster for pixels set one by one.
 

@@ -48,6 +48,8 @@ enum
 #define BUILD 671
 
 static dgx_screen_t *scr;
+/* the small text in the brightest gray; filled in app_main() when the screen is there */
+static dgx_font_context_t small;
 
 /* the 16 levels of gray the panel shows, 0 (dark) to 15 (bright) */
 static inline uint32_t gray(uint32_t level)
@@ -61,54 +63,57 @@ static void label(void)
     char text[16];
     snprintf(text, sizeof(text), "b%d", BUILD);
     dgx_fill_rectangle(scr, 0, 0, 6 * (int)strlen(text) + 2, 10, 0);
-    dgx_font_string_utf8_screen(scr, 1, 8, text, gray(15), DgxOutputNormal, 1, GLCD5x7(), NULL, NULL);
+    dgx_font_draw(&small, 1, 8, text);
 }
 
 static void scene_grays(void)
 {
     /* 16 bars, one for each gray */
     const int w = scr->width / 16;
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     for (int i = 0; i < 16; ++i)
         dgx_fill_rectangle(scr, i * w, 0, w, scr->height, gray(i));
     label();
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }
 
 static void scene_text(void)
 {
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     dgx_fill_rectangle(scr, 0, 0, scr->width, scr->height, 0);
     label();
-    dgx_font_string_utf8_screen(scr, 40, 8, "SSD1322 256x64, 8-bit bus", gray(15), DgxOutputNormal, 1, GLCD5x7(), NULL, NULL);
-    dgx_font_string_utf8_screen(scr, 3, 40, "DGX", gray(15), DgxOutputNormal, 3, GLCD5x7(), NULL, NULL);
-    dgx_font_string_utf8_screen(scr, 70, 52, "16 grays", gray(10), DgxOutputNormal, 1, DejaVuSansBook32(), NULL, NULL);
-    dgx_screen_progress_down(scr);
+    dgx_font_draw(&small, 40, 8, "SSD1322 256x64, 8-bit bus");
+    dgx_font_context_t large = small; /* the same, every pixel of the font as 3 x 3 */
+    large.scale              = 3;
+    dgx_font_draw(&large, 3, 40, "DGX");
+    const dgx_font_context_t dim = {.scr = scr, .font = DejaVuSansBook32(), .color = gray(10)};
+    dgx_font_draw(&dim, 70, 52, "16 grays");
+    dgx_screen_batch_end(scr);
 }
 
 static void scene_lines(void)
 {
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     dgx_fill_rectangle(scr, 0, 0, scr->width, scr->height, 0);
     for (int i = 0; i < scr->width; i += 4)
         dgx_draw_line(scr, i, 0, scr->width - 1 - i, scr->height - 1, gray((i / 4) % 16));
     dgx_draw_circle(scr, scr->width / 2, scr->height / 2, scr->height / 2 - 2, gray(15));
-    dgx_solid_circle(scr, scr->width / 2, scr->height / 2, scr->height / 4 - 2, gray(8));
+    dgx_fill_circle(scr, scr->width / 2, scr->height / 2, scr->height / 4 - 2, gray(8));
     label();
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }
 
 static void scene_ramp(void)
 {
     /* a smooth ramp: every pixel of a row its own gray, the rows below a dimmer copy of it */
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     for (int y = 0; y < scr->height; ++y) {
         const uint32_t dim = 15u - (uint32_t)y * 15u / (uint32_t)(scr->height - 1);
         for (int x = 0; x < scr->width; ++x)
             dgx_set_pixel(scr, x, y, gray((uint32_t)x * dim / (uint32_t)(scr->width - 1)));
     }
     label();
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }
 
 typedef void (*scene_fn_t)(void);
@@ -123,19 +128,20 @@ void app_main(void)
         ESP_LOGE(TAG, "the P8 bus did not come up");
         return;
     }
-    scr = dgx_ssd1322_init(bus, SSD1322_256X64, PIN_RST);
+    scr = dgx_ssd1322_init(bus, DGX_SSD1322_256X64, PIN_RST);
     if (!scr) {
         ESP_LOGE(TAG, "the SSD1322 screen did not come up");
         return;
     }
     ESP_LOGI(TAG, "build %d, SSD1322 up: %dx%d, %u bits a pixel", BUILD, scr->width, scr->height, scr->color_bits);
+    small = (dgx_font_context_t){.scr = scr, .font = GLCD5x7(), .color = gray(15)};
     dgx_ssd1322_contrast(scr, 0x9f);
     dgx_ssd1322_brightness(scr, 15);
 
     for (int i = 0;; ++i) {
         const int64_t t0 = esp_timer_get_time();
         scenes[i % 4]();
-        scr->wait_buffer(scr);
+        dgx_screen_wait(scr);
         ESP_LOGI(TAG, "scene %d: %lld ms", i % 4, (long long)((esp_timer_get_time() - t0) / 1000));
         vTaskDelay(pdMS_TO_TICKS(2500));
     }

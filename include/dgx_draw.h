@@ -72,7 +72,7 @@ void dgx_draw_round_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, int
  * @brief Draws a filled rectangle with round corners.
  *
  * The rectangle of dgx_draw_round_rectangle() with everything inside its
- * outline: each corner is a quarter of dgx_solid_circle(), a square of
+ * outline: each corner is a quarter of dgx_fill_circle(), a square of
  * 2r + 1 pixels is that circle, and a radius of 0 gives the rectangle of
  * dgx_fill_rectangle().
  *
@@ -133,7 +133,7 @@ void dgx_draw_line(dgx_screen_t *scr, int x1, int y1, int x2, int y2, uint32_t c
  *          DGX_PEN_MAX for the rule of the pen: `DGX_PEN_SOFT | 10`.
  * @param color The color of the circle.
  */
-void dgx_solid_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color);
+void dgx_fill_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color);
 
 /**
  * @brief Draws the outline of an ellipse, a pixel wide.
@@ -168,7 +168,8 @@ void dgx_draw_ellipse(dgx_screen_t *scr, int x, int y, int rx, int ry, uint32_t 
  * is the larger makes no difference. Angles are not brought into a turn: from
  * 350 to 370 is twenty degrees across the ray that goes right, and 360
  * degrees or more between the two is the whole ellipse. With no angle between
- * them nothing is drawn.
+ * them nothing is drawn. A gauge counts the other way: a positive sweep of
+ * dgx_gauge_init() runs clockwise.
  *
  * A hard pen of 1 draws the pixels of the outline of dgx_draw_ellipse() that
  * lie between the rays, a pixel on a ray counted in.
@@ -200,10 +201,12 @@ void dgx_draw_arc(dgx_screen_t *scr, int x, int y, int rx, int ry, float from, f
  *
  * The sector is what of the ellipse, its outline and all within it, lies
  * between the rays of @p from and @p to; the angles are those of
- * dgx_draw_arc(). A pixel on a ray is of the sector, so two sectors with a
+ * dgx_draw_arc(), counter-clockwise with 90 up, the opposite of the sweep of
+ * dgx_gauge_init(). A pixel on a ray is of the sector, so two sectors with a
  * common ray both have its pixels. 360 degrees or more between the two angles
- * is the whole ellipse filled, and with equal radii that is the picture of
- * dgx_solid_circle(). With no angle between them nothing is drawn.
+ * is the whole ellipse filled, the picture of dgx_fill_ellipse(), and with
+ * equal radii that of dgx_fill_circle(). With no angle between them nothing
+ * is drawn.
  *
  * @param scr   The screen to draw on.
  * @param x     The x coordinate of the center.
@@ -214,7 +217,26 @@ void dgx_draw_arc(dgx_screen_t *scr, int x, int y, int rx, int ry, float from, f
  * @param to    The angle the sector ends at, degrees.
  * @param color Fill color.
  */
-void dgx_solid_sector(dgx_screen_t *scr, int x, int y, int rx, int ry, float from, float to, uint32_t color);
+void dgx_fill_sector(dgx_screen_t *scr, int x, int y, int rx, int ry, float from, float to, uint32_t color);
+
+/**
+ * @brief Draws a filled ellipse; with equal radii, a filled circle.
+ *
+ * The outline of dgx_draw_ellipse() with the same arguments and everything
+ * inside it. It is the whole turn of dgx_fill_sector(), pixel for pixel, and
+ * with equal radii the hard circle of dgx_fill_circle(). The edge is hard:
+ * the radii take no DGX_PEN_SOFT, and a soft circle is dgx_fill_circle().
+ * The limits of dgx_draw_ellipse() hold: a center or a radius past 32767
+ * draws nothing.
+ *
+ * @param scr   The screen to draw on.
+ * @param x     The x coordinate of the center.
+ * @param y     The y coordinate of the center.
+ * @param rx    The radius along x: the ellipse is 2 * rx + 1 pixels wide.
+ * @param ry    The radius along y: the ellipse is 2 * ry + 1 pixels high.
+ * @param color Fill color.
+ */
+void dgx_fill_ellipse(dgx_screen_t *scr, int x, int y, int rx, int ry, uint32_t color);
 
 /**
  * @brief Set a pixel on the screen.
@@ -333,8 +355,14 @@ esp_err_t dgx_scroll_no_fill(dgx_screen_t *scr, int x, int y, int w, int h, int 
 /**
  * @brief Draws a filled triangle on the screen.
  *
- * The corners lie within 32767 pixels of each other along each axis: the
- * rows are found by sums of 32 bits, which go past their range beyond that.
+ * A row of the triangle runs from the leftmost to the rightmost pixel the
+ * lines of its sides have in that row, the lines dgx_draw_line() draws
+ * between the corners. So dgx_draw_triangle() with the same corners is the
+ * border of the filled triangle, pixel for pixel, and two triangles with a
+ * side in common leave no gap along it.
+ *
+ * The corners lie within a billion pixels of each other along each axis: the
+ * steps of a side are counted in 32 bits.
  *
  * @param scr The screen to draw on.
  * @param x0,y0 First vertex.
@@ -342,7 +370,23 @@ esp_err_t dgx_scroll_no_fill(dgx_screen_t *scr, int x, int y, int w, int h, int 
  * @param x2,y2 Third vertex.
  * @param color Fill color.
  */
-void dgx_draw_triangle_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color);
+void dgx_fill_triangle(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color);
+
+/**
+ * @brief Draws the outline of a triangle, a pixel wide.
+ *
+ * The three lines of dgx_draw_line() between the corners, sent as one update.
+ * It is the border of dgx_fill_triangle() with the same corners: every pixel
+ * of it is a pixel of the filled triangle, and every row of that one begins
+ * and ends with a pixel of the outline.
+ *
+ * @param scr The screen to draw on.
+ * @param x0,y0 First vertex.
+ * @param x1,y1 Second vertex.
+ * @param x2,y2 Third vertex.
+ * @param color The color of the outline.
+ */
+void dgx_draw_triangle(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color);
 
 /**
  * @brief Draws a filled simple quadrilateral on the screen.
@@ -358,8 +402,7 @@ void dgx_draw_triangle_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
  * @param x3,y3 Fourth vertex.
  * @param color Fill color.
  */
-void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3,
-                             uint32_t color);
+void dgx_fill_polygon4(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3, uint32_t color);
 
 /**
  * @brief Draws a thick line on the screen: the rectangle of the given width
@@ -379,17 +422,17 @@ void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, 
  * @param width Line thickness in pixels (>= 1).
  * @param color Line color.
  */
-void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int width, uint32_t color);
+void dgx_draw_thick_line(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int width, uint32_t color);
 
 /**
  * @brief Added to the width of a pen, it asks for a soft edge: `DGX_PEN_SOFT | 2`.
  *
  * It is for whatever draws by a pen of a width: dgx_draw_thick_segment(),
- * dgx_draw_thick_segment_part(), dgx_draw_bezier3(), dgx_draw_bezier4(),
- * dgx_bezier3_begin(), dgx_bezier4_begin() and what is built on them, an arc
- * of dgx_draw_arc(), a handwritten text, its writing and its morphs. Added to
- * the radius of dgx_solid_circle(), it gives the circle the edge of a soft
- * pen.
+ * dgx_draw_thick_segment_part(), dgx_draw_polyline(), dgx_draw_bezier3(),
+ * dgx_draw_bezier4(), dgx_bezier3_begin(), dgx_bezier4_begin() and what is
+ * built on them, an arc of dgx_draw_arc(), a handwritten text, its writing
+ * and its morphs. Added to the radius of dgx_fill_circle(), it gives the
+ * circle the edge of a soft pen.
  *
  * A soft pen leaves ink by the share of a pixel it covers. The color of the
  * curve is then an amount of ink, that of a pixel the pen covers whole, and a
@@ -427,19 +470,21 @@ void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int 
  * @brief Added to the width of a pen, it puts a disc as wide as the pen at
  * the start of a segment: `DGX_PEN_START_DISC | DGX_PEN_END_DISC | 3`.
  *
- * It is for dgx_draw_thick_segment() and dgx_draw_thick_segment_part(). A
- * curve and an arc always have round ends and take no notice of it.
+ * It is for dgx_draw_thick_segment() and dgx_draw_thick_segment_part(), and
+ * for the first point of dgx_draw_polyline(). A curve and an arc always have
+ * round ends and take no notice of it.
  */
 #define DGX_PEN_START_DISC 0x20000000
 
 /**
  * @brief Added to the width of a pen, it puts a disc as wide as the pen at
- * the end of a segment; see DGX_PEN_START_DISC.
+ * the end of a segment or at the last point of a polyline; see
+ * DGX_PEN_START_DISC.
  */
 #define DGX_PEN_END_DISC 0x10000000
 
 /**
- * @brief Added to the radius of dgx_solid_circle() with DGX_PEN_SOFT, the
+ * @brief Added to the radius of dgx_fill_circle() with DGX_PEN_SOFT, the
  * soft circle keeps the rule of the soft pen: `DGX_PEN_SOFT | DGX_PEN_MAX | 10`.
  *
  * Every pixel keeps the larger of its ink and that of the circle, and color 0
@@ -542,6 +587,47 @@ typedef struct dgx_segment_part_t {
  *         drawn at all.
  */
 bool dgx_draw_thick_segment_part(dgx_screen_t *scr, float x1, float y1, float x2, float y2, int width, uint32_t color, dgx_segment_part_t *part);
+
+/**
+ * @brief Draws a line through a list of points by a pen of a width: a graph, an outline.
+ *
+ * Each pair of neighbors is joined by the segment of
+ * dgx_draw_thick_segment(), and every joint between two segments is round:
+ * a disc as wide as the pen closes it, whatever the turn is. The two ends of
+ * the line are cut straight, unless DGX_PEN_START_DISC added to @p width
+ * rounds the first one and DGX_PEN_END_DISC the last one. With DGX_PEN_SOFT
+ * the edge is soft where the screen can hold it, and a pixel of a joint keeps
+ * the larger amount of ink, so a joint is no darker than the line. The whole
+ * line is sent as one update.
+ *
+ * A pen of 1 that is not asked to be soft draws the lines of dgx_draw_line()
+ * between the points, discs or none: a display takes them by rows and
+ * columns, which is what a graph wants.
+ *
+ * A closed outline is a list whose last point repeats the first one: the
+ * joint there is round like the others, with the discs or without.
+ *
+ * A point that repeats the one before it adds nothing. A list of one point,
+ * or of one point repeated, is the segment from the point to itself: a hard
+ * pen of 1 draws its pixel, a wider pen draws its dot when a disc is asked
+ * for at either end. Nothing is drawn for no points or a width below 1.
+ *
+ * A pen of an even width has no middle pixel: its line runs half a pixel to
+ * the right of the points and below them, between pixels, the same for every
+ * segment, so the segments meet without a step. A hard segment drawn alone by
+ * dgx_draw_thick_segment() has its axis to the right of its own way, and so
+ * may lie a pixel aside of the same segment of a line. The points lie within
+ * -32767 .. 32766, as the ends of a segment do: a segment to a point beyond
+ * is left out, but for the line of a pen of 1.
+ *
+ * @param scr    The screen to draw on.
+ * @param points The points, in the order the pen goes through them.
+ * @param count  How many points there are.
+ * @param width  Line thickness in pixels (>= 1), with DGX_PEN_SOFT for a soft
+ *               edge and DGX_PEN_START_DISC, DGX_PEN_END_DISC for round ends.
+ * @param color  Line color; the amount of ink for a soft pen.
+ */
+void dgx_draw_polyline(dgx_screen_t *scr, const dgx_point_2d_t *points, int count, int width, uint32_t color);
 
 /**
  * @brief Draws a quadratic Bezier curve as a thick line with round ends.
@@ -718,6 +804,18 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
  * @param tw,th   Size of the texture region.
  */
 void dgx_draw_texture_rect(dgx_screen_t *scr, int x, int y, int w, int h, dgx_screen_t *texture, int tx, int ty, int tw, int th);
+
+/*
+ * The names of before; they stay. Filled figures used to be named three
+ * ways, dgx_fill_*, dgx_solid_* and dgx_draw_*_solid, and are all dgx_fill_*
+ * now; the thick line is named as the thick segment is. Each old name is the
+ * new function: a call and a pointer to it compile as they did.
+ */
+#define dgx_solid_circle        dgx_fill_circle
+#define dgx_solid_sector        dgx_fill_sector
+#define dgx_draw_triangle_solid dgx_fill_triangle
+#define dgx_draw_polygon4_solid dgx_fill_polygon4
+#define dgx_draw_line_thick     dgx_draw_thick_line
 
 #ifdef __cplusplus
 // @formatter:off

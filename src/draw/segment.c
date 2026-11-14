@@ -17,7 +17,7 @@
 
 #include "dgx_draw.h"
 #include "dgx_draw_priv.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
@@ -749,7 +749,7 @@ static inline void dgx_soft_circle_inside(uint8_t *p, int n, int ink, bool keep_
 }
 
 /*
- * A solid circle with the soft edge of a pen, dgx_solid_circle() with DGX_PEN_SOFT: the dot of a soft
+ * A solid circle with the soft edge of a pen, dgx_fill_circle() with DGX_PEN_SOFT: the dot of a soft
  * pen of the width 2r + 1 around the pixel (x, y), the disc of dgx_stroke_disc(), drawn by rows. The
  * disc looks at every pixel of its box. A circle may be large, and all of its inside is ink: a row of
  * the inside is filled at once, and only the pixels of the edge are counted one by one. With the
@@ -912,7 +912,7 @@ static void dgx_segment_hard(dgx_stroke_t *s, float x1, float y1, float x2, floa
     const int bx = dgx_stroke_round(x2), by = dgx_stroke_round(y2), dx = bx - s->x, dy = by - s->y;
     s->rh = 0;
     /*
-     * An even width has no middle pixel: like dgx_draw_line_thick() gives the spare pixel to the right of the
+     * An even width has no middle pixel: like dgx_draw_thick_line() gives the spare pixel to the right of the
      * way, the axis runs half a pixel to the right of it. A way along a row or a column leaves the other half
      * pixel free, and it goes right or down, as at the start of a curve; a dot has both so.
      */
@@ -1027,10 +1027,10 @@ bool dgx_draw_thick_segment_part(dgx_screen_t *scr, float x1, float y1, float x2
         part->discs = DGX_PEN_START_DISC | DGX_PEN_END_DISC;
         return true;
     }
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     if (DGX_STROKE_SOFT && s.soft) dgx_segment_soft(&s, x1, y1, x2, y2, &w);
     else dgx_segment_hard(&s, x1, y1, x2, y2, &w);
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
     /* the disc where the pen stands is there when it was drawn now, or when it was before and the pen has not moved */
     int discs = drawn_discs | (w.start ? DGX_PEN_START_DISC : 0);
     if (w.tip) discs |= DGX_PEN_END_DISC;
@@ -1038,6 +1038,13 @@ bool dgx_draw_thick_segment_part(dgx_screen_t *scr, float x1, float y1, float x2
     part->discs = discs;
     part->drawn = w.to;
     return w.to >= 1;
+}
+
+/* whether a pen of this width, its bits among them, has a soft edge on this screen: what dgx_stroke_set() decides */
+bool dgx_pen_is_soft(dgx_screen_t *scr, int width)
+{
+    dgx_stroke_t s;
+    return dgx_stroke_set(&s, scr, width, 0) && s.soft;
 }
 
 void dgx_draw_thick_segment(dgx_screen_t *scr, float x1, float y1, float x2, float y2, int width, uint32_t color)

@@ -204,10 +204,10 @@ void app_main(void)
         bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_BACKLIGHT, 16, DgxScreenRGB);
     if (!screen) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return;
     }
-    dgx_ili9341_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    dgx_screen_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, DGX_BLACK(dgx_rgb_to_16));
 
     dgx_font_t *font = WeatherIconsRegular27();

@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "dgx_ease.h"
 #include "dgx_matrix_morph.h"
 #include "dgx_screen.h"
 
@@ -245,17 +246,10 @@ typedef void (*dgx_morph_dot_func_t)(
     uint8_t               intensity
 );
 
-/** @return (now - start) / duration clamped to [0, 1]; 1 if duration <= 0. */
-float dgx_morph_progress(int64_t start_us, int64_t now_us, int64_t duration_us);
-
-typedef enum {
-    DGX_MORPH_LINEAR = 0,
-    DGX_MORPH_EASE_IN_OUT,    ///< 2t² / 1-2(1-t)²
-    DGX_MORPH_EASE_IN_OUT_3,  ///< cubic variant
-    DGX_MORPH_SMOOTHSTEP,     ///< t²(3-2t)
-} dgx_morph_easing_t;
-
-float dgx_morph_ease(dgx_morph_easing_t easing, float t);
+/*
+ * dgx_morph_progress(), dgx_morph_easing_t and dgx_morph_ease() are in
+ * dgx_ease.h, included above: the progress of a morph by the clock, eased.
+ */
 
 /**
  * @brief Emit the dots of one frame.

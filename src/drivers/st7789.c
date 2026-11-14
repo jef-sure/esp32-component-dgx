@@ -194,23 +194,23 @@ const dgx_panel_t dgx_panel_st7789_135x240 = {
 
 // Initialize the display
 dgx_screen_t *dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo,
-                              st7789_resolution_t resolution)
+                              dgx_st7789_resolution_t resolution)
 {
     const dgx_panel_t *panel;
     switch (resolution) {
-    case ST7789_RESOLUTION_240x240:
+    case DGX_ST7789_240X240:
         panel = &dgx_panel_st7789_240x240;
         break;
-    case ST7789_RESOLUTION_240x320:
-    case ST7789_RESOLUTION_320x240:
+    case DGX_ST7789_240X320:
+    case DGX_ST7789_320X240:
         panel = &dgx_panel_st7789_240x320;
         break;
-    case ST7789_RESOLUTION_76x284:
-    case ST7789_RESOLUTION_284x76:
+    case DGX_ST7789_76X284:
+    case DGX_ST7789_284X76:
         panel = &dgx_panel_st7789_76x284;
         break;
-    case ST7789_RESOLUTION_135x240:
-    case ST7789_RESOLUTION_240x135:
+    case DGX_ST7789_135X240:
+    case DGX_ST7789_240X135:
         panel = &dgx_panel_st7789_135x240;
         break;
     default:
@@ -223,7 +223,7 @@ dgx_screen_t *dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
      * comes after the functions of the screen, which take the screen as not
      * turned: the screen says how it lies, as the panel is told.
      */
-    if (scr && (resolution == ST7789_RESOLUTION_320x240 || resolution == ST7789_RESOLUTION_284x76 || resolution == ST7789_RESOLUTION_240x135))
+    if (scr && (resolution == DGX_ST7789_320X240 || resolution == DGX_ST7789_284X76 || resolution == DGX_ST7789_240X135))
         dgx_panel_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
     return scr;
 }

@@ -4,7 +4,7 @@
 
 #include "dgx_bits.h"
 #include "dgx_draw.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #ifdef ESP_PLATFORM
@@ -252,7 +252,7 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
 #define DGX_QUAD_NEXT(i) (((i) + 1) & 3)
 #define DGX_QUAD_PREV(i) (((i) + 3) & 3)
     dgx_texture_edge_t e_prev, e_next;
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     if (y_start == y_end) {
         /* a single scanline: from the leftmost vertex to the rightmost one, through the middle of the region */
         int i_min = 0, i_max = 0;
@@ -317,7 +317,7 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
         free(own_row);
     }
     dgx_screen_touch(scr, x_min, x_max, y_start, y_end);
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }
 
 void dgx_draw_texture_rect(dgx_screen_t *scr, int x, int y, int w, int h, dgx_screen_t *texture, int tx, int ty, int tw, int th)

@@ -55,8 +55,8 @@ typedef struct {
 } ssd1680_module_t;
 
 static const ssd1680_module_t ssd1680_modules[] = {
-    [SSD1680_128X296_BWR] = {128, 296},
-    [SSD1680_122X250_BWR] = {122, 250},
+    [DGX_SSD1680_128X296_BWR] = {128, 296},
+    [DGX_SSD1680_122X250_BWR] = {122, 250},
 };
 
 /*
@@ -332,6 +332,11 @@ void dgx_ssd1680_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_or
     dgx_ssd1680_set_area(_scr, 0, (uint16_t)(_scr->width - 1), 0, (uint16_t)(_scr->height - 1));
 }
 
+/* e-paper has no backlight, and its picture stays without power: nothing to turn off */
+static const dgx_screen_control_t dgx_ssd1680_control = {
+    .orientation = dgx_ssd1680_orientation,
+};
+
 static void dgx_ssd1680_destroy(dgx_screen_t **_pscr)
 {
     dgx_ssd1680_t *scr = (dgx_ssd1680_t *)*_pscr;
@@ -343,7 +348,7 @@ static void dgx_ssd1680_destroy(dgx_screen_t **_pscr)
     *_pscr = NULL;
 }
 
-dgx_screen_t *dgx_ssd1680_init(dgx_bus_protocols_t *bus, ssd1680_resolution_t resolution, gpio_num_t rst, gpio_num_t busy)
+dgx_screen_t *dgx_ssd1680_init(dgx_bus_protocols_t *bus, dgx_ssd1680_resolution_t resolution, gpio_num_t rst, gpio_num_t busy)
 {
     if ((unsigned)resolution >= sizeof(ssd1680_modules) / sizeof(ssd1680_modules[0])) {
         ESP_LOGE(TAG, "unsupported resolution %d", (int)resolution);
@@ -388,6 +393,7 @@ dgx_screen_t *dgx_ssd1680_init(dgx_bus_protocols_t *bus, ssd1680_resolution_t re
     scr->base.fill_rectangle = dgx_ssd1680_fill_rectangle;
     scr->base.update_screen  = dgx_ssd1680_update_screen;
     scr->base.destroy        = dgx_ssd1680_destroy;
+    scr->base.control        = &dgx_ssd1680_control;
     dgx_ssd1680_orientation(&scr->base, DgxScreenLeftRight, DgxScreenTopBottom, false);
     if (rst != GPIO_NUM_NC) {
         dgx_gpio_set_direction(rst, GPIO_MODE_OUTPUT);

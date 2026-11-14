@@ -21,7 +21,7 @@ set(srcs
 	"src/draw/draw.c" "src/draw/lines.c" "src/draw/circles.c" "src/draw/polygons.c"
 	"src/text/font.c" "src/text/hw_font.c" "src/draw/bezier.c" "src/text/hw_morph.c" "src/text/font_morph.c"
 	"src/draw/gauge.c" "src/draw/texture.c" "src/draw/ellipse.c" "src/draw/scroll.c" "src/draw/rectangles.c" "src/draw/segment.c"
-	"src/vscreen/lut.c" "src/vscreen/scale.c" "src/vscreen/overlay.c")
+	"src/vscreen/lut.c" "src/vscreen/scale.c" "src/vscreen/overlay.c" "src/vscreen/image.c")
 
 list(APPEND srcs ${dgx_font_sources})
 
@@ -129,7 +129,7 @@ if(CONFIG_DGX_ENABLE_V_BW_SCREEN)
 endif()
 
 if(CONFIG_DGX_ENABLE_VSCREEN)
-	list(APPEND srcs "src/vscreen/vscreen.c" "src/vscreen/transfer.c" "src/vscreen/alpha.c" "src/vscreen/image.c")
+	list(APPEND srcs "src/vscreen/vscreen.c" "src/vscreen/transfer.c" "src/vscreen/alpha.c")
 endif()
 
 if(CONFIG_DGX_ENABLE_VSCREEN_2H)
@@ -170,23 +170,25 @@ if(NOT dgx_linux)
 	endif()
 endif()
 
-# Code kept in IRAM by request, past the flash cache: see docs/pen-en.md. A linker fragment has to name the
-# archive, and the archive is named after the component, that is after its directory or by the component
-# manager; so the fragment is written here.
+# The linker fragment. It has to name the archive, and the archive is named after the component, that is after
+# its directory or by the component manager; so the fragment is written here.
+# - The code marked DGX_HOT, what a display behind a bus runs for every window and the shapes made of such
+#   windows, goes into flash in one piece: see src/dgx_hot_priv.h.
+# - Code kept in IRAM by request, past the flash cache: see docs/pen-en.md.
 set(dgx_ldfragments "")
-if(NOT CMAKE_BUILD_EARLY_EXPANSION AND NOT dgx_linux AND (CONFIG_DGX_HW_FONT_IN_IRAM OR CONFIG_DGX_BEZIER_IN_IRAM))
-	set(dgx_iram_entries "")
+if(NOT CMAKE_BUILD_EARLY_EXPANSION AND NOT dgx_linux)
+	set(dgx_lf_entries "    * (dgx_hot_flash)\n")
 	if(CONFIG_DGX_HW_FONT_IN_IRAM)
-		string(APPEND dgx_iram_entries "    hw_font (noflash_text)\n")
-		string(APPEND dgx_iram_entries "    font:dgx_font_find_glyph (noflash_text)\n")
-		string(APPEND dgx_iram_entries "    font:decodeUTF8next (noflash_text)\n")
+		string(APPEND dgx_lf_entries "    hw_font (noflash_text)\n")
+		string(APPEND dgx_lf_entries "    font:dgx_font_find_glyph (noflash_text)\n")
+		string(APPEND dgx_lf_entries "    font:dgx_utf8_next (noflash_text)\n")
 	endif()
 	if(CONFIG_DGX_BEZIER_IN_IRAM)
-		string(APPEND dgx_iram_entries "    bezier (noflash_text)\n")
-		string(APPEND dgx_iram_entries "    segment (noflash_text)\n")
+		string(APPEND dgx_lf_entries "    bezier (noflash_text)\n")
+		string(APPEND dgx_lf_entries "    segment (noflash_text)\n")
 	endif()
-	set(dgx_ldfragments "${CMAKE_CURRENT_BINARY_DIR}/dgx_iram.lf")
-	file(WRITE "${dgx_ldfragments}" "[mapping:dgx_iram]\narchive: lib${COMPONENT_NAME}.a\nentries:\n${dgx_iram_entries}")
+	set(dgx_ldfragments "${CMAKE_CURRENT_BINARY_DIR}/dgx.lf")
+	file(WRITE "${dgx_ldfragments}" "[sections:dgx_hot]\nentries:\n    .dgx_hot+\n\n[scheme:dgx_hot_flash]\nentries:\n    dgx_hot -> flash_text\n\n[mapping:dgx]\narchive: lib${COMPONENT_NAME}.a\nentries:\n${dgx_lf_entries}")
 endif()
 
 idf_component_register(
@@ -196,6 +198,16 @@ idf_component_register(
 	INCLUDE_DIRS ${dgx_include_dirs}
 	LDFRAGMENTS ${dgx_ldfragments}
 )
+if(dgx_ldfragments)
+	# the section of DGX_HOT has a place only with the fragment
+	target_compile_definitions(${COMPONENT_LIB} PRIVATE DGX_HOT_SECTION=1)
+	# An Xtensa linker gathers the constants of all functions at the start of the code in flash, far from the
+	# functions that load them. Kept in the function, they lie in the same lines of the flash cache as its code,
+	# and those of DGX_HOT in its piece.
+	if(CONFIG_IDF_TARGET_ARCH_XTENSA)
+		target_compile_options(${COMPONENT_LIB} PRIVATE -mtext-section-literals)
+	endif()
+endif()
 
 # The window on the linux target: SDL2 from pkg-config; DGX_HOST_WINDOW for the program, which makes its screens
 # so there; the linker sends malloc and its kin, pvPortMalloc() and vPortFree() of FreeRTOS, vTaskDelay() and

@@ -84,8 +84,20 @@ static void test_from_bw_bitmap(void)
     CHECK(dgx_matrix_from_bw_bitmap(NULL) == NULL);
 }
 
+/* the name a matrix is made by now, beside the one of before, which the tests above use */
+static void test_names(void)
+{
+    dgx_bit_matrix_t *m = dgx_matrix_create(5, 3);
+    CHECK(m && m->width == 5 && m->height == 3 && m->number_of_set_cells == 0);
+    dgx_bit_matrix_t *(*make)(uint16_t, uint16_t) = dgx_matrix_init;
+    CHECK(make == dgx_matrix_create);
+    dgx_matrix_destroy(&m);
+    CHECK(m == NULL);
+}
+
 int main(void)
 {
+    test_names();
     test_basics();
     test_helpers();
     test_from_bw_bitmap();

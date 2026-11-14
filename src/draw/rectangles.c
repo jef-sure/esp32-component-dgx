@@ -12,9 +12,10 @@
 
 #include "dgx_draw.h"
 #include "dgx_draw_priv.h"
+#include "../dgx_hot_priv.h"
 
 /* a negative width or height takes the rectangle the other way, as dgx_fill_rectangle() does; false when nothing is left */
-static bool dgx_rectangle_upright(int *x, int *y, int *w, int *h)
+DGX_HOT static bool dgx_rectangle_upright(int *x, int *y, int *w, int *h)
 {
     if (*w < 0) *x += *w, *w = -*w;
     if (*h < 0) *y += *h, *h = -*h;
@@ -27,25 +28,25 @@ static bool dgx_rectangle_upright(int *x, int *y, int *w, int *h)
  * side the rows of the left one, so a display that takes a window is not
  * sent the same columns or rows again.
  */
-void dgx_draw_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t color)
+DGX_HOT void dgx_draw_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t color)
 {
     if (!dgx_rectangle_upright(&x, &y, &w, &h)) return;
     const int right = x + w - 1, bottom = y + h - 1;
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     dgx_draw_row_run(scr, x, right, y, color);
     if (h > 1) dgx_draw_row_run(scr, x, right, bottom, color);
     if (h > 2) {
         dgx_draw_column_run(scr, x, y + 1, bottom - 1, color);
         if (w > 1) dgx_draw_column_run(scr, right, y + 1, bottom - 1, color);
     }
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }
 
 /*
  * The radius a rectangle of w by h can have: the centres of the corners
  * meet, but do not pass one another.
  */
-static int dgx_round_radius(int w, int h, int r)
+DGX_HOT static int dgx_round_radius(int w, int h, int r)
 {
     const int most = ((w < h ? w : h) - 1) / 2;
     return r < 0 ? 0 : r > most ? most : r;
@@ -58,7 +59,7 @@ static int dgx_round_radius(int w, int h, int r)
  * that starts on an axis goes on along the side to the next corner, and
  * so the sides are drawn.
  */
-static void dgx_round_eighths(dgx_screen_t *scr, int left, int top, int right, int bottom, int yoff, int xa, int xb, uint32_t color)
+DGX_HOT static void dgx_round_eighths(dgx_screen_t *scr, int left, int top, int right, int bottom, int yoff, int xa, int xb, uint32_t color)
 {
     if (xa == 0) {
         dgx_draw_row_run(scr, left - xb, right + xb, top - yoff, color);
@@ -82,7 +83,7 @@ static void dgx_round_eighths(dgx_screen_t *scr, int left, int top, int right, i
  * r, walked as it walks them. A square of 2r + 1 is that circle, pixel for
  * pixel; with a radius of 0 it is the outline of dgx_draw_rectangle().
  */
-void dgx_draw_round_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, int r, uint32_t color)
+DGX_HOT void dgx_draw_round_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, int r, uint32_t color)
 {
     if (!dgx_rectangle_upright(&x, &y, &w, &h)) return;
     r = dgx_round_radius(w, h, r);
@@ -98,7 +99,7 @@ void dgx_draw_round_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, int
     int       xs  = 0;
     int       ys  = r;
     int       run = 0; /* the first point of the row the walk is in */
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     while (xs < ys) {
         int row = ys;
         int end = xs;
@@ -116,11 +117,11 @@ void dgx_draw_round_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, int
         }
     }
     dgx_round_eighths(scr, left, top, right, bottom, ys, run, xs, color);
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }
 
 /* the column at which the walk of a circle of radius r reaches the diagonal and stops */
-static int dgx_round_walk_end(int r)
+DGX_HOT static int dgx_round_walk_end(int r)
 {
     int f = 1 - r, ddx = 1, ddy = -2 * r, xs = 0, ys = r;
     while (xs < ys) {
@@ -137,7 +138,7 @@ static int dgx_round_walk_end(int r)
 }
 
 /*
- * The walk of dgx_solid_circle(), by rows, with the corners apart: the rows
+ * The walk of dgx_fill_circle(), by rows, with the corners apart: the rows
  * of a corner reach from its centre as far as those of the circle do, and
  * the rows between the corners reach r from them. Rows that reach equally
  * far go as one rectangle, as the rows between the corners do. A square of
@@ -149,7 +150,7 @@ static int dgx_round_walk_end(int r)
  * as long as the rectangle is wide. Where the walk stops, and so how high
  * the rows near the middle go, is found by a walk first.
  */
-void dgx_fill_round_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, int r, uint32_t color)
+DGX_HOT void dgx_fill_round_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, int r, uint32_t color)
 {
     if (!dgx_rectangle_upright(&x, &y, &w, &h)) return;
     r = dgx_round_radius(w, h, r);
@@ -163,7 +164,7 @@ void dgx_fill_round_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, int
     int       xs   = 0;
     int       ys   = r;
     int       band = 0; /* the nearest to the middle of the rows that reach ys to each side */
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     while (1) {
         int  reach = ys;
         int  end   = xs;
@@ -194,5 +195,5 @@ void dgx_fill_round_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, int
         if (!more) break;
         band = xs;
     }
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }

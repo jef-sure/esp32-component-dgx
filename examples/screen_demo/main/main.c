@@ -47,7 +47,8 @@ static void demo_draw_footer(dgx_screen_t *screen, const char *title)
 
     dgx_fill_rectangle(screen, 0, screen->height - 28, screen->width, 28, footer_bg);
     dgx_draw_line(screen, 0, screen->height - 28, screen->width - 1, screen->height - 28, demo_rgb(48, 140, 255));
-    dgx_font_string_utf8_screen(screen, 8, screen->height - 10, title, footer_fg, DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
+    const dgx_font_context_t text = {.scr = screen, .font = LiberationSansRegular12(), .color = footer_fg};
+    dgx_font_draw(&text, 8, screen->height - 10, title);
 }
 
 static void demo_splash(dgx_screen_t *screen)
@@ -61,10 +62,15 @@ static void demo_splash(dgx_screen_t *screen)
     dgx_fill_rectangle(screen, 0, 0, screen->width, 48, demo_rgb(10, 28, 60));
     dgx_fill_rectangle(screen, 0, 48, screen->width, 4, cyan);
 
-    dgx_font_string_utf8_screen(screen, 14, 42, "DGX", ink, DgxOutputNormal, 1, DejaVuSansBook32(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 138, 40, "ILI9341", gold, DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 138, 64, "ESP32 SPI demo", ink, DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 304, 177, "graphics", cyan, DgxOutputRotate90CCW, 1, LiberationSansRegular12(), NULL, NULL);
+    const dgx_font_context_t big  = {.scr = screen, .font = DejaVuSansBook32(), .color = ink};
+    dgx_font_context_t       text = {.scr = screen, .font = LiberationSansRegular12(), .color = gold};
+    dgx_font_draw(&big, 14, 42, "DGX");
+    dgx_font_draw(&text, 138, 40, "ILI9341");
+    text.color = ink;
+    dgx_font_draw(&text, 138, 64, "ESP32 SPI demo");
+    text.color       = cyan;
+    text.orientation = DgxOutputRotate90CCW;
+    dgx_font_draw(&text, 304, 177, "graphics");
 
     for (int x = 18; x < screen->width - 18; x += 32) {
         uint32_t color = (x / 32) % 3 == 0 ? cyan : ((x / 32) % 3 == 1 ? gold : rose);
@@ -78,17 +84,24 @@ static void demo_splash(dgx_screen_t *screen)
 static void demo_text(dgx_screen_t *screen)
 {
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, DGX_BLACK(dgx_rgb_to_16));
-    dgx_font_string_utf8_screen(screen, 12, 26, "Adafruit-style graphics test", demo_rgb(255, 214, 10), DgxOutputNormal, 1, LiberationSansRegular12(), NULL,
-                                NULL);
-    dgx_font_string_utf8_screen(screen, 12, 56, "DGX draw + font primitives", demo_rgb(60, 190, 255), DgxOutputNormal, 1, LiberationSansRegular12(), NULL,
-                                NULL);
-    dgx_font_string_utf8_screen(screen, 12, 86, "ILI9341 over SPI @ configurable clock", demo_rgb(220, 220, 220), DgxOutputNormal, 1,
-                                LiberationSansRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 12, 126, "RED", DGX_RED(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 62, 126, "GREEN", DGX_GREEN(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 132, 126, "BLUE", DGX_BLUE(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 12, 183, "rotated", demo_rgb(255, 128, 32), DgxOutputRotate90CCW, 1, LiberationSansRegular12(), NULL, NULL);
-    dgx_font_string_utf8_screen(screen, 285, 176, "text", demo_rgb(255, 128, 32), DgxOutputRotate90CW, 1, LiberationSansRegular12(), NULL, NULL);
+    /* one context for all the texts: the color and the turn are changed from one text to the next */
+    dgx_font_context_t text = {.scr = screen, .font = LiberationSansRegular12(), .color = demo_rgb(255, 214, 10)};
+    dgx_font_draw(&text, 12, 26, "Adafruit-style graphics test");
+    text.color = demo_rgb(60, 190, 255);
+    dgx_font_draw(&text, 12, 56, "DGX draw + font primitives");
+    text.color = demo_rgb(220, 220, 220);
+    dgx_font_draw(&text, 12, 86, "ILI9341 over SPI @ configurable clock");
+    text.color = DGX_RED(dgx_rgb_to_16);
+    dgx_font_draw(&text, 12, 126, "RED");
+    text.color = DGX_GREEN(dgx_rgb_to_16);
+    dgx_font_draw(&text, 62, 126, "GREEN");
+    text.color = DGX_BLUE(dgx_rgb_to_16);
+    dgx_font_draw(&text, 132, 126, "BLUE");
+    text.color       = demo_rgb(255, 128, 32);
+    text.orientation = DgxOutputRotate90CCW;
+    dgx_font_draw(&text, 12, 183, "rotated");
+    text.orientation = DgxOutputRotate90CW;
+    dgx_font_draw(&text, 285, 176, "text");
     demo_draw_footer(screen, "Text, colors, and font orientation");
 }
 
@@ -119,7 +132,8 @@ static void demo_rectangles(dgx_screen_t *screen)
     }
 
     dgx_fill_rectangle(screen, 54, 46, 212, 116, demo_rgb(12, 12, 12));
-    dgx_font_string_utf8_screen(screen, 84, 112, "filled rectangles", DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
+    const dgx_font_context_t text = {.scr = screen, .font = LiberationSansRegular12(), .color = DGX_WHITE(dgx_rgb_to_16)};
+    dgx_font_draw(&text, 84, 112, "filled rectangles");
     demo_draw_footer(screen, "Nested fill test");
 }
 
@@ -130,15 +144,15 @@ static void demo_circles(dgx_screen_t *screen)
     for (int y = 28; y < 180; y += 38) {
         for (int x = 30; x < screen->width - 20; x += 44) {
             dgx_draw_circle(screen, x, y, 16, demo_rgb(60, 190, 255));
-            dgx_solid_circle(screen, x, y, 6, demo_rgb(255, 180, 32));
+            dgx_fill_circle(screen, x, y, 6, demo_rgb(255, 180, 32));
         }
     }
 
-    dgx_solid_circle(screen, 56, 198, 18, demo_rgb(255, 80, 80));
-    dgx_solid_circle(screen, 112, 198, 18, demo_rgb(80, 255, 120));
-    dgx_solid_circle(screen, 168, 198, 18, demo_rgb(80, 180, 255));
-    dgx_solid_circle(screen, 224, 198, 18, demo_rgb(255, 220, 64));
-    dgx_solid_circle(screen, 280, 198, 18, demo_rgb(255, 120, 220));
+    dgx_fill_circle(screen, 56, 198, 18, demo_rgb(255, 80, 80));
+    dgx_fill_circle(screen, 112, 198, 18, demo_rgb(80, 255, 120));
+    dgx_fill_circle(screen, 168, 198, 18, demo_rgb(80, 180, 255));
+    dgx_fill_circle(screen, 224, 198, 18, demo_rgb(255, 220, 64));
+    dgx_fill_circle(screen, 280, 198, 18, demo_rgb(255, 120, 220));
 
     demo_draw_footer(screen, "Circle outlines and fills");
 }
@@ -151,11 +165,12 @@ static void demo_triangles(dgx_screen_t *screen)
         int      top   = 14 + i * 12;
         int      span  = 132 - i * 14;
         uint32_t color = demo_rgb(255 - i * 22, 40 + i * 24, 90 + i * 20);
-        dgx_draw_triangle_solid(screen, screen->width / 2, top, screen->width / 2 - span, 198 - i * 8, screen->width / 2 + span, 198 - i * 8, color);
+        dgx_fill_triangle(screen, screen->width / 2, top, screen->width / 2 - span, 198 - i * 8, screen->width / 2 + span, 198 - i * 8, color);
     }
 
     dgx_fill_rectangle(screen, 102, 90, 116, 46, demo_rgb(8, 8, 14));
-    dgx_font_string_utf8_screen(screen, 116, 118, "triangles", DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
+    const dgx_font_context_t text = {.scr = screen, .font = LiberationSansRegular12(), .color = DGX_WHITE(dgx_rgb_to_16)};
+    dgx_font_draw(&text, 116, 118, "triangles");
     demo_draw_footer(screen, "Filled triangle fan");
 }
 
@@ -172,7 +187,8 @@ static void demo_color_bars(dgx_screen_t *screen)
     }
 
     dgx_fill_rectangle(screen, 48, 72, 224, 84, demo_rgb(8, 8, 8));
-    dgx_font_string_utf8_screen(screen, 74, 102, "RGB565 color bars", DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
+    const dgx_font_context_t text = {.scr = screen, .font = LiberationSansRegular12(), .color = DGX_WHITE(dgx_rgb_to_16)};
+    dgx_font_draw(&text, 74, 102, "RGB565 color bars");
     demo_draw_footer(screen, "Panel sanity check");
 }
 
@@ -203,11 +219,11 @@ void app_main(void)
     dgx_screen_t *screen = dgx_ili9341_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, GPIO_NUM_NC, 16, DgxScreenRGB);
     if (!screen) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return;
     }
 
-    dgx_ili9341_orientation(screen, DgxScreenLeftRight, DgxScreenTopBottom, false);
+    dgx_screen_orientation(screen, DgxScreenLeftRight, DgxScreenTopBottom, false);
 
     while (1) {
         demo_run_step(screen, "splash", demo_splash, 1800);

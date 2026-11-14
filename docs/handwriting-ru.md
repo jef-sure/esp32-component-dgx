@@ -38,23 +38,35 @@
 #include "dgx_hw_font.h"
 #include "fonts/font0ss.h"
 
-dgx_hw_draw_text(scr, 10, 80, font0ss(), "Привет, мир!", 0.3f, 3, color, true);
+dgx_hw_context_t hw = {.scr = scr, .font = font0ss(), .scale_x = 0.3f, .width = 3, .color = color, .joined = true};
+dgx_hw_draw(&hw, 10, 80, "Привет, мир!");
 ```
 
-| Параметр | Смысл |
+То, как пишется текст, хранится в контексте: это `dgx_hw_context_t`,
+заполненный по именам полей. Пропущенное поле равно нулю, это его значение по
+умолчанию. Один контекст годится для всех текстов, написанных одинаково.
+
+| Что | Смысл |
 | --- | --- |
+| `.scr` | Экран, на который идёт текст. |
+| `.font` | Шрифт. `font0ss` входит в библиотеку: латиница, немецкие и русские буквы, цифры, знаки препинания. |
+| `.scale_x` | Размер: сколько пикселей в одной клетке сетки, на которой нарисован шрифт. Высота строки — `font->hw->symbol_size_y` клеток, в `font0ss` это 202, так что 0.3 даёт строку в 60 пикселей; строчные буквы высотой `x_height` клеток, 58, то есть 17 пикселей. |
+| `.width` | Толщина пера в пикселях. Шрифт описывает только осевую линию пера. |
+| `.color` | Цвет чернил. |
+| `.joined` | Слитное письмо. Без него каждая буква пишется отдельно. |
 | `10, 80` | Начало строки: её левый край на базовой линии, на которой стоят буквы. Хвосты букв уходят ниже неё. |
-| `font0ss()` | Шрифт. `font0ss` входит в библиотеку: латиница, немецкие и русские буквы, цифры, знаки препинания. |
-| `0.3f` | Размер: сколько пикселей в одной клетке сетки, на которой нарисован шрифт. Высота строки — `font->hw->symbol_size_y` клеток, в `font0ss` это 202, так что 0.3 даёт строку в 60 пикселей; строчные буквы высотой `x_height` клеток, 58, то есть 17 пикселей. |
-| `3` | Толщина пера в пикселях. Шрифт описывает только осевую линию пера. |
-| `true` | Слитное письмо. `false` пишет каждую букву отдельно. |
+
+`dgx_hw_draw_text(scr, 10, 80, font0ss(), "Привет, мир!", 0.3f, 3, color, true)` —
+прежняя форма того же вызова, где всё задано аргументами. Она остаётся, как
+и `dgx_hw_writing_begin()` с `dgx_hw_morph_draw()` рядом с вызовами ниже,
+которые берут контекст.
 
 `\n` в тексте начинает следующую строку, ниже на `symbol_size_y` клеток.
 Символ, которого нет в шрифте, занимает место целой ячейки и ничего не рисует.
 
 Рукописный шрифт — обычный `dgx_font_t` с типом `DGX_FONT_HW`, и его символы
 ищутся через `dgx_font_find_glyph()`, как любые глифы. Но
-`dgx_font_string_utf8_screen()` и остальные функции растровых шрифтов его не
+`dgx_font_draw()` и остальные функции растровых шрифтов его не
 рисуют: они принимают целый масштаб и рисуют по одному символу, а здесь
 размер любой и буква зависит от соседей.
 
@@ -69,29 +81,40 @@ dgx_hw_text_box(font, "Привет", &left, &top, &right, &bottom);
 ```
 
 `top` отрицательный: это выше базовой линии. Чтобы вписать текст в ширину
-`w` пикселей и поставить по центру:
+`w` пикселей:
 
 ```c
-float scale = (float)(w - pen) / (right - left + 1);   /* перо занимает половину своей толщины с каждой стороны */
-int   x = (int)lroundf((w - (right - left + 1) * scale) / 2 - left * scale);
+hw.scale_x = (float)(w - hw.width) / (right - left + 1);   /* перо занимает половину своей толщины с каждой стороны */
+```
+
+Когда размер выбран, `dgx_hw_bounds()` говорит, какие пиксели текст закрасит,
+вместе с пером, считая от точки `x, y`, в которой его рисуют. Чтобы поставить
+текст в середину экрана:
+
+```c
+int width, height;
+if (dgx_hw_bounds(&hw, "Привет", &left, &top, &width, &height))
+    dgx_hw_draw(&hw, (scr->width - width) / 2 - left, (scr->height - height) / 2 - top, "Привет");
 ```
 
 `examples/hw_font_demo` делает это сразу для трёх строк: самая широкая должна
 влезть в ширину, а все вместе, с шагом в высоту строки, — в высоту.
 
-Прямоугольник считается по самим символам. Кривые, соединяющие буквы, лежат
-между ними и его не расширяют.
+Прямоугольник в клетках считается по самим символам. Кривые, соединяющие
+буквы, лежат между ними и его не расширяют. Прямоугольник в пикселях вмещает
+каждый закрашенный пиксель; его сторона обычно точна и может быть на пиксель
+больше.
 
 ### Свой размер по каждой оси
 
-Текст может быть узким и высоким или широким и низким.
-`dgx_hw_draw_text_xy()`, `dgx_hw_writing_begin_xy()`
-и `dgx_hw_morph_draw_xy()` принимают два размера вместо одного: пикселей
-в клетке по горизонтали и пикселей в клетке по вертикали.
+Текст может быть узким и высоким или широким и низким. В контексте два
+размера: `scale_x`, пикселей в клетке по горизонтали, и `scale_y`, пикселей
+в клетке по вертикали. Если `scale_y` не задан, он равен `scale_x`.
 
 ```c
 /* цифры в треть сетки по ширине и в две трети по высоте */
-dgx_hw_draw_text_xy(scr, x, y, font0ss(), "08", 0.33f, 0.7f, 3, color, false);
+dgx_hw_context_t digits = {.scr = scr, .font = font0ss(), .scale_x = 0.33f, .scale_y = 0.7f, .width = 3, .color = color};
+dgx_hw_draw(&digits, x, y, "08");
 ```
 
 Перо не растягивается: оно остаётся круглым и той толщины, какая задана.
@@ -140,7 +163,7 @@ while (dgx_hw_writer_next(&writer, &stroke)) {
 (`stroke.type` — число его точек, от 1 до 4). Ещё он знает свою длину, число
 прямых отрезков, пришлось ли оторвать перо, чтобы его начать (`lift`),
 и какому символу текста он принадлежит (`symbol`). Это ровно то, что рисует
-`dgx_hw_draw_text()`, и то, от чего отталкиваться для своего вывода.
+`dgx_hw_draw()`, и то, от чего отталкиваться для своего вывода.
 
 ## Кривые Безье
 
@@ -224,7 +247,7 @@ n = ceil(pieces × √масштаб)
 
 У линии нечётной толщины есть средний пиксель, и точки кривой — его центры.
 У чётной его нет: одна сторона должна быть на пиксель толще. DGX отдаёт этот
-пиксель правой стороне по ходу линии, так же как `dgx_draw_line_thick()`,
+пиксель правой стороне по ходу линии, так же как `dgx_draw_thick_line()`,
 поэтому фигура, которую всегда обводят в одну сторону — скажем, по часовой
 стрелке, — утолщается согласованно внутрь. Мягкая линия поступает с чётной
 толщиной проще, см. [«Точки без округления»](#точки-без-округления).
@@ -263,7 +286,8 @@ n = ceil(pieces × √масштаб)
 и морфинга.
 
 ```c
-dgx_hw_draw_text(band, x, y, font, text, scale, DGX_PEN_SOFT | 2, 255, true);
+dgx_hw_context_t soft = {.scr = band, .font = font, .scale_x = scale, .width = DGX_PEN_SOFT | 2, .color = 255, .joined = true};
+dgx_hw_draw(&soft, x, y, text);
 ```
 
 Мягкое перо кладёт чернила долями пикселя, и пиксель для этого должен быть
@@ -379,9 +403,9 @@ dgx_hw_draw_text(band, x, y, font, text, scale, DGX_PEN_SOFT | 2, 255, true);
 ### В коде
 
 ```c
-dgx_hw_pace_t    pace = dgx_hw_pace(font, 6);          /* k = 6 */
+hw.pace = dgx_hw_pace(hw.font, 6);                     /* k = 6; без него считается одна длина */
 dgx_hw_writing_t writing;
-dgx_hw_writing_begin(&writing, scr, x, y, font, text, scale, pen, color, true, &pace);
+dgx_hw_writing_begin_with(&writing, &hw, x, y, text);
 
 int64_t start = esp_timer_get_time();
 bool    finished = false;
@@ -418,7 +442,7 @@ dgx_hw_writing_draw_to(&writing, t * total);
 переносят только его:
 
 ```c
-dgx_screen_progress_up(band);   /* пакет открыт всё время: изменения копятся, а не сбрасываются */
+dgx_screen_batch_begin(band);   /* пакет открыт всё время: изменения копятся, а не сбрасываются */
 for (;;) {
     bool finished = dgx_hw_writing_draw_to(&writing, tempo * seconds());
     int  left, top, width, height;
@@ -428,7 +452,7 @@ for (;;) {
     if (finished) break;
     vTaskDelay(1);
 }
-dgx_screen_progress_down(band);
+dgx_screen_batch_end(band);
 ```
 
 Так же показывают кадр морфинга: прямоугольник после стирания полосы
@@ -595,10 +619,12 @@ dgx_screen_t *band = dgx_vscreen_init(screen->width, height, 8, DgxScreenRGB);
 static uint16_t lut[256];
 dgx_lut_gradient(lut, 0, 256, 0xfaf6e8, 0x182478);
 
+const dgx_hw_context_t ink = {.scr = band, .scale_x = scale, .width = pen, .color = 255};
+
 for (;;) {
-    float t = progress(start, esp_timer_get_time(), duration);
+    float t = dgx_morph_progress(start, esp_timer_get_time(), duration);
     dgx_fill_rectangle(band, 0, 0, band->width, band->height, 0);
-    dgx_hw_morph_draw(morph, t, band, 0, base_y, scale, pen, 255);
+    dgx_hw_morph_draw_with(morph, t, &ink, 0, base_y);
     dgx_vscreen8_to_screen16(screen, 0, band_y, band, lut, false);
     if (t >= 1) break;
     vTaskDelay(1);
@@ -606,16 +632,17 @@ for (;;) {
 dgx_hw_morph_destroy(&morph);
 ```
 
-`dgx_hw_morph_draw()` ничего не стирает. `t` берётся как есть; если движение
-должно мягко начинаться и останавливаться, его сначала пропускают через
-функцию сглаживания.
+`dgx_hw_morph_draw_with()` ничего не стирает. `dgx_morph_progress()` даёт `t`
+морфинга по часам, от 0 до 1, и `t` берётся как есть; если движение должно
+мягко начинаться и останавливаться, его сначала пропускают через функцию
+сглаживания, `dgx_morph_ease(DGX_MORPH_SMOOTHSTEP, t)`.
 
 Буква за буквой цикл рисует каждое место со своим прогрессом:
 
 ```c
 for (size_t i = 0; i < text->length; ++i) {
-    float t = progress(start + i * stagger, now, letter_duration);
-    dgx_hw_morph_draw(text->letters[i], t, band, 0, base_y, scale, pen, 255);
+    float t = dgx_morph_progress(start + i * stagger, now, letter_duration);
+    dgx_hw_morph_draw_with(text->letters[i], t, &ink, 0, base_y);
 }
 ```
 
@@ -702,7 +729,7 @@ dgx_hw_morph_shift(morph, shift_from, 0, shift_to, 0);
   как один путь пера.
 - В мелком размере толстое перо прячет мелочи: запятая длиной 10 клеток — это
   2,5 пикселя при масштабе 0.25, и выглядит она как точка.
-- Текст, переданный в `dgx_hw_writing_begin()` и `dgx_hw_writer_begin()`, не
+- Текст, переданный в `dgx_hw_writing_begin_with()` и `dgx_hw_writer_begin()`, не
   копируется и должен жить, пока идёт письмо.
 
 ## Примеры и тесты

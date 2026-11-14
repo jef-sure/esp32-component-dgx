@@ -167,7 +167,7 @@ static inline uint32_t dgx_ror_bits(uint32_t a, uint8_t bits)
     return dgx_ror_nbits(a, bits, 1);
 }
 
-static inline uint8_t bit_reverse(uint8_t b)
+static inline uint8_t dgx_bit_reverse(uint8_t b)
 {
     b = (b & 0xF0) >> 4 | (b & 0x0F) << 4;
     b = (b & 0xCC) >> 2 | (b & 0x33) << 2;

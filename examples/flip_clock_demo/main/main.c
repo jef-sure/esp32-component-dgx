@@ -18,7 +18,7 @@
 #include "dgx_font.h"
 #include "dgx_screen.h"
 #include "drivers/ili9341.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/CasusDotView.h"
 
 static const char *TAG = "dgx_flip_clock_demo";
@@ -63,10 +63,17 @@ static digit_t digits[CLOCK_DIGITS];
 static int16_t digits_y;
 static uint32_t band_color;
 
+/* What draw_dot() stamps, the user_data of the text: the point and its table of colors. */
+typedef struct {
+    dgx_screen_t *point;
+    const uint16_t *lut;
+} dot_stamp_t;
+
 /* One dot of a dot-font glyph: a soft 8-bit point stamped through a black-to-ink LUT. */
-static void draw_dot(dgx_screen_t *dst, int x, int y, dgx_font_sym8_params_t *params)
+static void draw_dot(const dgx_font_context_t *ctx, int x, int y)
 {
-    dgx_vscreen8_to_screen16(dst, x, y, params->vpoint, params->lut, true);
+    const dot_stamp_t *stamp = ctx->user_data;
+    dgx_vscreen8_to_screen16(ctx->scr, x, y, stamp->point, stamp->lut, true);
 }
 
 /* Draw the digit card at its natural size, then scale it into the texture. */
@@ -75,13 +82,14 @@ static bool draw_digit_texture(dgx_screen_t *tex, uint8_t digit)
     const uint32_t card = dgx_rgb_to_16(9, 14, 20);
     const uint32_t bezel = dgx_rgb_to_16(26, 36, 54);
     const int scale = 5;
-    dgx_font_t *font = CasusDotView();
     char str[2] = {(char)('0' + digit % 10), '\0'};
 
-    int16_t ycorner, glyph_h;
-    int glyph_w = dgx_font_string_bounds(str, font, &ycorner, &glyph_h);
-    int panel_w = DGX_MAX(glyph_w * scale + 14, 24);
-    int panel_h = DGX_MAX(glyph_h * scale + 18, 32);
+    /* The digit as large as it is drawn: the measures count the scale. The panel is made by them, so scr comes later. */
+    dgx_font_context_t text = {.font = CasusDotView(), .scale = scale, .dot_func = draw_dot};
+    int top, glyph_h;
+    int glyph_w = dgx_font_bounds(&text, str, &top, &glyph_h);
+    int panel_w = DGX_MAX(glyph_w + 14, 24);
+    int panel_h = DGX_MAX(glyph_h + 18, 32);
 
     dgx_screen_t *panel = dgx_vscreen_init(panel_w, panel_h, 16, DgxScreenRGB);
     dgx_screen_t *point = dgx_vscreen_init(scale, scale, 8, DgxScreenRGB);
@@ -97,14 +105,15 @@ static bool draw_digit_texture(dgx_screen_t *tex, uint8_t digit)
     /* Index 0 is transparent; the rest fade from black to the ink color. */
     uint16_t lut[256];
     dgx_lut_gradient(lut, 0, 256, 0x000000, dgx_rgb_to_24(238, 242, 255));
-    dgx_font_sym8_params_t params = {
-        .vpoint = point,
+    dot_stamp_t stamp = {
+        .point = point,
         .lut = lut,
-        .dot_func = draw_dot,
     };
-    int x = (panel_w - glyph_w * scale) / 2;
-    int y = (panel_h - glyph_h * scale) / 2 - ycorner * scale;
-    dgx_font_string_utf8_screen(panel, (int16_t)x, (int16_t)y, str, 0, DgxOutputNormal, scale, font, NULL, &params);
+    text.scr = panel;
+    text.user_data = &stamp;
+    int x = (panel_w - glyph_w) / 2;
+    int y = (panel_h - glyph_h) / 2 - top;
+    dgx_font_draw(&text, x, y, str);
 
     dgx_draw_texture_rect(tex, 0, 0, tex->width, tex->height, panel, 0, 0, panel_w, panel_h);
     dgx_screen_destroy(&point);
@@ -190,10 +199,10 @@ void app_main(void)
         bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_BACKLIGHT, 16, DgxScreenRGB);
     if (!screen) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return;
     }
-    dgx_ili9341_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    dgx_screen_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
 
     int32_t clock_seconds = 12 * 3600 + 34 * 60;
     uint8_t values[CLOCK_DIGITS];

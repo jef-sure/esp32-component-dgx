@@ -22,7 +22,7 @@
 #include "dgx_scale_priv.h"
 #include "dgx_screen_with_bus.h"
 #include "dgx_vscreen_priv.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 static const char TAG[] = "DGX V-Screen";
 
@@ -1011,7 +1011,7 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
         return;
     /* the overlay layer of a 16-bit screen over the rectangle is mixed in on the way */
     const dgx_bus_overlay_t *over = _scr_dst->color_bits == 16 ? dgx_overlay_over(_scr_dst, p.x, p.y, p.x + p.w - 1, p.y + p.h - 1) : NULL;
-    dgx_screen_progress_up(_scr_dst);
+    dgx_screen_batch_begin(_scr_dst);
     /* a picture put as it is goes as rows of memory where the bus takes them; one it would put another way, by the bus as a picture of colors */
     const bool plain = p.scale == 1 && !p.turn && !over && !alpha && !asked.transparent && dgx_vscreen_pixel_bytes(_scr_src->color_bits) &&
                        dgx_vscreen_is_linear(_scr_src);
@@ -1039,7 +1039,7 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
         }
     }
     dgx_screen_touch(_scr_dst, p.x, p.x + p.w - 1, p.y, p.y + p.h - 1);
-    dgx_screen_progress_down(_scr_dst);
+    dgx_screen_batch_end(_scr_dst);
 }
 
 void dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint32_t flags)
@@ -1116,7 +1116,7 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
         .ink    = mask ? alpha_of.ink : 0u,
     };
     const bool upright_squares = !p.turn && !asked.smooth;
-    dgx_screen_progress_up(_scr_dst);
+    dgx_screen_batch_begin(_scr_dst);
     bool done = false;
     if (_scr_dst->screen_subtype == DgxPhysicalScreenWithBus && !asked.transparent) {
         dgx_bus_protocols_t *bus = ((dgx_screen_with_bus_t *)_scr_dst)->bus;
@@ -1150,7 +1150,7 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
         }
     }
     dgx_screen_touch(_scr_dst, p.x, p.x + p.w - 1, p.y, p.y + p.h - 1);
-    dgx_screen_progress_down(_scr_dst);
+    dgx_screen_batch_end(_scr_dst);
 }
 
 void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, const uint16_t *lut, uint32_t flags)

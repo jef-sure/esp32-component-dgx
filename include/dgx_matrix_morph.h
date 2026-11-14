@@ -28,10 +28,13 @@ typedef struct {
  * @param height Grid height in cells.
  * @return Owned matrix, or NULL on failure. Release with dgx_matrix_destroy().
  */
-dgx_bit_matrix_t *dgx_matrix_init(
+dgx_bit_matrix_t *dgx_matrix_create(
     uint16_t width,
     uint16_t height
 );
+
+/** The name dgx_matrix_create() had before; it stays. */
+#define dgx_matrix_init dgx_matrix_create
 
 /**
  * @brief Release a matrix and set its pointer to NULL.

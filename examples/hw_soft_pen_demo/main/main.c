@@ -16,7 +16,7 @@
 #include "dgx_font.h"
 #include "dgx_hw_font.h"
 #include "dgx_screen.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
 #include "fonts/font0ss.h"
 
@@ -54,7 +54,7 @@ static dgx_screen_t *display_init(void)
         ESP_LOGE(TAG, "dgx_jd9165_init failed");
         return NULL;
     }
-    dgx_jd9165_orientation(display, DgxScreenLeftRight, DgxScreenTopBottom, false);
+    dgx_screen_orientation(display, DgxScreenLeftRight, DgxScreenTopBottom, false);
     return display;
 }
 
@@ -92,10 +92,10 @@ static dgx_screen_t *display_init(void)
         bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_BACKLIGHT, 16, DgxScreenRGB);
     if (!display) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return NULL;
     }
-    dgx_ili9341_orientation(display, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    dgx_screen_orientation(display, DgxScreenRightLeft, DgxScreenTopBottom, true);
     return display;
 }
 
@@ -234,9 +234,16 @@ static void show(void)
 /* A line is written by a soft pen with so much ink, at the pace of the pen; with no ink it is taken off the same way. */
 static void write_line(int line, const place_t *at, uint32_t ink, float tempo)
 {
-    dgx_hw_writing_t writing;
-    dgx_hw_writing_begin_xy(&writing, page, at->x, at->y, font, lines[line], at->scale_x, at->scale_y, DGX_PEN_SOFT | at->pen, ink,
-                            EXAMPLE_JOINED, &pace);
+    const dgx_hw_context_t how = {.scr     = page,
+                                  .font    = font,
+                                  .scale_x = at->scale_x,
+                                  .scale_y = at->scale_y,
+                                  .width   = DGX_PEN_SOFT | at->pen,
+                                  .color   = ink,
+                                  .joined  = EXAMPLE_JOINED,
+                                  .pace    = pace};
+    dgx_hw_writing_t       writing;
+    dgx_hw_writing_begin_with(&writing, &how, at->x, at->y, lines[line]);
     /* the pen comes to the line through the air, as between two strokes */
     int64_t start_us = esp_timer_get_time() + (int64_t)(pace.least / tempo * 1e6f);
     bool    finished = false;
@@ -271,9 +278,9 @@ static void move_lines(const place_t *from, const place_t *to)
     int64_t start_us = esp_timer_get_time(), drawn_us = 0;
     int     frames = 0;
     for (bool last = false; !last;) {
-        float t = (float)(esp_timer_get_time() - start_us) / (float)EXAMPLE_MOVE_US;
-        if (t >= 1) t = 1, last = true;
-        t = t * t * (3 - 2 * t);
+        float t = dgx_morph_progress(start_us, esp_timer_get_time(), EXAMPLE_MOVE_US);
+        if (t >= 1) last = true;
+        t = dgx_morph_ease(DGX_MORPH_SMOOTHSTEP, t);
         int64_t frame_us = esp_timer_get_time();
         for (int i = 0; i < 2; ++i) wipe_line(i, &now[i]);
         for (int i = 0; i < 2; ++i) {
@@ -282,8 +289,14 @@ static void move_lines(const place_t *from, const place_t *to)
             now[i].pen = last ? to[i].pen : pen_of(now[i].scale_x, now[i].scale_y);
             now[i].x = (int)lroundf(from[i].x + (to[i].x - from[i].x) * t);
             now[i].y = (int)lroundf(from[i].y + (to[i].y - from[i].y) * t);
-            dgx_hw_draw_text_xy(page, now[i].x, now[i].y, font, lines[i], now[i].scale_x, now[i].scale_y, DGX_PEN_SOFT | now[i].pen, 255,
-                                EXAMPLE_JOINED);
+            const dgx_hw_context_t how = {.scr     = page,
+                                          .font    = font,
+                                          .scale_x = now[i].scale_x,
+                                          .scale_y = now[i].scale_y,
+                                          .width   = DGX_PEN_SOFT | now[i].pen,
+                                          .color   = 255,
+                                          .joined  = EXAMPLE_JOINED};
+            dgx_hw_draw(&how, now[i].x, now[i].y, lines[i]);
         }
         drawn_us += esp_timer_get_time() - frame_us;
         show();
@@ -315,7 +328,7 @@ void app_main(void)
         }
     }
     /* what is drawn is gathered until it is shown */
-    dgx_screen_progress_up(page);
+    dgx_screen_batch_begin(page);
 
     for (;;) {
         const float lower = EXAMPLE_SIGN_SHARE;
@@ -330,7 +343,8 @@ void app_main(void)
         if (EXAMPLE_BUILD) {
             char label[32];
             snprintf(label, sizeof(label), "#%d", EXAMPLE_BUILD);
-            dgx_font_string_utf8_screen(screen, 4, 12, label, dgx_rgb_to_16(150, 60, 40), DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+            const dgx_font_context_t build = {.scr = screen, .font = TerminusTTFMedium12(), .color = dgx_rgb_to_16(150, 60, 40)};
+            dgx_font_draw(&build, 4, 12, label);
             vTaskDelay(pdMS_TO_TICKS(1500));
             dgx_vscreen8_to_screen16(screen, 0, 0, page, lut, false);
         }

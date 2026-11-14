@@ -34,6 +34,11 @@ typedef struct {
  * The gauge starts at @p min_value: every step is drawn in @p background_color.
  * What is under the ring is not cleared.
  *
+ * @p start_angle is an angle of dgx_draw_arc() and dgx_fill_sector(): degrees
+ * counter-clockwise from the ray that goes right, 90 is up. The sweep runs the
+ * other way: a positive @p sweep_degrees goes clockwise from there, while the
+ * angles of an arc and a sector grow counter-clockwise.
+ *
  * @param gauge            Gauge object to initialize.
  * @param scr              Target screen.
  * @param center_x         Arc center X in pixels.

@@ -66,7 +66,7 @@ static dgx_point_2d_t _dgx_empty_glyph_anchor(int x, int y, int x_shift, int y_s
     return anchor;
 }
 
-dgx_font_symbol_morph_t *dgx_font_make_morph_struct( //
+dgx_font_symbol_morph_t *dgx_font_morph_create( //
     dgx_font_t *font,                                //
     uint32_t    fromCP,                              //
     uint32_t    toCP,                                //
@@ -183,9 +183,9 @@ dgx_font_symbol_morph_t *dgx_font_make_morph_struct( //
     return ret;
 }
 
-void dgx_font_make_morph_struct_destroy(dgx_font_symbol_morph_t **ms)
+void dgx_font_morph_destroy(dgx_font_symbol_morph_t **ms)
 {
-    /* the NULL dgx_font_make_morph_struct() gives is destroyed as it is */
+    /* the NULL dgx_font_morph_create() gives is destroyed as it is */
     if (!ms || !*ms) return;
     free((*ms)->m_start);
     (*ms)->m_start = 0;

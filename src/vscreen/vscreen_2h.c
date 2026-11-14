@@ -6,7 +6,7 @@
 #include "dgx_overlay_priv.h"
 #include "dgx_screen_functions.h"
 #include "drivers/dgx_lcd_init.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"

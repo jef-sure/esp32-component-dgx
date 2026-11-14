@@ -28,7 +28,7 @@
 #include "dgx_lut.h"
 #include "dgx_font.h"
 #include "dgx_screen.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
 
 #include "build.h"
@@ -53,8 +53,8 @@ static bool display_init(void)
 /* the panel lies as it is made; `turned` is half a turn more */
 static void display_orientation(bool upright, bool turned)
 {
-    if (upright) dgx_jd9165_orientation(lcd, turned ? DgxScreenLeftRight : DgxScreenRightLeft, turned ? DgxScreenBottomTop : DgxScreenTopBottom, true);
-    else dgx_jd9165_orientation(lcd, turned ? DgxScreenRightLeft : DgxScreenLeftRight, turned ? DgxScreenBottomTop : DgxScreenTopBottom, false);
+    if (upright) dgx_screen_orientation(lcd, turned ? DgxScreenLeftRight : DgxScreenRightLeft, turned ? DgxScreenBottomTop : DgxScreenTopBottom, true);
+    else dgx_screen_orientation(lcd, turned ? DgxScreenRightLeft : DgxScreenLeftRight, turned ? DgxScreenBottomTop : DgxScreenTopBottom, false);
 }
 
 #else
@@ -75,8 +75,8 @@ static bool display_init(void)
 /* the panel is upright as it is made, and lies with its axes swapped; `turned` is half a turn more */
 static void display_orientation(bool upright, bool turned)
 {
-    if (upright) dgx_ili9341_orientation(lcd, turned ? DgxScreenRightLeft : DgxScreenLeftRight, turned ? DgxScreenBottomTop : DgxScreenTopBottom, false);
-    else dgx_ili9341_orientation(lcd, turned ? DgxScreenLeftRight : DgxScreenRightLeft, turned ? DgxScreenBottomTop : DgxScreenTopBottom, true);
+    if (upright) dgx_screen_orientation(lcd, turned ? DgxScreenRightLeft : DgxScreenLeftRight, turned ? DgxScreenBottomTop : DgxScreenTopBottom, false);
+    else dgx_screen_orientation(lcd, turned ? DgxScreenLeftRight : DgxScreenRightLeft, turned ? DgxScreenBottomTop : DgxScreenTopBottom, true);
 }
 
 #endif
@@ -99,18 +99,19 @@ static void stage(bool upright, bool turned)
     if (scale < 1) scale = 1;
     corner_x = (lcd->width - w * scale) / 2;
     corner_y = (lcd->height - h * scale) / 2;
-    dgx_screen_progress_up(lcd);
+    dgx_screen_batch_begin(lcd);
     if (corner_x || corner_y) dgx_fill_rectangle(lcd, 0, 0, lcd->width, lcd->height, dark);
     dgx_fill_rectangle(lcd, X(0), Y(0), S(w), S(h), paper);
-    dgx_screen_progress_down(lcd);
+    dgx_screen_batch_end(lcd);
 }
 
 /* a text, its letters as many times larger as the picture is; the place is that of its base line */
-#define TEXT(scr, x, y, color, ...)                                                                                \
-    do {                                                                                                           \
-        char text_[96];                                                                                            \
-        snprintf(text_, sizeof(text_), __VA_ARGS__);                                                               \
-        dgx_font_string_utf8_screen(scr, x, y, text_, color, DgxOutputNormal, scale, TerminusTTFMedium12(), NULL, NULL); \
+#define TEXT(screen, x, y, ink_, ...)                                                                                  \
+    do {                                                                                                               \
+        char text_[96];                                                                                                \
+        snprintf(text_, sizeof(text_), __VA_ARGS__);                                                                   \
+        const dgx_font_context_t how_ = {.scr = screen, .font = TerminusTTFMedium12(), .color = ink_, .scale = scale}; \
+        dgx_font_draw(&how_, x, y, text_);                                                                             \
     } while (0)
 
 /*
@@ -121,14 +122,14 @@ static void stage(bool upright, bool turned)
     do {                                                                        \
         int64_t best_ = INT64_MAX;                                              \
         for (int run_ = 0; run_ < 3; ++run_) {                                  \
-            dgx_screen_progress_up(lcd);                                        \
+            dgx_screen_batch_begin(lcd);                                        \
             const int64_t t_ = esp_timer_get_time();                            \
             for (int i_ = 0; i_ < (n); ++i_) {                                  \
                 code;                                                           \
             }                                                                   \
-            if (lcd->wait_buffer) lcd->wait_buffer(lcd);                        \
+            dgx_screen_wait(lcd);                                               \
             const int64_t d_ = esp_timer_get_time() - t_;                       \
-            dgx_screen_progress_down(lcd);                                      \
+            dgx_screen_batch_end(lcd);                                          \
             if (d_ < best_) best_ = d_;                                         \
             vTaskDelay(1);                                                      \
         }                                                                       \
@@ -164,14 +165,14 @@ static void badge_moves(int x, int y, int w, int moves, int64_t us)
 /* the sign of Wi-Fi: a dot, and so many arcs of a quarter of a turn over it */
 static void wifi_sign(dgx_screen_t *scr, int cx, int cy, int step, int pen, int arcs, uint32_t color)
 {
-    dgx_solid_circle(scr, cx, cy, pen > 1 ? pen / 2 + 1 : 1, color);
+    dgx_fill_circle(scr, cx, cy, pen > 1 ? pen / 2 + 1 : 1, color);
     for (int i = 1; i <= arcs; ++i) dgx_draw_arc(scr, cx, cy, i * step, i * step, 45, 135, DGX_PEN_SOFT | pen, color);
 }
 
 /* the sign as it was drawn before there was an arc: a curve of three points for a quarter of a circle */
 static void wifi_sign_curves(dgx_screen_t *scr, int cx, int cy, int step, int pen, int arcs, uint32_t color)
 {
-    dgx_solid_circle(scr, cx, cy, pen > 1 ? pen / 2 + 1 : 1, color);
+    dgx_fill_circle(scr, cx, cy, pen > 1 ? pen / 2 + 1 : 1, color);
     for (int i = 1; i <= arcs; ++i) {
         const float    r = (float)(i * step);
         dgx_point_2d_t arc[3] = {
@@ -187,7 +188,7 @@ static void wifi_sign_curves(dgx_screen_t *scr, int cx, int cy, int step, int pe
 static void page_figures(void)
 {
     stage(false, false);
-    dgx_screen_progress_up(lcd);
+    dgx_screen_batch_begin(lcd);
     TEXT(lcd, X(4), Y(12), red, "#%d A  фигуры прямо на дисплей, без скролла", BUILD);
     dgx_draw_ellipse(lcd, X(60), Y(70), S(50), S(30), ink);
     dgx_draw_ellipse(lcd, X(60), Y(70), S(30), S(50), blue);
@@ -205,17 +206,17 @@ static void page_figures(void)
     dgx_draw_arc(lcd, X(262), Y(62), S(22), S(22), 200, 340, S(6), blue);
     dgx_draw_arc(lcd, X(262), Y(62), S(50), S(26), 180, 360, S(2), green);
     /* sectors: a pie with an outline around it, a sector over a half turn with its arc, sectors of an ellipse */
-    dgx_solid_sector(lcd, X(62), Y(185), S(45), S(45), 0, 100, red);
-    dgx_solid_sector(lcd, X(62), Y(185), S(45), S(45), 100, 190, green);
-    dgx_solid_sector(lcd, X(62), Y(185), S(45), S(45), 190, 300, blue);
-    dgx_solid_sector(lcd, X(62), Y(185), S(45), S(45), 300, 360, yellow);
+    dgx_fill_sector(lcd, X(62), Y(185), S(45), S(45), 0, 100, red);
+    dgx_fill_sector(lcd, X(62), Y(185), S(45), S(45), 100, 190, green);
+    dgx_fill_sector(lcd, X(62), Y(185), S(45), S(45), 190, 300, blue);
+    dgx_fill_sector(lcd, X(62), Y(185), S(45), S(45), 300, 360, yellow);
     dgx_draw_ellipse(lcd, X(62), Y(185), S(45), S(45), ink);
-    dgx_solid_sector(lcd, X(170), Y(185), S(42), S(42), 30, 330, yellow);
+    dgx_fill_sector(lcd, X(170), Y(185), S(42), S(42), 30, 330, yellow);
     dgx_draw_arc(lcd, X(170), Y(185), S(42), S(42), 30, 330, 1, ink);
-    dgx_solid_sector(lcd, X(265), Y(185), S(50), S(26), 20, 160, grey);
-    dgx_solid_sector(lcd, X(265), Y(185), S(50), S(26), 200, 340, blue);
+    dgx_fill_sector(lcd, X(265), Y(185), S(50), S(26), 20, 160, grey);
+    dgx_fill_sector(lcd, X(265), Y(185), S(50), S(26), 200, 340, blue);
     dgx_draw_ellipse(lcd, X(265), Y(185), S(50), S(26), ink);
-    dgx_screen_progress_down(lcd);
+    dgx_screen_batch_end(lcd);
     pause_ms(9000);
 }
 
@@ -257,12 +258,12 @@ static void page_memory(void)
         printf("no memory for the band\n");
         return;
     }
-    dgx_screen_progress_up(lcd);
+    dgx_screen_batch_begin(lcd);
     dgx_fill_rectangle(lcd, X(0), Y(0), S(320), S(46), blue);
     TEXT(lcd, X(4), Y(12), white, "#%d C", BUILD);
     TEXT(lcd, X(4), Y(26), white, "СКРОЛЛ В ПАМЯТИ, не аппаратный");
     TEXT(lcd, X(4), Y(40), white, "виртуальный экран двигаем и отправляем целиком");
-    dgx_screen_progress_down(lcd);
+    dgx_screen_batch_end(lcd);
     dgx_fill_rectangle(band, 0, 0, band->width, band->height, yellow);
     for (int i = 0; i < 26; ++i) {
         /* a line of text more: the picture goes up by the height of a line, the new line is drawn at the bottom */
@@ -302,7 +303,7 @@ static void page_chart(char letter, bool turned)
 {
     stage(false, turned);
     const int left = 112, width = 200, right = left + width - 1, step = 3;
-    dgx_screen_progress_up(lcd);
+    dgx_screen_batch_begin(lcd);
     dgx_fill_rectangle(lcd, X(0), Y(0), S(left), S(240), grey);
     dgx_fill_rectangle(lcd, X(right + 1), Y(0), S(320 - right - 1), S(240), grey);
     badge(X(0), Y(0), S(left), letter);
@@ -310,13 +311,13 @@ static void page_chart(char letter, bool turned)
     TEXT(lcd, X(4), Y(94), ink, "график едет");
     TEXT(lcd, X(4), Y(108), ink, "влево, новое");
     TEXT(lcd, X(4), Y(122), ink, "рисуем справа");
-    dgx_screen_progress_down(lcd);
+    dgx_screen_batch_end(lcd);
     int           refused = 0, moves = 0, before = 120;
     int64_t       spent = 0;
     const int64_t until = esp_timer_get_time() + 12 * 1000000LL;
     for (int i = 0; i < 330 && esp_timer_get_time() < until; ++i) {
         /* a step is one picture: a display that shows by batches shows it whole */
-        dgx_screen_progress_up(lcd);
+        dgx_screen_batch_begin(lcd);
         const int64_t t = esp_timer_get_time();
         if (dgx_scroll(lcd, X(left), Y(0), S(width), S(240), -S(step), 0, paper) == ESP_OK) ++moves;
         else ++refused;
@@ -328,25 +329,25 @@ static void page_chart(char letter, bool turned)
         before = now;
         /* things drawn in the middle of the chart: where the rows of a panel that scrolls turn round in its memory, sooner or later */
         if (i % 40 == 20) {
-            dgx_solid_circle(lcd, X(left + 100), Y(215), S(12), yellow);
+            dgx_fill_circle(lcd, X(left + 100), Y(215), S(12), yellow);
             dgx_draw_ellipse(lcd, X(left + 100), Y(215), S(12), S(12), ink);
             TEXT(lcd, X(left + 70), Y(200), ink, "шаг %d", i);
             dgx_fill_rectangle(lcd, X(left + 10), Y(228), S(180), S(3), green);
         }
         if (i % 40 == 0) TEXT(lcd, X(right - 30), Y(36), ink, "%d", i);
-        dgx_screen_progress_down(lcd);
+        dgx_screen_batch_end(lcd);
         pause_ms(18);
     }
     printf("chart %c: %d moves, %.2f ms a move, %d refused\n", letter, moves, moves ? (double)spent / moves / 1000 : 0.0, refused);
     /* a frame at the very edges of the chart, drawn where it is seen whatever has been scrolled */
-    dgx_screen_progress_up(lcd);
+    dgx_screen_batch_begin(lcd);
     badge_moves(X(0), Y(0), S(left), moves, spent);
     dgx_fill_rectangle(lcd, X(left), Y(0), S(width), S(2), red);
     dgx_fill_rectangle(lcd, X(left), Y(238), S(width), S(2), red);
     dgx_fill_rectangle(lcd, X(left), Y(0), S(2), S(240), red);
     dgx_fill_rectangle(lcd, X(right - 1), Y(0), S(2), S(240), red);
     TEXT(lcd, X(left + 40), Y(130), red, "рамка по краям области");
-    dgx_screen_progress_down(lcd);
+    dgx_screen_batch_end(lcd);
     pause_ms(2500);
     /* a move as large as the rectangle only fills it; a panel that was scrolling lets its area go */
     dgx_scroll(lcd, X(left), Y(0), S(width), S(240), S(width), 0, paper);
@@ -360,18 +361,18 @@ static void page_terminal(char letter, bool turned)
 {
     stage(true, turned);
     const int top = 58, height = 244, line = 14;
-    dgx_screen_progress_up(lcd);
+    dgx_screen_batch_begin(lcd);
     dgx_fill_rectangle(lcd, X(0), Y(top + height), S(240), S(320 - top - height), grey);
     badge(X(0), Y(0), S(240), letter);
     TEXT(lcd, X(130), Y(12), white, "шапка стоит");
     TEXT(lcd, X(4), Y(top + height + 13), ink, "подвал стоит");
-    dgx_screen_progress_down(lcd);
+    dgx_screen_batch_end(lcd);
     int           refused = 0, moves = 0;
     int64_t       spent = 0;
     const int64_t until = esp_timer_get_time() + 14 * 1000000LL;
     for (int i = 0; i < 66 && esp_timer_get_time() < until; ++i) {
         const bool up = i < 46;
-        dgx_screen_progress_up(lcd);
+        dgx_screen_batch_begin(lcd);
         const int64_t t = esp_timer_get_time();
         if (dgx_scroll(lcd, X(0), Y(top), S(240), S(height), 0, up ? -S(line) : S(line), paper) == ESP_OK) ++moves;
         else ++refused;
@@ -379,15 +380,15 @@ static void page_terminal(char letter, bool turned)
         badge_moves(X(0), Y(0), S(240), moves, spent);
         if (up) TEXT(lcd, X(4), Y(top + height - 4), i % 5 ? ink : blue, "%2d: строки идут вверх", i + 1);
         else TEXT(lcd, X(4), Y(top + 11), red, "%2d: и вниз", i - 45);
-        if (up && i % 9 == 4) dgx_solid_sector(lcd, X(200), Y(top + height / 2), S(24), S(24), 20, 340, yellow);
-        dgx_screen_progress_down(lcd);
+        if (up && i % 9 == 4) dgx_fill_sector(lcd, X(200), Y(top + height / 2), S(24), S(24), 20, 340, yellow);
+        dgx_screen_batch_end(lcd);
         pause_ms(90);
     }
     printf("terminal %c: %d moves, %.2f ms a move, %d refused\n", letter, moves, moves ? (double)spent / moves / 1000 : 0.0, refused);
-    dgx_screen_progress_up(lcd);
+    dgx_screen_batch_begin(lcd);
     dgx_draw_line(lcd, X(0), Y(top), X(239), Y(top + height - 1), red);
     dgx_draw_line(lcd, X(0), Y(top + height - 1), X(239), Y(top), red);
-    dgx_screen_progress_down(lcd);
+    dgx_screen_batch_end(lcd);
     pause_ms(2500);
     dgx_scroll(lcd, X(0), Y(top), S(240), S(height), 0, S(height), paper);
 }
@@ -419,7 +420,7 @@ static int check_scroll(const char *name)
     dgx_fill_rectangle(ref, 0, 0, w, h, paper);
     int moves = 0;
     for (int i = 0; i < 160; ++i) {
-        if (i == 80) dgx_screen_progress_up(lcd);
+        if (i == 80) dgx_screen_batch_begin(lcd);
         const uint32_t color = dgx_rgb_to_16((uint8_t)rnd(), (uint8_t)rnd(), (uint8_t)rnd());
         const int      x = between(-20, w - 1), y = between(-20, h - 1), rw = between(1, w), rh = between(1, h);
         switch (rnd() % 5) {
@@ -431,8 +432,8 @@ static int check_scroll(const char *name)
         case 1: {
             const int   cx = between(60, w - 60), cy = between(60, h - 60), r = between(3, 50);
             const float from = (float)between(0, 360), to = (float)between(0, 720);
-            dgx_solid_sector(lcd, x0 + cx, y0 + cy, r, r / 2 + 2, from, to, color);
-            dgx_solid_sector(ref, cx, cy, r, r / 2 + 2, from, to, color);
+            dgx_fill_sector(lcd, x0 + cx, y0 + cy, r, r / 2 + 2, from, to, color);
+            dgx_fill_sector(ref, cx, cy, r, r / 2 + 2, from, to, color);
             break;
         }
         default: {
@@ -447,7 +448,7 @@ static int check_scroll(const char *name)
         }
         }
     }
-    dgx_screen_progress_down(lcd);
+    dgx_screen_batch_end(lcd);
     int wrong = 0, around = 0;
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) wrong += dgx_get_pixel(lcd, x0 + x, y0 + y) != dgx_get_pixel(ref, x, y);
@@ -473,20 +474,20 @@ static void timings(void)
     TIME("display: dgx_draw_arc 50 x 50, 0..360, pen 1", 50, dgx_draw_arc(lcd, 160, 130, 50, 50, 0, 360, 1, red));
     TIME("display: dgx_draw_arc 50 x 50, 45..135, pen 1", 50, dgx_draw_arc(lcd, 160, 130, 50, 50, 45, 135, 1, ink));
     TIME("display: dgx_draw_arc 50 x 50, 45..135, pen 5", 20, dgx_draw_arc(lcd, 160, 130, 50, 50, 45, 135, 5, green));
-    TIME("display: dgx_solid_circle r 50", 20, dgx_solid_circle(lcd, 160, 130, 50, yellow));
-    TIME("display: dgx_solid_sector 50 x 50, 0..360", 20, dgx_solid_sector(lcd, 160, 130, 50, 50, 0, 360, grey));
-    TIME("display: dgx_solid_sector 50 x 50, 30..300", 20, dgx_solid_sector(lcd, 160, 130, 50, 50, 30, 300, blue));
-    TIME("display: dgx_solid_sector 80 x 40, 30..120", 20, dgx_solid_sector(lcd, 160, 130, 80, 40, 30, 120, red));
+    TIME("display: dgx_fill_circle r 50", 20, dgx_fill_circle(lcd, 160, 130, 50, yellow));
+    TIME("display: dgx_fill_sector 50 x 50, 0..360", 20, dgx_fill_sector(lcd, 160, 130, 50, 50, 0, 360, grey));
+    TIME("display: dgx_fill_sector 50 x 50, 30..300", 20, dgx_fill_sector(lcd, 160, 130, 50, 50, 30, 300, blue));
+    TIME("display: dgx_fill_sector 80 x 40, 30..120", 20, dgx_fill_sector(lcd, 160, 130, 80, 40, 30, 120, red));
     /* on virtual screens */
     dgx_screen_t *page = dgx_vscreen_init(320, 240, 8, DgxScreenRGB);
     if (page) {
-        dgx_screen_progress_up(page);
+        dgx_screen_batch_begin(page);
         TIME("8 bits: dgx_draw_circle r 50", 200, dgx_draw_circle(page, 160, 120, 50, 255));
         TIME("8 bits: dgx_draw_ellipse 50 x 50", 200, dgx_draw_ellipse(page, 160, 120, 50, 50, 255));
         TIME("8 bits: dgx_draw_ellipse 80 x 40", 200, dgx_draw_ellipse(page, 160, 120, 80, 40, 255));
-        TIME("8 bits: dgx_solid_circle r 50", 200, dgx_solid_circle(page, 160, 120, 50, 255));
-        TIME("8 bits: dgx_solid_sector 50 x 50, 0..360", 200, dgx_solid_sector(page, 160, 120, 50, 50, 0, 360, 255));
-        TIME("8 bits: dgx_solid_sector 50 x 50, 30..300", 200, dgx_solid_sector(page, 160, 120, 50, 50, 30, 300, 255));
+        TIME("8 bits: dgx_fill_circle r 50", 200, dgx_fill_circle(page, 160, 120, 50, 255));
+        TIME("8 bits: dgx_fill_sector 50 x 50, 0..360", 200, dgx_fill_sector(page, 160, 120, 50, 50, 0, 360, 255));
+        TIME("8 bits: dgx_fill_sector 50 x 50, 30..300", 200, dgx_fill_sector(page, 160, 120, 50, 50, 30, 300, 255));
         TIME("8 bits: Wi-Fi sign, 3 arcs of 16 a step, soft pen 5", 50, wifi_sign(page, 160, 200, 16, 5, 3, 255));
         TIME("8 bits: the same by curves of three points", 50, wifi_sign_curves(page, 160, 200, 16, 5, 3, 255));
         TIME("8 bits: Wi-Fi sign, 3 arcs of 30 a step, soft pen 9", 20, wifi_sign(page, 160, 200, 30, 9, 3, 255));
@@ -500,7 +501,7 @@ static void timings(void)
     }
     dgx_screen_t *band = dgx_vscreen_init(320, 112, 16, DgxScreenRGB);
     if (band) {
-        dgx_screen_progress_up(band);
+        dgx_screen_batch_begin(band);
         TIME("16 bits 320x112: dgx_scroll up by 14", 50, dgx_scroll(band, 0, 0, 320, 112, 0, -14, 0));
         TIME("16 bits 320x112: dgx_scroll left by 4", 50, dgx_scroll(band, 0, 0, 320, 112, -4, 0, 0));
         TIME("16 bits 320x112: dgx_vscreen_to_screen to the display", 10, dgx_vscreen_to_screen(lcd, 0, 60, band, 0));
@@ -508,7 +509,7 @@ static void timings(void)
     }
     dgx_screen_t *twelve = dgx_vscreen_init(320, 112, 12, DgxScreenRGB);
     if (twelve) {
-        dgx_screen_progress_up(twelve);
+        dgx_screen_batch_begin(twelve);
         TIME("12 bits 320x112: dgx_scroll up by 14, pixel by pixel", 5, dgx_scroll(twelve, 0, 0, 320, 112, 0, -14, 0));
         dgx_screen_destroy(&twelve);
     }

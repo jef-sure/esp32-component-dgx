@@ -10,8 +10,11 @@ extern "C"
 #include <stdint.h>
 
 #include "bus/dgx_bus_protocols.h"
+#include "dgx_bits.h"
+#include "esp_err.h"
 
 struct _dgx_screen_t;
+struct dgx_screen_control_t;
 
 typedef void (*dgx_scr_set_area_func)(struct _dgx_screen_t *scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom);
 typedef void (*dgx_scr_update_area_func)(struct _dgx_screen_t *scr, int left, int right, int top, int bottom);
@@ -140,8 +143,8 @@ typedef struct _dgx_screen_t
      * Nesting counter used to defer intermediate update_screen() calls while
      * a larger draw operation is still in progress. 0 means a top-level draw
      * may flush immediately; positive values mean flush is deferred until the
-     * counter returns to 0. Prefer dgx_screen_progress_up/down helpers over
-     * modifying this field directly.
+     * counter returns to 0. Prefer dgx_screen_batch_begin() and
+     * dgx_screen_batch_end() over modifying this field directly.
      */
     int32_t              in_progress;
     /* Pending dirty area, right/bottom exclusive; empty when dirty_right <= dirty_left. */
@@ -181,7 +184,32 @@ typedef struct _dgx_screen_t
      * own. DGX neither reads nor writes it, and it is NULL when the screen is made.
      */
     void *user_data;
+    /*
+     * What the display can be told besides its picture, given by its driver: dgx_screen_orientation(),
+     * dgx_screen_backlight(), dgx_screen_display() and dgx_screen_brightness() go through it. NULL for a
+     * screen that is no display, a virtual one.
+     */
+    const struct dgx_screen_control_t *control;
 } dgx_screen_t;
+
+/**
+ * @brief What a driver does for the calls that control a display, one table per driver.
+ *
+ * A function the display has no use for is NULL, and the call returns
+ * ESP_ERR_NOT_SUPPORTED. A program does not call these: it calls
+ * dgx_screen_orientation() and the three after it.
+ */
+typedef struct dgx_screen_control_t
+{
+    /** How the screen lies on the panel; the width and height of the screen follow. */
+    void (*orientation)(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
+    /** The backlight line on or off; ESP_ERR_NOT_SUPPORTED for a screen made without the line. */
+    esp_err_t (*backlight)(dgx_screen_t *scr, bool on);
+    /** The picture shown or not, the memory of the display kept. */
+    esp_err_t (*display)(dgx_screen_t *scr, bool on);
+    /** How bright the pixels of a display that lights them itself are, 0 .. 255. */
+    esp_err_t (*brightness)(dgx_screen_t *scr, uint8_t level);
+} dgx_screen_control_t;
 
 typedef struct dgx_point_2d
 {
@@ -205,15 +233,94 @@ static inline void dgx_screen_destroy(dgx_screen_t **_pscr)
 }
 
 /**
- * @brief Increment the nesting counter that defers flushes.
+ * @brief Turn or mirror the picture of a display: the same call for every driver.
  *
- * Everything drawn until the matching dgx_screen_progress_down() is collected
- * into one dirty area and sent with a single update_screen() call.
+ * The three arguments are those of the driver's own call, dgx_ili9341_orientation()
+ * and the like, which stay: the direction of x, the direction of y, and whether
+ * the axes are swapped. The width and height of the screen follow. What is on
+ * the screen is not redrawn for a color display: turn it before drawing.
+ *
+ * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED for a screen that is not turned: a
+ *         virtual screen, the ST7565R.
+ */
+static inline esp_err_t dgx_screen_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+{
+    if (!_scr->control || !_scr->control->orientation) return ESP_ERR_NOT_SUPPORTED;
+    _scr->control->orientation(_scr, dir_x, dir_y, swap_xy);
+    return ESP_OK;
+}
+
+/**
+ * @brief The backlight on or off, by the line given to the constructor of the display.
+ *
+ * The line is driven high and low, nothing else: a program that dims the
+ * backlight gives GPIO_NUM_NC to the constructor and drives the line by its
+ * own PWM.
+ *
+ * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED for a screen made without the line
+ *         and for a display that has no backlight, an OLED or e-paper.
+ */
+static inline esp_err_t dgx_screen_backlight(dgx_screen_t *_scr, bool on)
+{
+    if (!_scr->control || !_scr->control->backlight) return ESP_ERR_NOT_SUPPORTED;
+    return _scr->control->backlight(_scr, on);
+}
+
+/**
+ * @brief The picture shown or not; the display keeps its memory and the screen takes drawing meanwhile.
+ *
+ * An OLED off lights no pixel, which is what saves it from burn-in. A TFT
+ * stops showing its memory, and its backlight stays as it is: turn that off
+ * by dgx_screen_backlight().
+ *
+ * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED for a screen that has no such
+ *         command: a virtual screen, e-paper.
+ */
+static inline esp_err_t dgx_screen_display(dgx_screen_t *_scr, bool on)
+{
+    if (!_scr->control || !_scr->control->display) return ESP_ERR_NOT_SUPPORTED;
+    return _scr->control->display(_scr, on);
+}
+
+/**
+ * @brief How bright a display that lights its own pixels is, an OLED: 0 the dimmest it has, 255 the brightest.
+ *
+ * 0 is dim, not off: dgx_screen_display() turns the picture off. The steps
+ * are those of the controller, 256 of the contrast of an SSD1306, SSD1309,
+ * SH1106 or SSD1322 and 16 of the master current of an SSD1351.
+ *
+ * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED for a display lit from behind,
+ *         whose brightness is that of its backlight.
+ */
+static inline esp_err_t dgx_screen_brightness(dgx_screen_t *_scr, uint8_t level)
+{
+    if (!_scr->control || !_scr->control->brightness) return ESP_ERR_NOT_SUPPORTED;
+    return _scr->control->brightness(_scr, level);
+}
+
+/**
+ * @brief Wait until the display has taken everything that was sent to it.
+ *
+ * A bus may still be sending the last pixels when a drawing call returns.
+ * Call this before the memory they were sent from is freed or changed, and
+ * before timing. Nothing to wait for on a virtual screen.
+ */
+static inline void dgx_screen_wait(dgx_screen_t *_scr)
+{
+    if (_scr->wait_buffer) _scr->wait_buffer(_scr);
+}
+
+/**
+ * @brief Open a batch: increment the nesting counter that defers flushes.
+ *
+ * Everything drawn until the matching dgx_screen_batch_end() is collected
+ * into one dirty area and sent with a single update_screen() call. Batches
+ * nest.
  *
  * @param _scr Screen whose batching depth is being increased.
  * @return New nesting depth.
  */
-static inline int dgx_screen_progress_up(dgx_screen_t *_scr)
+static inline int dgx_screen_batch_begin(dgx_screen_t *_scr)
 {                               //
     return ++_scr->in_progress; //
 }
@@ -235,7 +342,7 @@ static inline void dgx_screen_flush(dgx_screen_t *_scr)
  * @brief Take the pending dirty area and clear it, without update_screen().
  *
  * For a screen that is shown by its owner, such as a virtual screen copied
- * to a display: open a batch with dgx_screen_progress_up(), draw, take the
+ * to a display: open a batch with dgx_screen_batch_begin(), draw, take the
  * area that has changed and send only it.
  *
  * The batch must be open from before the first drawing call until the area
@@ -246,7 +353,7 @@ static inline void dgx_screen_flush(dgx_screen_t *_scr)
  * the time opens one batch before it draws anything and leaves it open, as
  * examples/hw_soft_pen_demo does. One that would rather be called at each
  * change gives the screen an update_screen() of its own, see user_data.
- * After the area is taken, the closing dgx_screen_progress_down() has
+ * After the area is taken, the closing dgx_screen_batch_end() has
  * nothing left to send.
  *
  * @param _scr          Screen that was drawn on.
@@ -296,12 +403,12 @@ static inline void dgx_screen_touch(dgx_screen_t *_scr, int left, int right, int
 }
 
 /**
- * @brief Decrement the nesting counter; at 0 flush the pending dirty area.
+ * @brief Close a batch: decrement the nesting counter; at 0 flush the pending dirty area.
  *
  * @param _scr Screen whose batching depth is being decreased.
  * @return New nesting depth.
  */
-static inline int dgx_screen_progress_down(dgx_screen_t *_scr)
+static inline int dgx_screen_batch_end(dgx_screen_t *_scr)
 {
     int depth = --_scr->in_progress;
     if (depth <= 0) {
@@ -310,6 +417,52 @@ static inline int dgx_screen_progress_down(dgx_screen_t *_scr)
         dgx_screen_flush(_scr);
     }
     return depth;
+}
+
+/**
+ * @brief A color of this screen from red, green and blue of 8 bits each, packed as the depth of the screen takes it.
+ *
+ * For code that does not know the depth it will run at. On a screen of 12,
+ * 16, 18 or 24 bits it is what dgx_rgb_to_12() .. dgx_rgb_to_24() give. A
+ * screen of fewer bits has no colors and gets the brightness of the color: 0
+ * or 1 on a 1-bit screen, 1 from a mid gray on; 0 .. 15 on a 4-bit one;
+ * 0 .. 255 on an 8-bit one, which suits a table that runs from dark to
+ * bright. The inks of e-paper are not a brightness: dgx_rgb_to_bwr() gives
+ * them.
+ */
+static inline uint32_t dgx_screen_rgb(const dgx_screen_t *_scr, uint8_t r, uint8_t g, uint8_t b)
+{
+    switch (_scr->color_bits) {
+    case 12:
+        return DGX_RGB_12(r, g, b);
+    case 16:
+        return DGX_RGB_16(r, g, b);
+    case 18:
+        return DGX_RGB_18(r, g, b);
+    case 24:
+        return DGX_RGB_24(r, g, b);
+    default:
+        break;
+    }
+    const uint32_t gray = (r * 77u + g * 150u + b * 29u) >> 8;
+    if (_scr->color_bits == 1) return gray >= 128;
+    return _scr->color_bits < 8 ? gray >> (8 - _scr->color_bits) : gray;
+}
+
+/**
+ * @brief The name dgx_screen_batch_begin() had before; it stays.
+ */
+static inline int dgx_screen_progress_up(dgx_screen_t *_scr)
+{
+    return dgx_screen_batch_begin(_scr);
+}
+
+/**
+ * @brief The name dgx_screen_batch_end() had before; it stays.
+ */
+static inline int dgx_screen_progress_down(dgx_screen_t *_scr)
+{
+    return dgx_screen_batch_end(_scr);
 }
 
 #ifdef __cplusplus

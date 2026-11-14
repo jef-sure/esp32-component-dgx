@@ -72,6 +72,8 @@
 static const char TAG[] = "DGX HOST";
 
 #define HOST_SWRESET 0x01u
+#define HOST_DISPOFF 0x28u
+#define HOST_DISPON  0x29u
 #define HOST_CASET  0x2Au
 #define HOST_RASET  0x2Bu
 #define HOST_RAMWR  0x2Cu
@@ -373,6 +375,7 @@ typedef struct host_window_t {
     uint8_t   part[3];          /* the bytes of a pixel so far */
     int       part_n;
     bool      changed;          /* since the glass was shown */
+    bool      off;              /* DISPOFF: the glass shows nothing, the memory is kept */
     /* the bus of the board */
     uint32_t  bus_hz;
     uint8_t   bus_lines;
@@ -477,6 +480,7 @@ static void panel_command(host_window_t *w, uint8_t command)
     w->params_n = 0;
     w->part_n   = 0;
     if (command == HOST_RAMWR) w->column = w->sc, w->page = w->sp;
+    if (command == HOST_DISPOFF || command == HOST_DISPON) w->off = command == HOST_DISPOFF, w->changed = true;
     if (command == HOST_SWRESET) {
         /* as the ILI9341 starts: no turn, 18 bits, the whole memory one area of the scroll, shown from its first row; the memory as it was */
         w->madctl = 0, w->colmod = 0x66;
@@ -1059,7 +1063,9 @@ static void show(int64_t every_us)
         if (!w->changed || now - w->shown_us < every_us) continue;
         SDL_UpdateTexture(w->texture, NULL, visible(w), w->width * (int)sizeof(*w->glass));
         SDL_RenderClear(w->renderer);
-        if (w->turn) {
+        if (w->off) {
+            /* a dark window */
+        } else if (w->turn) {
             /* the glass turned about the middle of the window, which has its sides the other way at 90 and 270 */
             const SDL_Rect to = {(turned_width(w) - w->width) / 2, (turned_height(w) - w->height) / 2, w->width, w->height};
             SDL_RenderCopyEx(w->renderer, w->texture, NULL, &to, w->turn, NULL, SDL_FLIP_NONE);
@@ -1226,11 +1232,28 @@ static void bus_sync(struct _dgx_bus_protocols_t *bus)
     if (quad(w) && w->held >= 0 && w->held != HOST_RAMWR) flush_held(w);
 }
 
-/* pixels in internal memory go by DMA where they lie on the board; on an ESP32 all of it can */
+/*
+ * The read-only part of the program, its code and its constants, by the marks the linker leaves: on a
+ * board that part lies in flash. Weak, so that a linker without them leaves the question unanswered.
+ */
+extern const char __executable_start[] __attribute__((weak));
+extern const char __data_start[] __attribute__((weak));
+
+static bool read_only(const void *p)
+{
+    const uintptr_t at = (uintptr_t)p, from = (uintptr_t)__executable_start, to = (uintptr_t)__data_start;
+    return from && to && at >= from && at < to;
+}
+
+/*
+ * Pixels in internal memory go by DMA where they lie on the board; on an ESP32 all of it can. A constant
+ * of the program, a picture kept as a const array, lies in flash there, which DMA does not read: the
+ * transfer copies it through the buffer of the bus, and its time is counted so here too.
+ */
 static bool bus_sends_from(struct _dgx_bus_protocols_t *bus, const void *pixels)
 {
     (void)bus;
-    return ((uintptr_t)pixels & 3u) == 0;
+    return ((uintptr_t)pixels & 3u) == 0 && !read_only(pixels);
 }
 
 static uint8_t *bus_memory(uint32_t len)

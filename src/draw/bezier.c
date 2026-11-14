@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "dgx_draw.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
@@ -968,7 +968,7 @@ bool dgx_bezier_draw_to(dgx_bezier_t *b, float t)
     bool  whole = t >= 1;
     float target = whole ? 0 : t * dgx_bezier_length(b);
     if (!whole && !(target > b->drawn)) return false;
-    dgx_screen_progress_up(b->scr);
+    dgx_screen_batch_begin(b->scr);
     if (DGX_STROKE_SOFT && b->soft) dgx_bezier_soft_to(b, whole, target);
     while (!b->soft && b->done < b->pieces) {
         if (!b->in_piece) {
@@ -984,7 +984,7 @@ bool dgx_bezier_draw_to(dgx_bezier_t *b, float t)
             b->piece_drawn = 0;
             b->in_piece = true;
             /*
-             * An even width has no middle pixel: like dgx_draw_line_thick() gives the
+             * An even width has no middle pixel: like dgx_draw_thick_line() gives the
              * spare pixel to the right of the way, the axis runs half a pixel to the
              * right of it. The half pixel along the way only keeps the disc on whole
              * pixels.
@@ -1021,7 +1021,7 @@ bool dgx_bezier_draw_to(dgx_bezier_t *b, float t)
     }
     /* all the points of the curve are one: a dot */
     if (b->done >= b->pieces && !b->started) dgx_bezier_start(b);
-    dgx_screen_progress_down(b->scr);
+    dgx_screen_batch_end(b->scr);
     return b->done >= b->pieces;
 }
 

@@ -1,7 +1,7 @@
 /*
  * ellipse.c
  *
- *  The outline of an ellipse, its arc and its sector.
+ *  The outline of an ellipse, its arc, its sector and the ellipse filled.
  *  Copyright (c) 2021-2026 Anton Petrusevich
  *      Author: Anton Petrusevich
  */
@@ -246,7 +246,7 @@ void dgx_draw_ellipse(dgx_screen_t *scr, int x, int y, int rx, int ry, uint32_t 
     int           row, from, reach;
     int           column = -1, top = 0, bottom = 0; /* single pixels not sent yet */
     dgx_ellipse_begin(&e, rx, ry);
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     while (dgx_ellipse_next(&e, &row, &from, &reach)) {
         if (from == reach && column == reach) {
             bottom = row;
@@ -271,7 +271,7 @@ void dgx_draw_ellipse(dgx_screen_t *scr, int x, int y, int rx, int ry, uint32_t 
         }
     }
     dgx_ellipse_columns(scr, x, y, column, top, bottom, color);
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }
 
 /* single pixels of an arc that lie one under another, not sent yet: a column from top to bottom; top > bottom: none */
@@ -318,7 +318,7 @@ static void dgx_ellipse_arc(dgx_screen_t *scr, int x, int y, int rx, int ry, con
     int                 row, from, reach;
     dgx_ellipse_stack_t stacks[2][2] = {{{0, 1, 0}, {0, 1, 0}}, {{0, 1, 0}, {0, 1, 0}}}; /* above the middle and below it, to the left and to the right */
     dgx_ellipse_begin(&e, rx, ry);
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     while (dgx_ellipse_next(&e, &row, &from, &reach)) {
         for (int half = 0; half < (row ? 2 : 1); ++half) {
             const int dy = half ? row : -row;
@@ -332,7 +332,7 @@ static void dgx_ellipse_arc(dgx_screen_t *scr, int x, int y, int rx, int ry, con
         }
     }
     for (int i = 0; i < 4; ++i) dgx_ellipse_stack_send(&stacks[i / 2][i % 2], scr, color);
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }
 
 /* rows that are equal and lie one under another, not sent yet; h == 0: none */
@@ -368,24 +368,23 @@ static void dgx_ellipse_band_row(dgx_ellipse_band_t *band, dgx_screen_t *scr, in
 /*
  * A sector goes by rows, and rows that are equal go as one rectangle. A row
  * has one run of it, or two when the sector is over a half turn and the row
- * crosses the part left out.
+ * crosses the part left out. A wedge of a whole turn is the ellipse filled.
  */
-void dgx_solid_sector(dgx_screen_t *scr, int x, int y, int rx, int ry, float from, float to, uint32_t color)
+static void dgx_ellipse_fill(dgx_screen_t *scr, int x, int y, int rx, int ry, const dgx_wedge_t *w, uint32_t color)
 {
-    dgx_wedge_t w;
-    if (!dgx_ellipse_fits(scr, x, y, rx, ry, 0) || !dgx_wedge_set(&w, from, to)) return;
+    if (!dgx_ellipse_fits(scr, x, y, rx, ry, 0)) return;
     dgx_ellipse_t      e;
     dgx_ellipse_band_t bands[2][2] = {{{0}}}; /* above the middle and below it; the first run of a row and the second one */
     int                row, start, reach, out[4];
     dgx_ellipse_begin(&e, rx, ry);
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     while (dgx_ellipse_next(&e, &row, &start, &reach)) {
         /* no further than the screen goes */
         const int left = DGX_MAX(-reach, -x), right = DGX_MIN(reach, scr->width - 1 - x);
         for (int half = 0; half < (row ? 2 : 1); ++half) {
             const int dy = half ? row : -row;
             if (y + dy < 0 || y + dy >= scr->height) continue;
-            const int runs = dgx_wedge_row(&w, dy, left, right, out);
+            const int runs = dgx_wedge_row(w, dy, left, right, out);
             for (int i = 0; i < runs; ++i) dgx_ellipse_band_row(&bands[half][i], scr, x + out[2 * i], x + out[2 * i + 1], y + dy, color);
         }
     }
@@ -399,7 +398,21 @@ void dgx_solid_sector(dgx_screen_t *scr, int x, int y, int rx, int ry, float fro
         dgx_ellipse_band_send(above, scr, color);
         dgx_ellipse_band_send(below, scr, color);
     }
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
+}
+
+void dgx_fill_sector(dgx_screen_t *scr, int x, int y, int rx, int ry, float from, float to, uint32_t color)
+{
+    dgx_wedge_t w;
+    if (!dgx_wedge_set(&w, from, to)) return;
+    dgx_ellipse_fill(scr, x, y, rx, ry, &w, color);
+}
+
+/* the sector of a whole turn, with no angles to count */
+void dgx_fill_ellipse(dgx_screen_t *scr, int x, int y, int rx, int ry, uint32_t color)
+{
+    const dgx_wedge_t w = {.all = true};
+    dgx_ellipse_fill(scr, x, y, rx, ry, &w, color);
 }
 
 /*
@@ -536,7 +549,7 @@ void dgx_draw_arc(dgx_screen_t *scr, int x, int y, int rx, int ry, float from, f
     const float start = dgx_arc_quarters(from, rx, ry);
     const float end = w.all ? start + 4 : dgx_arc_quarters(to, rx, ry);
     if (!(end > start)) return;
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     /* an arc of a quarter of a turn or less is one curve wherever it begins; a longer one is cut where the axes are, at whole pixels */
     const bool one = end - start <= 1.0f;
     for (float at = start; at < end;) {
@@ -545,5 +558,5 @@ void dgx_draw_arc(dgx_screen_t *scr, int x, int y, int rx, int ry, float from, f
         dgx_arc_part(scr, x, y, rx, ry, at, next, at == start, !(next < end), width, color, within);
         at = next;
     }
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }

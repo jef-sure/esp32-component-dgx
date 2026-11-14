@@ -20,6 +20,7 @@
 #include "sdkconfig.h"
 #include "soc/soc_caps.h"
 #include "soc/gpio_reg.h"
+#include "../dgx_hot_priv.h"
 
 /*
  * The flags of the SPI driver for DMA straight from PSRAM,
@@ -169,7 +170,7 @@ static inline void dgx_spi_direct_wait(dgx_spi_dev_t *dev)
     }
 }
 
-void dgx_spi_dev_direct_end(dgx_spi_dev_t *dev)
+DGX_HOT void dgx_spi_dev_direct_end(dgx_spi_dev_t *dev)
 {
     if (dev->direct) {
         dgx_spi_direct_wait(dev);
@@ -177,7 +178,7 @@ void dgx_spi_dev_direct_end(dgx_spi_dev_t *dev)
     }
 }
 
-void *dgx_spi_dev_direct_begin(dgx_spi_dev_t *dev)
+DGX_HOT void *dgx_spi_dev_direct_begin(dgx_spi_dev_t *dev)
 {
     spi_dev_t *hw = (spi_dev_t *)dev->hw;
     dgx_spi_direct_wait(dev);
@@ -196,7 +197,7 @@ void *dgx_spi_dev_direct_begin(dgx_spi_dev_t *dev)
     return (void *)hw; /* volatile on some chips: the caller takes it back as spi_dev_t */
 }
 
-void dgx_spi_dev_direct_start(dgx_spi_dev_t *dev, const uint8_t *bytes, uint32_t len)
+DGX_HOT void dgx_spi_dev_direct_start(dgx_spi_dev_t *dev, const uint8_t *bytes, uint32_t len)
 {
     spi_dev_t *hw = (spi_dev_t *)dev->hw;
     /* the host takes whole words: the bytes go through a copy that has them */
@@ -208,7 +209,7 @@ void dgx_spi_dev_direct_start(dgx_spi_dev_t *dev, const uint8_t *bytes, uint32_t
     spi_ll_user_start(hw);
 }
 
-static void dgx_spi_direct_send(dgx_spi_bus_t *bus, bool is_data, const uint8_t *bytes, uint32_t len)
+DGX_HOT static void dgx_spi_direct_send(dgx_spi_bus_t *bus, bool is_data, const uint8_t *bytes, uint32_t len)
 {
     dgx_spi_dev_direct_begin(&bus->dev);
     /* the D/C line set by the callback the driver calls before its own transfers, which reads only `user` */
@@ -218,7 +219,7 @@ static void dgx_spi_direct_send(dgx_spi_bus_t *bus, bool is_data, const uint8_t 
     dgx_spi_dev_direct_start(&bus->dev, bytes, len);
 }
 
-void dgx_spi_dev_wait_queued(dgx_spi_dev_t *dev)
+DGX_HOT void dgx_spi_dev_wait_queued(dgx_spi_dev_t *dev)
 {
     /* the only transfers left on their way when a call returns are those of pixels, in trans_data */
     while (dev->data_queued) {
@@ -230,13 +231,13 @@ void dgx_spi_dev_wait_queued(dgx_spi_dev_t *dev)
     }
 }
 
-void dgx_spi_dev_sync(dgx_spi_dev_t *dev)
+DGX_HOT void dgx_spi_dev_sync(dgx_spi_dev_t *dev)
 {
     dgx_spi_dev_wait(dev);
     if (dev->direct) dgx_spi_direct_wait(dev);
 }
 
-static void dgx_spi_sync_write(struct _dgx_bus_protocols_t *_bus)
+DGX_HOT static void dgx_spi_sync_write(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_spi_dev_sync((dgx_spi_dev_t *)_bus);
 }
@@ -249,7 +250,7 @@ static void dgx_spi_sync_write(struct _dgx_bus_protocols_t *_bus)
  * displays of DGX on the host, the bus is let go of at the end of every
  * drawing. Acquiring it costs 6.9 us on the CYD.
  */
-void dgx_spi_dev_hold(struct _dgx_bus_protocols_t *_bus)
+DGX_HOT void dgx_spi_dev_hold(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_spi_dev_t *dev = (dgx_spi_dev_t *)_bus;
     if (dev->held) return;
@@ -265,13 +266,13 @@ void dgx_spi_dev_hold(struct _dgx_bus_protocols_t *_bus)
 }
 
 /* the end of a drawing: the bus let go of for the other devices on the host, kept where there are none */
-void dgx_spi_dev_release(struct _dgx_bus_protocols_t *_bus)
+DGX_HOT void dgx_spi_dev_release(struct _dgx_bus_protocols_t *_bus)
 {
     dgx_spi_dev_t *dev = (dgx_spi_dev_t *)_bus;
     if (dev->held && !dgx_spi_keeps(dev)) dgx_spi_let_go(dev);
 }
 
-void dgx_spi_dev_to_queue(dgx_spi_dev_t *dev)
+DGX_HOT void dgx_spi_dev_to_queue(dgx_spi_dev_t *dev)
 {
     dgx_spi_dev_direct_end(dev);
     if (dev->held && !dgx_spi_keeps(dev)) dgx_spi_let_go(dev);
@@ -300,7 +301,7 @@ static inline __attribute__((always_inline)) void dgx_spi_send_short(dgx_spi_bus
     if (ret != ESP_OK) ESP_LOGE(TAG, "%s of %u bits failed: %s", is_data ? "parameters" : "a command", (unsigned)len, esp_err_to_name(ret));
 }
 
-static void dgx_spi_send_command(struct _dgx_bus_protocols_t *_bus, uint8_t cmd)
+DGX_HOT static void dgx_spi_send_command(struct _dgx_bus_protocols_t *_bus, uint8_t cmd)
 {
     dgx_spi_bus_t *bus = (dgx_spi_bus_t *)_bus;
     dgx_spi_dev_wait(&bus->dev);
@@ -322,7 +323,7 @@ static void dgx_spi_send_commands(struct _dgx_bus_protocols_t *_bus, const uint8
     }
 }
 
-static void dgx_spi_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
+DGX_HOT static void dgx_spi_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
 {
     dgx_spi_bus_t *bus = (dgx_spi_bus_t *)_bus;
     if (len == 0) return;
@@ -352,7 +353,7 @@ static void dgx_spi_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *
 }
 
 /* the next of trans_data made a transfer of pixels with the head of its bus; the transfers before it no longer use it */
-static spi_transaction_t *dgx_spi_dev_trans(dgx_spi_dev_t *dev, const uint8_t *data, uint32_t len, const dgx_spi_head_t *head)
+DGX_HOT static spi_transaction_t *dgx_spi_dev_trans(dgx_spi_dev_t *dev, const uint8_t *data, uint32_t len, const dgx_spi_head_t *head)
 {
     spi_transaction_t *trans = &dev->trans_data[dev->data_slot];
     dev->data_slot ^= 1u;
@@ -375,7 +376,7 @@ static spi_transaction_t *dgx_spi_dev_trans(dgx_spi_dev_t *dev, const uint8_t *d
     return trans;
 }
 
-bool dgx_spi_dev_send_piece(dgx_spi_dev_t *dev, const uint8_t *data, uint32_t len, const dgx_spi_head_t *head)
+DGX_HOT bool dgx_spi_dev_send_piece(dgx_spi_dev_t *dev, const uint8_t *data, uint32_t len, const dgx_spi_head_t *head)
 {
     if (len <= 2048) {
         dgx_spi_dev_wait(dev);
@@ -412,7 +413,7 @@ bool dgx_spi_dev_send_piece(dgx_spi_dev_t *dev, const uint8_t *data, uint32_t le
  * longer one is queued for DMA as before, so that the processor fills what
  * comes next while it goes: see dgx_spi_dev_to_queue().
  */
-static void dgx_spi_send_piece(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
+DGX_HOT static void dgx_spi_send_piece(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
 {
     dgx_spi_bus_t *bus = (dgx_spi_bus_t *)_bus;
     if (bus->dev.held) {
@@ -428,7 +429,7 @@ static void dgx_spi_send_piece(struct _dgx_bus_protocols_t *_bus, const uint8_t 
     dgx_spi_dev_send_piece(&bus->dev, data, len, &head);
 }
 
-void dgx_spi_send_pieces(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t len, dgx_spi_piece_func send_piece)
+DGX_HOT void dgx_spi_send_pieces(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t len, dgx_spi_piece_func send_piece)
 {
     /* a piece no longer than the buffer goes whole, the buffer itself above all */
     if (len <= bus->buffer_len * 8u) {
@@ -448,7 +449,7 @@ void dgx_spi_send_pieces(struct _dgx_bus_protocols_t *bus, const uint8_t *data, 
 }
 
 /* pixels, in pieces no longer than the buffer of the bus, see dgx_spi_send_pieces() */
-static void dgx_spi_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
+DGX_HOT static void dgx_spi_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
 {
     if (len == 0) {
         ESP_LOGE(TAG, "dgx_spi_send_data_async len == 0!");
@@ -636,14 +637,14 @@ static unsigned dgx_spi_psram_align(void)
 #endif
 }
 
-bool dgx_spi_dev_sends_from(struct _dgx_bus_protocols_t *bus, const void *pixels)
+DGX_HOT bool dgx_spi_dev_sends_from(struct _dgx_bus_protocols_t *bus, const void *pixels)
 {
     const dgx_spi_dev_t *dev = (const dgx_spi_dev_t *)bus;
     return !(dev->psram_late && esp_ptr_external_ram(pixels)) && dgx_spi_dma_reaches(dev->host_id, pixels);
 }
 
 /* whether the display keeps the bus between its drawings: it is the only one on a host DGX has set up */
-static bool dgx_spi_keeps(dgx_spi_dev_t *dev)
+DGX_HOT static bool dgx_spi_keeps(dgx_spi_dev_t *dev)
 {
     dgx_spi_host_t *h = &dgx_spi_hosts[dev->host_id];
     if (!dev->owns_host || h->users != 1) return false;
@@ -652,7 +653,7 @@ static bool dgx_spi_keeps(dgx_spi_dev_t *dev)
 }
 
 /* the bus let go of: nothing of the display is on its way then */
-static void dgx_spi_let_go(dgx_spi_dev_t *dev)
+DGX_HOT static void dgx_spi_let_go(dgx_spi_dev_t *dev)
 {
     if (!dev->held) return;
     dgx_spi_dev_direct_end(dev);

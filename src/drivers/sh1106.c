@@ -175,23 +175,44 @@ void dgx_sh1106_column_offset(dgx_screen_t *scr_, uint8_t offset)
     dgx_sh1106_update_screen(scr_, 0, scr_->width - 1, 0, scr_->height - 1);
 }
 
+/* the picture on or off, the memory of the controller kept: no pixel is lit while it is off */
+static esp_err_t dgx_sh1106_display(dgx_screen_t *scr_, bool on)
+{
+    dgx_sh1106_t *scr = (dgx_sh1106_t *)scr_;
+    const uint8_t  cmd = on ? SH1106_CMD_DISPLAY_ON : SH1106_CMD_DISPLAY_OFF;
+    scr->bus->write_commands(scr->bus, &cmd, 8u);
+    return ESP_OK;
+}
+
+static esp_err_t dgx_sh1106_brightness(dgx_screen_t *scr_, uint8_t level)
+{
+    dgx_sh1106_contrast(scr_, level);
+    return ESP_OK;
+}
+
+static const dgx_screen_control_t dgx_sh1106_control = {
+    .orientation = dgx_sh1106_orientation,
+    .display     = dgx_sh1106_display,
+    .brightness  = dgx_sh1106_brightness,
+};
+
 static void dgx_sh1106_destroy_screen(dgx_screen_t **pscr)
 {
     dgx_bw_destroy_screen(pscr);
 }
 
-dgx_screen_t *dgx_sh1106_init(dgx_bus_protocols_t *bus, sh1106_resolution_t resolution, gpio_num_t rst)
+dgx_screen_t *dgx_sh1106_init(dgx_bus_protocols_t *bus, dgx_sh1106_resolution_t resolution, gpio_num_t rst)
 {
     int16_t width;
     int16_t height;
     uint8_t col_offset;
     switch (resolution) {
-    case SH1106_128X64:
+    case DGX_SH1106_128X64:
         width      = 128;
         height     = 64;
         col_offset = 2;
         break;
-    case SH1106_64X32:
+    case DGX_SH1106_64X32:
         width      = 64;
         height     = 32;
         col_offset = 32;
@@ -217,6 +238,7 @@ dgx_screen_t *dgx_sh1106_init(dgx_bus_protocols_t *bus, sh1106_resolution_t reso
     scr->base.base.screen_subtype = DgxVirtualBackScreen;
     scr->base.base.update_screen  = dgx_sh1106_update_screen;
     scr->base.base.destroy        = dgx_sh1106_destroy_screen;
+    scr->base.base.control        = &dgx_sh1106_control;
     scr->rst                      = rst;
     scr->bus                      = bus;
     scr->col_offset               = col_offset;

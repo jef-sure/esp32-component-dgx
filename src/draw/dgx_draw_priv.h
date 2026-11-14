@@ -49,6 +49,9 @@ static inline void dgx_draw_column_run(dgx_screen_t *scr, int x, int ya, int yb,
 /* a line by Bresenham's algorithm, the pixels of a row or a column of it as one rectangle: see lines.c */
 void dgx_draw_line_runs(dgx_screen_t *scr, int x1, int y1, int x2, int y2, uint32_t color);
 
+/* Whether a pen of this width, DGX_PEN_SOFT among its bits or not, has a soft edge on this screen: segment.c. */
+bool dgx_pen_is_soft(dgx_screen_t *scr, int width);
+
 /* the outline of a circle by the midpoint algorithm, by runs: see circles.c */
 void dgx_draw_circle_runs(dgx_screen_t *scr, int x, int y, int r, uint32_t color);
 

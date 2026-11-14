@@ -35,7 +35,7 @@
 #include "dgx_lut.h"
 #include "dgx_screen.h"
 #include "drivers/ili9341.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
 
 #include "sprites.h"
@@ -214,7 +214,8 @@ static const char *const turn_names[8] = {"Normal", "MirrorX", "MirrorY", "Rotat
 
 static void text(dgx_screen_t *frame, int x, int y, const char *s)
 {
-    dgx_font_string_utf8_screen(frame, (int16_t)x, (int16_t)y, s, TEXT, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+    const dgx_font_context_t how = {.scr = frame, .font = TerminusTTFMedium12(), .color = TEXT};
+    dgx_font_draw(&how, x, y, s);
 }
 
 static void draw_scene(dgx_screen_t *frame, float s, float fps, float out_ms, const char *doing)
@@ -288,10 +289,10 @@ void app_main(void)
     dgx_screen_t *lcd = dgx_ili9341_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_BACKLIGHT, 16, DgxScreenRGB);
     if (!lcd) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return;
     }
-    dgx_ili9341_orientation(lcd, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    dgx_screen_orientation(lcd, DgxScreenRightLeft, DgxScreenTopBottom, true);
     dgx_screen_t *frame = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
     if (!frame) {
         ESP_LOGE(TAG, "No memory for the frame");

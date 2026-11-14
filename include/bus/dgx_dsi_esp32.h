@@ -125,8 +125,8 @@ typedef enum {
      * the last of it, and has to hold itself back. Which of several tasks
      * gets how much of the screen's time is the program's business too.
      *
-     * Put what belongs to one picture between dgx_screen_progress_up() and
-     * dgx_screen_progress_down(): a primitive drawn outside a batch is a
+     * Put what belongs to one picture between dgx_screen_batch_begin() and
+     * dgx_screen_batch_end(): a primitive drawn outside a batch is a
      * batch of its own, and may be shown without the next one. Tasks that
      * draw on one screen still have to do it one at a time, as on any
      * screen.

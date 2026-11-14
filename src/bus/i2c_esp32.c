@@ -13,6 +13,7 @@
 #include "esp_log.h"
 
 #include "bus/dgx_i2c_esp32.h"
+#include "../dgx_hot_priv.h"
 
 static const char TAG[] = "DGX I2C BUS";
 
@@ -21,7 +22,7 @@ static const char TAG[] = "DGX I2C BUS";
  * stuck or the device missing: four times what the bytes take at the clock of
  * the bus, and 20 ms more. Without a limit such a transfer waits forever.
  */
-static int dgx_i2c_timeout_ms(const dgx_i2c_bus_t *bus, uint32_t bytes)
+DGX_HOT static int dgx_i2c_timeout_ms(const dgx_i2c_bus_t *bus, uint32_t bytes)
 {
     const uint32_t hz = bus->clock_speed_hz > 0 ? (uint32_t)bus->clock_speed_hz : 100000u;
     return (int)(20u + 4u * (bytes * 9000u / hz));
@@ -35,7 +36,7 @@ static int dgx_i2c_timeout_ms(const dgx_i2c_bus_t *bus, uint32_t bytes)
         }                       \
     } while (0)
 
-static void dgx_i2c_send_command(struct _dgx_bus_protocols_t *_bus, uint8_t cmd)
+DGX_HOT static void dgx_i2c_send_command(struct _dgx_bus_protocols_t *_bus, uint8_t cmd)
 {
     dgx_i2c_bus_t   *bus = (dgx_i2c_bus_t *)_bus;
     esp_err_t        rc;
@@ -64,7 +65,7 @@ static void dgx_i2c_send_commands(struct _dgx_bus_protocols_t *_bus, const uint8
     RCCHECK(i2c_master_transmit(bus->dev_handle, _bus->buffer, len + 1, dgx_i2c_timeout_ms(bus, len + 1)), "dgx_i2c_send_commands failed");
 }
 
-static void dgx_i2c_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
+DGX_HOT static void dgx_i2c_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
 {
     dgx_i2c_bus_t   *bus = (dgx_i2c_bus_t *)_bus;
     esp_err_t        rc;
@@ -83,7 +84,7 @@ static void dgx_i2c_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *
     RCCHECK(i2c_master_transmit(bus->dev_handle, _bus->buffer, len + 1, dgx_i2c_timeout_ms(bus, len + 1)), "dgx_i2c_send_data failed");
 }
 
-static void dgx_i2c_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
+DGX_HOT static void dgx_i2c_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len)
 {
     dgx_i2c_send_data(_bus, data, len);
 }
@@ -165,7 +166,7 @@ static uint8_t *dgx_i2c_memory_allocator(uint32_t len)
     return (uint8_t *)malloc(len);
 }
 
-static void dgx_i2c_sync_write(struct _dgx_bus_protocols_t *_bus)
+DGX_HOT static void dgx_i2c_sync_write(struct _dgx_bus_protocols_t *_bus)
 {
 }
 

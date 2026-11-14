@@ -9,6 +9,7 @@
 #include "dgx_draw.h"
 #include "dgx_draw_priv.h"
 #include "esp_log.h"
+#include "../dgx_hot_priv.h"
 
 static const char TAG[] = "DGX DRAW";
 
@@ -22,7 +23,7 @@ static const char TAG[] = "DGX DRAW";
  * @param h The height of the rectangle.
  * @param color The color of the rectangle.
 */
-void dgx_fill_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t color) {
+DGX_HOT void dgx_fill_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t color) {
     if (!scr->fill_rectangle) {
         ESP_LOGE(TAG, "fill_rectangle is not implemented");
         return;
@@ -39,7 +40,7 @@ void dgx_fill_rectangle(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t 
  * @param r The radius of the circle
  * @param color The color of the circle.
  */
-void dgx_draw_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color) {
+DGX_HOT void dgx_draw_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color) {
     if (!scr->circle) {
         ESP_LOGE(TAG, "circle is not implemented");
         return;
@@ -57,7 +58,7 @@ void dgx_draw_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color) {
  * @param y2 The y coordinate of the second point of the line.
  * @param color The color of the line.
  */
-void dgx_draw_line(dgx_screen_t *scr, int x1, int y1, int x2, int y2, uint32_t color) {
+DGX_HOT void dgx_draw_line(dgx_screen_t *scr, int x1, int y1, int x2, int y2, uint32_t color) {
     if (!scr->draw_line) {
         ESP_LOGE(TAG, "draw_line is not implemented");
         return;
@@ -76,7 +77,7 @@ void dgx_draw_line(dgx_screen_t *scr, int x1, int y1, int x2, int y2, uint32_t c
  * @param r The radius of the circle, with DGX_PEN_SOFT and DGX_PEN_MAX.
  * @param color The color of the circle.
 */
-void dgx_solid_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color) {
+DGX_HOT void dgx_fill_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color) {
     if (!scr->solid_circle) {
         ESP_LOGE(TAG, "solid_circle is not implemented");
         return;
@@ -97,7 +98,7 @@ void dgx_solid_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color) {
  * @param y The y coordinate of the pixel.
  * @param color The color of the pixel.
 */
-void dgx_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color) {
+DGX_HOT void dgx_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color) {
     if (!scr->set_pixel) {
         ESP_LOGE(TAG, "set_pixel is not implemented");
         return;

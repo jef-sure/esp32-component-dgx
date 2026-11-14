@@ -241,22 +241,22 @@ drew, kept in two ways:
 - by the DSI bus with two buffers: the tiles the batch drew in.
 
 When a batch ends is decided by a nesting counter the screen keeps:
-`dgx_screen_progress_up()` raises it by one, `dgx_screen_progress_down()`
+`dgx_screen_batch_begin()` raises it by one, `dgx_screen_batch_end()`
 lowers it. There is one rule: if something is drawn and the counter is zero,
 `update_screen()` is called with the accumulated rectangle, and the
 rectangle is reset. This is checked after every pixel, after every fill and
-at every `dgx_screen_progress_down()`.
+at every `dgx_screen_batch_end()`.
 
 What follows.
 
 - A line, a circle, a solid circle, text and a virtual screen put to the
-  display wrap their work in a pair of `dgx_screen_progress_up()` and
-  `dgx_screen_progress_down()` themselves. If the application has not
+  display wrap their work in a pair of `dgx_screen_batch_begin()` and
+  `dgx_screen_batch_end()` themselves. If the application has not
   touched the counter, it returns to zero at the end of each such function,
   and its result is shown on its own.
-- If the application has called `dgx_screen_progress_up()` itself, the inner
+- If the application has called `dgx_screen_batch_begin()` itself, the inner
   pairs never reach zero. Everything drawn is shown at once when the
-  application calls `dgx_screen_progress_down()`.
+  application calls `dgx_screen_batch_end()`.
 - A pixel and a filled rectangle do not touch the counter. With the counter
   at zero every pixel and every rectangle is shown at once. That is why a
   pixel inside a batch costs 0.47 µs and one on its own 4.7 µs: it is
@@ -269,11 +269,11 @@ dgx_draw_circle(scr, 200, 200, 50, color);
 dgx_font_string_utf8_screen(scr, 10, 40, "text", color, DgxOutputNormal, 1, font, NULL, NULL);
 
 /* one batch: everything is shown at once */
-dgx_screen_progress_up(scr);
+dgx_screen_batch_begin(scr);
 dgx_draw_line(scr, 0, 0, 100, 100, color);
 dgx_draw_circle(scr, 200, 200, 50, color);
 dgx_font_string_utf8_screen(scr, 10, 40, "text", color, DgxOutputNormal, 1, font, NULL, NULL);
-dgx_screen_progress_down(scr);
+dgx_screen_batch_end(scr);
 ```
 
 ### Tile
@@ -589,7 +589,7 @@ in the middle of one, so there is no tearing by construction.
 The cost:
 
 - one more buffer in PSRAM, 1.23 MB at 16 bits;
-- a drawing function called without `dgx_screen_progress_up()` is a batch of
+- a drawing function called without `dgx_screen_batch_begin()` is a batch of
   its own, and on the screen it may appear without the one that follows it.
   Everything that must appear together has to be joined in a batch;
 - the bus does not keep the pace, see "How a program keeps the pace";

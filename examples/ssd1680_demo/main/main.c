@@ -19,7 +19,7 @@
 #include "freertos/task.h"
 
 #include "bus/dgx_spi_esp32.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 #include "picture.h"
 
@@ -53,7 +53,7 @@ static void show(dgx_screen_t *scr, const char *what)
 
 static void landscape(dgx_screen_t *scr)
 {
-    dgx_ssd1680_orientation(scr, ways[LANDSCAPE].dir_x, ways[LANDSCAPE].dir_y, ways[LANDSCAPE].swap_xy);
+    dgx_screen_orientation(scr, ways[LANDSCAPE].dir_x, ways[LANDSCAPE].dir_y, ways[LANDSCAPE].swap_xy);
     picture_landscape(scr);
     show(scr, "landscape");
 }
@@ -66,7 +66,7 @@ void app_main(void)
         ESP_LOGE(TAG, "SPI bus initialization failed");
         return;
     }
-    dgx_screen_t *scr = dgx_ssd1680_init(bus, SSD1680_128X296_BWR, PIN_RST, PIN_BUSY);
+    dgx_screen_t *scr = dgx_ssd1680_init(bus, DGX_SSD1680_128X296_BWR, PIN_RST, PIN_BUSY);
     /* the labels of the ways are drawn here first, then put on the glass pixel by pixel */
     dgx_screen_t *aside = dgx_vscreen_init(48, 8, 1, DgxScreenRGB);
     if (!scr || !aside) {
@@ -75,7 +75,7 @@ void app_main(void)
     }
     landscape(scr);
     for (int way = 0; way < WAYS; ++way) {
-        dgx_ssd1680_orientation(scr, ways[way].dir_x, ways[way].dir_y, ways[way].swap_xy);
+        dgx_screen_orientation(scr, ways[way].dir_x, ways[way].dir_y, ways[way].swap_xy);
         picture_way(scr, aside, way);
         show(scr, ways[way].name);
     }

@@ -210,7 +210,7 @@ static const dgx_font_dot_t dots[] = {
 
 Матрица порядок точек не хранит, поэтому для морфа через матрицы он не
 важен: источники подбираются геометрически. Индексный морф часов остаётся в
-`dgx_font_make_morph_struct()`, а рисует его `dgx_morph_symbol_draw()` через те
+`dgx_font_morph_create()`, а рисует его `dgx_morph_symbol_draw()` через те
 же рендереры.
 
 ### План: кто куда летит
@@ -705,7 +705,7 @@ dgx_morph_t *morph = dgx_morph_create(from, to, dgx_morph_sources_cells, NULL);
 
 **[dotview-clock][gh-dotview-clock].** Часы остаются как есть. Их морф — индексный, по порядку
 точек в шрифте, а матрица этот порядок не хранит. К тому же код морфинга в
-часах и так занимает несколько строк: `dgx_font_make_morph_struct()` делает
+часах и так занимает несколько строк: `dgx_font_morph_create()` делает
 морф, а `dgx_morph_symbol_draw()` его рисует.
 
 ## Грабли

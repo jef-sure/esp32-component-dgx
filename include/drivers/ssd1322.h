@@ -16,13 +16,22 @@ extern "C" {
  * The values of all but SSD1322_256X64 come from u8g2 and have not been
  * checked on a module here.
  */
-typedef enum {
-    SSD1322_256X64,         ///< 256x64: Newhaven NHD-3.12-25664 and the 3.12" clones
-    SSD1322_256X64_ZJY,     ///< 256x64 by ZJY, its glass from column 24
-    SSD1322_240X128,        ///< 240x128, dual COM
-    SSD1322_240X128_TOPWIN, ///< 240x128 by Topwin, single COM
-    SSD1322_128X64,         ///< 128x64: Newhaven NHD-2.7-12864WDW3, two segments a pixel
-} ssd1322_resolution_t;
+typedef enum dgx_ssd1322_resolution_t {
+    DGX_SSD1322_256X64,         ///< 256x64: Newhaven NHD-3.12-25664 and the 3.12" clones
+    DGX_SSD1322_256X64_ZJY,     ///< 256x64 by ZJY, its glass from column 24
+    DGX_SSD1322_240X128,        ///< 240x128, dual COM
+    DGX_SSD1322_240X128_TOPWIN, ///< 240x128 by Topwin, single COM
+    DGX_SSD1322_128X64,         ///< 128x64: Newhaven NHD-2.7-12864WDW3, two segments a pixel
+    /* the names of before; they stay */
+    SSD1322_256X64 = DGX_SSD1322_256X64,
+    SSD1322_256X64_ZJY = DGX_SSD1322_256X64_ZJY,
+    SSD1322_240X128 = DGX_SSD1322_240X128,
+    SSD1322_240X128_TOPWIN = DGX_SSD1322_240X128_TOPWIN,
+    SSD1322_128X64 = DGX_SSD1322_128X64,
+} dgx_ssd1322_resolution_t;
+
+/** The name the type had before; it stays. */
+typedef dgx_ssd1322_resolution_t ssd1322_resolution_t;
 
 /**
  * @brief Set the SSD1322 contrast current, the brightness of what is lit.
@@ -90,11 +99,11 @@ void dgx_ssd1322_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_ori
  * controller takes a write cycle of 300 ns at the shortest, 3.3 MHz.
  *
  * @param bus        Bus backend returned by dgx_p8_init() or dgx_spi_init().
- * @param resolution Panel geometry (see ssd1322_resolution_t).
+ * @param resolution Panel geometry (see dgx_ssd1322_resolution_t).
  * @param rst        Reset GPIO (GPIO_NUM_NC if the panel has no reset line).
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */
-dgx_screen_t *dgx_ssd1322_init(dgx_bus_protocols_t *bus, ssd1322_resolution_t resolution, gpio_num_t rst);
+dgx_screen_t *dgx_ssd1322_init(dgx_bus_protocols_t *bus, dgx_ssd1322_resolution_t resolution, gpio_num_t rst);
 
 #ifdef __cplusplus
 // @formatter:off

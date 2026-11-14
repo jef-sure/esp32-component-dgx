@@ -41,7 +41,7 @@ static void dgx_gauge_step_quad(const dgx_gauge_t *gauge, int step, uint32_t col
     dgx_point_2d_t inner      = dgx_gauge_point(gauge->center_x, gauge->center_y, gauge->inner_radius, angle);
     dgx_point_2d_t outer      = dgx_gauge_point(gauge->center_x, gauge->center_y, outer_r, angle);
 
-    dgx_draw_polygon4_solid(gauge->scr, prev_inner.x, prev_inner.y, inner.x, inner.y, outer.x, outer.y, prev_outer.x, prev_outer.y, color);
+    dgx_fill_polygon4(gauge->scr, prev_inner.x, prev_inner.y, inner.x, inner.y, outer.x, outer.y, prev_outer.x, prev_outer.y, color);
 }
 
 void dgx_gauge_init(dgx_gauge_t *gauge, dgx_screen_t *scr, int center_x, int center_y, int inner_radius, int width, float start_angle,
@@ -98,7 +98,7 @@ void dgx_gauge_set_value(dgx_gauge_t *gauge, int value)
     int next_active_steps = (int)((int64_t)(next_value - gauge->min_value) * dgx_gauge_steps(gauge) / range);
 
     /* the steps that change are one picture: shown together where a screen shows by batches */
-    dgx_screen_progress_up(gauge->scr);
+    dgx_screen_batch_begin(gauge->scr);
     if (next_active_steps > gauge->active_steps) {
         for (int step = gauge->active_steps + 1; step <= next_active_steps; ++step) {
             int step_value = dgx_gauge_value_for_step(gauge, step);
@@ -111,14 +111,14 @@ void dgx_gauge_set_value(dgx_gauge_t *gauge, int value)
             dgx_gauge_step_quad(gauge, step, gauge->background_color);
         }
     }
-    dgx_screen_progress_down(gauge->scr);
+    dgx_screen_batch_end(gauge->scr);
     gauge->value        = next_value;
     gauge->active_steps = next_active_steps;
 }
 
 void dgx_gauge_redraw(dgx_gauge_t *gauge)
 {
-    dgx_screen_progress_up(gauge->scr);
+    dgx_screen_batch_begin(gauge->scr);
     for (int step = 1; step <= gauge->active_steps; ++step) {
         int step_value = dgx_gauge_value_for_step(gauge, step);
         uint32_t color = gauge->color_fn ? gauge->color_fn(step_value) : gauge->background_color;
@@ -127,5 +127,5 @@ void dgx_gauge_redraw(dgx_gauge_t *gauge)
     for (int step = gauge->active_steps + 1; step <= dgx_gauge_steps(gauge); ++step) {
         dgx_gauge_step_quad(gauge, step, gauge->background_color);
     }
-    dgx_screen_progress_down(gauge->scr);
+    dgx_screen_batch_end(gauge->scr);
 }

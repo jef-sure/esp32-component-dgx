@@ -182,21 +182,42 @@ void dgx_ssd1309_column_offset(dgx_screen_t *scr_, uint8_t offset)
     dgx_ssd1309_update_screen(scr_, 0, scr_->width - 1, 0, scr_->height - 1);
 }
 
+/* the picture on or off, the memory of the controller kept: no pixel is lit while it is off */
+static esp_err_t dgx_ssd1309_display(dgx_screen_t *scr_, bool on)
+{
+    dgx_ssd1309_t *scr = (dgx_ssd1309_t *)scr_;
+    const uint8_t  cmd = on ? SSD1309_CMD_DISPLAY_ON : SSD1309_CMD_DISPLAY_OFF;
+    scr->bus->write_commands(scr->bus, &cmd, 8u);
+    return ESP_OK;
+}
+
+static esp_err_t dgx_ssd1309_brightness(dgx_screen_t *scr_, uint8_t level)
+{
+    dgx_ssd1309_contrast(scr_, level);
+    return ESP_OK;
+}
+
+static const dgx_screen_control_t dgx_ssd1309_control = {
+    .orientation = dgx_ssd1309_orientation,
+    .display     = dgx_ssd1309_display,
+    .brightness  = dgx_ssd1309_brightness,
+};
+
 static void dgx_ssd1309_destroy_screen(dgx_screen_t **pscr)
 {
     dgx_bw_destroy_screen(pscr);
 }
 
-dgx_screen_t *dgx_ssd1309_init(dgx_bus_protocols_t *bus, ssd1309_resolution_t resolution, gpio_num_t rst)
+dgx_screen_t *dgx_ssd1309_init(dgx_bus_protocols_t *bus, dgx_ssd1309_resolution_t resolution, gpio_num_t rst)
 {
     int16_t width;
     int16_t height;
     switch (resolution) {
-    case SSD1309_128X64:
+    case DGX_SSD1309_128X64:
         width  = 128;
         height = 64;
         break;
-    case SSD1309_128X32:
+    case DGX_SSD1309_128X32:
         width  = 128;
         height = 32;
         break;
@@ -221,6 +242,7 @@ dgx_screen_t *dgx_ssd1309_init(dgx_bus_protocols_t *bus, ssd1309_resolution_t re
     scr->base.base.screen_subtype = DgxVirtualBackScreen;
     scr->base.base.update_screen  = dgx_ssd1309_update_screen;
     scr->base.base.destroy        = dgx_ssd1309_destroy_screen;
+    scr->base.base.control        = &dgx_ssd1309_control;
     scr->rst                      = rst;
     scr->bus                      = bus;
     scr->col_offset               = 0;

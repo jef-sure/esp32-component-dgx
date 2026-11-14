@@ -59,12 +59,15 @@ static uint8_t word[2];
 static int     word_bytes;
 static long    data_bytes, transfers;
 
+static int graphics = -1; /* the bit G of the extended function set: the picture shown or not */
+
 static void st_command(uint8_t value)
 {
     word_bytes = 0;
     if (!(value & 0x80)) {
         next_is_x = false;
-        return; /* the commands of the start-up */
+        if ((value & 0xfc) == 0x34) graphics = (value >> 1) & 1;
+        return; /* the commands of the start-up, and the picture off and on */
     }
     if (!next_is_x) gdram_y = value & 0x3f;
     else gdram_x = value & 0x0f;
@@ -202,6 +205,17 @@ int main(void)
         const long before = data_bytes, sent = transfers;
         dgx_set_pixel(scr, scr->width / 2, scr->height / 2, 1);
         CHECK(data_bytes - before == 2 && transfers - sent == 3);
+    }
+    /* the calls every display has: the picture off and on by one command each, drawn into meanwhile; no brightness */
+    {
+        const long sent = transfers;
+        CHECK(graphics == 1);
+        CHECK(dgx_screen_display(scr, false) == ESP_OK && graphics == 0 && transfers - sent == 1);
+        dgx_fill_rectangle(scr, 3, 3, 20, 9, 1);
+        CHECK(mismatches(scr) == 0);
+        CHECK(dgx_screen_display(scr, true) == ESP_OK && graphics == 1 && mismatches(scr) == 0);
+        CHECK(dgx_screen_brightness(scr, 9) == ESP_ERR_NOT_SUPPORTED);
+        CHECK(dgx_screen_orientation(scr, DgxScreenLeftRight, DgxScreenTopBottom, false) == ESP_OK && mismatches(scr) == 0);
     }
     dgx_screen_destroy(&scr);
     /* the reset pin is not wired: nothing is done with it */

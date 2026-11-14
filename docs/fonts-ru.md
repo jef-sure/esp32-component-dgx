@@ -70,7 +70,8 @@ dgx_font_need(title SIZE 4.5mm TEXTS title.txt)
 ```c
 #include "dgx_fonts.h"
 
-dgx_font_string_utf8_screen(scr, 10, 40, "Привет", ink, DgxOutputNormal, 1, dgx_font_text(), NULL, NULL);
+const dgx_font_context_t text = {.scr = scr, .font = dgx_font_text(), .color = ink};
+dgx_font_draw(&text, 10, 40, "Привет");
 dgx_di_keyboard_open(&kb, scr, DGX_FONTS_BOARD_WIDTH_MM, DGX_FONTS_BOARD_HEIGHT_MM, keys, keys_size, dgx_font_keys(), &field);
 ```
 
@@ -88,7 +89,7 @@ keys: DejaVu Sans Book 24 px (4 mm), 148 glyphs
 
 Запрос — одна строка `dgx_font_need(<имя> ...)` (need — «нужен» по-английски).
 Имя — идентификатор C: по нему называется функция `dgx_font_<имя>()`. Имя,
-совпадающее с функцией самого DGX (`dgx_font_string_bounds` и подобные),
+совпадающее с функцией самого DGX (`dgx_font_draw`, `dgx_font_bounds` и подобные),
 отвергается, как и два имени, различающиеся только регистром: их макросы
 не различались бы. Одно имя в двух местах, в компоненте и в программе, с
 одними и теми же словами — это один запрос: буквы обоих складываются до

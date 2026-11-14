@@ -333,6 +333,15 @@ static void run(sh1106_resolution_t resolution, int width, int height, int offse
     dgx_sh1106_contrast(scr, 0x80);
     CHECK(data_bytes == before && command_bytes - cmds == 2);
 
+    /* the calls every display has: the brightness is the contrast, the picture goes off and on, there is no backlight */
+    before = data_bytes, cmds = command_bytes;
+    CHECK(dgx_screen_brightness(scr, 0x40) == ESP_OK && data_bytes == before && command_bytes - cmds == 2);
+    CHECK(dgx_screen_display(scr, false) == ESP_OK && display_on == 0 && command_bytes - cmds == 3);
+    CHECK(dgx_screen_display(scr, true) == ESP_OK && display_on == 1 && data_bytes == before);
+    CHECK(dgx_screen_backlight(scr, true) == ESP_ERR_NOT_SUPPORTED);
+    CHECK(dgx_screen_orientation(scr, DgxScreenRightLeft, DgxScreenBottomTop, false) == ESP_OK);
+    CHECK(scr->dir_x == DgxScreenRightLeft && scr->dir_y == DgxScreenBottomTop);
+
     dgx_screen_destroy(&scr);
 }
 

@@ -7,7 +7,7 @@
 #include "dgx_colors.h"
 #include "dgx_font.h"
 #include "dgx_morph_render.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "esp_log.h"
 #include "../vscreen/dgx_halves_priv.h"
 
@@ -319,7 +319,7 @@ static void glow_send(dgx_morph_glow_t *g, dgx_screen_t *scr, int x_dst, int y_d
     int    width = right - left;
     size_t pixel_bytes = g->color_bits == 16 ? 2 : 3;
     g->row_of[0] = g->row_of[1] = g->row_of[2] = -1;
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     if (dgx_vscreen_is_linear(scr)) {
         uint8_t *pixels = ((dgx_vscreen_t *)scr)->v_array;
         for (int y = top; y < bottom; ++y) {
@@ -378,7 +378,7 @@ static void glow_send(dgx_morph_glow_t *g, dgx_screen_t *scr, int x_dst, int y_d
         }
     }
     dgx_screen_touch(scr, x_dst + left, x_dst + right - 1, y_dst + top, y_dst + bottom - 1);
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }
 
 void dgx_morph_glow_present(dgx_morph_glow_t *glow, float t, dgx_screen_t *screen, int x, int y)

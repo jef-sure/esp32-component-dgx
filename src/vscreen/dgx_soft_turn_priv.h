@@ -18,7 +18,7 @@
 #include <stdbool.h>
 #include <string.h>
 
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 /* true when the screen is not the panel as it is */
 static inline bool dgx_soft_turned(const dgx_screen_t *scr)

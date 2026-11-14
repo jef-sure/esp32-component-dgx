@@ -21,23 +21,12 @@ extern "C"
 #include "esp_heap_caps.h"
 #include "esp_rom_sys.h"
 
-static const char *ARCH_ESP32_TAG = "ARCH ESP32";
-#define RC_CHECK(gpio_call, err_str)                 \
-    do                                               \
-    {                                                \
-        esp_err_t rc = gpio_call;                    \
-        if (rc != ESP_OK)                            \
-        {                                            \
-            ESP_LOGE(ARCH_ESP32_TAG, "%s", err_str); \
-            return rc;                               \
-        }                                            \
-    } while (0)
-
 static inline esp_err_t dgx_gpio_set_direction(gpio_num_t gpio_num, gpio_mode_t mode)
 {
     esp_rom_gpio_pad_select_gpio(gpio_num);
-    RC_CHECK(gpio_set_direction(gpio_num, mode), "gpio_set_direction failed");
-    return ESP_OK;
+    const esp_err_t rc = gpio_set_direction(gpio_num, mode);
+    if (rc != ESP_OK) ESP_LOGE("DGX", "gpio_set_direction failed");
+    return rc;
 }
 
 static inline esp_err_t dgx_gpio_set_level(gpio_num_t gpio_num, uint32_t level)

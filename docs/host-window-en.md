@@ -34,7 +34,10 @@ of the window shows what the board would make of the effect:
   with an opcode and an address on one line, and its parameters go on one
   line too, only its pixels on four. To the time of the bits it adds what
   starting a transfer costs: 0.75 us by the registers of the host, as on
-  the CYD, 25 us for a piece of pixels by DMA. The time the chip spends
+  the CYD, 25 us for a piece of pixels by DMA. A picture kept as a
+  constant of the program, a `const` array, is counted as on a board, where
+  it lies in flash and DMA does not read it: copied through the buffer of
+  the bus in pieces, not sent from where it lies. The time the chip spends
   drawing comes on top of it and can only be measured on the board. Two
   displays on one SPI host share its wire: add their times.
 - `heap`: the memory the program and DGX hold now, and the most they have

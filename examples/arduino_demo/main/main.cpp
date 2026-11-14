@@ -23,6 +23,9 @@ static const gpio_num_t PIN_RST       = GPIO_NUM_NC;
 static const gpio_num_t PIN_BACKLIGHT = GPIO_NUM_21;
 
 static dgx_screen_t *screen;
+// How the two texts are drawn: filled in setup(), a member left alone is zero,
+// which is the default of each.
+static dgx_font_context_t small_text, big_text;
 
 static uint32_t rgb(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -41,15 +44,20 @@ void setup()
     screen = dgx_ili9341_init(bus, PIN_RST, PIN_BACKLIGHT, 16, DgxScreenRGB);
     if (!screen) {
         Serial.println("dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return;
     }
-    dgx_ili9341_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true); // landscape, 320x240
+    dgx_screen_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true); // landscape, 320x240
     Serial.printf("screen %d x %d\n", screen->width, screen->height);
 
+    small_text.scr   = screen;
+    small_text.font  = LiberationSansRegular12();
+    small_text.color = DGX_WHITE(dgx_rgb_to_16);
+    big_text         = small_text; // the same in another font
+    big_text.font    = DejaVuSansBook32();
+
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, rgb(6, 10, 20));
-    dgx_font_string_utf8_screen(screen, 10, 24, "DGX in an Arduino sketch", DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 1,
-                                LiberationSansRegular12(), NULL, NULL);
+    dgx_font_draw(&small_text, 10, 24, "DGX in an Arduino sketch");
     dgx_draw_circle(screen, 240, 140, 60, rgb(48, 140, 255));
 }
 
@@ -61,13 +69,13 @@ void loop()
     const int cx = 240, cy = 140, r = 54;
 
     // the seconds hand: rub out the old one, draw the new one
-    dgx_draw_line_thick(screen, cx, cy, cx + r * cosf(angle), cy + r * sinf(angle), 3, rgb(6, 10, 20));
+    dgx_draw_thick_line(screen, cx, cy, cx + r * cosf(angle), cy + r * sinf(angle), 3, rgb(6, 10, 20));
     angle = (millis() / 1000 % 60) * (float)(2 * PI / 60) - (float)(PI / 2);
-    dgx_draw_line_thick(screen, cx, cy, cx + r * cosf(angle), cy + r * sinf(angle), 3, rgb(255, 200, 40));
+    dgx_draw_thick_line(screen, cx, cy, cx + r * cosf(angle), cy + r * sinf(angle), 3, rgb(255, 200, 40));
 
     char text[16];
     snprintf(text, sizeof text, "%lu s", (unsigned long)(millis() / 1000));
     dgx_fill_rectangle(screen, 10, 110, 150, 44, rgb(6, 10, 20));
-    dgx_font_string_utf8_screen(screen, 10, 150, text, DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 1, DejaVuSansBook32(), NULL, NULL);
+    dgx_font_draw(&big_text, 10, 150, text);
     delay(200);
 }

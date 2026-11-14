@@ -227,5 +227,22 @@ int main(void)
     /* the advance is not always wanted */
     CHECK(dgx_font_find_glyph('A', TerminusTTFMedium12(), NULL) != NULL);
     CHECK(dgx_font_find_glyph(0x10FFFF, TerminusTTFMedium12(), NULL) == NULL);
+
+    /* a string walked by its code points and counted: 1, 2, 3 and 4 bytes, a byte that begins nothing, the end not passed */
+    {
+        const char *s   = "a\xC3\xA4\xE2\x82\xAC\xF0\x9F\x98\x80\xFFz";
+        size_t      idx = 0;
+        CHECK(dgx_utf8_next(s, &idx) == 'a' && idx == 1);
+        CHECK(dgx_utf8_next(s, &idx) == 0xE4 && idx == 3);
+        CHECK(dgx_utf8_next(s, &idx) == 0x20AC && idx == 6);
+        CHECK(dgx_utf8_next(s, &idx) == 0x1F600 && idx == 10);
+        CHECK(dgx_utf8_next(s, &idx) == 0xFFFD && idx == 11);
+        CHECK(dgx_utf8_next(s, &idx) == 'z' && idx == 12);
+        CHECK(dgx_utf8_next(s, &idx) == 0 && idx == 12);
+        CHECK(dgx_utf8_length(s) == 6 && dgx_utf8_length("") == 0 && dgx_utf8_length(NULL) == 0);
+        /* the names of before are the same functions */
+        idx = 1;
+        CHECK(decodeUTF8next(s, &idx) == 0xE4 && idx == 3);
+    }
     CHECK_DONE();
 }

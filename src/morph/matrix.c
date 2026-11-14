@@ -3,7 +3,7 @@
 
 #include "dgx_matrix_morph.h"
 
-dgx_bit_matrix_t *dgx_matrix_init(uint16_t width, uint16_t height)
+dgx_bit_matrix_t *dgx_matrix_create(uint16_t width, uint16_t height)
 {
     if (width == 0 || height == 0) {
         return NULL;
@@ -44,7 +44,7 @@ void dgx_matrix_clear(dgx_bit_matrix_t *matrix)
 dgx_bit_matrix_t *dgx_matrix_clone(const dgx_bit_matrix_t *src)
 {
     if (!src) return NULL;
-    dgx_bit_matrix_t *dst = dgx_matrix_init(src->width, src->height);
+    dgx_bit_matrix_t *dst = dgx_matrix_create(src->width, src->height);
     if (dst) dgx_matrix_copy(dst, src);
     return dst;
 }

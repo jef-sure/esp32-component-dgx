@@ -43,8 +43,8 @@ typedef struct {
     dgx_morph_t **letters;  ///< `length` morphs, left to right.
 } dgx_morph_text_t;
 
-/** @return Number of UTF-8 code points in a string; 0 for NULL. */
-size_t dgx_morph_text_length(const char *utf8);
+/** The name dgx_utf8_length() of dgx_font.h had here before; it stays. */
+#define dgx_morph_text_length dgx_utf8_length
 
 /**
  * @brief Plan a per-letter morph between two UTF-8 strings.
@@ -66,7 +66,7 @@ void dgx_morph_text_destroy(dgx_morph_text_t **text);
 
 /**
  * @brief Emit the dots of a morph of one glyph into another by the order of
- * their dots, see dgx_font_make_morph_struct(), at progress t.
+ * their dots, see dgx_font_morph_create(), at progress t.
  *
  * Dots go to the same renderers as those of dgx_morph_draw(): a point is the
  * middle of a dot, in pixels. Each dot moves on a straight line, so t is

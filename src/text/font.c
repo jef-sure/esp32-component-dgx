@@ -7,7 +7,7 @@
 #include "dgx_draw.h"
 #include "dgx_font.h"
 #include "dgx_font_priv.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
@@ -35,7 +35,7 @@
  *        that will be incremented according to the number of bytes of the codepoint
  * @return uint32_t Unicode codepoint
  */
-uint32_t decodeUTF8next(const char *chr, size_t *idx)
+uint32_t dgx_utf8_next(const char *chr, size_t *idx)
 {
     const uint8_t *s = (const uint8_t *)chr + *idx;
     uint32_t       c = s[0];
@@ -66,6 +66,14 @@ uint32_t decodeUTF8next(const char *chr, size_t *idx)
     *idx += len;
     if (c < least || (c >= 0xD800 && c <= 0xDFFF) || c > 0x10FFFF) return 0xFFFD;
     return c;
+}
+
+size_t dgx_utf8_length(const char *str)
+{
+    if (!str) return 0;
+    size_t count = 0;
+    for (size_t idx = 0; str[idx]; ++count) dgx_utf8_next(str, &idx);
+    return count;
 }
 
 /*
@@ -157,15 +165,15 @@ void dgx_font_make_point8(dgx_screen_t *vpoint)
             /* the middle at full brightness, as in the dots of every other size */
             for (int16_t r = vpoint->width / 2; r >= 1; --r) {
                 uint8_t v = (vpoint->width / 2 - r + 1) * 255.0f / (vpoint->width / 2);
-                dgx_solid_circle(vpoint, vpoint->width / 2, vpoint->height / 2, r, v);
+                dgx_fill_circle(vpoint, vpoint->width / 2, vpoint->height / 2, r, v);
             }
         } else {
             for (int16_t r = vpoint->width / 2 - 1; r >= 1; --r) {
                 uint8_t v = (vpoint->width / 2 - r) * 255.0f / (vpoint->width / 2 - 1);
-                dgx_solid_circle(vpoint, vpoint->width / 2, vpoint->height / 2, r, v);
-                dgx_solid_circle(vpoint, vpoint->width / 2 - 1, vpoint->height / 2, r, v);
-                dgx_solid_circle(vpoint, vpoint->width / 2, vpoint->height / 2 - 1, r, v);
-                dgx_solid_circle(vpoint, vpoint->width / 2 - 1, vpoint->height / 2 - 1, r, v);
+                dgx_fill_circle(vpoint, vpoint->width / 2, vpoint->height / 2, r, v);
+                dgx_fill_circle(vpoint, vpoint->width / 2 - 1, vpoint->height / 2, r, v);
+                dgx_fill_circle(vpoint, vpoint->width / 2, vpoint->height / 2 - 1, r, v);
+                dgx_fill_circle(vpoint, vpoint->width / 2 - 1, vpoint->height / 2 - 1, r, v);
             }
         }
     }
@@ -516,9 +524,9 @@ static int font_char(const dgx_font_context_t *ctx, int x, int y, uint32_t codeP
                                      .flip_x  = xdir != DgxScreenLeftRight,
                                      .flip_y  = ydir != DgxScreenTopBottom};
         if (font->f_type == DGX_FONT_BITMAP_DEPTH2 || font->f_type == DGX_FONT_BITMAP_DEPTH4) {
-            dgx_screen_progress_up(scr);
+            dgx_screen_batch_begin(scr);
             soft_glyph(ctx, g, &place, table);
-            dgx_screen_progress_down(scr);
+            dgx_screen_batch_end(scr);
             return xAdvance * scale;
         }
         dgx_bw_bitmap_t bmap = dgx_bw_bitmap_make_of((uint8_t *)g->bitmap, g->width, g->height, font->f_type == DGX_FONT_BITMAP_STREAM);
@@ -560,7 +568,7 @@ static int font_char(const dgx_font_context_t *ctx, int x, int y, uint32_t codeP
          */
         const bool is_lines = font->f_type == DGX_FONT_BITMAP_LINES;
         const int  pitch    = (g->width + 7) / 8;
-        dgx_screen_progress_up(scr);
+        dgx_screen_batch_begin(scr);
         for (int by = 0; by < g->height; ++by) {
             const uint8_t *row = (const uint8_t *)g->bitmap + by * pitch;
             for (int bx = 0; bx < g->width; ++bx) {
@@ -584,7 +592,7 @@ static int font_char(const dgx_font_context_t *ctx, int x, int y, uint32_t codeP
                 dgx_fill_rectangle(scr, rx, ry, rw, rh, color);
             }
         }
-        dgx_screen_progress_down(scr);
+        dgx_screen_batch_end(scr);
     } else {
         int x_shift = g->xOffset * scale;
         int y_shift = g->yOffset * scale;
@@ -659,7 +667,7 @@ int dgx_font_string_bounds(const char *str, dgx_font_t *font, int16_t *ycorner, 
     int16_t width = 0, yb = 0, yt = 0;
     bool    is_first = true;
     while (str[idx]) {
-        uint32_t       cp = decodeUTF8next(str, &idx);
+        uint32_t       cp = dgx_utf8_next(str, &idx);
         int16_t        xAdvance;
         const glyph_t *g = dgx_font_find_glyph(cp, font, &xAdvance);
         width += xAdvance;
@@ -697,9 +705,9 @@ void dgx_font_string_utf8_screen(       //
     dgx_orientation_t ydir    = dgx_output_orientation_ydir(orientation);
     bool              swap_xy = dgx_output_orientation_swap_xy(orientation);
     size_t idx = 0;
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     while (str[idx]) {
-        uint32_t cp = decodeUTF8next(str, &idx);
+        uint32_t cp = dgx_utf8_next(str, &idx);
         int16_t  offset =
             dgx_font_char_to_screen(scr, x, y, cp, color, orientation, scale, font, draw_func, param);
         if (swap_xy) {
@@ -708,7 +716,7 @@ void dgx_font_string_utf8_screen(       //
             x += offset * xdir;
         }
     }
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }
 
 
@@ -740,7 +748,7 @@ static void fill_cell(const dgx_font_context_t *ctx, int x, int y, const char *s
     size_t    idx = 0;
     while (str[idx]) {
         int16_t        advance;
-        const glyph_t *g = dgx_font_find_glyph(decodeUTF8next(str, &idx), ctx->font, &advance);
+        const glyph_t *g = dgx_font_find_glyph(dgx_utf8_next(str, &idx), ctx->font, &advance);
         if (g && ctx->font->f_type != DGX_FONT_DOTS && ctx->font->f_type != DGX_FONT_HW && g->width > 0) {
             if (pen + g->xOffset * scale < left) left = pen + g->xOffset * scale;
             if (pen + (g->xOffset + g->width) * scale > right) right = pen + (g->xOffset + g->width) * scale;
@@ -805,7 +813,7 @@ static bool fill_in_one_pass(const dgx_font_context_t *ctx, int x, int y, const 
     size_t idx = 0;
     while (str[idx]) {
         int16_t        step;
-        const glyph_t *g = dgx_font_find_glyph(decodeUTF8next(str, &idx), (dgx_font_t *)font, &step);
+        const glyph_t *g = dgx_font_find_glyph(dgx_utf8_next(str, &idx), (dgx_font_t *)font, &step);
         if (g && g->width > 0) {
             if (pen + g->xOffset < left) left = pen + g->xOffset;
             if (pen + g->xOffset + g->width > right) right = pen + g->xOffset + g->width;
@@ -844,7 +852,7 @@ static bool fill_in_one_pass(const dgx_font_context_t *ctx, int x, int y, const 
         idx    = 0;
         while (str[idx]) {
             int16_t        step;
-            const glyph_t *g = dgx_font_find_glyph(decodeUTF8next(str, &idx), (dgx_font_t *)font, &step);
+            const glyph_t *g = dgx_font_find_glyph(dgx_utf8_next(str, &idx), (dgx_font_t *)font, &step);
             if (g && g->width > 0 && g->bitmap) {
                 b.x0 = at + g->xOffset - left;
                 b.y0 = g->yOffset - font->yOffsetLowest;
@@ -888,11 +896,11 @@ int dgx_font_draw(const dgx_font_context_t *ctx, int x, int y, const char *str)
     const int  step    = swap_xy ? dgx_output_orientation_ydir(ctx->orientation) : dgx_output_orientation_xdir(ctx->orientation);
     uint32_t   colors[16];
     const uint32_t *table = soft_table(ctx, colors);
-    dgx_screen_progress_up(ctx->scr);
+    dgx_screen_batch_begin(ctx->scr);
 #ifdef DGX_FONT_VSCREEN_FAST_PATH
     int advance;
     if ((ctx->flags & DGX_FONT_FILL) && fill_in_one_pass(ctx, x, y, str, table, &advance)) {
-        dgx_screen_progress_down(ctx->scr);
+        dgx_screen_batch_end(ctx->scr);
         return advance;
     }
 #endif
@@ -900,10 +908,10 @@ int dgx_font_draw(const dgx_font_context_t *ctx, int x, int y, const char *str)
     int    pen = 0;
     size_t idx = 0;
     while (str[idx]) {
-        const uint32_t cp = decodeUTF8next(str, &idx);
+        const uint32_t cp = dgx_utf8_next(str, &idx);
         pen += font_char(ctx, swap_xy ? x : x + pen * step, swap_xy ? y + pen * step : y, cp, table);
     }
-    dgx_screen_progress_down(ctx->scr);
+    dgx_screen_batch_end(ctx->scr);
     return pen;
 }
 
@@ -912,7 +920,7 @@ int dgx_font_draw_char(const dgx_font_context_t *ctx, int x, int y, uint32_t cod
     if (!ctx || !ctx->scr || !ctx->font) return 0;
     uint32_t        colors[16];
     const uint32_t *table = soft_table(ctx, colors);
-    dgx_screen_progress_up(ctx->scr);
+    dgx_screen_batch_begin(ctx->scr);
     if (ctx->flags & DGX_FONT_FILL) {
         /* its cell as of a text of this one character */
         char one[5] = {0};
@@ -926,14 +934,14 @@ int dgx_font_draw_char(const dgx_font_context_t *ctx, int x, int y, uint32_t cod
 #ifdef DGX_FONT_VSCREEN_FAST_PATH
         int whole;
         if (one[0] && fill_in_one_pass(ctx, x, y, one, table, &whole)) {
-            dgx_screen_progress_down(ctx->scr);
+            dgx_screen_batch_end(ctx->scr);
             return whole;
         }
 #endif
         if (one[0]) fill_cell(ctx, x, y, one);
     }
     const int advance = font_char(ctx, x, y, code_point, table);
-    dgx_screen_progress_down(ctx->scr);
+    dgx_screen_batch_end(ctx->scr);
     return advance;
 }
 
@@ -946,7 +954,7 @@ int dgx_font_bounds(const dgx_font_context_t *ctx, const char *str, int *top, in
     size_t    idx   = 0;
     while (str[idx]) {
         int16_t        advance;
-        const glyph_t *g = dgx_font_find_glyph(decodeUTF8next(str, &idx), ctx->font, &advance);
+        const glyph_t *g = dgx_font_find_glyph(dgx_utf8_next(str, &idx), ctx->font, &advance);
         width += advance * scale;
         if (g) {
             if (first || g->yOffset < yt) yt = g->yOffset;

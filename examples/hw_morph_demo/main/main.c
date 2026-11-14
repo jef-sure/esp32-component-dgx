@@ -17,7 +17,7 @@
 #include "dgx_hw_font.h"
 #include "dgx_screen.h"
 #include "drivers/ili9341.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/font0ss.h"
 
 static const char *TAG = "dgx_hw_morph_demo";
@@ -57,14 +57,6 @@ static int           base_y;  /* the base line of the text in the band */
 static float         scale;
 static int           pen;
 static float         shift[WORDS]; /* what puts each word in the middle, in cells */
-
-static float progress(int64_t start_us, int64_t now_us, int64_t duration_us)
-{
-    if (now_us <= start_us) return 0;
-    if (now_us - start_us >= duration_us) return 1;
-    float t = (float)(now_us - start_us) / (float)duration_us;
-    return t * t * (3 - 2 * t);
-}
 
 /* The size at which the widest word fits the width of the screen, and a band as high as the tallest one. */
 static bool prepare(dgx_font_t *font)
@@ -121,10 +113,10 @@ void app_main(void)
         bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_BACKLIGHT, 16, DgxScreenRGB);
     if (!screen) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return;
     }
-    dgx_ili9341_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    dgx_screen_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
     /* paper is color 0 of the band and ink is color 255 */
     dgx_lut_gradient(lut, 0, 256, dgx_rgb_to_24(250, 246, 232), dgx_rgb_to_24(24, 36, 120));
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, lut[0]);
@@ -137,15 +129,24 @@ void app_main(void)
     ESP_LOGI(TAG, "Screen %dx%d: %.3f pixels a cell, pen %d, band %dx%d at row %d", screen->width, screen->height, scale, pen,
              band->width, band->height, band_y);
 
+    /*
+     * How the word and every frame of a morph is drawn. The pen has a soft edge: the band is 8 bits a pixel, a
+     * byte of it an amount of ink.
+     */
+    const dgx_hw_context_t hand = {.scr     = band,
+                                   .font    = font,
+                                   .scale_x = scale,
+                                   .width   = DGX_PEN_SOFT | pen,
+                                   .color   = 255,
+                                   .joined  = EXAMPLE_JOINED,
+                                   .pace    = dgx_hw_pace(font, 6)};
+
     /* the first word is written by a pen, then the words morph one into another */
     {
-        dgx_hw_pace_t    pace = dgx_hw_pace(font, 6);
         dgx_hw_writing_t writing;
         int64_t          start_us = esp_timer_get_time();
         clear();
-        /* the pen has a soft edge: the band is 8 bits a pixel, a byte of it an amount of ink */
-        dgx_hw_writing_begin(&writing, band, (int)lroundf(shift[0] * scale), base_y, font, words[0], scale, DGX_PEN_SOFT | pen, 255,
-                             EXAMPLE_JOINED, &pace);
+        dgx_hw_writing_begin_with(&writing, &hand, (int)lroundf(shift[0] * scale), base_y, words[0]);
         bool finished = false;
         while (!finished) {
             finished = dgx_hw_writing_draw_to(&writing, 1500.0f * (esp_timer_get_time() - start_us) * 1e-6f);
@@ -186,11 +187,12 @@ void app_main(void)
             clear();
             if (by_letters) {
                 for (size_t i = 0; i < letters->length; ++i) {
-                    float t = progress(start_us + (int64_t)i * EXAMPLE_LETTER_STAGGER_US, now_us, EXAMPLE_LETTER_MORPH_US);
-                    dgx_hw_morph_draw(letters->letters[i], t, band, 0, base_y, scale, DGX_PEN_SOFT | pen, 255);
+                    float t = dgx_morph_progress(start_us + (int64_t)i * EXAMPLE_LETTER_STAGGER_US, now_us, EXAMPLE_LETTER_MORPH_US);
+                    dgx_hw_morph_draw_with(letters->letters[i], dgx_morph_ease(DGX_MORPH_SMOOTHSTEP, t), &hand, 0, base_y);
                 }
             } else {
-                dgx_hw_morph_draw(line, progress(start_us, now_us, duration_us), band, 0, base_y, scale, DGX_PEN_SOFT | pen, 255);
+                float t = dgx_morph_progress(start_us, now_us, duration_us);
+                dgx_hw_morph_draw_with(line, dgx_morph_ease(DGX_MORPH_SMOOTHSTEP, t), &hand, 0, base_y);
             }
             drawing_us += esp_timer_get_time() - now_us;
             present();

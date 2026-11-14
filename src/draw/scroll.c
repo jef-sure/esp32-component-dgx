@@ -16,7 +16,7 @@
 #include "sdkconfig.h"
 #endif
 #if !defined(ESP_PLATFORM) || defined(CONFIG_DGX_ENABLE_VSCREEN)
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #define DGX_SCROLL_MEMORY 1 /* a virtual screen is moved in its memory */
 #endif
 
@@ -53,7 +53,7 @@ static esp_err_t dgx_scroll_with(dgx_screen_t *scr, int x, int y, int w, int h, 
     const int columns = w - ax, rows = h - ay;
     const int from_x = dx < 0 ? x + ax : x, to_x = dx > 0 ? x + ax : x;
     const int from_y = dy < 0 ? y + ay : y, to_y = dy > 0 ? y + ay : y;
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     bool moved = false;
     /* a display whose pixels are memory of its bus, a DSI display: the bus moves the rectangle in its frame buffer */
     if (scr->screen_subtype == DgxPhysicalScreenWithBus) {
@@ -96,7 +96,7 @@ static esp_err_t dgx_scroll_with(dgx_screen_t *scr, int x, int y, int w, int h, 
         if (ay) scr->fill_rectangle(scr, x, dy > 0 ? y : y + rows, w, ay, color);
         if (ax) scr->fill_rectangle(scr, dx > 0 ? x : x + columns, to_y, ax, rows, color);
     }
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
     return ESP_OK;
 }
 

@@ -33,11 +33,13 @@ Every picture in this README was drawn by DGX's own code, run on a PC.
   - [Text with soft edges](#text-with-soft-edges)
   - [A gauge](#a-gauge)
   - [A pie chart, arcs, a Wi-Fi icon](#a-pie-chart-arcs-a-wi-fi-icon)
+  - [A graph](#a-graph)
   - [A circle with a soft edge](#a-circle-with-a-soft-edge)
   - [Scrolling text](#scrolling-text)
   - [A picture at any size and angle](#a-picture-at-any-size-and-angle)
   - [Pixel art made larger](#pixel-art-made-larger)
   - [A sprite or an icon from flash](#a-sprite-or-an-icon-from-flash)
+  - [An icon or a logo straight on the display](#an-icon-or-a-logo-straight-on-the-display)
   - [A palette, a fade and a flash](#a-palette-a-fade-and-a-flash)
   - [Crossfade between two pictures](#crossfade-between-two-pictures)
   - [A soft shape stamped anywhere](#a-soft-shape-stamped-anywhere)
@@ -103,15 +105,14 @@ dgx_bus_protocols_t *bus =
                GPIO_NUM_27, 40 * 1000 * 1000, 0);
 
 // 2. create a screen on top of that bus
-dgx_screen_t *scr = dgx_st7789_init(bus, GPIO_NUM_33, GPIO_NUM_NC, 16, DgxScreenRGB, ST7789_RESOLUTION_240x320);
+dgx_screen_t *scr = dgx_st7789_init(bus, GPIO_NUM_33, GPIO_NUM_NC, 16, DgxScreenRGB, DGX_ST7789_240X320);
 
 // 3. draw something
 dgx_fill_rectangle(scr, 0, 0, scr->width, scr->height,
                    DGX_BLACK(dgx_rgb_to_16));
-dgx_font_string_utf8_screen(scr, 10, 18, "Hello world",
-                            DGX_WHITE(dgx_rgb_to_16),
-                            DgxOutputNormal, 1, LiberationSansRegular12(),
-                            NULL, NULL);
+const dgx_font_context_t text = {.scr = scr, .font = LiberationSansRegular12(),
+                                 .color = DGX_WHITE(dgx_rgb_to_16)};
+dgx_font_draw(&text, 10, 18, "Hello world");
 ```
 
 [examples/screen_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/screen_demo) is the same program in full,
@@ -129,13 +130,13 @@ Draw each frame into a virtual screen in RAM, then send the finished frame
 to the panel in one go.
 
 ```c
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 dgx_screen_t *frame = dgx_vscreen_init(scr->width, scr->height, 16, DgxScreenRGB);
 
 for (int x = 0; x < scr->width; ++x) {
     dgx_fill_rectangle(frame, 0, 0, frame->width, frame->height, DGX_BLACK(dgx_rgb_to_16));
-    dgx_solid_circle(frame, x, frame->height / 2, 12, DGX_CYAN(dgx_rgb_to_16));
+    dgx_fill_circle(frame, x, frame->height / 2, 12, DGX_CYAN(dgx_rgb_to_16));
     dgx_vscreen_to_screen(scr, 0, 0, frame, 0);
 }
 ```
@@ -147,7 +148,7 @@ drawing function opens for itself, passes the changes to the virtual
 screen's `update_screen()`, which does nothing, and they are lost.
 
 ```c
-dgx_screen_progress_up(frame);          // once, before anything is drawn, and left open
+dgx_screen_batch_begin(frame);          // once, before anything is drawn, and left open
 
 draw_something(frame);
 int left, top, width, height;
@@ -170,11 +171,11 @@ driver sends its RAM buffer to the panel for you.
 #include "fonts/TerminusTTFMedium12.h"
 
 dgx_bus_protocols_t *bus = dgx_i2c_init(I2C_NUM_0, 0x3C, GPIO_NUM_21, GPIO_NUM_22, 400000);
-dgx_screen_t *oled = dgx_ssd1306_init(bus, SSD1306_128X64, 0, GPIO_NUM_NC);
+dgx_screen_t *oled = dgx_ssd1306_init(bus, DGX_SSD1306_128X64, 0, GPIO_NUM_NC);
 
 dgx_fill_rectangle(oled, 0, 0, oled->width, oled->height, 0);
-dgx_font_string_utf8_screen(oled, 0, 12, "Hello OLED", 1, DgxOutputNormal, 1,
-                            TerminusTTFMedium12(), NULL, NULL);
+const dgx_font_context_t text = {.scr = oled, .font = TerminusTTFMedium12(), .color = 1};
+dgx_font_draw(&text, 0, 12, "Hello OLED");
 ```
 
 Every monochrome panel here is drawn into a virtual screen in RAM, and the
@@ -187,9 +188,9 @@ Wrap the frame in a batch and it reaches the panel in one transfer, with no
 flicker and no second screen of your own:
 
 ```c
-dgx_screen_progress_up(oled);
+dgx_screen_batch_begin(oled);
 draw_frame(oled);               // clear, text, figures: nothing is sent yet
-dgx_screen_progress_down(oled); // the changed rectangle goes to the panel once
+dgx_screen_batch_end(oled); // the changed rectangle goes to the panel once
 ```
 
 ### An e-paper panel of black, white and red
@@ -210,9 +211,9 @@ in `DGX_ORANGE(dgx_rgb_to_bwr)`. A new screen is white.
 
 dgx_bus_protocols_t *bus = dgx_spi_init(SPI3_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_23, GPIO_NUM_NC, GPIO_NUM_18,
                                         GPIO_NUM_5, GPIO_NUM_17, 10 * 1000 * 1000, 0); // MOSI, MISO, SCK, CS, D/C
-dgx_screen_t *paper = dgx_ssd1680_init(bus, SSD1680_128X296_BWR, GPIO_NUM_16, GPIO_NUM_4); // RES, BUSY
+dgx_screen_t *paper = dgx_ssd1680_init(bus, DGX_SSD1680_128X296_BWR, GPIO_NUM_16, GPIO_NUM_4); // RES, BUSY
 // 296x128, the module lying with its pins on the right
-dgx_ssd1680_orientation(paper, DgxScreenLeftRight, DgxScreenBottomTop, true);
+dgx_screen_orientation(paper, DgxScreenLeftRight, DgxScreenBottomTop, true);
 
 dgx_font_context_t text = {.scr = paper, .font = DejaVuSansBook32(), .color = DGX_BWR_BLACK};
 dgx_font_draw(&text, 8, 34, "Hello");
@@ -249,8 +250,8 @@ the new file up by itself:
 ```c
 #include "fonts/YourFontRegular16.h"
 
-dgx_font_string_utf8_screen(scr, 10, 30, "Привет", color, DgxOutputNormal, 1,
-                            YourFontRegular16(), NULL, NULL);
+const dgx_font_context_t text = {.scr = scr, .font = YourFontRegular16(), .color = color};
+dgx_font_draw(&text, 10, 30, "Привет");
 ```
 
 Details: [font2c/README.md](https://github.com/jef-sure/esp32-component-dgx/blob/main/font2c/README.md).
@@ -281,7 +282,8 @@ dgx_font_need(clock DGX DejaVuSansBook32 LETTERS "0123456789:")             # on
 ```c
 #include "dgx_fonts.h"
 
-dgx_font_string_utf8_screen(scr, 10, 40, "Привет", ink, DgxOutputNormal, 1, dgx_font_body(), NULL, NULL);
+const dgx_font_context_t body = {.scr = scr, .font = dgx_font_body(), .color = ink};
+dgx_font_draw(&body, 10, 40, "Привет");
 ```
 
 A font is rendered by `font2c` on the build machine from a TTF or OTF, or
@@ -401,17 +403,33 @@ equal radii an ellipse is a circle.
 
 ```c
 // a pie chart
-dgx_solid_sector(scr, cx, cy, r, r, 0, 100, red);
-dgx_solid_sector(scr, cx, cy, r, r, 100, 190, green);
-dgx_solid_sector(scr, cx, cy, r, r, 190, 360, blue);
+dgx_fill_sector(scr, cx, cy, r, r, 0, 100, red);
+dgx_fill_sector(scr, cx, cy, r, r, 100, 190, green);
+dgx_fill_sector(scr, cx, cy, r, r, 190, 360, blue);
 dgx_draw_ellipse(scr, cx, cy, r, r, white);     // the outline
 
 // a Wi-Fi icon: a dot and three quarter-turn arcs, pen 3 pixels wide
-dgx_solid_circle(scr, cx, cy, 2, white);
+dgx_fill_circle(scr, cx, cy, 2, white);
 for (int i = 1; i <= 3; ++i) dgx_draw_arc(scr, cx, cy, i * 9, i * 9, 45, 135, 3, white);
 ```
 
 Example: [examples/figures_scroll_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/figures_scroll_demo).
+
+### A graph
+
+A line through a list of points, drawn by a pen of a width. Every joint is
+round, so the line has no notches where it turns.
+
+```c
+// 48 readings, 6 pixels apart, by a pen 3 pixels wide
+static dgx_point_2d_t graph[48];
+for (int i = 0; i < 48; ++i) graph[i] = (dgx_point_2d_t){.x = 10 + i * 6, .y = 200 - reading[i]};
+dgx_draw_polyline(scr, graph, 48, 3, ink);
+```
+
+`DGX_PEN_SOFT | 3` gives the line a soft edge, as it does to a curve, see
+[Handwritten text](#handwritten-text). A closed outline is a list whose last
+point repeats the first.
 
 ### A circle with a soft edge
 
@@ -432,8 +450,8 @@ static uint16_t lut[256];
 dgx_lut_gradient(lut, 0, 256, 0x102040, 0xffc800);           // from the paper to the ink, as 0xRRGGBB
 
 dgx_fill_rectangle(band, 0, 0, band->width, band->height, 0);  // paper
-dgx_solid_circle(band, 30, 30, DGX_PEN_SOFT | 20, 255);        // a circle of ink
-dgx_solid_circle(band, 50, 30, DGX_PEN_SOFT | 12, 0);          // ink 0: a circle of paper over it
+dgx_fill_circle(band, 30, 30, DGX_PEN_SOFT | 20, 255);        // a circle of ink
+dgx_fill_circle(band, 50, 30, DGX_PEN_SOFT | 12, 0);          // ink 0: a circle of paper over it
 dgx_vscreen8_to_screen16(lcd, 0, 100, band, lut, 0);
 ```
 
@@ -451,8 +469,8 @@ The usual way is to scroll a virtual screen and send it to the display:
 ```c
 // a terminal: everything moves up by one line, the new line is drawn at the bottom
 dgx_scroll(page, 0, 0, page->width, page->height, 0, -line_height, paper);
-dgx_font_string_utf8_screen(page, 4, page->height - 4, text, ink, DgxOutputNormal, 1,
-                            font, NULL, NULL);
+const dgx_font_context_t line = {.scr = page, .font = font, .color = ink};
+dgx_font_draw(&line, 4, page->height - 4, text);
 dgx_vscreen_to_screen(lcd, 0, 0, page, 0);
 ```
 
@@ -493,8 +511,8 @@ any size and onto any four corners.
 // the texture: the same color depth as the screen it goes to
 dgx_screen_t *tex = dgx_vscreen_init(64, 24, 16, DgxScreenRGB);
 dgx_fill_rectangle(tex, 0, 0, tex->width, tex->height, DGX_NAVY(dgx_rgb_to_16));
-dgx_font_string_utf8_screen(tex, 6, 17, "DGX", DGX_WHITE(dgx_rgb_to_16),
-                            DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
+const dgx_font_context_t label = {.scr = tex, .font = LiberationSansRegular12(), .color = DGX_WHITE(dgx_rgb_to_16)};
+dgx_font_draw(&label, 6, 17, "DGX");
 
 // three times larger
 dgx_draw_texture_rect(scr, 10, 10, 192, 72, tex, 0, 0, tex->width, tex->height);
@@ -597,6 +615,37 @@ screen, it is clipped, and it can be recolored; mirrored or not, it costs
 the same.
 Example: [examples/sprite_palette_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/sprite_palette_demo).
 
+### An icon or a logo straight on the display
+
+A picture in one color needs no virtual screen. `dgx_image_blit()` puts a
+1-bit picture, or the silhouette of any other, on any screen in a color of
+that screen; its zero bits leave the screen as it was.
+
+```c
+#include "dgx_image.h"
+
+// 16 rows of 2 bytes, the left pixel in the high bit
+static const uint8_t bell_bits[32] = { /* ... */ };
+static const dgx_image_t bell = {.width = 16, .height = 16, .format = DGX_IMAGE_1BPP, .data = bell_bits};
+dgx_image_blit(lcd, 100, 20, &bell, &(dgx_image_blit_t){.color = DGX_GOLD(dgx_rgb_to_16)});
+```
+
+A picture in the colors of the display stays in flash too: make a virtual
+screen over its bytes and put it on the display as any other, with any flags
+of the transfer.
+
+```c
+#include "dgx_vscreen.h"
+
+// RGB565, two bytes a pixel, the high byte first
+static const uint8_t logo[120 * 40 * 2] = { /* ... */ };
+dgx_screen_t *picture = dgx_vscreen_from_array((void *)logo, 120, 40, 16, DgxScreenRGB);
+dgx_vscreen_to_screen(lcd, 10, 10, picture, 0);
+```
+
+Such a screen is only read: never draw on it. Details:
+[A picture from flash](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#a-picture-from-flash).
+
 ### A palette, a fade and a flash
 
 An 8-bit virtual screen holds indices; its table of 256 RGB565 colors is
@@ -649,10 +698,10 @@ picture into another:
 ```c
 // a DSI display reads its frame buffer: the night straight over the day, both in one frame
 for (int step = 0; step <= 32; ++step) {
-    dgx_screen_progress_up(lcd);
+    dgx_screen_batch_begin(lcd);
     dgx_vscreen8_to_screen16(lcd, 0, 0, day, day_lut, DGX_VSCREEN_SCALE(4));
     dgx_vscreen8_to_screen16(lcd, 0, 0, night, night_lut, DGX_VSCREEN_SCALE(4) | DGX_VSCREEN_ALPHA(step * 255 / 32));
-    dgx_screen_progress_down(lcd);
+    dgx_screen_batch_end(lcd);
 }
 ```
 
@@ -710,7 +759,7 @@ none and 255 for all, its edges soft by the soft pen or a font of 4 bits.
 // the shape: a disc with a soft edge and a word in a font of 4 bits, as in "Text with soft edges"
 dgx_screen_t *badge = dgx_vscreen_init(72, 36, 8, DgxScreenRGB);
 dgx_fill_rectangle(badge, 0, 0, 72, 36, 0);
-dgx_solid_circle(badge, 17, 18, DGX_PEN_SOFT | 15, 255);
+dgx_fill_circle(badge, 17, 18, DGX_PEN_SOFT | 15, 255);
 const dgx_font_context_t word = {.scr = badge, .font = dgx_font_label(), .color = 255};
 dgx_font_draw(&word, 37, 24, "DGX");
 
@@ -751,7 +800,7 @@ picture shows through the buttons.
 
 ```c
 dgx_screen_t *buttons = dgx_vscreen_init(1280, 800, 8, DgxScreenRGB);
-dgx_solid_circle(buttons, 120, 680, 60, 1);                  // index 1
+dgx_fill_circle(buttons, 120, 680, 60, 1);                  // index 1
 dgx_overlay_set(display, buttons, 0, 0, button_lut, 160);    // 160 of 255: mostly the button
 static uint8_t shares[256];
 memset(shares, 255, sizeof(shares));
@@ -836,12 +885,12 @@ same renderers:
 
 ```c
 // both glyphs at (x, y) of the glow's frame, a dot of cell x cell pixels
-dgx_font_symbol_morph_t *digit = dgx_font_make_morph_struct(CasusDotView(), '0', '2', x, y, x, y, cell);
+dgx_font_symbol_morph_t *digit = dgx_font_morph_create(CasusDotView(), '0', '2', x, y, x, y, cell);
 
 dgx_morph_symbol_draw(digit, dgx_morph_ease(DGX_MORPH_SMOOTHSTEP, t), dgx_morph_glow_dot, glow);
 dgx_morph_glow_present(glow, t, scr, left, top);
 
-dgx_font_make_morph_struct_destroy(&digit);
+dgx_font_morph_destroy(&digit);
 ```
 
 Examples: [examples/glyph_morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/glyph_morph_demo) (one large
@@ -855,8 +904,10 @@ the other renderers and your own patterns in place of glyphs are in
 
 ### Handwritten text
 
-A handwritten font stores every symbol as pen strokes on a grid. `scale` is
-the number of pixels per grid cell: a line of `font0ss` is 202 cells high, so
+A handwritten font stores every symbol as pen strokes on a grid. How a text
+is written, its size, its pen and its ink, is kept in a context,
+`dgx_hw_context_t`, filled by the names of its members. `scale_x` is the
+number of pixels per grid cell: a line of `font0ss` is 202 cells high, so
 0.25 gives a line of about 50 pixels. The pen width is in pixels.
 
 <picture>
@@ -868,36 +919,40 @@ the number of pixels per grid cell: a line of `font0ss` is 202 cells high, so
 #include "dgx_hw_font.h"
 #include "fonts/font0ss.h"
 
-dgx_font_t *font = font0ss();
+// a pen 3 pixels wide, letters joined
+dgx_hw_context_t hw = {.scr = scr, .font = font0ss(), .scale_x = 0.25f, .width = 3, .color = color, .joined = true};
 
-// x is the left end of the line, y its base line;     scale  pen         joined letters
-dgx_hw_draw_text(scr, 10, 80, font, "Hello, World", 0.25f, 3, color, true);
+// x is the left end of the line, y its base line
+dgx_hw_draw(&hw, 10, 80, "Hello, World");
 ```
 
-To fit a text to the screen, ask for its box in grid cells. Columns count
-from the start of the line and rows from the base line, so `top` is negative:
+To fit a text to the screen, ask for its box in grid cells and choose the
+size by it; then ask for the pixels the text paints at that size, the pen
+counted, and put them where they belong. Both boxes count from the start of
+the line on its base line, so `top` is negative:
 
 ```c
+// the largest size that fits the width: the pen adds half its width on each side
 int left, top, right, bottom;
-dgx_hw_text_box(font, text, &left, &top, &right, &bottom);
-const float cells_wide = right - left + 1, cells_high = bottom - top + 1;
+dgx_hw_text_box(hw.font, text, &left, &top, &right, &bottom);
+hw.scale_x = (scr->width - 2 * margin - hw.width) / (float)(right - left + 1);
 
-// the largest scale that fits the width; the pen adds half its width on each side
-const float scale = (scr->width - 2 * margin - pen) / cells_wide;
-// the box in the middle of the screen
-const int x = (int)lroundf((scr->width - cells_wide * scale) / 2 - left * scale);
-const int y = (int)lroundf((scr->height - cells_high * scale) / 2 - top * scale);
-
-dgx_hw_draw_text(scr, x, y, font, text, scale, pen, color, true);
+// the text in the middle of the screen
+int x = 0, y = 0, width, height;
+if (dgx_hw_bounds(&hw, text, &left, &top, &width, &height)) {
+    x = (scr->width - width) / 2 - left;
+    y = (scr->height - height) / 2 - top;
+}
+dgx_hw_draw(&hw, x, y, text);
 ```
 
 To write it stroke by stroke, begin a writing and draw it on as time goes.
 Effort is the distance the pen has travelled, in grid cells:
 
 ```c
-dgx_hw_pace_t    pace = dgx_hw_pace(font, 6);       // the pen slows down in bends; 0 for an even speed
+hw.pace = dgx_hw_pace(hw.font, 6);                  // the pen slows down in bends; left out, an even speed
 dgx_hw_writing_t writing;
-dgx_hw_writing_begin(&writing, scr, x, y, font, text, scale, pen, color, true, &pace);
+dgx_hw_writing_begin_with(&writing, &hw, x, y, text);
 
 const float   tempo = 1500;                         // grid cells per second
 const int64_t start = esp_timer_get_time();
@@ -906,7 +961,7 @@ while (!dgx_hw_writing_draw_to(&writing, tempo * (esp_timer_get_time() - start) 
 }
 ```
 
-For a soft (anti-aliased) pen edge pass `DGX_PEN_SOFT | pen` and draw into
+For a soft (anti-aliased) pen edge give `.width = DGX_PEN_SOFT | 3` and draw into
 an 8-bit virtual screen, where `color` is an amount of ink up to 255; send
 it to the display through a color table that runs from the paper color to
 the ink color.
@@ -928,14 +983,14 @@ static uint16_t lut[256];
 dgx_lut_gradient(lut, 0, 256, 0xffffff, 0x182478);
 dgx_screen_t *band = dgx_vscreen_init(scr->width, 100, 8, DgxScreenRGB);
 dgx_hw_morph_t *morph = dgx_hw_morph_create(font0ss(), "hello", "world", true);
+const dgx_hw_context_t hw = {.scr = band, .scale_x = 0.4f, .width = 4, .color = 255};
 
 const int64_t start = esp_timer_get_time();
 float         t;
 do {
-    t = (esp_timer_get_time() - start) / 1500000.0f;   // 1.5 s
-    if (t > 1) t = 1;
+    t = dgx_morph_progress(start, esp_timer_get_time(), 1500000);   // 0 .. 1 in 1.5 s
     dgx_fill_rectangle(band, 0, 0, band->width, band->height, 0);
-    dgx_hw_morph_draw(morph, t * t * (3 - 2 * t), band, 10, 70, 0.4f, 4, 255);
+    dgx_hw_morph_draw_with(morph, dgx_morph_ease(DGX_MORPH_SMOOTHSTEP, t), &hw, 10, 70);
     dgx_vscreen8_to_screen16(scr, 0, 70, band, lut, 0);
     vTaskDelay(1);
 } while (t < 1);
@@ -959,9 +1014,9 @@ into one batch. The batch is shown as a whole on the next frame.
 dgx_bus_protocols_t *bus = dgx_dsi_init(0, 2, 750, 3, 2500);
 dgx_screen_t *lcd = dgx_jd9165_init(bus, GPIO_NUM_0, GPIO_NUM_23, 16, DgxScreenRGB, DgxDsiTwoFrames);
 
-dgx_screen_progress_up(lcd);
+dgx_screen_batch_begin(lcd);
 draw_picture(lcd);
-dgx_screen_progress_down(lcd);
+dgx_screen_batch_end(lcd);
 ```
 
 Example: [examples/dsi_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/dsi_demo). The other update modes, an
@@ -971,12 +1026,19 @@ even frame rate and board settings:
 
 ### Rotate the screen
 
-Every color driver has an orientation call. `swap_xy` exchanges the axes,
-and the width and height of the screen with them.
+One call turns any display, whatever its driver: the direction of x, the
+direction of y, and whether the axes are swapped, with the width and height
+of the screen. It returns `ESP_ERR_NOT_SUPPORTED` for a screen that is not
+turned, a virtual one.
 
 ```c
-dgx_ili9341_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);   // landscape on a CYD
+dgx_screen_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);   // landscape on a CYD
 ```
+
+The backlight, the picture and the brightness of an OLED go the same way:
+`dgx_screen_backlight(scr, on)`, `dgx_screen_display(scr, on)` and
+`dgx_screen_brightness(scr, 0..255)`, see
+[Controlling a display](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#controlling-a-display).
 
 A virtual screen is not turned; it is put on the display turned, with
 `DGX_VSCREEN_ORIENTED(o)` among the flags of the transfer, see
@@ -1043,7 +1105,8 @@ its SD card:
 #include "dgx_font.h"
 #include "fonts/DejaVuSansBook32.h"
 
-static dgx_screen_t *screen;
+static dgx_screen_t      *screen;
+static dgx_font_context_t text; // zeros: upright, at the size of the font, no flags
 
 void setup()
 {
@@ -1051,15 +1114,17 @@ void setup()
                                             GPIO_NUM_14, GPIO_NUM_15, GPIO_NUM_2, 40 * 1000 * 1000, 0);
     screen = dgx_ili9341_init(bus, GPIO_NUM_NC, GPIO_NUM_21, 16, DgxScreenRGB);
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, DGX_BLACK(dgx_rgb_to_16));
+    text.scr   = screen;
+    text.font  = DejaVuSansBook32();
+    text.color = DGX_WHITE(dgx_rgb_to_16);
 }
 
 void loop()
 {
-    char text[16];
-    snprintf(text, sizeof text, "%lu s", (unsigned long)(millis() / 1000));
+    char line[16];
+    snprintf(line, sizeof line, "%lu s", (unsigned long)(millis() / 1000));
     dgx_fill_rectangle(screen, 0, 0, screen->width, 40, DGX_BLACK(dgx_rgb_to_16));
-    dgx_font_string_utf8_screen(screen, 10, 34, text, DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 1,
-                                DejaVuSansBook32(), NULL, NULL);
+    dgx_font_draw(&text, 10, 34, line);
     delay(1000);
 }
 ```
@@ -1103,11 +1168,11 @@ void app_main(void)
     // the glass of the CYD upright, SPI at 40 MHz; the board held turned, as the screen lies on it below
     const dgx_host_screen_options_t cyd = {.turn = 270};
     dgx_screen_t *scr = dgx_host_screen_init(240, 320, 16, &cyd);
-    dgx_panel_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    dgx_screen_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
 #else
     dgx_bus_protocols_t *bus = dgx_spi_init(SPI2_HOST, SPI_DMA_CH_AUTO, 13, 12, 14, 15, 2, 40000000, 0);
     dgx_screen_t *scr = dgx_ili9341_init(bus, GPIO_NUM_NC, 21, 16, DgxScreenRGB);
-    dgx_ili9341_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    dgx_screen_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
 #endif
     for (;;) {
         // draw a frame of the effect
@@ -1317,14 +1382,19 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
 - One translucent overlay layer per screen, mixed into everything that comes
   from a virtual screen: buttons over a game.
 - Sprites and icons of 1, 4 or 8 bits a pixel kept in flash, drawn into an
-  8-bit virtual screen with a map of colors, clipped, mirrored and rotated.
+  8-bit virtual screen with a map of colors, clipped, mirrored and rotated;
+  an icon in one color drawn straight on any display; a picture in the
+  colors of the display shown from flash with no copy in RAM.
 - Color tables for 8-bit virtual screens: from a palette, a ramp between two
   colors, fades and flashes, without redrawing the frame.
 - A two-head compositor (`vscreen_2h`) that exposes two child screens as one
   logical screen.
-- Drawing primitives — pixels, lines, rectangles with square or round
-  corners, circles, ellipses, their arcs and sectors, filled and textured
-  quads, a rectangle scrolled any way — and an arc gauge helper.
+- Drawing primitives — pixels, lines, lines through a list of points by a
+  pen, rectangles with square or round corners, circles, ellipses, their arcs
+  and sectors, triangles, filled and textured quads, a rectangle scrolled any
+  way — and an arc gauge helper.
+- The same calls for every display to turn it, switch its backlight, turn
+  its picture off and on, and set the brightness of an OLED.
 - UTF-8 text rendering with 8-way orientation, glyph lookup, layout and bounds
   queries, fonts of 2 or 4 bits a pixel with soft (anti-aliased) edges, plus
   a small "morph" helper for animating between glyphs.

@@ -10,7 +10,7 @@
 
 #include "dgx_overlay.h"
 #include "dgx_overlay_priv.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 /* the rectangle, both ends included, joins the changed part of the screen */
 static void dgx_overlay_changed(dgx_overlay_t *overlay, int32_t left, int32_t top, int32_t right, int32_t bottom)

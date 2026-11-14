@@ -1,5 +1,188 @@
 # Changes
 
+## 0.11.1 - 2026-11-15
+
+No call of a program is broken: every name that changed keeps its earlier
+form, listed in [Earlier names](docs/api-en.md#earlier-names). What ran on
+a board is said at each entry: the two MIPI-DSI boards, the 7-inch
+JC1060P470 and the 10.1-inch JC8012P4A1C, checked themselves by reading
+their frame buffers back. The rest is host tests, and builds for ESP32,
+ESP32-S3 and ESP32-P4 with every driver.
+
+New:
+
+- The same calls control every display, in `dgx_screen.h`:
+  `dgx_screen_orientation(scr, dir_x, dir_y, swap_xy)`,
+  `dgx_screen_backlight(scr, on)`, `dgx_screen_display(scr, on)` and
+  `dgx_screen_brightness(scr, 0..255)`. A driver answers through a table of
+  its own, `dgx_screen_control_t`, and a call the display has no use for
+  returns `ESP_ERR_NOT_SUPPORTED`; a virtual screen returns it for all four.
+  The calls named after a driver stay.
+  - Turning the picture off and on is new for the panels made from a
+    `dgx_panel_t` (ILI9341, ST7789, ST7735, NV3041A, ST77916 and a panel of
+    a program; the GC9A01 had it), for SSD1306, SSD1309, SH1106, SSD1322,
+    SSD1351, ST7565R and ST7920 (the bit G of its extended function set),
+    and for JD9165 and JD9365 on MIPI-DSI, where DISPOFF goes to the
+    controller beside the running video. A window on the computer goes
+    dark. Seen on both DSI boards, the 7-inch JC1060P470 and the 10.1-inch
+    JC8012P4A1C: the glass goes dark with the backlight on, and the picture
+    is back at DISPON with what was drawn meanwhile. Seen on an ST7920 of
+    128x64: the picture goes, and the backlight, wired straight to power
+    on that module, stays. Seen on the ILI9341 of a CYD and on an ST7735
+    of 80x160, both on SPI, with the backlight switched by the same calls,
+    and on a round ST77916 on QSPI. The OLEDs, the ST7565R and the other
+    panels have not run it.
+  - The brightness is the contrast of SSD1306, SSD1309, SH1106 and SSD1322
+    and the master current of SSD1351. A display lit from behind has none:
+    its backlight line is only switched.
+  - Not there: turning an ST7565R.
+  - A program with an ILI9341 and an SSD1306 grows by about 0.6 KB of flash
+    and no RAM: a driver's table links its control functions whether they
+    are called or not.
+- `dgx_screen_wait(scr)` waits until the display has taken what was sent,
+  and `dgx_bus_dispose(&bus)` gives up a bus and clears the pointer, in
+  place of `scr->wait_buffer(scr)` and `bus->dispose(bus)`.
+  `dgx_screen_batch_begin()` and `dgx_screen_batch_end()` are the names of
+  `dgx_screen_progress_up()` and `dgx_screen_progress_down()`.
+- `dgx_screen_rgb(scr, r, g, b)` packs a color as the depth of the screen
+  takes it, at run time: for code that does not know the depth. Below 12
+  bits it gives the brightness of the color.
+- Drawing:
+  - `dgx_draw_polyline(scr, points, count, width, color)` draws a line
+    through a list of points by the pen of the curves, with round joints
+    and, with a soft pen, joints no darker than the line: a graph, an
+    outline. A hard pen of an even width has one axis all along the line,
+    half a pixel to the right of the points and below them, so its
+    segments meet without a step; a segment alone keeps its axis to the
+    right of its own way. Seen on a CYD with pens of 2 and of 4.
+  - `dgx_draw_triangle()` is the outline of a triangle, `dgx_fill_ellipse()`
+    a filled ellipse, the whole turn of a sector.
+  - A filled triangle takes every row from the leftmost to the rightmost
+    pixel the lines of its sides have there, by the arithmetic of
+    `dgx_draw_line()`, so its outline is its border pixel for pixel. Before,
+    a row ended where the side crossed it, and the line of a side that runs
+    nearly level reached past the triangle. Seen on a CYD: a white outline
+    lies on the edge of a blue triangle. A triangle may differ from the
+    one of 0.11.0 by a pixel along its sides. The sides are walked now, not
+    divided: on the 7-inch DSI board 300 triangles over the screen take
+    559 ms against 538 ms, 300 small ones 10.7 ms against 9.6 ms. On a
+    CYD the filled triangles of `examples/graphicstest` take 166.3 ms
+    against 164.6 ms on the display and 36.0 ms against 35.2 ms in
+    memory, both builds with the code of the display in IRAM, so that
+    its place in the flash cache does not count.
+  - Filled figures have one scheme of names: `dgx_fill_circle()`,
+    `dgx_fill_sector()`, `dgx_fill_triangle()` and `dgx_fill_polygon4()`,
+    beside `dgx_fill_rectangle()`. `dgx_draw_thick_line()` is named as
+    `dgx_draw_thick_segment()` is.
+- Handwritten text is drawn from a context, as bitmap text is:
+  `dgx_hw_context_t` holds the screen, the font, the size along each axis,
+  the pen, the ink, joined writing and the pace. `dgx_hw_draw(ctx, x, y,
+  text)`, `dgx_hw_writing_begin_with()` and `dgx_hw_morph_draw_with()` take
+  it; a `scale_y` of its own replaces the `_xy` twins. `dgx_hw_bounds()` and
+  `dgx_hw_morph_bounds()` give the pixels a text and a morph paint, the pen
+  counted, where `dgx_hw_text_box()` gives cells. The box holds every pixel;
+  a side is exact as a rule, often a pixel larger, rarely more.
+- Pictures:
+  - `dgx_image_blit()` draws a picture in one color, of 1 bit or the
+    silhouette of any other, on any screen, a display of any depth too, in
+    a color of that screen. `color` of `dgx_image_blit_t` is `uint32_t`
+    for that. The call is built without `CONFIG_DGX_ENABLE_VSCREEN` as
+    well.
+  - A virtual screen of `dgx_vscreen_from_array()` may lie over read-only
+    memory, a `const` array in flash, when it is only read: a picture in
+    the pixels of the display is shown with no copy in RAM. The processor
+    reads it and it goes through the buffer of the bus, on MIPI-DSI
+    through the two bands of the bus. The code was already safe for it;
+    the contract in the header said RAM. On both DSI boards every kind of
+    transfer from flash gave the pixels of the same transfer from PSRAM.
+    What it costs is reading the flash chip: 256x160 of 16 bits shown
+    again, from the cache, 1.5 ms against 0.6 ms from PSRAM on the 7-inch
+    board; 640x400, more than the cache holds, 65.9 ms against 3.3 ms
+    there and 35.2 ms against 3.9 ms on the 10.1-inch one. Through a
+    table or made larger it takes the same time as from PSRAM. Behind SPI
+    and QSPI the wire takes most of the time: 144x96 on a CYD at 40 MHz
+    6.3 ms from flash against 5.7 ms from RAM, on a round ST77916 on QSPI
+    at 40 MHz 1.50 ms against 1.44 ms; 48x32 on an ST7735 at 10 MHz
+    2.7 ms against 2.5 ms.
+  - The virtual screens are in `dgx_vscreen.h`; `drivers/vscreen.h`
+    includes it.
+- `dgx_utf8_next()` and `dgx_utf8_length()` walk and count a UTF-8 string,
+  in `dgx_font.h`.
+- `dgx_morph_progress()` and `dgx_morph_ease()` are inline, in the new
+  `dgx_ease.h`: the handwriting morphs get them without
+  `CONFIG_DGX_ENABLE_MORPH`.
+- Names: `dgx_font_morph_create()` and `dgx_font_morph_destroy()`,
+  `dgx_matrix_create()`, and `DGX_` in front of the panels of the
+  constructors, `DGX_SSD1306_128X64`, `DGX_ST7789_240X240` and the like,
+  with types `dgx_ssd1306_resolution_t` and the like.
+
+Changes a program may see:
+
+- `RC_CHECK` and `ARCH_ESP32_TAG` are gone from `dgx_arch_esp32.h`, and
+  `bit_reverse()` of `dgx_bits.h` is `dgx_bit_reverse()`: names without a
+  prefix that every program including DGX got. DGX itself used the first
+  two in one place and the third nowhere.
+- `dgx_font_morph_create` and `dgx_font_morph_destroy` are functions of
+  DGX now, so a font need cannot be named `morph_create` or
+  `morph_destroy`.
+
+Fixed:
+
+- **On an ESP32 the time of pixels, lines and other small shapes no longer
+  hangs on where the linker puts the code of the library.** The flash cache
+  of the chip has two ways, and three lines of code a multiple of 16 KB
+  apart that a loop runs in turn are read from flash again at every turn.
+  The functions of one pixel lay in three such places:
+  `examples/graphicstest` on a CYD took 3.19 s with 0.11.0 against the
+  2.88 s published, and 5.56 s once 2.8 KB of code had been added
+  elsewhere in the library, its pixels 2.48 s instead of 0.65 s, with
+  nothing changed in what a pixel runs. The functions a display behind a
+  bus runs for every window and every short transfer, and lines,
+  rectangles, rounded rectangles, circles and triangles, now lie in flash
+  in one piece shorter than 16 KB, which has one line in a set of the
+  cache at most; on the Xtensa chips the constants of a function are kept
+  in the function. The test takes 2.90 s built as before, against 2.89 s
+  with that code in IRAM; RAM and the size of the program are the same.
+  On an ESP32-S3 with an ST77916 on QSPI and on the JC1060P470 the test
+  takes the same time with the piece as without it. Text, thick lines,
+  ellipses and curves lie outside the piece. How the lines were found, by
+  a profiler in the very build that lost, is in
+  [Where the code lies in flash](docs/benchmarks-en.md#where-the-code-lies-in-flash).
+- The linker fragment of `CONFIG_DGX_HW_FONT_IN_IRAM` names the UTF-8
+  decoder by its new name, so it stays in IRAM.
+- The window on the computer counted a picture kept as a constant of the
+  program as sent by DMA from where it lies. On a board it lies in flash
+  and is copied through the buffer of the bus: the window counts it so
+  now.
+
+Documentation:
+
+- API reference: [Controlling a display](docs/api-en.md#controlling-a-display)
+  with what each display does for the four calls,
+  [A picture from flash](docs/api-en.md#a-picture-from-flash),
+  [Earlier names](docs/api-en.md#earlier-names); the context calls of text
+  and of handwriting come first, the positional ones after them as the
+  earlier form.
+- README: the recipes "A graph" and "An icon or a logo straight on the
+  display"; the recipes and the examples use the context calls and the new
+  names. The examples were run after that, each for 30 s or more with no
+  crash and no error in the log: 18 on a CYD, 6 on the 7-inch DSI board
+  and 3 on the 10.1-inch one; what they show was compared with the earlier
+  calls on the computer, pixel for pixel. `examples/screen_demo` has the
+  pins of another wiring than the CYD and shows nothing there.
+- [How calls are named and shaped](docs/development-en.md#how-calls-are-named-and-shaped):
+  the rules a new call follows, and which headers are for a program and
+  which for a driver.
+- The handwriting guides, English and Russian, are written with the
+  context.
+
+Tests:
+
+- `test_fill_names`, `test_polyline`, `test_image_screens`,
+  `test_const_picture` and `test_hw_context` are new. The calls that
+  control a display are checked against the controller models of SSD1306,
+  SSD1309, SH1106 and SSD1322 and in the window on the computer.
+
 ## 0.11.0 - 2026-11-14
 
 Changes a program may see:

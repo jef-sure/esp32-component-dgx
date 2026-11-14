@@ -165,33 +165,54 @@ void dgx_ssd1306_contrast(dgx_screen_t *scr_, uint8_t contrast)
     scr->bus->write_commands(scr->bus, cset, 2 * 8u);
 }
 
+/* the picture on or off, the memory of the controller kept: no pixel is lit while it is off */
+static esp_err_t dgx_ssd1306_display(dgx_screen_t *scr_, bool on)
+{
+    dgx_ssd1306_t *scr = (dgx_ssd1306_t *)scr_;
+    const uint8_t  cmd = on ? SSD1306_CMD_DISPLAY_ON : SSD1306_CMD_DISPLAY_OFF;
+    scr->bus->write_commands(scr->bus, &cmd, 8u);
+    return ESP_OK;
+}
+
+static esp_err_t dgx_ssd1306_brightness(dgx_screen_t *scr_, uint8_t level)
+{
+    dgx_ssd1306_contrast(scr_, level);
+    return ESP_OK;
+}
+
+static const dgx_screen_control_t dgx_ssd1306_control = {
+    .orientation = dgx_ssd1306_orientation,
+    .display     = dgx_ssd1306_display,
+    .brightness  = dgx_ssd1306_brightness,
+};
+
 static void dgx_ssd1306_destroy_screen(dgx_screen_t **pscr)
 {
     dgx_bw_destroy_screen(pscr);
 }
 
-dgx_screen_t *dgx_ssd1306_init(dgx_bus_protocols_t *bus, ssd1306_resolution_t resolution, uint8_t is_ext_vcc, gpio_num_t rst)
+dgx_screen_t *dgx_ssd1306_init(dgx_bus_protocols_t *bus, dgx_ssd1306_resolution_t resolution, uint8_t is_ext_vcc, gpio_num_t rst)
 {
     int16_t width;
     int16_t height;
     switch (resolution) {
-    case SSD1306_128X32:
+    case DGX_SSD1306_128X32:
         width  = 128;
         height = 32;
         break;
-    case SSD1306_128X64:
+    case DGX_SSD1306_128X64:
         width  = 128;
         height = 64;
         break;
-    case SSD1306_96X16:
+    case DGX_SSD1306_96X16:
         width  = 96;
         height = 16;
         break;
-    case SSD1306_64X48:
+    case DGX_SSD1306_64X48:
         width  = 64;
         height = 48;
         break;
-    case SSD1306_72X40:
+    case DGX_SSD1306_72X40:
         width  = 72;
         height = 40;
         break;
@@ -216,6 +237,7 @@ dgx_screen_t *dgx_ssd1306_init(dgx_bus_protocols_t *bus, ssd1306_resolution_t re
     scr->base.base.screen_subtype = DgxVirtualBackScreen;
     scr->base.base.update_screen  = dgx_ssd1306_update_screen;
     scr->base.base.destroy        = dgx_ssd1306_destroy_screen;
+    scr->base.base.control        = &dgx_ssd1306_control;
     scr->rst                      = rst;
     scr->bus                      = bus;
     if (bus->bus_type == DGX_BUS_I2C) {

@@ -138,6 +138,26 @@ static const dgx_lcd_init_cmd_t st_init_cmds[] = {
 // END OF COMMAND LIST
 
 // Initialize the display
+/* the picture on or off, the memory of the controller kept: no pixel is lit while it is off */
+static esp_err_t dgx_ssd1351_display(dgx_screen_t *_scr, bool on) {
+    dgx_ssd1351_t *scr = (dgx_ssd1351_t *)_scr;
+    scr->base.bus->write_command(scr->base.bus, on ? SSD1351_CMD_DISPLAYON : SSD1351_CMD_DISPLAYOFF);
+    /* a bus that sends a command together with its data holds it back until it knows there is none */
+    if (scr->base.bus->sync_write) scr->base.bus->sync_write(scr->base.bus);
+    return ESP_OK;
+}
+
+static esp_err_t dgx_ssd1351_level(dgx_screen_t *_scr, uint8_t level) {
+    dgx_ssd1351_brightness(_scr, level);
+    return ESP_OK;
+}
+
+static const dgx_screen_control_t dgx_ssd1351_control = {
+    .orientation = dgx_ssd1351_orientation,
+    .display     = dgx_ssd1351_display,
+    .brightness  = dgx_ssd1351_level,
+};
+
 dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo) {
     if (!bus) {
         ESP_LOGE(TAG, "the bus of the display is not initialized");
@@ -172,6 +192,7 @@ dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t
     scr->base.scr.screen_name = "SSD 1351";
     scr->base.scr.screen_submodel = 0;
     scr->base.scr.screen_subtype = DgxPhysicalScreenWithBus;
+    scr->base.scr.control = &dgx_ssd1351_control;
     dgx_screen_with_bus_init_area(&scr->base, SSD1351_CMD_SETCOLUMN, SSD1351_CMD_SETROW, SSD1351_CMD_WRITERAM,
                                   DGX_SCREEN_AREA_PROTO_STD8);
     // Initialize non-SPI GPIOs

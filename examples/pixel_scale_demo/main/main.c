@@ -32,7 +32,7 @@
 #include "dgx_font.h"
 #include "dgx_lut.h"
 #include "dgx_screen.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
 
 /* shown on the screen and in the log; changed at every flash of a build to be looked at */
@@ -131,10 +131,10 @@ static dgx_screen_t *display_init(void)
         dgx_ili9341_init(bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_BACKLIGHT, 16, DgxScreenRGB);
     if (!display) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return NULL;
     }
-    dgx_ili9341_orientation(display, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    dgx_screen_orientation(display, DgxScreenRightLeft, DgxScreenTopBottom, true);
     return display;
 }
 
@@ -182,7 +182,7 @@ static void draw_picture(dgx_screen_t *pic, uint32_t paper)
     /* rings and a disc */
     const int cx = w * 3 / 4, cy = h / 3, r = h / 5;
     for (int k = 0; k < 3; ++k) dgx_draw_circle(pic, cx, cy, r - 3 * k, RING);
-    dgx_solid_circle(pic, cx, cy, r / 3, DISC);
+    dgx_fill_circle(pic, cx, cy, r / 3, DISC);
     dgx_draw_ellipse(pic, w / 2, h * 3 / 4, w / 6, h / 10, RING);
     /* steps of one pixel and of two, going up to the right */
     for (int i = 0; i < 12; ++i) {
@@ -193,8 +193,9 @@ static void draw_picture(dgx_screen_t *pic, uint32_t paper)
     for (int y = 0; y < 10; ++y)
         for (int x = 0; x < 10; ++x) dgx_set_pixel(pic, w - 16 + x, h - 16 + y, (x + y) & 1 ? CHECK : paper);
     /* a solid triangle with slanted edges, and a word */
-    dgx_draw_triangle_solid(pic, w / 4, h / 6, w / 4 + h / 6, h / 3, w / 4 - h / 8, h / 3 + 4, SHADE);
-    dgx_font_string_utf8_screen(pic, w / 3, h - 6, "DGX", INK, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+    dgx_fill_triangle(pic, w / 4, h / 6, w / 4 + h / 6, h / 3, w / 4 - h / 8, h / 3 + 4, SHADE);
+    const dgx_font_context_t word = {.scr = pic, .font = TerminusTTFMedium12(), .color = INK};
+    dgx_font_draw(&word, w / 3, h - 6, "DGX");
 }
 
 typedef struct {
@@ -276,14 +277,17 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "build %d: display %dx%d, picture %dx%d", BUILD, display->width, display->height, pic->width, pic->height);
     dgx_lut_from_rgb(lut, 0, COLORS, palette);
+    /* the line of text in the band at the top */
+    const dgx_font_context_t status = {.scr = display, .font = TerminusTTFMedium12(), .color = dgx_rgb_to_16(255, 255, 255)};
     if (dgx_screen_is_readable(display)) {
         int        transfers = 0;
         const int  wrong     = check(display, &transfers);
         char       line[64];
         snprintf(line, sizeof line, "b%d check: %d transfers, %d pixels differ", BUILD, transfers, wrong);
         dgx_fill_rectangle(display, 0, 0, display->width, display->height, dgx_rgb_to_16(0, 0, 0));
-        dgx_font_string_utf8_screen(display, 4, BAND - 4, line, wrong ? dgx_rgb_to_16(255, 80, 80) : dgx_rgb_to_16(120, 255, 120), DgxOutputNormal, 1,
-                                    TerminusTTFMedium12(), NULL, NULL);
+        dgx_font_context_t verdict = status; /* the same line in the color of the outcome */
+        verdict.color              = wrong ? dgx_rgb_to_16(255, 80, 80) : dgx_rgb_to_16(120, 255, 120);
+        dgx_font_draw(&verdict, 4, BAND - 4, line);
         ESP_LOGI(TAG, "%s", line);
         vTaskDelay(pdMS_TO_TICKS(3000));
     }
@@ -308,8 +312,7 @@ void app_main(void)
                 char line[64];
                 snprintf(line, sizeof line, "b%d x%d %s: %.1f ms, at most %.1f", BUILD, n, ways[k].name[n - 2], (double)ms[n - 2][k], most / 1000.0);
                 dgx_fill_rectangle(display, 0, 0, display->width, BAND, dgx_rgb_to_16(0, 0, 0));
-                dgx_font_string_utf8_screen(display, 4, BAND - 4, line, dgx_rgb_to_16(255, 255, 255), DgxOutputNormal, 1, TerminusTTFMedium12(), NULL,
-                                            NULL);
+                dgx_font_draw(&status, 4, BAND - 4, line);
                 ESP_LOGI(TAG, "%s; %dx%d of the picture to %dx%d", line, part_w, part_h, n * part_w, n * part_h);
                 vTaskDelay(pdMS_TO_TICKS(HOLD_MS));
             }

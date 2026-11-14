@@ -211,7 +211,7 @@ index to each dot while editing a glyph.
 
 A matrix does not preserve dot order, so it does not matter for matrix-based
 morphing: sources are selected geometrically. The clock's index-based morph
-remains in `dgx_font_make_morph_struct()`, and `dgx_morph_symbol_draw()` draws it
+remains in `dgx_font_morph_create()`, and `dgx_morph_symbol_draw()` draws it
 through the same renderers.
 
 ### Plan: What Flies Where
@@ -714,7 +714,7 @@ every frame as in the original.
 **[dotview-clock][gh-dotview-clock].** The clock stays as it is. Its morph is
 index-based and depends on point order in the font, which a matrix does not
 preserve. Besides, the clock's morph code is already only a few lines:
-`dgx_font_make_morph_struct()` makes the morph and `dgx_morph_symbol_draw()`
+`dgx_font_morph_create()` makes the morph and `dgx_morph_symbol_draw()`
 draws it.
 
 ## Pitfalls

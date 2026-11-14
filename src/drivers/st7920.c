@@ -11,7 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "../vscreen/dgx_soft_turn_priv.h"
 #include "dgx_backlight_priv.h"
 
@@ -212,6 +212,23 @@ static void dgx_st7920_update_screen(dgx_screen_t *_scr, int left, int right, in
 }
 
 // Initialize the display
+/*
+ * The picture off or on by the bit G of the extended function set, where the controller is left after the
+ * start: off, the glass shows its text memory, which is empty. The memory of the picture is kept, and what is
+ * written into it meanwhile is there when the picture is on again.
+ */
+static esp_err_t dgx_st7920_display(dgx_screen_t *scr_, bool on)
+{
+    dgx_st7920_send_command((dgx_st7920_t *)scr_, on ? ST7920_CMD_EXT_GRAPHICS_ON : ST7920_CMD_EXT_FUNCTION_8BIT);
+    return ESP_OK;
+}
+
+static const dgx_screen_control_t dgx_st7920_control = {
+    .orientation = dgx_st7920_orientation,
+    .backlight   = dgx_st7920_backlight,
+    .display     = dgx_st7920_display,
+};
+
 dgx_screen_t *dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, gpio_num_t cs)
 {
     dgx_st7920_t *scr = (dgx_st7920_t *)calloc(1, sizeof(dgx_st7920_t));
@@ -269,6 +286,7 @@ dgx_screen_t *dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
     // vscreen already provides: set_area, write_area, set_pixel, get_pixel,
     //                            fill_rectangle, draw_line, circle, solid_circle, wait_buffer, destroy
     scr->base.base.update_screen = dgx_st7920_update_screen;
+    scr->base.base.control       = &dgx_st7920_control;
     dgx_backlight_on_start(backlight);
 
     return (dgx_screen_t *)scr;

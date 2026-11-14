@@ -19,10 +19,11 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "../draw/dgx_draw_priv.h"
+#include "../dgx_hot_priv.h"
 
 static void dgx_scr_set_area_sb(dgx_screen_t *scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom);
 
-static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t color)
+DGX_HOT static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t color)
 {
     if (w < 0) {
         x += w;
@@ -47,7 +48,7 @@ static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, in
         h = scr->height - y;
     }
     if (w <= 0 || x + w <= 0 || x >= scr->width || h <= 0 || y + h <= 0 || y >= scr->height) return;
-    dgx_screen_progress_up(scr);
+    dgx_screen_batch_begin(scr);
     uint32_t fill_scr_size   = h * w;
     uint8_t *draw_buffer     = 0;
     size_t   draw_buffer_len = 0;
@@ -81,7 +82,7 @@ static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, in
         /* no buffer to send from, as a bus that was given none has, or a depth pixels are not counted in */
         ESP_LOGE("DGX SLOW BUS FUNC", "no draw buffer for fill_rectangle");
         if (draw_buffer != scr->draw_buffer) free(draw_buffer);
-        dgx_screen_progress_down(scr);
+        dgx_screen_batch_end(scr);
         return;
     }
     if (scr->wait_buffer) scr->wait_buffer(scr);
@@ -115,7 +116,7 @@ static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, in
         free(draw_buffer);
     }
     dgx_screen_touch(scr, x, x + w - 1, y, y + h - 1);
-    dgx_screen_progress_down(scr);
+    dgx_screen_batch_end(scr);
 }
 
 /*
@@ -123,7 +124,7 @@ static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, int w, in
  * sends them after the call returns has them still, and only the pixel before
  * is waited for, before its bytes are written over.
  */
-static void dgx_scr_set_pixel_sb(dgx_screen_t *scr, int x, int y, uint32_t color)
+DGX_HOT static void dgx_scr_set_pixel_sb(dgx_screen_t *scr, int x, int y, uint32_t color)
 {
     if (x < 0 || x >= scr->width || y < 0 || y >= scr->height || scr->screen_subtype != DgxPhysicalScreenWithBus) return;
     uint8_t *pixel = ((dgx_screen_with_bus_t *)scr)->pixel;
@@ -153,7 +154,7 @@ bool dgx_screen_is_readable(const dgx_screen_t *scr)
 // NOP for physical not virtually backed screens
 
 /* a drawing is done: the bus its windows held is let go of, for the other devices on it */
-static void dgx_scr_update_area_sb(struct _dgx_screen_t *scr, int left, int right, int top, int bottom)
+DGX_HOT static void dgx_scr_update_area_sb(struct _dgx_screen_t *scr, int left, int right, int top, int bottom)
 {
     if (scr->screen_subtype == DgxPhysicalScreenWithBus) {
         dgx_bus_protocols_t *bus = ((dgx_screen_with_bus_t *)scr)->bus;
@@ -169,7 +170,7 @@ static void dgx_scr_with_bus_destroy(struct _dgx_screen_t **pscr)
     }
 }
 
-static void dgx_scr_set_area_sb(dgx_screen_t *scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
+DGX_HOT static void dgx_scr_set_area_sb(dgx_screen_t *scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
 {
     if (scr->screen_subtype == DgxPhysicalScreenWithBus) {
         dgx_screen_with_bus_t *sbus = (dgx_screen_with_bus_t *)scr;
@@ -188,7 +189,7 @@ static void dgx_scr_set_area_sb(dgx_screen_t *scr, uint16_t left, uint16_t right
     }
 }
 
-static void dgx_scr_write_area_sb(dgx_screen_t *scr, uint8_t *data, uint32_t lenbits)
+DGX_HOT static void dgx_scr_write_area_sb(dgx_screen_t *scr, uint8_t *data, uint32_t lenbits)
 {
     if (scr->screen_subtype == DgxPhysicalScreenWithBus) {
         dgx_screen_with_bus_t *sbus = (dgx_screen_with_bus_t *)scr;
@@ -205,7 +206,7 @@ static void dgx_scr_write_area_sb(dgx_screen_t *scr, uint8_t *data, uint32_t len
     }
 }
 
-static void dgx_scr_wait_buffer_sb(dgx_screen_t *scr)
+DGX_HOT static void dgx_scr_wait_buffer_sb(dgx_screen_t *scr)
 {
     if (scr->screen_subtype == DgxPhysicalScreenWithBus) {
         dgx_bus_protocols_t *bus = ((dgx_screen_with_bus_t *)scr)->bus;

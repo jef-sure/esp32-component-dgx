@@ -1132,5 +1132,16 @@ int main(void)
     test_merge_to_empty();
     test_symbol_draw();
     test_symbol_large();
+
+    /* the progress by the clock and its easing, which dgx_ease.h has for the handwriting morphs too */
+    CHECK(dgx_morph_progress(100, 100, 50) == 0.0f && dgx_morph_progress(100, 125, 50) == 0.5f);
+    CHECK(dgx_morph_progress(100, 90, 50) == 0.0f && dgx_morph_progress(100, 400, 50) == 1.0f && dgx_morph_progress(0, 0, 0) == 1.0f);
+    for (int e = DGX_MORPH_LINEAR; e <= DGX_MORPH_SMOOTHSTEP; ++e) {
+        CHECK(dgx_morph_ease((dgx_morph_easing_t)e, 0.0f) == 0.0f && dgx_morph_ease((dgx_morph_easing_t)e, 1.0f) == 1.0f);
+        CHECK(dgx_morph_ease((dgx_morph_easing_t)e, 0.5f) == 0.5f);
+        if (e != DGX_MORPH_LINEAR) CHECK(dgx_morph_ease((dgx_morph_easing_t)e, 0.25f) < 0.25f);
+    }
+    /* a text counted by the name of before */
+    CHECK(dgx_morph_text_length("12:\xC3\xA4") == 4 && dgx_morph_text_length(NULL) == 0);
     CHECK_DONE();
 }

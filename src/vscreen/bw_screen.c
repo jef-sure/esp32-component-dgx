@@ -264,7 +264,7 @@ void dgx_bw_fill_rectangle(dgx_screen_t *scr_, int x, int y, int w, int h, uint3
         h = scr->base.height - y;
     }
     if (h <= 0 || w <= 0) return;
-    dgx_screen_progress_up(scr_);
+    dgx_screen_batch_begin(scr_);
     if (x == 0 && w == scr->base.width && y == 0 && h == scr->base.height) {
         // full screen fill
         memset(scr->v_array, color ? 0xFF : 0x00, ((scr->base.height + 7) / 8) * scr->base.width);
@@ -286,7 +286,7 @@ void dgx_bw_fill_rectangle(dgx_screen_t *scr_, int x, int y, int w, int h, uint3
         }
     }
     dgx_screen_touch(scr_, x, x + w - 1, y, y + h - 1);
-    dgx_screen_progress_down(scr_);
+    dgx_screen_batch_end(scr_);
 }
 
 void dgx_bw_update_screen(dgx_screen_t *scr_, int left, int right, int top, int bottom)

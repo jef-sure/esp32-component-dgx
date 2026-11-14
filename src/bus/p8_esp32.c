@@ -14,6 +14,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lcd_panel_io.h"
+#include "../dgx_hot_priv.h"
 /* from IDF 5.3 the i80 bus has a header of its own and a DMA burst size; IDF 5.2 has neither */
 #if __has_include("esp_lcd_io_i80.h")
 #include "esp_lcd_io_i80.h"
@@ -44,7 +45,7 @@ static bool dgx_p8_on_color_trans_done(esp_lcd_panel_io_handle_t panel_io, esp_l
     return high_task_wakeup == pdTRUE;
 }
 
-void dgx_p8_wait_pending(dgx_p8_bus_t *bus) {
+DGX_HOT void dgx_p8_wait_pending(dgx_p8_bus_t *bus) {
     if (bus->transfer_pending) {
         xSemaphoreTake(bus->transfer_done_sem, portMAX_DELAY);
         bus->transfer_pending = false;
@@ -69,7 +70,7 @@ void dgx_p8_wait_pending(dgx_p8_bus_t *bus) {
 #define DGX_P8_PARAM_BYTES 32u
 
 /* the command that was held back has no data */
-static void dgx_p8_flush_command(dgx_p8_bus_t *bus) {
+DGX_HOT static void dgx_p8_flush_command(dgx_p8_bus_t *bus) {
     if (!bus->command_pending) return;
     bus->command_pending = false;
     dgx_p8_wait_pending(bus);
@@ -81,7 +82,7 @@ static void dgx_p8_flush_command(dgx_p8_bus_t *bus) {
  * The command the data that follows belongs to: the one held back, or -1
  * for data alone. false when data alone cannot be sent on this chip.
  */
-static bool dgx_p8_take_command(dgx_p8_bus_t *bus, int *command) {
+DGX_HOT static bool dgx_p8_take_command(dgx_p8_bus_t *bus, int *command) {
     if (bus->command_pending) {
         bus->command_pending = false;
         *command = bus->command;
@@ -99,7 +100,7 @@ static bool dgx_p8_take_command(dgx_p8_bus_t *bus, int *command) {
 #endif
 }
 
-static void dgx_p8_send_command(struct _dgx_bus_protocols_t *_bus, uint8_t cmd) {
+DGX_HOT static void dgx_p8_send_command(struct _dgx_bus_protocols_t *_bus, uint8_t cmd) {
     dgx_p8_bus_t *bus = (dgx_p8_bus_t *)_bus;
     dgx_p8_flush_command(bus);
     bus->command = cmd;
@@ -127,7 +128,7 @@ static void dgx_p8_send_commands(struct _dgx_bus_protocols_t *_bus, const uint8_
  * Returns NULL with no memory for it.
  */
 #if CONFIG_IDF_TARGET_ESP32
-static const uint8_t *dgx_p8_even(dgx_p8_bus_t *bus, const uint8_t *data, uint32_t byte_len)
+DGX_HOT static const uint8_t *dgx_p8_even(dgx_p8_bus_t *bus, const uint8_t *data, uint32_t byte_len)
 {
     if (bus->even_len < byte_len + 1u) {
         free(bus->even);
@@ -145,7 +146,7 @@ static const uint8_t *dgx_p8_even(dgx_p8_bus_t *bus, const uint8_t *data, uint32
 }
 #endif
 
-static void dgx_p8_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len) {
+DGX_HOT static void dgx_p8_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len) {
     dgx_p8_bus_t *bus = (dgx_p8_bus_t *)_bus;
     uint32_t byte_len = (len + 7u) / 8u;
     int command;
@@ -167,7 +168,7 @@ static void dgx_p8_send_data_async(struct _dgx_bus_protocols_t *_bus, const uint
     }
 }
 
-static void dgx_p8_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len) {
+DGX_HOT static void dgx_p8_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *data, uint32_t len) {
     dgx_p8_bus_t *bus = (dgx_p8_bus_t *)_bus;
     uint32_t byte_len = (len + 7u) / 8u;
     if (byte_len == 0) return;
@@ -184,7 +185,7 @@ static void dgx_p8_send_data(struct _dgx_bus_protocols_t *_bus, const uint8_t *d
     if (ret != ESP_OK) ESP_LOGE(TAG, "command 0x%02x with %u bytes failed: %s", (unsigned)(command & 0xff), (unsigned)byte_len, esp_err_to_name(ret));
 }
 
-static void dgx_p8_sync_write_func(struct _dgx_bus_protocols_t *_bus) {
+DGX_HOT static void dgx_p8_sync_write_func(struct _dgx_bus_protocols_t *_bus) {
     dgx_p8_bus_t *bus = (dgx_p8_bus_t *)_bus;
     dgx_p8_flush_command(bus);
     dgx_p8_wait_pending(bus);

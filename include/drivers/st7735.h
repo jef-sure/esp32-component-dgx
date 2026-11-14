@@ -20,12 +20,20 @@ extern "C" {
  * kind, INITR_MINI160x80_PLUGIN: see "A panel of your own module" in
  * docs/panels-en.md.
  */
-typedef enum {
-    ST7735_RESOLUTION_128x160 = 1,
-    ST7735_RESOLUTION_160x128 = 2, /**< 128x160 turned by dgx_st7735_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true) */
-    ST7735_RESOLUTION_80x160  = 3, /**< the 0.96" glass, upright */
-    ST7735_RESOLUTION_160x80  = 4, /**< the 0.96" glass turned as 160x128 is */
-} st7735_resolution_t;
+typedef enum dgx_st7735_resolution_t {
+    DGX_ST7735_128X160 = 1,
+    DGX_ST7735_160X128 = 2, /**< 128x160 turned by dgx_st7735_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true) */
+    DGX_ST7735_80X160  = 3, /**< the 0.96" glass, upright */
+    DGX_ST7735_160X80  = 4, /**< the 0.96" glass turned as 160x128 is */
+    /* the names of before; they stay */
+    ST7735_RESOLUTION_128x160 = DGX_ST7735_128X160,
+    ST7735_RESOLUTION_160x128 = DGX_ST7735_160X128,
+    ST7735_RESOLUTION_80x160 = DGX_ST7735_80X160,
+    ST7735_RESOLUTION_160x80 = DGX_ST7735_160X80,
+} dgx_st7735_resolution_t;
+
+/** The name the type had before; it stays. */
+typedef dgx_st7735_resolution_t st7735_resolution_t;
 
 /**
  * @brief Create an ST7735 panel screen on top of a bus (SPI or P8).
@@ -36,11 +44,11 @@ typedef enum {
  *                   panel is set up; dgx_st7735_backlight() turns it off and on.
  * @param color_bits Pixel depth in bits: 16 for RGB565, the usual one, 12 or 18.
  * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR).
- * @param resolution The panel (see st7735_resolution_t).
+ * @param resolution The panel (see dgx_st7735_resolution_t).
  * @return Newly allocated screen, or NULL on failure, an unknown resolution or another depth. Free with dgx_screen_destroy().
  */
 dgx_screen_t* dgx_st7735_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo,
-                              st7735_resolution_t resolution);
+                              dgx_st7735_resolution_t resolution);
 
 /**
  * @brief Reprogram the controller scan direction (rotation/mirroring).

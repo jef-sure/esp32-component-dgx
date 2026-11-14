@@ -18,7 +18,7 @@
 #include "dgx_screen.h"
 #include "drivers/jd9165.h"
 #include "drivers/jd9365.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/LiberationSansRegular12.h"
 #include "fonts/DejaVuSansBook32.h"
 
@@ -107,7 +107,8 @@ static void demo_build_label(dgx_screen_t *screen);
 
 static void demo_text(dgx_screen_t *screen, int x, int y, const char *text, uint32_t color)
 {
-    dgx_font_string_utf8_screen(screen, x, y, text, color, DgxOutputNormal, 1, DejaVuSansBook32(), NULL, NULL);
+    const dgx_font_context_t big = {.scr = screen, .font = DejaVuSansBook32(), .color = color};
+    dgx_font_draw(&big, x, y, text);
 }
 
 /* The corners named and the three colors named: what tells a wrong orientation or color order at a glance */
@@ -136,7 +137,8 @@ static void demo_test_card(dgx_screen_t *screen)
     snprintf(size, sizeof(size), "DGX on MIPI-DSI, %dx%d", w, h);
     demo_text(screen, bar, top - 30, size, demo_rgb(255, 200, 40));
     snprintf(size, sizeof(size), "%s, %d-bit color, build %d", screen->screen_name, EXAMPLE_LCD_COLOR_BITS, BUILD);
-    dgx_font_string_utf8_screen(screen, bar, top + 170, size, demo_rgb(60, 190, 255), DgxOutputNormal, 1, LiberationSansRegular12(), NULL, NULL);
+    const dgx_font_context_t small = {.scr = screen, .font = LiberationSansRegular12(), .color = demo_rgb(60, 190, 255)};
+    dgx_font_draw(&small, bar, top + 170, size);
 }
 
 /* a color of the rainbow, hue from 0 to 1535 */
@@ -210,7 +212,7 @@ static void demo_circles(dgx_screen_t *screen)
     for (int y = 60; y < screen->height - 40; y += 96) {
         for (int x = 60; x < screen->width - 40; x += 96) {
             dgx_draw_circle(screen, x, y, 40, demo_rgb(60, 190, 255));
-            dgx_solid_circle(screen, x, y, 16, demo_rgb(255, 180, 32));
+            dgx_fill_circle(screen, x, y, 16, demo_rgb(255, 180, 32));
         }
     }
 }
@@ -222,7 +224,7 @@ static void demo_triangles(dgx_screen_t *screen)
     for (int i = 0; i < 9; ++i) {
         int      span  = screen->width / 2 - 40 - i * 48;
         uint32_t color = demo_rgb(255 - i * 22, 40 + i * 24, 90 + i * 18);
-        dgx_draw_triangle_solid(screen, cx, 30 + i * 30, cx - span, bottom - i * 18, cx + span, bottom - i * 18, color);
+        dgx_fill_triangle(screen, cx, 30 + i * 30, cx - span, bottom - i * 18, cx + span, bottom - i * 18, color);
     }
 }
 
@@ -291,11 +293,11 @@ static void demo_moving_bars(dgx_screen_t *screen, uint32_t run_ms)
     const int     top = screen->height / 3, height = screen->height / 3, pitch = 128, width = 40, step = 4;
     dgx_screen_t *band = dgx_vscreen_init(screen->width, height, screen->color_bits, DgxScreenRGB);
     if (!band) return;
-    dgx_screen_progress_up(screen);
+    dgx_screen_batch_begin(screen);
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, DGX_BLACK(demo_rgb));
     demo_text(screen, 16, 44, demo_numbers.frames == DgxDsiTwoFrames ? "two frame buffers" : "one frame buffer", DGX_WHITE(demo_rgb));
     demo_build_label(screen);
-    dgx_screen_progress_down(screen);
+    dgx_screen_batch_end(screen);
     int64_t     start = esp_timer_get_time();
     int         frames = 0, offset = 0;
     demo_pace_t pace = {0};
@@ -396,10 +398,10 @@ static void demo_run_step(dgx_screen_t *screen, const char *name, demo_step_fn_t
 {
     int64_t start_us = esp_timer_get_time();
     /* one batch: what a scene has drawn is brought out to the display once, at its end */
-    dgx_screen_progress_up(screen);
+    dgx_screen_batch_begin(screen);
     step(screen);
     demo_build_label(screen);
-    dgx_screen_progress_down(screen);
+    dgx_screen_batch_end(screen);
     int64_t elapsed_ms = (esp_timer_get_time() - start_us) / 1000;
     ESP_LOGI(TAG, "%s rendered in %" PRId64 " ms", name, elapsed_ms);
     vTaskDelay(pdMS_TO_TICKS(hold_ms));
@@ -470,12 +472,12 @@ static uint32_t demo_time_piece(dgx_screen_t *screen)
     dgx_screen_t *piece = dgx_vscreen_init(60, 100, screen->color_bits, DgxScreenRGB);
     if (!piece) return 0;
     dgx_fill_rectangle(piece, 0, 0, piece->width, piece->height, demo_rgb(40, 40, 60));
-    dgx_screen_progress_up(screen);
+    dgx_screen_batch_begin(screen);
     dgx_vscreen_to_screen(screen, 0, 0, piece, 0); /* the first one may wait for the display */
     const int64_t from = esp_timer_get_time();
     for (int i = 0; i < 50; ++i) dgx_vscreen_to_screen(screen, 0, 0, piece, 0);
     const uint32_t us = (uint32_t)((esp_timer_get_time() - from) / 50);
-    dgx_screen_progress_down(screen);
+    dgx_screen_batch_end(screen);
     dgx_screen_destroy(&piece);
     return us;
 }

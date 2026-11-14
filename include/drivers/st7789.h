@@ -18,15 +18,26 @@ extern "C" {
  * glass of 135x240 show the middle of it. The colors of the bar are in BGR order on the modules seen
  * so far: give it DgxScreenBGR.
  */
-typedef enum {
-    ST7789_RESOLUTION_240x240 = 1,
-    ST7789_RESOLUTION_240x320 = 2,
-    ST7789_RESOLUTION_320x240 = 3, /**< 240x320 turned by dgx_st7789_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true) */
-    ST7789_RESOLUTION_76x284  = 4, /**< the 2.25" bar, upright */
-    ST7789_RESOLUTION_284x76  = 5, /**< the 2.25" bar turned as 320x240 is */
-    ST7789_RESOLUTION_135x240 = 6, /**< the 1.14" glass, upright */
-    ST7789_RESOLUTION_240x135 = 7  /**< the 1.14" glass turned as 320x240 is */
-} st7789_resolution_t;
+typedef enum dgx_st7789_resolution_t {
+    DGX_ST7789_240X240 = 1,
+    DGX_ST7789_240X320 = 2,
+    DGX_ST7789_320X240 = 3, /**< 240x320 turned by dgx_st7789_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true) */
+    DGX_ST7789_76X284  = 4, /**< the 2.25" bar, upright */
+    DGX_ST7789_284X76  = 5, /**< the 2.25" bar turned as 320x240 is */
+    DGX_ST7789_135X240 = 6, /**< the 1.14" glass, upright */
+    DGX_ST7789_240X135 = 7, /**< the 1.14" glass turned as 320x240 is */
+    /* the names of before; they stay */
+    ST7789_RESOLUTION_240x240 = DGX_ST7789_240X240,
+    ST7789_RESOLUTION_240x320 = DGX_ST7789_240X320,
+    ST7789_RESOLUTION_320x240 = DGX_ST7789_320X240,
+    ST7789_RESOLUTION_76x284 = DGX_ST7789_76X284,
+    ST7789_RESOLUTION_284x76 = DGX_ST7789_284X76,
+    ST7789_RESOLUTION_135x240 = DGX_ST7789_135X240,
+    ST7789_RESOLUTION_240x135 = DGX_ST7789_240X135,
+} dgx_st7789_resolution_t;
+
+/** The name the type had before; it stays. */
+typedef dgx_st7789_resolution_t st7789_resolution_t;
 
 /**
  * @brief Create an ST7789 panel screen on top of a bus (SPI or P8).
@@ -37,11 +48,11 @@ typedef enum {
  *                   panel is set up; dgx_st7789_backlight() turns it off and on.
  * @param color_bits Pixel depth in bits: 16 for RGB565, the usual one, 12 or 18.
  * @param cbo        Color channel order (DgxScreenRGB or DgxScreenBGR).
- * @param resolution The panel (see st7789_resolution_t).
+ * @param resolution The panel (see dgx_st7789_resolution_t).
  * @return Newly allocated screen, or NULL on failure, an unknown resolution or another depth. Free with dgx_screen_destroy().
  */
 dgx_screen_t* dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo,
-                              st7789_resolution_t resolution);
+                              dgx_st7789_resolution_t resolution);
 
 /**
  * @brief Reprogram the controller scan direction (rotation/mirroring).

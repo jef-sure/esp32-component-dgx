@@ -10,13 +10,22 @@ extern "C" {
 // @formatter:on
 #endif
 
-typedef enum {
-    SSD1306_128X32,
-    SSD1306_128X64,
-    SSD1306_96X16,
-    SSD1306_64X48,
-    SSD1306_72X40
-} ssd1306_resolution_t;
+typedef enum dgx_ssd1306_resolution_t {
+    DGX_SSD1306_128X32,
+    DGX_SSD1306_128X64,
+    DGX_SSD1306_96X16,
+    DGX_SSD1306_64X48,
+    DGX_SSD1306_72X40,
+    /* the names of before; they stay */
+    SSD1306_128X32 = DGX_SSD1306_128X32,
+    SSD1306_128X64 = DGX_SSD1306_128X64,
+    SSD1306_96X16 = DGX_SSD1306_96X16,
+    SSD1306_64X48 = DGX_SSD1306_64X48,
+    SSD1306_72X40 = DGX_SSD1306_72X40,
+} dgx_ssd1306_resolution_t;
+
+/** The name the type had before; it stays. */
+typedef dgx_ssd1306_resolution_t ssd1306_resolution_t;
 
 /**
  * @brief Set the SSD1306 contrast/brightness.
@@ -51,12 +60,12 @@ void dgx_ssd1306_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_ori
  * to the controller via the screen's update_screen function.
  *
  * @param bus        Bus backend returned by dgx_spi_init() or dgx_i2c_init().
- * @param resolution Panel geometry (see ssd1306_resolution_t).
+ * @param resolution Panel geometry (see dgx_ssd1306_resolution_t).
  * @param is_ext_vcc Non-zero if the panel is driven from an external VCC supply.
  * @param rst        Reset GPIO (use GPIO_NUM_NC if the panel has no reset line).
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */
-dgx_screen_t *dgx_ssd1306_init(dgx_bus_protocols_t *bus, ssd1306_resolution_t resolution, uint8_t is_ext_vcc, gpio_num_t rst);
+dgx_screen_t *dgx_ssd1306_init(dgx_bus_protocols_t *bus, dgx_ssd1306_resolution_t resolution, uint8_t is_ext_vcc, gpio_num_t rst);
 
 #ifdef __cplusplus
 // @formatter:off

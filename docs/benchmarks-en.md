@@ -16,6 +16,7 @@ Contents:
 - [The other libraries against their published numbers](#the-other-libraries-against-their-published-numbers)
 - [What the SPI bus of DGX does](#what-the-spi-bus-of-dgx-does)
 - [DGX before and after, on SPI and QSPI](#dgx-before-and-after-on-spi-and-qspi)
+- [Where the code lies in flash](#where-the-code-lies-in-flash)
 - [A MIPI-DSI display](#a-mipi-dsi-display)
 - [Where DGX is still slower](#where-dgx-is-still-slower)
 
@@ -367,6 +368,104 @@ lines send them four times as fast: its fills and the logo take less time.
 A pixel set alone takes 7.8 us there against 8.5 us on the CYD, though a
 window on QSPI is two transfers, each with an opcode and an address of 32
 bits on one line.
+
+## Where the code lies in flash
+
+On an ESP32 the time of small drawings depends on where the linker puts the
+code. Code in flash is read through a cache of 32 KB: two ways, lines of
+32 bytes, 512 sets of two lines, and the address of a line modulo 16 KB is
+its set (see [The flash cache](pen-en.md#the-flash-cache)). Three lines of
+one set that a loop runs in turn push each other out, and each of them is
+read from the flash chip again at every turn.
+
+That happened to this test on the CYD. With 2.8 KB of new code elsewhere in
+the library and nothing changed in what a pixel runs, the test built as
+before took 5.56 s instead of the 3.19 s of 0.11.0, and its pixels 2.48 s
+instead of 0.65 s. With the code of the display in IRAM both versions took
+2.89 s, so the code was the same and its place was not.
+
+**How the lines were found.** A sampling profiler was added to the slow
+build without moving its code: the profiler lies in RAM, code and data, and
+the linker starts it, `--wrap=esp_log` leading the log line of the test
+before to it. Every symbol in flash kept its address, and the pixels took
+2.50 s against 2.48 s without it. A timer interrupts every 97 us; the handler notes the
+address the task stood at and the register `DPORT_PRO_DCACHE_DBUG2`, which
+holds the address the cache served last: while the processor waits for a
+line, the address it missed. One run of the pixel test gave 25 779 samples,
+95.5 % of them at six addresses.
+
+The lines of code missed at every pixel in the slow build, and the set the
+same code had in 0.11.0:
+
+| Set | Line | Code | Samples | Set in 0.11.0 |
+| ---: | --- | --- | ---: | ---: |
+| 336 | `0x400d6a00` | The loop of the test | 14.1 % | 336 |
+| 336 | `0x400dea00` | `dgx_scr_set_pixel_sb()`, a pixel of a display behind a bus | 17.5 % | 276 |
+| 336 | `0x400eea00` | `dgx_screen_with_bus_scroll_window()`, the window led to the scroll of the panel | 17.4 % | 248 |
+| 333 | `0x400da9a0` | `dgx_spi_sync_write()`, the wait for the pixel before | 13.6 % | 275 |
+| 333 | `0x400de9a0` | `dgx_scr_set_pixel_sb()` | 16.2 % | 274 |
+| 333 | `0x400ee9a0` | `dgx_screen_with_bus_send_range()`, a bound of the window | 11.4 % | 245 |
+
+That is six misses a pixel of about 5 us each, 31 us of the 32.5 us a pixel
+took.
+
+**Why the code lay so.** A pixel runs functions of three files. The files
+between them took 16 KB, and in these builds the functions that load no
+constants lay after all the others, 64 KB further. So the code of a pixel
+was in three places a multiple of 16 KB apart, and in 0.11.0 many sets held
+two of its lines already.
+
+**What was done.** The functions a display behind a bus runs for every
+window and every short transfer, and the shapes made of such windows, lines,
+rectangles, rounded rectangles, circles and triangles, are marked `DGX_HOT`
+in the sources, and the linker fragment of the component gathers them in one
+piece of flash. In this test the piece is 11.9 KB, 7.0 KB of it the way of
+a window. A piece shorter than 16 KB has one line in a set at most: the
+library cannot push its own code out, and the second line of a set is left
+to the program. On the Xtensa chips the constants of a function are kept in
+the function, `-mtext-section-literals`, where the linker otherwise gathers
+them at the start of the code in flash, so they lie in the piece too. It
+takes no RAM, and the program is no larger.
+
+The test on the CYD in microseconds: the build that lost, the same sources
+with the code in one piece, and the code of the display in IRAM, 21.3 KB of
+it, where the cache does not count:
+
+| Test | Before | One piece in flash | In IRAM |
+| --- | ---: | ---: | ---: |
+| HaD pushColor | 534 228 | 534 063 | 534 048 |
+| Screen fill | 31 308 | 31 285 | 31 278 |
+| Text | 43 436 | 23 980 | 23 370 |
+| Pixels | 2 482 691 | 656 521 | 654 312 |
+| Lines | 1 211 913 | 602 564 | 601 928 |
+| Horiz/Vert Lines | 20 518 | 17 057 | 17 062 |
+| Rectangles (outline) | 15 317 | 12 322 | 12 255 |
+| Rectangles (filled) | 328 309 | 327 739 | 327 472 |
+| Circles (filled) | 95 443 | 68 587 | 66 527 |
+| Circles (outline) | 111 344 | 50 693 | 50 481 |
+| Triangles (outline) | 69 032 | 34 617 | 34 638 |
+| Triangles (filled) | 208 082 | 166 391 | 166 308 |
+| Rounded rects (outline) | 42 413 | 22 899 | 22 759 |
+| Rounded rects (filled) | 365 074 | 346 478 | 346 433 |
+| Total | 5 559 108 | 2 895 196 | 2 888 871 |
+
+With the piece the profiler finds no address the processor waits at.
+
+**What it does not cover.** The code of text, thick lines, ellipses and
+curves lies outside the piece, and so do the tables of fonts and pictures,
+which share the cache with code: the text of this test took 30.9 ms in
+0.11.0 built the same way. A build can still lose some time there, as
+handwriting does by the place of its font; curves and handwriting have
+settings that keep their code in IRAM, `CONFIG_DGX_BEZIER_IN_IRAM` and
+`CONFIG_DGX_HW_FONT_IN_IRAM`.
+
+**The other chips.** The piece is gathered on every chip, and there it
+changes nothing that was measured. On the ESP32-S3 with the round ST77916
+every line of the test takes the same time with it and without it, within
+0.2 %: the instruction cache of that chip has 8 ways as ESP-IDF sets it. On
+the JC1060P470 every line is within 0.5 %, and the pixels take 4 % less; the
+functions of the piece keep the 16-byte alignment DGX gives its code on an
+ESP32-P4.
 
 ## A MIPI-DSI display
 

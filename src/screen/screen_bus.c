@@ -4,9 +4,10 @@
 #include <string.h>
 
 #include "bus/dgx_bus_protocols.h"
+#include "../dgx_hot_priv.h"
 
 /* the window as six commands of a controller that takes its bounds as commands */
-static void dgx_screen_with_bus_send_window_cmd8(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
+DGX_HOT static void dgx_screen_with_bus_send_window_cmd8(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
 {
     dgx_bus_protocols_t *bus = sbus->bus;
     uint8_t crset[6] = {
@@ -17,7 +18,7 @@ static void dgx_screen_with_bus_send_window_cmd8(dgx_screen_with_bus_t *sbus, ui
 }
 
 /* a bound of the window: a command and its two numbers, a byte or two each by the protocol of the controller */
-static void dgx_screen_with_bus_send_range(dgx_screen_with_bus_t *sbus, uint8_t cmd, uint16_t from, uint16_t to)
+DGX_HOT static void dgx_screen_with_bus_send_range(dgx_screen_with_bus_t *sbus, uint8_t cmd, uint16_t from, uint16_t to)
 {
     dgx_bus_protocols_t *bus = sbus->bus;
     bus->write_command(bus, cmd);
@@ -36,7 +37,7 @@ static void dgx_screen_with_bus_send_range(dgx_screen_with_bus_t *sbus, uint8_t 
  * The SPI bus polls such short transfers: a window of a single pixel or of a
  * short line is mostly them.
  */
-static void dgx_screen_with_bus_send_window(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom, bool full)
+DGX_HOT static void dgx_screen_with_bus_send_window(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom, bool full)
 {
     dgx_bus_protocols_t *bus = sbus->bus;
     /* the bus is the display's until its drawing is done: see the hold of dgx_bus_protocols_t */
@@ -55,12 +56,12 @@ static void dgx_screen_with_bus_send_window(dgx_screen_with_bus_t *sbus, uint16_
 }
 
 /* a bus that takes pixels only together with their command */
-static bool dgx_screen_with_bus_bus_defers(const dgx_screen_with_bus_t *sbus)
+DGX_HOT static bool dgx_screen_with_bus_bus_defers(const dgx_screen_with_bus_t *sbus)
 {
     return sbus->bus->bus_type == DGX_BUS_P8 && sbus->area_protocol != DGX_SCREEN_AREA_PROTO_CMD8;
 }
 
-bool dgx_screen_with_bus_window_is_deferred(const dgx_screen_with_bus_t *sbus)
+DGX_HOT bool dgx_screen_with_bus_window_is_deferred(const dgx_screen_with_bus_t *sbus)
 {
     return sbus->window.cut || dgx_screen_with_bus_bus_defers(sbus);
 }
@@ -87,7 +88,7 @@ static inline uint16_t dgx_screen_with_bus_scroll_run(const dgx_screen_with_bus_
 }
 
 /* the window is only remembered: the display is told of it when pixels come */
-static void dgx_screen_with_bus_keep_window(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom, bool full)
+DGX_HOT static void dgx_screen_with_bus_keep_window(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom, bool full)
 {
     sbus->window.left    = left;
     sbus->window.right   = right;
@@ -105,7 +106,7 @@ static void dgx_screen_with_bus_keep_window(dgx_screen_with_bus_t *sbus, uint16_
  * on as any window; one that it cuts is kept, and goes in pieces when its
  * pixels come. Returns true when the window is kept.
  */
-static bool dgx_screen_with_bus_scroll_window(dgx_screen_with_bus_t *sbus, uint16_t *left, uint16_t *right, uint16_t *top, uint16_t *bottom,
+DGX_HOT static bool dgx_screen_with_bus_scroll_window(dgx_screen_with_bus_t *sbus, uint16_t *left, uint16_t *right, uint16_t *top, uint16_t *bottom,
                                               bool full)
 {
     sbus->window.cut = false;
@@ -122,7 +123,7 @@ static bool dgx_screen_with_bus_scroll_window(dgx_screen_with_bus_t *sbus, uint1
 }
 
 /* bytes a pixel takes in a buffer when it takes whole bytes, 0 when pixels share bytes */
-static uint32_t dgx_screen_with_bus_pixel_bytes(uint8_t color_bits)
+DGX_HOT static uint32_t dgx_screen_with_bus_pixel_bytes(uint8_t color_bits)
 {
     switch (color_bits) {
     case 8:
@@ -139,7 +140,7 @@ static uint32_t dgx_screen_with_bus_pixel_bytes(uint8_t color_bits)
     }
 }
 
-void dgx_screen_with_bus_write_window(dgx_screen_with_bus_t *sbus, const uint8_t *data, uint32_t lenbits)
+DGX_HOT void dgx_screen_with_bus_write_window(dgx_screen_with_bus_t *sbus, const uint8_t *data, uint32_t lenbits)
 {
     dgx_bus_protocols_t *bus = sbus->bus;
     const uint32_t       pixel_bytes = dgx_screen_with_bus_pixel_bytes(sbus->scr.color_bits);
@@ -200,7 +201,7 @@ void dgx_screen_with_bus_write_window(dgx_screen_with_bus_t *sbus, const uint8_t
     sbus->window.started = true;
 }
 
-void dgx_screen_with_bus_set_area_window(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
+DGX_HOT void dgx_screen_with_bus_set_area_window(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
 {
     if (sbus->area_protocol == DGX_SCREEN_AREA_PROTO_CMD8) {
         dgx_screen_with_bus_send_window_cmd8(sbus, left, right, top, bottom);
@@ -214,7 +215,7 @@ void dgx_screen_with_bus_set_area_window(dgx_screen_with_bus_t *sbus, uint16_t l
     dgx_screen_with_bus_send_window(sbus, left, right, top, bottom, false);
 }
 
-void dgx_screen_with_bus_set_area_window_full(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top,
+DGX_HOT void dgx_screen_with_bus_set_area_window_full(dgx_screen_with_bus_t *sbus, uint16_t left, uint16_t right, uint16_t top,
                                               uint16_t bottom)
 {
     if (sbus->area_protocol == DGX_SCREEN_AREA_PROTO_CMD8) {

@@ -124,15 +124,15 @@ static const char TAG[] = "DGX ST 7735";
 
 //Initialize the display
 dgx_screen_t* dgx_st7735_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo,
-                              st7735_resolution_t resolution) {
+                              dgx_st7735_resolution_t resolution) {
     const dgx_panel_t *panel;
     switch (resolution) {
-    case ST7735_RESOLUTION_128x160:
-    case ST7735_RESOLUTION_160x128:
+    case DGX_ST7735_128X160:
+    case DGX_ST7735_160X128:
         panel = &dgx_panel_st7735;
         break;
-    case ST7735_RESOLUTION_80x160:
-    case ST7735_RESOLUTION_160x80:
+    case DGX_ST7735_80X160:
+    case DGX_ST7735_160X80:
         panel = &dgx_panel_st7735_80x160;
         break;
     default:
@@ -141,7 +141,7 @@ dgx_screen_t* dgx_st7735_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
     }
     dgx_screen_t *scr = dgx_panel_init(bus, panel, rst, backlight, color_bits, cbo);
     /* landscape is a turn, MV with MX, as on the ST7789; after the functions of the screen, which take it as not turned */
-    if (scr && (resolution == ST7735_RESOLUTION_160x128 || resolution == ST7735_RESOLUTION_160x80))
+    if (scr && (resolution == DGX_ST7735_160X128 || resolution == DGX_ST7735_160X80))
         dgx_panel_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
     return scr;
 }

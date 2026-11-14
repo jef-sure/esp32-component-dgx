@@ -107,10 +107,10 @@ void app_main(void)
         bus, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_RST, (gpio_num_t)EXAMPLE_LCD_PIN_NUM_BACKLIGHT, 16, DgxScreenRGB);
     if (!screen) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return;
     }
-    dgx_ili9341_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
+    dgx_screen_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
     uint32_t paper = dgx_rgb_to_16(250, 246, 232);
     uint32_t ink = dgx_rgb_to_16(24, 36, 120);
 
@@ -129,10 +129,13 @@ void app_main(void)
         ESP_LOGI(TAG, "Screen %dx%d: %.3f pixels a cell, a line %d pixels high, pen %d", screen->width, screen->height, scale,
                  (int)lroundf(font->hw->symbol_size_y * scale), pen);
         dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, paper);
+        /* how every line of the text is written: at the size found, by a pen as thick as that size asks */
+        const dgx_hw_context_t hand = {
+            .scr = screen, .font = font, .scale_x = scale, .width = pen, .color = ink, .joined = EXAMPLE_JOINED, .pace = pace};
         int64_t round_us = esp_timer_get_time();
         for (int i = 0; i < LINES; ++i) {
             dgx_hw_writing_t writing;
-            dgx_hw_writing_begin(&writing, screen, placed[i].x, placed[i].y, font, lines[i], scale, pen, ink, EXAMPLE_JOINED, &pace);
+            dgx_hw_writing_begin_with(&writing, &hand, placed[i].x, placed[i].y, lines[i]);
             /* the pen goes to the next line through the air, as between two strokes */
             int64_t start_us = esp_timer_get_time() + (int64_t)(i ? pace.least / EXAMPLE_TEMPO * 1e6f : 0);
             int64_t drawing_us = 0;

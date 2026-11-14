@@ -10,10 +10,16 @@ extern "C" {
 // @formatter:on
 #endif
 
-typedef enum {
-    SH1106_128X64,
-    SH1106_64X32
-} sh1106_resolution_t;
+typedef enum dgx_sh1106_resolution_t {
+    DGX_SH1106_128X64,
+    DGX_SH1106_64X32,
+    /* the names of before; they stay */
+    SH1106_128X64 = DGX_SH1106_128X64,
+    SH1106_64X32 = DGX_SH1106_64X32,
+} dgx_sh1106_resolution_t;
+
+/** The name the type had before; it stays. */
+typedef dgx_sh1106_resolution_t sh1106_resolution_t;
 
 /**
  * @brief Set the SH1106 contrast/brightness.
@@ -66,11 +72,11 @@ void dgx_sh1106_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orie
  * driver of the controller.
  *
  * @param bus        Bus backend returned by dgx_spi_init() or dgx_i2c_init().
- * @param resolution Panel geometry (see sh1106_resolution_t).
+ * @param resolution Panel geometry (see dgx_sh1106_resolution_t).
  * @param rst        Reset GPIO (use GPIO_NUM_NC if the panel has no reset line).
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */
-dgx_screen_t *dgx_sh1106_init(dgx_bus_protocols_t *bus, sh1106_resolution_t resolution, gpio_num_t rst);
+dgx_screen_t *dgx_sh1106_init(dgx_bus_protocols_t *bus, dgx_sh1106_resolution_t resolution, gpio_num_t rst);
 
 #ifdef __cplusplus
 // @formatter:off

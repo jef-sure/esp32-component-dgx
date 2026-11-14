@@ -40,16 +40,28 @@ a symbol and the rules of placing and joining letters are described there,
 #include "dgx_hw_font.h"
 #include "fonts/font0ss.h"
 
-dgx_hw_draw_text(scr, 10, 80, font0ss(), "Hello, World", 0.3f, 3, color, true);
+dgx_hw_context_t hw = {.scr = scr, .font = font0ss(), .scale_x = 0.3f, .width = 3, .color = color, .joined = true};
+dgx_hw_draw(&hw, 10, 80, "Hello, World");
 ```
 
-| Parameter | Meaning |
+How a text is written is kept in a context, a `dgx_hw_context_t` filled by
+the names of its members. A member left out is zero, which is its default,
+and one context serves every text written the same way.
+
+| Part | Meaning |
 | --- | --- |
+| `.scr` | The screen the text goes to. |
+| `.font` | The font. `font0ss` is bundled: Latin, German and Russian letters, digits, punctuation. |
+| `.scale_x` | The size: pixels in one cell of the grid the font is drawn on. A line is `font->hw->symbol_size_y` cells high, 202 in `font0ss`, so 0.3 gives a line of 60 pixels; lowercase letters are `x_height` cells high, 58, that is 17 pixels. |
+| `.width` | The thickness of the pen in pixels. The font describes only the middle line of the pen. |
+| `.color` | The color of the ink. |
+| `.joined` | Joined writing. Left out, every letter is written apart. |
 | `10, 80` | Where the line starts: its left end, on the base line the letters stand on. Tails of letters go below it. |
-| `font0ss()` | The font. `font0ss` is bundled: Latin, German and Russian letters, digits, punctuation. |
-| `0.3f` | The size: pixels in one cell of the grid the font is drawn on. A line is `font->hw->symbol_size_y` cells high, 202 in `font0ss`, so 0.3 gives a line of 60 pixels; lowercase letters are `x_height` cells high, 58, that is 17 pixels. |
-| `3` | The thickness of the pen in pixels. The font describes only the middle line of the pen. |
-| `true` | Joined writing. `false` writes every letter apart. |
+
+`dgx_hw_draw_text(scr, 10, 80, font0ss(), "Hello, World", 0.3f, 3, color, true)`
+is the earlier form of the same call, with every setting as an argument. It
+stays, and so do `dgx_hw_writing_begin()` and `dgx_hw_morph_draw()` beside
+the calls below that take a context.
 
 `\n` in the text starts the next line, `symbol_size_y` cells lower. A symbol
 the font does not have takes the room of a whole symbol (`symbol_size_x` cells)
@@ -57,7 +69,7 @@ and draws nothing.
 
 A handwritten font is an ordinary `dgx_font_t`, of type `DGX_FONT_HW`, and
 its symbols are found with `dgx_font_find_glyph()` like any glyphs. But
-`dgx_font_string_utf8_screen()` and the other functions of bitmap fonts do not
+`dgx_font_draw()` and the other functions of bitmap fonts do not
 draw it: they take a whole-number scale and one symbol at a time, while here
 the size is free and a letter depends on its neighbours.
 
@@ -72,28 +84,39 @@ dgx_hw_text_box(font, "Hello", &left, &top, &right, &bottom);
 ```
 
 `top` is negative: it is above the base line. To fit a text into a width of
-`w` pixels and put it in the middle:
+`w` pixels:
 
 ```c
-float scale = (float)(w - pen) / (right - left + 1);   /* the pen takes half its thickness on each side */
-int   x = (int)lroundf((w - (right - left + 1) * scale) / 2 - left * scale);
+hw.scale_x = (float)(w - hw.width) / (right - left + 1);   /* the pen takes half its thickness on each side */
+```
+
+With the size chosen, `dgx_hw_bounds()` tells the pixels the text will paint,
+the pen counted, from the `x, y` it is drawn at. To put the text in the middle
+of a screen:
+
+```c
+int width, height;
+if (dgx_hw_bounds(&hw, "Hello", &left, &top, &width, &height))
+    dgx_hw_draw(&hw, (scr->width - width) / 2 - left, (scr->height - height) / 2 - top, "Hello");
 ```
 
 `examples/hw_font_demo` does this for three lines at once: the widest line
 must fit the width and all of them, a line height apart, the height.
 
-The box is that of the symbols themselves. The curves joining letters lie
-between them and do not widen it.
+The box in cells is that of the symbols themselves. The curves joining
+letters lie between them and do not widen it. The box in pixels holds every
+pixel painted; a side of it is exact as a rule and may be a pixel larger.
 
 ### A size of its own along each axis
 
-A text may be narrow and tall or wide and low. `dgx_hw_draw_text_xy()`,
-`dgx_hw_writing_begin_xy()` and `dgx_hw_morph_draw_xy()` take two sizes in
-place of one: pixels in a cell across and pixels in a cell down.
+A text may be narrow and tall or wide and low. A context has two sizes:
+`scale_x`, pixels in a cell across, and `scale_y`, pixels in a cell down.
+Left out, `scale_y` is the same as `scale_x`.
 
 ```c
 /* digits a third of the grid across and two thirds down */
-dgx_hw_draw_text_xy(scr, x, y, font0ss(), "08", 0.33f, 0.7f, 3, color, false);
+dgx_hw_context_t digits = {.scr = scr, .font = font0ss(), .scale_x = 0.33f, .scale_y = 0.7f, .width = 3, .color = color};
+dgx_hw_draw(&digits, x, y, "08");
 ```
 
 The pen is not stretched: it stays round and as thick as it is given.
@@ -142,7 +165,7 @@ A stroke is a dot, a line, a quadratic or a cubic Bezier curve
 (`stroke.type` is the number of its points, 1 to 4). It also says how long it
 is, how many straight pieces it takes, whether the pen had to be lifted to
 begin it (`lift`) and which symbol of the text it belongs to (`symbol`). This
-is what `dgx_hw_draw_text()` draws, and what to start from for a drawing of
+is what `dgx_hw_draw()` draws, and what to start from for a drawing of
 your own.
 
 ## Bezier curves
@@ -231,7 +254,7 @@ screens it gives them to the screen, equal ones joined.
 A line of an odd width has a middle pixel, and the points of the curve are
 its centres. An even width has none: one side has to be a pixel wider. DGX
 gives that pixel to the right of the direction the line goes in, the same way
-`dgx_draw_line_thick()` does, so a figure drawn always in one direction —
+`dgx_draw_thick_line()` does, so a figure drawn always in one direction —
 clockwise, say — is thicker consistently inwards. A soft line deals with an
 even width in a plainer way, see
 [«Points that are not rounded»](#points-that-are-not-rounded).
@@ -269,7 +292,8 @@ of any function that draws a curve by a pen: the Bezier curves, a text, its
 writing and its morphs.
 
 ```c
-dgx_hw_draw_text(band, x, y, font, text, scale, DGX_PEN_SOFT | 2, 255, true);
+dgx_hw_context_t soft = {.scr = band, .font = font, .scale_x = scale, .width = DGX_PEN_SOFT | 2, .color = 255, .joined = true};
+dgx_hw_draw(&soft, x, y, text);
 ```
 
 A soft pen leaves ink by shares of a pixel, and for that a pixel has to be an
@@ -387,9 +411,9 @@ Only what is new is drawn each time; nothing is drawn twice or erased.
 ### In code
 
 ```c
-dgx_hw_pace_t    pace = dgx_hw_pace(font, 6);          /* k = 6 */
+hw.pace = dgx_hw_pace(hw.font, 6);                     /* k = 6; left out, the length alone is counted */
 dgx_hw_writing_t writing;
-dgx_hw_writing_begin(&writing, scr, x, y, font, text, scale, pen, color, true, &pace);
+dgx_hw_writing_begin_with(&writing, &hw, x, y, text);
 
 int64_t start = esp_timer_get_time();
 bool    finished = false;
@@ -425,7 +449,7 @@ changed, and a virtual screen gathers those places into one rectangle while a
 batch is open on it. The rectangle is taken and only it is sent:
 
 ```c
-dgx_screen_progress_up(band);   /* the batch stays open: the changes are gathered, not dropped */
+dgx_screen_batch_begin(band);   /* the batch stays open: the changes are gathered, not dropped */
 for (;;) {
     bool finished = dgx_hw_writing_draw_to(&writing, tempo * seconds());
     int  left, top, width, height;
@@ -435,7 +459,7 @@ for (;;) {
     if (finished) break;
     vTaskDelay(1);
 }
-dgx_screen_progress_down(band);
+dgx_screen_batch_end(band);
 ```
 
 A frame of a morph is shown the same way: the rectangle after the band is
@@ -606,10 +630,12 @@ dgx_screen_t *band = dgx_vscreen_init(screen->width, height, 8, DgxScreenRGB);
 static uint16_t lut[256];
 dgx_lut_gradient(lut, 0, 256, 0xfaf6e8, 0x182478);
 
+const dgx_hw_context_t ink = {.scr = band, .scale_x = scale, .width = pen, .color = 255};
+
 for (;;) {
-    float t = progress(start, esp_timer_get_time(), duration);
+    float t = dgx_morph_progress(start, esp_timer_get_time(), duration);
     dgx_fill_rectangle(band, 0, 0, band->width, band->height, 0);
-    dgx_hw_morph_draw(morph, t, band, 0, base_y, scale, pen, 255);
+    dgx_hw_morph_draw_with(morph, t, &ink, 0, base_y);
     dgx_vscreen8_to_screen16(screen, 0, band_y, band, lut, false);
     if (t >= 1) break;
     vTaskDelay(1);
@@ -617,15 +643,17 @@ for (;;) {
 dgx_hw_morph_destroy(&morph);
 ```
 
-`dgx_hw_morph_draw()` erases nothing. `t` is taken as it is; put it through an
-easing first if the motion should start and stop softly.
+`dgx_hw_morph_draw_with()` erases nothing. `dgx_morph_progress()` gives the
+`t` of a morph by the clock, 0 to 1, and `t` is taken as it is; put it
+through an easing first, `dgx_morph_ease(DGX_MORPH_SMOOTHSTEP, t)`, if the
+motion should start and stop softly.
 
 Letter by letter the loop draws every position with its own progress:
 
 ```c
 for (size_t i = 0; i < text->length; ++i) {
-    float t = progress(start + i * stagger, now, letter_duration);
-    dgx_hw_morph_draw(text->letters[i], t, band, 0, base_y, scale, pen, 255);
+    float t = dgx_morph_progress(start + i * stagger, now, letter_duration);
+    dgx_hw_morph_draw_with(text->letters[i], t, &ink, 0, base_y);
 }
 ```
 
@@ -715,7 +743,7 @@ the curve, on the stack or wherever you put it; in 0.5.3 they were 336 and
   one way of the pen.
 - At small sizes a thick pen hides small things: a comma is 10 cells long,
   2.5 pixels at a scale of 0.25, and looks like a dot.
-- The text passed to `dgx_hw_writing_begin()` and `dgx_hw_writer_begin()` is
+- The text passed to `dgx_hw_writing_begin_with()` and `dgx_hw_writer_begin()` is
   not copied and must live as long as the writing goes.
 
 ## Examples and tests

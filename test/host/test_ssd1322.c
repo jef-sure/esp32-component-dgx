@@ -61,7 +61,7 @@ static int     pending_args; /* the arguments that did not come yet */
 static uint8_t args[16];
 static int     args_left, args_of_cmd;
 static bool    writeram; /* the data that come write the memory */
-static bool    display_on;
+static bool    display_on, was_on; /* was_on: turned on once since the reset */
 static long    data_bytes, transfers, lost_bytes, odd_pixel_transfers;
 static int     remap_a = -1, remap_b = -1, mux = -1, phase = -1;
 
@@ -137,11 +137,15 @@ static void complete(void)
     case 0xB1:
         phase = args[0];
         break;
+    case 0xAE:
+        display_on = false;
+        break;
     case 0xAF:
-        /* the glass shows memory that was cleared, not the noise of power-up */
-        for (int r = 0; r < ph; ++r)
-            for (int c = col0; c < col0 + pw * seg / 4; ++c) CHECK(gddram[r][c][0] == 0 && gddram[r][c][1] == 0);
-        display_on = true;
+        /* the glass shows memory that was cleared, not the noise of power-up; later the picture comes back as it is */
+        if (!was_on)
+            for (int r = 0; r < ph; ++r)
+                for (int c = col0; c < col0 + pw * seg / 4; ++c) CHECK(gddram[r][c][0] == 0 && gddram[r][c][1] == 0);
+        display_on = was_on = true;
         break;
     default:
         break;
@@ -277,7 +281,7 @@ static void run(dgx_bus_protocols_t *bus, int m)
 {
     pw = modules[m].width, ph = modules[m].height, col0 = modules[m].col0, seg = modules[m].segments;
     memset(gddram, 0xa5, sizeof(gddram)); /* what the memory of the controller holds at power-up is not known */
-    display_on = false;
+    display_on = was_on = false;
     const int     given = line_malloc_given;
     dgx_screen_t *scr   = dgx_ssd1322_init(bus, modules[m].resolution, rst_pin);
     CHECK(line_malloc_given == given + 1); /* the picture, its rows sent straight from it, from the bus */
@@ -405,6 +409,12 @@ int main(void)
         dgx_ssd1322_brightness(scr2, 20);
         dgx_ssd1322_display_mode(scr2, 3);
         dgx_ssd1322_display_mode(scr2, 0);
+        /* the calls every display has: the brightness is the contrast, the picture goes off and on, there is no backlight */
+        CHECK(dgx_screen_brightness(scr2, 0x40) == ESP_OK);
+        CHECK(dgx_screen_display(scr2, false) == ESP_OK && !display_on);
+        CHECK(dgx_screen_display(scr2, true) == ESP_OK && display_on);
+        CHECK(dgx_screen_backlight(scr2, true) == ESP_ERR_NOT_SUPPORTED);
+        CHECK(dgx_screen_orientation(scr2, DgxScreenRightLeft, DgxScreenBottomTop, false) == ESP_OK && scr2->dir_x == DgxScreenRightLeft);
         dgx_screen_destroy(&scr2);
     }
     CHECK(unwired_calls == 0);

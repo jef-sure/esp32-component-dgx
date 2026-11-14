@@ -502,6 +502,47 @@ void app_main(void)
     three->protocols.dispose(&three->protocols);
     CHECK(windows == one && one->next == two && !two->next);
 
+    /*
+     * A picture kept as a constant of the program lies in flash on a board, where DMA does not read it: the
+     * window does not take it as sent from where it lies, as it takes memory of the program, and the transfer
+     * copies it through the buffer of the bus. The same pixels reach the glass either way, in no fewer
+     * pieces and no less time.
+     */
+    {
+        enum { PW = 64, PH = 48 };
+        static const uint8_t constant[PW * PH * 2] = {[0] = 0xF8, [1] = 0x00, [2] = 0x07, [3] = 0xE0, [PW * PH * 2 - 2] = 0x00, [PW * PH * 2 - 1] = 0x1F};
+        static uint8_t       variable[PW * PH * 2];
+        int                  on_stack = 0;
+        memcpy(variable, constant, sizeof(variable));
+        dgx_screen_t *fresh = dgx_host_screen_init(PW, PH, 16, NULL);
+        CHECK(fresh != NULL);
+        if (!fresh) exit(EXIT_FAILURE);
+        host_window_t *five = window_of(fresh);
+        CHECK(read_only(constant) && !read_only(variable) && !read_only(&on_stack) && !read_only(five));
+        CHECK(!five->protocols.sends_from(&five->protocols, constant) && five->protocols.sends_from(&five->protocols, variable));
+        dgx_screen_t *from_flash = dgx_vscreen_from_array((void *)constant, PW, PH, 16, DgxScreenRGB);
+        dgx_screen_t *from_ram   = dgx_vscreen_from_array(variable, PW, PH, 16, DgxScreenRGB);
+        CHECK(from_flash && from_ram);
+        stats_clear(five);
+        dgx_vscreen_to_screen(fresh, 0, 0, from_ram, 0);
+        dgx_screen_wait(fresh);
+        const double   ram_us = five->us;
+        const int      ram_pieces = (int)five->pieces;
+        const uint32_t first = five->glass[0], second = five->glass[1], last = five->glass[PW * PH - 1];
+        dgx_fill_rectangle(fresh, 0, 0, PW, PH, 0);
+        dgx_screen_wait(fresh);
+        stats_clear(five);
+        dgx_vscreen_to_screen(fresh, 0, 0, from_flash, 0);
+        dgx_screen_wait(fresh);
+        CHECK(first == 0xFFFF0000u && second == 0xFF00FF00u && last == 0xFF0000FFu);
+        CHECK(five->glass[0] == first && five->glass[1] == second && five->glass[PW * PH - 1] == last);
+        CHECK((int)five->pieces >= ram_pieces && five->us >= ram_us && ram_us > 0);
+        dgx_screen_destroy(&from_flash), dgx_screen_destroy(&from_ram);
+        dgx_screen_destroy(&fresh);
+        five->protocols.dispose(&five->protocols);
+        CHECK(windows == one && one->next == two && !two->next);
+    }
+
     /* a display on no bus the window stands for: drawn, nothing counted, and its title says nothing of a bus */
     dgx_screen_t *dsi = dgx_host_screen_init(8, 8, 16, &(dgx_host_screen_options_t){.no_bus = true});
     CHECK(dsi != NULL);
@@ -563,6 +604,15 @@ void app_main(void)
                 dgx_set_pixel(glass, 0, 0, 0x123457u);
                 CHECK((w->glass[0] & 0xFFFFFFu) == 0x123457u);
             }
+            /* the calls every display has: the window goes dark and comes back, its memory kept; no backlight line, no brightness */
+            dgx_set_pixel(glass, 3, 3, 0);
+            const uint32_t kept = w->glass[0];
+            CHECK(dgx_screen_display(glass, false) == ESP_OK && w->off && w->glass[0] == kept);
+            CHECK(dgx_screen_display(glass, true) == ESP_OK && !w->off && w->glass[0] == kept);
+            CHECK(dgx_screen_orientation(glass, DgxScreenRightLeft, DgxScreenTopBottom, true) == ESP_OK);
+            CHECK(glass->width == 7 && glass->height == 12 && glass->swap_xy);
+            CHECK(dgx_screen_backlight(glass, true) == ESP_ERR_NOT_SUPPORTED);
+            CHECK(dgx_screen_brightness(glass, 1) == ESP_ERR_NOT_SUPPORTED);
             dgx_screen_destroy(&glass);
             w->protocols.dispose(&w->protocols);
         }

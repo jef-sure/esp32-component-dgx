@@ -96,7 +96,8 @@ static void expected_bar(dgx_screen_t *scr, int way, int cx, int cy, int u, int 
 static void panel_text(dgx_screen_t *scr, dgx_screen_t *aside, int px, int py, const char *text)
 {
     dgx_fill_rectangle(aside, 0, 0, aside->width, aside->height, 0);
-    dgx_font_string_utf8_screen(aside, 0, 7, text, 1, DgxOutputNormal, 1, GLCD5x7(), NULL, NULL);
+    const dgx_font_context_t tiny = {.scr = aside, .font = GLCD5x7(), .color = 1};
+    dgx_font_draw(&tiny, 0, 7, text);
     for (int j = 0; j < aside->height; ++j) {
         for (int i = 0; i < aside->width; ++i) {
             if (dgx_get_pixel(aside, i, j)) panel_box(scr, px + 2 * i, py + 2 * j, 2, 2, INK);
@@ -177,9 +178,10 @@ static void picture_landscape(dgx_screen_t *scr)
         dgx_draw_rectangle(scr, 8 + i * 22, 78, 18, 18, INK);
     }
     dgx_draw_circle(scr, 160, 96, 22, INK);
-    dgx_solid_circle(scr, 160, 96, 14, RED);
+    dgx_fill_circle(scr, 160, 96, 14, RED);
     dgx_draw_line(scr, 196, 76, 280, 116, INK);
     dgx_draw_line(scr, 196, 116, 280, 76, RED);
     snprintf(text, sizeof(text), "b%d", BUILD);
-    dgx_font_string_utf8_screen(scr, 8, h - 8, text, INK, DgxOutputNormal, 1, GLCD5x7(), NULL, NULL);
+    const dgx_font_context_t tiny = {.scr = scr, .font = GLCD5x7(), .color = INK};
+    dgx_font_draw(&tiny, 8, h - 8, text);
 }

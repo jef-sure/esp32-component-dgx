@@ -113,6 +113,19 @@ static void dgx_st7565r_destroy_screen(dgx_screen_t **pscr)
     dgx_bw_destroy_screen(pscr);
 }
 
+/* the picture on or off, the memory of the controller kept */
+static esp_err_t dgx_st7565r_display(dgx_screen_t *scr_, bool on)
+{
+    dgx_st7565r_t *scr = (dgx_st7565r_t *)scr_;
+    scr->bus->write_command(scr->bus, on ? ST7565R_DISPLAY_ON : ST7565R_DISPLAY_OFF);
+    return ESP_OK;
+}
+
+static const dgx_screen_control_t dgx_st7565r_control = {
+    .backlight = dgx_st7565r_backlight,
+    .display   = dgx_st7565r_display,
+};
+
 dgx_screen_t *dgx_st7565r_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight)
 {
     dgx_st7565r_t *scr = (dgx_st7565r_t *)calloc(1, sizeof(dgx_st7565r_t));
@@ -135,6 +148,7 @@ dgx_screen_t *dgx_st7565r_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_nu
     scr->base.base.rgb_order      = DgxScreenRGB;
     scr->base.base.update_screen  = dgx_st7565r_update_screen;
     scr->base.base.destroy        = dgx_st7565r_destroy_screen;
+    scr->base.base.control        = &dgx_st7565r_control;
 
     // Initialize non-SPI GPIOs
 

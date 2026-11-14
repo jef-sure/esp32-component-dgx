@@ -15,7 +15,7 @@
 
 #include "bus/dgx_bus_protocols.h"
 #include "dgx_bits.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 /*
  * As dgx_vscreen_init(), the pixels from `alloc`, the memory_allocator of

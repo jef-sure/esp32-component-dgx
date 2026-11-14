@@ -111,19 +111,12 @@ esp_err_t dgx_gc9a01_backlight(dgx_screen_t *scr, bool on)
     return dgx_panel_backlight(scr, on);
 }
 
-void dgx_gc9a01_display_off(dgx_screen_t *_scr)
+void dgx_gc9a01_display_off(dgx_screen_t *scr)
 {
-    dgx_screen_with_bus_t *scr = (dgx_screen_with_bus_t *)_scr;
-
-    scr->bus->write_command(scr->bus, GC9A01_DISPOFF);
-    /* a bus that sends a command together with its data holds it back until it knows there is none */
-    if (scr->bus->sync_write) scr->bus->sync_write(scr->bus);
+    dgx_screen_display(scr, false);
 }
 
-void dgx_gc9a01_display_on(dgx_screen_t *_scr)
+void dgx_gc9a01_display_on(dgx_screen_t *scr)
 {
-    dgx_screen_with_bus_t *scr = (dgx_screen_with_bus_t *)_scr;
-
-    scr->bus->write_command(scr->bus, GC9A01_DISPON);
-    if (scr->bus->sync_write) scr->bus->sync_write(scr->bus);
+    dgx_screen_display(scr, true);
 }

@@ -30,7 +30,10 @@ dgx_morph_glow_t *dgx_morph_glow_create(int width, int height, int cell_width, u
 
 void dgx_morph_glow_destroy(dgx_morph_glow_t **glow);
 
-/** @param lut 256 colors in the screen format, e.g. dgx_rgb_to_16(); copied. */
+/**
+ * @param lut 256 colors in the pixel format of the screen, uint32_t each: dgx_screen_rgb(screen, r, g, b), or
+ *            dgx_rgb_to_16() and the like; copied. Not the uint16_t table of dgx_lut.h.
+ */
 void dgx_morph_glow_set_lut(dgx_morph_glow_t *glow, const uint32_t *lut);
 
 /** @brief Forget the phosphor; the next present() shows its frame unblended. */
@@ -97,7 +100,10 @@ dgx_morph_sprite_t *dgx_morph_sprite_create(int diameter);
 
 void dgx_morph_sprite_destroy(dgx_morph_sprite_t **sprite);
 
-/** @param lut 256 colors in the target screen format, or 256 values for an 8-bit target; copied. */
+/**
+ * @param lut 256 colors in the pixel format of the target screen, uint32_t each, as dgx_morph_glow_set_lut() takes
+ *            them, or 256 values for an 8-bit target; copied.
+ */
 void dgx_morph_sprite_set_lut(dgx_morph_sprite_t *sprite, const uint32_t *lut);
 
 /**

@@ -8,6 +8,7 @@
 
 // JD9365 commands used here; the window and the memory are those of the MIPI display command set
 #define JD9365_SLPOUT   0x11
+#define JD9365_DISPOFF 0x28
 #define JD9365_DISPON   0x29
 #define JD9365_CASET    0x2A
 #define JD9365_RASET    0x2B
@@ -330,6 +331,26 @@ static const dgx_lcd_init_cmd_t jd9365_init_cmds[] = {
     {0, 0, 0xff, 0, {0}} // Stop
 };
 
+/*
+ * DISPOFF and DISPON go to the controller beside the video, with the one byte the commands of the start have: the
+ * glass shows nothing, the frame buffer is kept and is sent on, and the picture is there again at DISPON.
+ */
+static esp_err_t dgx_jd9365_display(dgx_screen_t *_scr, bool on)
+{
+    dgx_jd9365_t *scr  = (dgx_jd9365_t *)_scr;
+    const uint8_t  none = 0;
+    scr->base.bus->write_command(scr->base.bus, on ? JD9365_DISPON : JD9365_DISPOFF);
+    scr->base.bus->write_data(scr->base.bus, &none, 8);
+    return ESP_OK;
+}
+
+/* the picture of a DSI display is turned by the bus, in its frame buffer */
+static const dgx_screen_control_t dgx_jd9365_control = {
+    .orientation = dgx_jd9365_orientation,
+    .backlight   = dgx_jd9365_backlight,
+    .display     = dgx_jd9365_display,
+};
+
 // Initialize the display
 dgx_screen_t *dgx_jd9365_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits, dgx_color_order_t cbo,
                             dgx_dsi_frames_t frames)
@@ -355,6 +376,7 @@ dgx_screen_t *dgx_jd9365_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
     scr->base.scr.screen_name     = "JD9365";
     scr->base.scr.screen_submodel = 0;
     scr->base.scr.screen_subtype  = DgxPhysicalScreenWithBus;
+    scr->base.scr.control         = &dgx_jd9365_control;
     dgx_screen_with_bus_init_area(&scr->base, JD9365_CASET, JD9365_RASET, JD9365_RAMWR, DGX_SCREEN_AREA_PROTO_STD16);
     // the frame buffer first: it is black until something is drawn. The display itself knows the order of colors.
     if (!dgx_dsi_video_setup(bus, &jd9365_video, color_bits, false, frames)) {

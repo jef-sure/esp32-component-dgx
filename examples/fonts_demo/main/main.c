@@ -55,12 +55,15 @@ static void draw_page(dgx_screen_t *scr)
 {
     const uint32_t ink  = DGX_WHITE(dgx_rgb_to_16);
     const uint32_t gold = dgx_rgb_to_16(255, 200, 40);
+    /* how each kind of text is drawn: the screen, the font and the color */
+    const dgx_font_context_t head = {.scr = scr, .font = dgx_font_title(), .color = gold};
+    const dgx_font_context_t body = {.scr = scr, .font = dgx_font_body(), .color = ink};
     dgx_fill_rectangle(scr, 0, 0, scr->width, scr->height, dgx_rgb_to_16(6, 10, 20));
     int y = DGX_FONT_TITLE_PX + 6;
-    dgx_font_string_utf8_screen(scr, 8, y, title, gold, DgxOutputNormal, 1, dgx_font_title(), NULL, NULL);
+    dgx_font_draw(&head, 8, y, title);
     y += DGX_FONT_BODY_PX + 12;
     for (size_t i = 0; i < sizeof lines / sizeof lines[0]; ++i, y += DGX_FONT_BODY_PX + 4)
-        dgx_font_string_utf8_screen(scr, 8, y, lines[i], ink, DgxOutputNormal, 1, dgx_font_body(), NULL, NULL);
+        dgx_font_draw(&body, 8, y, lines[i]);
 }
 
 /* the time since start, in the bundled font: digits and a colon are all the build checked it for */
@@ -69,7 +72,8 @@ static void draw_clock(dgx_screen_t *scr, uint32_t seconds)
     char text[8];
     snprintf(text, sizeof text, "%02" PRIu32 ":%02" PRIu32, seconds / 60 % 100, seconds % 60);
     dgx_fill_rectangle(scr, 0, scr->height - 44, scr->width, 44, dgx_rgb_to_16(6, 10, 20));
-    dgx_font_string_utf8_screen(scr, 8, scr->height - 8, text, DGX_WHITE(dgx_rgb_to_16), DgxOutputNormal, 1, dgx_font_clock(), NULL, NULL);
+    const dgx_font_context_t digits = {.scr = scr, .font = dgx_font_clock(), .color = DGX_WHITE(dgx_rgb_to_16)};
+    dgx_font_draw(&digits, 8, scr->height - 8, text);
 }
 
 void app_main(void)
@@ -83,10 +87,10 @@ void app_main(void)
     dgx_screen_t *screen = dgx_ili9341_init(bus, (gpio_num_t)PIN_RST, (gpio_num_t)PIN_BACKLIGHT, 16, DgxScreenRGB);
     if (!screen) {
         ESP_LOGE(TAG, "dgx_ili9341_init failed");
-        bus->dispose(bus);
+        dgx_bus_dispose(&bus);
         return;
     }
-    dgx_ili9341_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true); /* landscape, 320x240 */
+    dgx_screen_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true); /* landscape, 320x240 */
 
     /* what the build made, from the generated header */
 #define NAME(n) " " #n
