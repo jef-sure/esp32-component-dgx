@@ -13,7 +13,7 @@ extern "C" {
 typedef enum dgx_ssd1309_resolution_t {
     DGX_SSD1309_128X64,
     DGX_SSD1309_128X32,
-    /* the names of before; they stay */
+    /* deprecated: the names of before, the same values */
     SSD1309_128X64 = DGX_SSD1309_128X64,
     SSD1309_128X32 = DGX_SSD1309_128X32,
 } dgx_ssd1309_resolution_t;
@@ -59,6 +59,7 @@ void dgx_ssd1309_column_offset(dgx_screen_t *scr, uint8_t offset);
  * @param dir_x   DgxScreenLeftRight or DgxScreenRightLeft.
  * @param dir_y   DgxScreenTopBottom or DgxScreenBottomTop.
  * @param swap_xy Swap the X and Y axes.
+ * @deprecated Use dgx_screen_orientation().
  */
 void dgx_ssd1309_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 

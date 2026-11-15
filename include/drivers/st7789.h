@@ -26,7 +26,7 @@ typedef enum dgx_st7789_resolution_t {
     DGX_ST7789_284X76  = 5, /**< the 2.25" bar turned as 320x240 is */
     DGX_ST7789_135X240 = 6, /**< the 1.14" glass, upright */
     DGX_ST7789_240X135 = 7, /**< the 1.14" glass turned as 320x240 is */
-    /* the names of before; they stay */
+    /* deprecated: the names of before, the same values */
     ST7789_RESOLUTION_240x240 = DGX_ST7789_240X240,
     ST7789_RESOLUTION_240x320 = DGX_ST7789_240X320,
     ST7789_RESOLUTION_320x240 = DGX_ST7789_320X240,
@@ -62,6 +62,7 @@ dgx_screen_t* dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
  * @param dir_y   DgxScreenTopBottom or DgxScreenBottomTop.
  * @param swap_xy Swap the X and Y axes (landscape <-> portrait). On a
  *                240x320 panel the screen becomes 320x240 and back.
+ * @deprecated Use dgx_screen_orientation().
  */
 void dgx_st7789_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 
@@ -71,6 +72,7 @@ void dgx_st7789_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orie
  * @param scr Screen created by dgx_st7789_init().
  * @param on  true to turn on the backlight, false to turn it off.
  * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED when the screen was given no backlight GPIO.
+ * @deprecated Use dgx_screen_backlight().
  */
 esp_err_t dgx_st7789_backlight(dgx_screen_t *scr, bool on);
 

@@ -450,7 +450,7 @@ static inline uint32_t dgx_screen_rgb(const dgx_screen_t *_scr, uint8_t r, uint8
 }
 
 /**
- * @brief The name dgx_screen_batch_begin() had before; it stays.
+ * @deprecated The name dgx_screen_batch_begin() had before.
  */
 static inline int dgx_screen_progress_up(dgx_screen_t *_scr)
 {
@@ -458,7 +458,7 @@ static inline int dgx_screen_progress_up(dgx_screen_t *_scr)
 }
 
 /**
- * @brief The name dgx_screen_batch_end() had before; it stays.
+ * @deprecated The name dgx_screen_batch_end() had before.
  */
 static inline int dgx_screen_progress_down(dgx_screen_t *_scr)
 {

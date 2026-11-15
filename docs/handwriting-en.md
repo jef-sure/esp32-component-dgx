@@ -60,8 +60,8 @@ and one context serves every text written the same way.
 
 `dgx_hw_draw_text(scr, 10, 80, font0ss(), "Hello, World", 0.3f, 3, color, true)`
 is the earlier form of the same call, with every setting as an argument. It
-stays, and so do `dgx_hw_writing_begin()` and `dgx_hw_morph_draw()` beside
-the calls below that take a context.
+is deprecated and works as it did, and so do `dgx_hw_writing_begin()` and
+`dgx_hw_morph_draw()` beside the calls below that take a context.
 
 `\n` in the text starts the next line, `symbol_size_y` cells lower. A symbol
 the font does not have takes the room of a whole symbol (`symbol_size_x` cells)

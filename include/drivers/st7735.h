@@ -25,7 +25,7 @@ typedef enum dgx_st7735_resolution_t {
     DGX_ST7735_160X128 = 2, /**< 128x160 turned by dgx_st7735_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true) */
     DGX_ST7735_80X160  = 3, /**< the 0.96" glass, upright */
     DGX_ST7735_160X80  = 4, /**< the 0.96" glass turned as 160x128 is */
-    /* the names of before; they stay */
+    /* deprecated: the names of before, the same values */
     ST7735_RESOLUTION_128x160 = DGX_ST7735_128X160,
     ST7735_RESOLUTION_160x128 = DGX_ST7735_160X128,
     ST7735_RESOLUTION_80x160 = DGX_ST7735_80X160,
@@ -57,6 +57,7 @@ dgx_screen_t* dgx_st7735_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
  * @param dir_x   DgxScreenLeftRight or DgxScreenRightLeft.
  * @param dir_y   DgxScreenTopBottom or DgxScreenBottomTop.
  * @param swap_xy Swap the X and Y axes (landscape <-> portrait).
+ * @deprecated Use dgx_screen_orientation().
  */
 void dgx_st7735_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 
@@ -66,6 +67,7 @@ void dgx_st7735_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orie
  * @param scr Screen created by dgx_st7735_init().
  * @param on  true to turn on the backlight, false to turn it off.
  * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED when the screen was given no backlight GPIO.
+ * @deprecated Use dgx_screen_backlight().
  */
 esp_err_t dgx_st7735_backlight(dgx_screen_t *scr, bool on);
 

@@ -11,3 +11,6 @@
 #endif
 #define ESP_LOGD(tag, fmt, ...) ((void)(tag))
 #define ESP_LOGV(tag, fmt, ...) ((void)(tag))
+/* a dump of bytes at a level: nothing on the computer */
+#define ESP_LOG_DEBUG 4
+#define ESP_LOG_BUFFER_HEXDUMP(tag, buffer, len, level) ((void)(tag), (void)(buffer), (void)(len))

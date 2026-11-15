@@ -43,7 +43,7 @@ typedef struct {
     dgx_morph_t **letters;  ///< `length` morphs, left to right.
 } dgx_morph_text_t;
 
-/** The name dgx_utf8_length() of dgx_font.h had here before; it stays. */
+/** @deprecated The name dgx_utf8_length() of dgx_font.h had here before. */
 #define dgx_morph_text_length dgx_utf8_length
 
 /**

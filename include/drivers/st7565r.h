@@ -30,8 +30,27 @@ dgx_screen_t *dgx_st7565r_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_nu
  * @param scr Screen created by dgx_st7565r_init().
  * @param on  true to turn on the backlight, false to turn it off.
  * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED when the screen was given no backlight GPIO.
+ * @deprecated Use dgx_screen_backlight().
  */
 esp_err_t dgx_st7565r_backlight(dgx_screen_t *scr, bool on);
+
+/**
+ * @brief Set the voltage that drives the glass, which the contrast of the picture depends on.
+ *
+ * Modules differ in their glass and supply, and one module wants another
+ * voltage in the cold. With too low a voltage the pixels that are on hardly
+ * differ from the rest; with too high a voltage the pixels that are off show
+ * as well, until the picture is lost. The driver starts with a ratio of 7
+ * and a volume of 12. The sample code of a module names both values: the
+ * command 0x20 + ratio, and the byte after the command 0x81; an EA DOGM128,
+ * for one, wants 7 and 24.
+ *
+ * @param scr            Screen created by dgx_st7565r_init().
+ * @param resistor_ratio The coarse step, 0..7: the gain of the voltage regulator, from 3.0 to 6.4.
+ * @param volume         The fine step, 0..63: the electronic volume.
+ * @return ESP_OK, or ESP_ERR_INVALID_ARG for a value out of its range.
+ */
+esp_err_t dgx_st7565r_contrast(dgx_screen_t *scr, uint8_t resistor_ratio, uint8_t volume);
 
 #ifdef __cplusplus
 // @formatter:off

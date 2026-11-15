@@ -296,8 +296,8 @@ float dgx_hw_text_effort(dgx_font_t *font, const char *text, bool joined, const 
  * write it stroke by stroke at the pace of a pen. dgx_hw_morph_draw_with()
  * draws a frame of a morph. dgx_hw_bounds() and dgx_hw_morph_bounds() give
  * the pixels these paint. The calls that take every setting as an argument,
- * dgx_hw_draw_text() and the others, are the earlier form of the same and
- * stay.
+ * dgx_hw_draw_text() and the others, are the earlier form of the same,
+ * deprecated: they work as they did.
  */
 
 /**
@@ -421,7 +421,7 @@ bool dgx_hw_writing_draw_to(dgx_hw_writing_t *writing, float effort);
 
 /*
  * The earlier form of dgx_hw_writing_begin_with() and dgx_hw_draw(), with
- * every setting as an argument. These calls stay and draw the same. Zero is
+ * every setting as an argument, deprecated. These calls draw the same. Zero is
  * no default here: a scale of 0 is a text of no size, and a width of 0 draws
  * nothing.
  */
@@ -439,6 +439,7 @@ bool dgx_hw_writing_draw_to(dgx_hw_writing_t *writing, float effort);
  * @param color   Color of the ink; for a soft pen the amount of ink, and 0 takes ink off.
  * @param joined  Joined writing, see dgx_hw_writer_begin().
  * @param pace    How the effort is counted, see dgx_hw_pace(); NULL: by the length alone.
+ * @deprecated Use dgx_hw_writing_begin_with() with a dgx_hw_context_t.
  */
 void dgx_hw_writing_begin(dgx_hw_writing_t *writing, dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text, float scale,
                           int width, uint32_t color, bool joined, const dgx_hw_pace_t *pace);
@@ -447,6 +448,7 @@ void dgx_hw_writing_begin(dgx_hw_writing_t *writing, dgx_screen_t *scr, int x, i
  * @brief Writes a text of a handwritten font on a screen at once.
  *
  * The parameters are those of dgx_hw_writing_begin().
+ * @deprecated Use dgx_hw_draw() with a dgx_hw_context_t.
  */
 void dgx_hw_draw_text(dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text, float scale, int width, uint32_t color,
                       bool joined);
@@ -460,12 +462,14 @@ void dgx_hw_draw_text(dgx_screen_t *scr, int x, int y, dgx_font_t *font, const c
  * dgx_hw_text_box(), are in cells: multiply columns by @p scale_x and rows by
  * @p scale_y. How letters are placed and joined and what effort they take
  * does not depend on the sizes.
+ * @deprecated Use dgx_hw_draw() with a dgx_hw_context_t.
  */
 void dgx_hw_draw_text_xy(dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text, float scale_x, float scale_y, int width,
                          uint32_t color, bool joined);
 
 /**
  * @brief dgx_hw_writing_begin() with a size of its own along each axis, see dgx_hw_draw_text_xy().
+ * @deprecated Use dgx_hw_writing_begin_with() with a dgx_hw_context_t.
  */
 void dgx_hw_writing_begin_xy(dgx_hw_writing_t *writing, dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text,
                              float scale_x, float scale_y, int width, uint32_t color, bool joined, const dgx_hw_pace_t *pace);
@@ -569,11 +573,13 @@ bool dgx_hw_morph_bounds(const dgx_hw_morph_t *morph, const dgx_hw_context_t *ct
  * @param morph The morph; NULL draws nothing.
  * @param t     0: the first text, 1: the second one; put through an easing if needed.
  * @param scr,x,y,scale,width,color As for dgx_hw_draw_text().
+ * @deprecated Use dgx_hw_morph_draw_with() with a dgx_hw_context_t.
  */
 void dgx_hw_morph_draw(const dgx_hw_morph_t *morph, float t, dgx_screen_t *scr, int x, int y, float scale, int width, uint32_t color);
 
 /**
  * @brief dgx_hw_morph_draw() with a size of its own along each axis, see dgx_hw_draw_text_xy().
+ * @deprecated Use dgx_hw_morph_draw_with() with a dgx_hw_context_t.
  */
 void dgx_hw_morph_draw_xy(const dgx_hw_morph_t *morph, float t, dgx_screen_t *scr, int x, int y, float scale_x, float scale_y,
                           int width, uint32_t color);

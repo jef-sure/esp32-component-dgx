@@ -28,12 +28,14 @@ dgx_screen_t *dgx_gc9a01_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
 /**
  * @brief Blank the panel by sending the DISPOFF command. Does not enter sleep mode.
  * @param scr Screen created by dgx_gc9a01_init().
+ * @deprecated Use dgx_screen_display(scr, false).
  */
 void dgx_gc9a01_display_off(dgx_screen_t *scr);
 
 /**
  * @brief Re-enable the panel by sending the DISPON command.
  * @param scr Screen created by dgx_gc9a01_init().
+ * @deprecated Use dgx_screen_display(scr, true).
  */
 void dgx_gc9a01_display_on(dgx_screen_t *scr);
 
@@ -44,6 +46,7 @@ void dgx_gc9a01_display_on(dgx_screen_t *scr);
  * @param dir_x   DgxScreenLeftRight or DgxScreenRightLeft.
  * @param dir_y   DgxScreenTopBottom or DgxScreenBottomTop.
  * @param swap_xy Swap the X and Y axes.
+ * @deprecated Use dgx_screen_orientation().
  */
 void dgx_gc9a01_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 
@@ -53,6 +56,7 @@ void dgx_gc9a01_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orie
  * @param scr Screen created by dgx_gc9a01_init().
  * @param on  true to turn on the backlight, false to turn it off.
  * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED when the screen was given no backlight GPIO.
+ * @deprecated Use dgx_screen_backlight().
  */
 esp_err_t dgx_gc9a01_backlight(dgx_screen_t *scr, bool on);
 

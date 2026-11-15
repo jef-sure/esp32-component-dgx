@@ -19,7 +19,7 @@ together: the recipes of the [README](../README.md#recipes).
 - [Coordinates and orientation](#coordinates-and-orientation)
 - [Build options](#build-options)
 - [Known gaps](#known-gaps)
-- [Earlier names](#earlier-names)
+- [Deprecated names](#deprecated-names)
 
 ## The calls
 
@@ -190,9 +190,9 @@ Declared in [include/dgx_font.h](../include/dgx_font.h):
 | `dgx_utf8_next(str, idx)` | Decode the next UTF-8 code point and move the byte index `idx` past it: `for (size_t i = 0; str[i];) cp = dgx_utf8_next(str, &i);` walks a string. A byte that begins no valid sequence gives U+FFFD. |
 | `dgx_utf8_length(str)` | The number of code points in a UTF-8 string; 0 for `NULL`. |
 | `dgx_font_morph_create(font, fromCP, toCP, from_x, from_y, to_x, to_y, scale)` / `dgx_font_morph_destroy(&ms)` | Build/free a glyph-to-glyph morph descriptor for animation, dot i to dot i; drawn by `dgx_morph_symbol_draw()`. |
-| `dgx_font_string_utf8_screen(scr, x, y, str, color, orientation, scale, font, draw_func, param)` | The earlier form of `dgx_font_draw()`, with everything in the arguments; it stays. Pass `NULL, NULL` for the last two for default rendering. It draws as a context with no flags does. |
-| `dgx_font_char_to_screen(scr, x, y, codePoint, color, orientation, scale, font, draw_func, param)` | The earlier form of `dgx_font_draw_char()`. |
-| `dgx_font_string_bounds(str, font, ycorner, height)` | The earlier form of `dgx_font_bounds()`, at scale 1: returns the width, fills the top offset and the height. |
+| `dgx_font_string_utf8_screen(scr, x, y, str, color, orientation, scale, font, draw_func, param)` | Deprecated: the earlier form of `dgx_font_draw()`, with everything in the arguments. Pass `NULL, NULL` for the last two for default rendering. It draws as a context with no flags does. |
+| `dgx_font_char_to_screen(scr, x, y, codePoint, color, orientation, scale, font, draw_func, param)` | Deprecated: the earlier form of `dgx_font_draw_char()`. |
+| `dgx_font_string_bounds(str, font, ycorner, height)` | Deprecated: the earlier form of `dgx_font_bounds()`, at scale 1: returns the width, fills the top offset and the height. |
 | `dgx_bw_bitmap_foreach_set(bmap, func, user_data)` | From [include/dgx_bitmap.h](../include/dgx_bitmap.h): iterate set pixels of a 1-bpp bitmap; zero bytes skip 8 pixels at once (LINES format). |
 | `dgx_font_<need>()` | A font made at build time for a need declared in CMake, from the generated `dgx_fonts.h`, together with `DGX_FONT_<NEED>_MADE`, `_PX`, `_MM`, `DGX_FONT_NEEDS(X)` and `DGX_FONTS_BOARD_*`; see [Fonts made at build time](../README.md#fonts-made-at-build-time). |
 
@@ -274,7 +274,7 @@ thickness of the pen are chosen at drawing, and letters are joined.
 | `dgx_hw_text_box(font, text, left, top, right, bottom)`, `dgx_hw_morph_box(morph, left, top, right, bottom)` | The same boxes in cells of the grid, before any size is chosen: for laying out in cells. |
 | `dgx_hw_writer_begin(writer, font, text, joined)` / `dgx_hw_writer_next(writer, stroke)` | The strokes of a text one by one in the order of writing, in cells: for a drawing of your own. |
 | `dgx_hw_line_begin(line, font)` / `dgx_hw_line_place(line, code_point, shift)` | Where each next symbol of a line stands. |
-| `dgx_hw_draw_text(scr, x, y, font, text, scale, width, color, joined)`, `dgx_hw_writing_begin(writing, scr, x, y, font, text, scale, width, color, joined, pace)`, `dgx_hw_morph_draw(morph, t, scr, x, y, scale, width, color)` and their `_xy` twins with `scale_x, scale_y` | The earlier form of the three drawing calls, with every setting as an argument; they stay and draw the same. A scale or a width of 0 draws nothing there. |
+| `dgx_hw_draw_text(scr, x, y, font, text, scale, width, color, joined)`, `dgx_hw_writing_begin(writing, scr, x, y, font, text, scale, width, color, joined, pace)`, `dgx_hw_morph_draw(morph, t, scr, x, y, scale, width, color)` and their `_xy` twins with `scale_x, scale_y` | Deprecated: the earlier form of the three drawing calls, with every setting as an argument; they draw the same. A scale or a width of 0 draws nothing there. |
 
 ```c
 dgx_hw_context_t pen = {.scr = scr, .font = font0ss(), .scale_x = 0.4f, .width = 3, .color = ink, .joined = true};
@@ -689,14 +689,14 @@ Declared in [include/dgx_screen.h](../include/dgx_screen.h). The same five
 calls work for every display; each driver answers through a table of its own,
 and a call the display has no use for returns `ESP_ERR_NOT_SUPPORTED`. The
 calls named after a driver, `dgx_ili9341_orientation()`,
-`dgx_st7789_backlight()` and the like, do the same and stay.
+`dgx_st7789_backlight()` and the like, do the same and are deprecated.
 
 | Function | Description |
 | --- | --- |
 | `dgx_screen_orientation(scr, dir_x, dir_y, swap_xy)` | Turn or mirror the picture: `dir_x` is `DgxScreenLeftRight` or `DgxScreenRightLeft`, `dir_y` is `DgxScreenTopBottom` or `DgxScreenBottomTop`, `swap_xy` swaps the axes. The width and height of the screen follow. A color display is not redrawn: turn it before drawing. See [Coordinates and orientation](#coordinates-and-orientation). |
 | `dgx_screen_backlight(scr, on)` | The backlight line given to the constructor, high for on. `ESP_ERR_NOT_SUPPORTED` for a screen made with `GPIO_NUM_NC`. The line is only switched: a program that dims the backlight gives `GPIO_NUM_NC` and drives the line by its own PWM. |
 | `dgx_screen_display(scr, on)` | The picture shown or not. The display keeps its memory and the screen takes drawing meanwhile. An OLED off lights no pixel, which is what saves it from burn-in. A TFT stops showing its memory and its backlight stays as it is. |
-| `dgx_screen_brightness(scr, level)` | How bright an OLED is, 0 the dimmest it has, 255 the brightest; 0 is dim, not off. |
+| `dgx_screen_brightness(scr, level)` | How bright an OLED is, 0 the dimmest it has, 255 the brightest; 0 is dim, not off. The range of an OLED is short: on a small SSD1306 the eye finds the full brightness, a dim picture and little between. |
 | `dgx_screen_wait(scr)` | Wait until the display has taken everything sent to it: before the memory the pixels came from is freed or changed, before timing, before another device of the same bus is used. Nothing to wait for on a virtual screen. |
 
 Table 5. What each display does for the four calls; a dash is `ESP_ERR_NOT_SUPPORTED`.
@@ -706,10 +706,10 @@ Table 5. What each display does for the four calls; a dash is `ESP_ERR_NOT_SUPPO
 | ILI9341, ST7789, ST7735, GC9A01, NV3041A, ST77916, a panel of `dgx_panel_init()` | by the controller | the line | DISPON / DISPOFF | - |
 | a window on the computer | as the panel | - | the window goes dark | - |
 | SSD1351 | by the controller | - | yes | the master current, 16 steps |
-| SSD1306, SSD1309, SH1106 | in the memory of the screen | - | yes | the contrast, 256 steps |
+| SSD1306, SSD1309, SH1106 | in the memory of the screen | - | yes | the contrast, doubled every 32 levels: 1 at level 0, 16 at 128, 255 at 255 |
 | SSD1322 | in the memory of the screen | - | yes | the contrast, 256 steps; `dgx_ssd1322_brightness()` sets the master current |
 | SSD1680 (e-paper) | yes | - | - | - |
-| ST7565R | - | the line | yes | - |
+| ST7565R | in the memory of the screen | the line | yes | - |
 | ST7920 | in the memory of the screen | the line | yes | - |
 | JD9165, JD9365 (MIPI-DSI) | by the bus, in the frame buffer | the line | DISPON / DISPOFF beside the video | - |
 | a virtual screen | - | - | - | - |
@@ -723,7 +723,8 @@ if (dgx_screen_brightness(scr, night ? 16 : 255) == ESP_ERR_NOT_SUPPORTED) {
 
 What only one controller has keeps the name of its driver:
 `dgx_ssd1322_grayscale()`, `dgx_ssd1322_display_mode()`,
-`dgx_sh1106_column_offset()`, `dgx_ssd1680_refresh()` and the like, see
+`dgx_sh1106_column_offset()`, `dgx_st7565r_contrast()`,
+`dgx_ssd1680_refresh()` and the like, see
 [Supported panels](panels-en.md).
 
 ### Flush control and batching
@@ -755,8 +756,8 @@ Declared in [include/dgx_screen.h](../include/dgx_screen.h):
 
 | API | Description |
 | --- | --- |
-| `dgx_screen_batch_begin(scr)` | Open a batch; batches nest. Returns the new depth. `dgx_screen_batch_begin()` is its earlier name. |
-| `dgx_screen_batch_end(scr)` | Close a batch; the outermost one commits the pending dirty area. Returns the new depth. `dgx_screen_batch_end()` is its earlier name. |
+| `dgx_screen_batch_begin(scr)` | Open a batch; batches nest. Returns the new depth. `dgx_screen_progress_up()` is its deprecated name. |
+| `dgx_screen_batch_end(scr)` | Close a batch; the outermost one commits the pending dirty area. Returns the new depth. `dgx_screen_progress_down()` is its deprecated name. |
 | `dgx_screen_touch(scr, left, right, top, bottom)` | Mark an area as changed (inclusive, clipped). For code that writes pixels directly, e.g. into `v_array`. |
 | `dgx_screen_flush(scr)` | Commit the pending dirty area now. |
 | `dgx_screen_take_dirty(scr, &left, &top, &width, &height)` | Take the pending dirty area and clear it without committing; `false` when nothing has changed. For a virtual screen shown by parts: open a batch before anything is drawn and keep it open, see [Animation without flicker](../README.md#animation-without-flicker). |
@@ -1028,14 +1029,16 @@ A couple of practical limitations are worth knowing up front:
   wrong is fixed in a font of one bit, or by another size or face. See
   [Soft edges](fonts-en.md#soft-edges).
 
-## Earlier names
+## Deprecated names
 
-Calls and constants that got another name. The earlier one compiles as it
-did and does the same; new code uses the name on the right.
+Calls and constants that got another name or another form. A deprecated one
+compiles as it did and does the same; new code uses what is on the right.
+Deprecated names are taken away only with a minor version, and CHANGES says
+so when it happens.
 
-Table 6. Earlier names and what stands for them now.
+Table 6. Deprecated names and what to use instead.
 
-| Earlier | Now |
+| Deprecated | Use instead |
 | --- | --- |
 | `dgx_solid_circle()`, `dgx_solid_sector()` | `dgx_fill_circle()`, `dgx_fill_sector()` |
 | `dgx_draw_triangle_solid()`, `dgx_draw_polygon4_solid()` | `dgx_fill_triangle()`, `dgx_fill_polygon4()` |

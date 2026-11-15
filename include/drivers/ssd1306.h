@@ -16,7 +16,7 @@ typedef enum dgx_ssd1306_resolution_t {
     DGX_SSD1306_96X16,
     DGX_SSD1306_64X48,
     DGX_SSD1306_72X40,
-    /* the names of before; they stay */
+    /* deprecated: the names of before, the same values */
     SSD1306_128X32 = DGX_SSD1306_128X32,
     SSD1306_128X64 = DGX_SSD1306_128X64,
     SSD1306_96X16 = DGX_SSD1306_96X16,
@@ -50,6 +50,7 @@ void dgx_ssd1306_contrast(dgx_screen_t *scr, uint8_t contrast);
  * @param dir_x   DgxScreenLeftRight or DgxScreenRightLeft.
  * @param dir_y   DgxScreenTopBottom or DgxScreenBottomTop.
  * @param swap_xy Swap the X and Y axes.
+ * @deprecated Use dgx_screen_orientation().
  */
 void dgx_ssd1306_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 

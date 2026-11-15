@@ -13,7 +13,7 @@ extern "C" {
 typedef enum dgx_sh1106_resolution_t {
     DGX_SH1106_128X64,
     DGX_SH1106_64X32,
-    /* the names of before; they stay */
+    /* deprecated: the names of before, the same values */
     SH1106_128X64 = DGX_SH1106_128X64,
     SH1106_64X32 = DGX_SH1106_64X32,
 } dgx_sh1106_resolution_t;
@@ -58,6 +58,7 @@ void dgx_sh1106_column_offset(dgx_screen_t *scr, uint8_t offset);
  * @param dir_x   DgxScreenLeftRight or DgxScreenRightLeft.
  * @param dir_y   DgxScreenTopBottom or DgxScreenBottomTop.
  * @param swap_xy Swap the X and Y axes.
+ * @deprecated Use dgx_screen_orientation().
  */
 void dgx_sh1106_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 

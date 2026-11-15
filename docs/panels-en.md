@@ -90,6 +90,12 @@ GC9A01 has `dgx_gc9a01_display_off()` /
 `dgx_gc9a01_display_on()`, SSD1351 has `dgx_ssd1351_brightness()`, SSD1306
 has `dgx_ssd1306_contrast()`, SSD1309 has `dgx_ssd1309_contrast()` and
 `dgx_ssd1309_column_offset()`, and SH1106 the same two under its own name.
+ST7565R has `dgx_st7565r_contrast(scr, resistor_ratio, volume)` for the
+voltage of its glass, which modules differ in: with too low a voltage the
+pixels that are on hardly differ from the rest, with too high a voltage the
+pixels that are off show as well. The two values are those the sample code
+of a module sends as `0x20 + ratio` and after `0x81`; the driver starts with
+7 and 12, and an EA DOGM128, for one, wants 7 and 24.
 
 JD9165 is a MIPI-DSI display for an ESP32-P4 with PSRAM. The chip keeps a
 frame buffer for it, 1.2 MB at 16 bits per pixel for 1024x600, and drawing
@@ -235,6 +241,10 @@ RGB666, names the depths set up in `depths` instead:
 
 For SSD1306, pick a geometry from `dgx_ssd1306_resolution_t`: `DGX_SSD1306_128X32`,
 `DGX_SSD1306_128X64`, `DGX_SSD1306_96X16`, `DGX_SSD1306_64X48` or `DGX_SSD1306_72X40`.
+The 0.42" glass of 72x40 has nothing at the IREF pin of its controller, so
+its driver turns on the current reference inside the controller, command
+`0xAD 0x30`, as u8g2 does for it: without that the picture is dim and the
+contrast changes nothing.
 
 SSD1309 is the controller of the larger modules, 2.42 inches as a rule. It
 takes the commands of the SSD1306 but has no charge pump, so its constructor

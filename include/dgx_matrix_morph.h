@@ -33,7 +33,7 @@ dgx_bit_matrix_t *dgx_matrix_create(
     uint16_t height
 );
 
-/** The name dgx_matrix_create() had before; it stays. */
+/** @deprecated The name dgx_matrix_create() had before. */
 #define dgx_matrix_init dgx_matrix_create
 
 /**

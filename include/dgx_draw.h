@@ -806,10 +806,10 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
 void dgx_draw_texture_rect(dgx_screen_t *scr, int x, int y, int w, int h, dgx_screen_t *texture, int tx, int ty, int tw, int th);
 
 /*
- * The names of before; they stay. Filled figures used to be named three
- * ways, dgx_fill_*, dgx_solid_* and dgx_draw_*_solid, and are all dgx_fill_*
- * now; the thick line is named as the thick segment is. Each old name is the
- * new function: a call and a pointer to it compile as they did.
+ * Deprecated names. Filled figures used to be named three ways, dgx_fill_*,
+ * dgx_solid_* and dgx_draw_*_solid, and are all dgx_fill_* now; the thick
+ * line is named as the thick segment is. Each deprecated name is the new
+ * function: a call and a pointer to it compile as they did.
  */
 #define dgx_solid_circle        dgx_fill_circle
 #define dgx_solid_sector        dgx_fill_sector

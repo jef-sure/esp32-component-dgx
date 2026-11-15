@@ -38,7 +38,7 @@ static uint8_t gddram[PAGES][SEGMENTS];
 static int     col_start, col_end, page_start, page_end, col, page;
 static int     pending_cmd, pending_args; /* a command waiting for its arguments */
 static uint8_t args[2];
-static int     addr_mode = -1, mux = -1, com_pins = -1, display_on = -1, pump = -1;
+static int     addr_mode = -1, mux = -1, com_pins = -1, display_on = -1, pump = -1, iref = -1, contrast = -1;
 static long    command_bytes, data_bytes, transfers;
 
 static int arity(uint8_t cmd)
@@ -51,6 +51,7 @@ static int arity(uint8_t cmd)
     case 0x81:
     case 0x8D:
     case 0xA8:
+    case 0xAD:
     case 0xD3:
     case 0xD5:
     case 0xD9:
@@ -84,6 +85,12 @@ static void complete(uint8_t cmd)
         break;
     case 0x8D:
         pump = args[0];
+        break;
+    case 0xAD:
+        iref = args[0];
+        break;
+    case 0x81:
+        contrast = args[0];
         break;
     case 0xAE:
         display_on = 0;
@@ -256,7 +263,7 @@ static void run(ssd1306_resolution_t resolution, int width, int height, int offs
 {
     dgx_bus_protocols_t bus = {.bus_type = DGX_BUS_SPI, .write_command = bus_write_command, .write_commands = bus_write_commands, .write_data = bus_write_data, .memory_allocator = bus_memory};
     memset(gddram, 0x55, sizeof(gddram)); /* what the memory holds at power-up is not known */
-    addr_mode = mux = com_pins = display_on = pump = -1;
+    addr_mode = mux = com_pins = display_on = pump = iref = contrast = -1;
     command_bytes = data_bytes = transfers = 0;
 
     const int given = bus_memory_given;
@@ -269,6 +276,8 @@ static void run(ssd1306_resolution_t resolution, int width, int height, int offs
     CHECK(mux == height - 1);
     CHECK(com_pins == (height == 64 || height == 48 || height == 40 ? 0x12 : 0x02));
     CHECK(pump == (ext_vcc ? 0x10 : 0x14));
+    /* the glass of 72x40 has no resistor at the IREF pin: the reference inside the controller, 30 uA; the others are left alone */
+    CHECK(iref == (width == 72 ? 0x30 : -1));
     CHECK(display_on == 1);
     CHECK(pending_args == 0);
     CHECK(data_bytes == 0);
@@ -302,7 +311,16 @@ static void run(ssd1306_resolution_t resolution, int width, int height, int offs
     dgx_ssd1306_contrast(scr, 0x80);
     CHECK(data_bytes == before && command_bytes - cmds == 2);
 
-    /* the calls every display has: the brightness is the contrast, the picture goes off and on, there is no backlight */
+    /*
+     * The calls every display has. The brightness is the contrast, doubled every 32 levels: level 0 is contrast 1,
+     * as contrast 0 lights nothing on some glasses, and the top is 255. The picture goes off and on; there is no
+     * backlight.
+     */
+    static const uint8_t curve[][2] = {{0, 1}, {31, 1}, {32, 2}, {48, 3}, {64, 4}, {96, 8}, {128, 16}, {160, 32}, {192, 64}, {224, 128}, {254, 248}, {255, 255}};
+    for (unsigned i = 0; i < sizeof(curve) / sizeof(curve[0]); ++i) {
+        CHECK(dgx_screen_brightness(scr, curve[i][0]) == ESP_OK && contrast == curve[i][1]);
+    }
+    for (int level = 1; level < 256; ++level) CHECK(dgx_oled_level_to_contrast((uint8_t)level) >= dgx_oled_level_to_contrast((uint8_t)(level - 1)));
     before = data_bytes, cmds = command_bytes;
     CHECK(dgx_screen_brightness(scr, 0x40) == ESP_OK && data_bytes == before && command_bytes - cmds == 2);
     CHECK(dgx_screen_display(scr, false) == ESP_OK && display_on == 0 && command_bytes - cmds == 3);

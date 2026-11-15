@@ -10,6 +10,7 @@
 
 #include "../vscreen/dgx_bw_screen_priv.h"
 #include "../vscreen/dgx_soft_turn_priv.h"
+#include "dgx_oled_level_priv.h"
 
 // Control byte
 #define SSD1306_CONTROL_BYTE_CMD_SINGLE  0x80
@@ -48,6 +49,9 @@
 
 // Charge Pump (pg.62)
 #define SSD1306_CMD_SET_CHARGE_PUMP 0x8D // follow with 0x14
+
+// The current reference inside the controller, of the SSD1315 and of the controllers on small glasses
+#define SSD1306_CMD_SET_IREF 0xAD // follow with 0x30: inside, 30 uA; 0x10: inside, 19 uA; 0x00: the IREF pin
 
 typedef struct
 {
@@ -176,7 +180,7 @@ static esp_err_t dgx_ssd1306_display(dgx_screen_t *scr_, bool on)
 
 static esp_err_t dgx_ssd1306_brightness(dgx_screen_t *scr_, uint8_t level)
 {
-    dgx_ssd1306_contrast(scr_, level);
+    dgx_ssd1306_contrast(scr_, dgx_oled_level_to_contrast(level));
     return ESP_OK;
 }
 
@@ -272,8 +276,15 @@ dgx_screen_t *dgx_ssd1306_init(dgx_bus_protocols_t *bus, dgx_ssd1306_resolution_
     uint8_t adj_data[1];
     for (uint8_t cidx = 0; lcd_init_cmds[cidx].databytes != 0xff; ++cidx) {
         uint8_t cmd = lcd_init_cmds[cidx].cmd;
-        // if (cmd == SSD1306_CMD_SET_DISPLAY_START_LINE) {
-        // }
+        if (cmd == SSD1306_CMD_DISPLAY_ON && resolution == DGX_SSD1306_72X40) {
+            /*
+             * The 0.42" glass of 72x40 has nothing at the IREF pin of its controller: with the reference taken
+             * from the pin, as after a reset, the picture is dim and the contrast changes nothing but 0, which
+             * turns it off. With the reference inside the controller it is as bright as it is meant to be.
+             */
+            static const uint8_t iref[2] = {SSD1306_CMD_SET_IREF, 0x30};
+            bus->write_commands(scr->bus, iref, 16u);
+        }
         ESP_LOGD(TAG, "Sending init command: 0x%02x", cmd);
         scr->bus->write_command(scr->bus, cmd);
         uint8_t const *data = lcd_init_cmds[cidx].data;

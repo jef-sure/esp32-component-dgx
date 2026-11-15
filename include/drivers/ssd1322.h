@@ -22,7 +22,7 @@ typedef enum dgx_ssd1322_resolution_t {
     DGX_SSD1322_240X128,        ///< 240x128, dual COM
     DGX_SSD1322_240X128_TOPWIN, ///< 240x128 by Topwin, single COM
     DGX_SSD1322_128X64,         ///< 128x64: Newhaven NHD-2.7-12864WDW3, two segments a pixel
-    /* the names of before; they stay */
+    /* deprecated: the names of before, the same values */
     SSD1322_256X64 = DGX_SSD1322_256X64,
     SSD1322_256X64_ZJY = DGX_SSD1322_256X64_ZJY,
     SSD1322_240X128 = DGX_SSD1322_240X128,
@@ -84,6 +84,7 @@ void dgx_ssd1322_display_mode(dgx_screen_t *scr, uint8_t mode);
  * @param dir_x   DgxScreenLeftRight or DgxScreenRightLeft.
  * @param dir_y   DgxScreenTopBottom or DgxScreenBottomTop.
  * @param swap_xy Swap the X and Y axes.
+ * @deprecated Use dgx_screen_orientation().
  */
 void dgx_ssd1322_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 

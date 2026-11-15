@@ -1,9 +1,70 @@
 # Changes
 
+## 0.11.2 - 2026-11-15
+
+No call of a program is broken. What was seen on a display is said at each
+entry: an SSD1306 of 72x40 on an ESP32-C3 board and an ST7565R of 128x64 on
+an ESP32. The rest is host tests, and builds for ESP32, ESP32-S3 and
+ESP32-P4 with every driver.
+
+New:
+
+- `dgx_screen_orientation()` turns an ST7565R, the one display that could
+  not be turned: in the memory of the screen, as the other page controllers
+  are. Checked in all eight ways against a model of the controller, and
+  seen in all eight on a 128x64 module.
+- `dgx_st7565r_contrast(scr, resistor_ratio, volume)` sets the voltage of
+  the glass of an ST7565R, 0..7 and 0..63: the two values the sample code
+  of a module sends as `0x20 + ratio` and after `0x81`. The driver had its
+  own two and no way to change them, and modules differ: with too low a
+  voltage the pixels that are on hardly differ from the rest, with too high
+  a voltage the pixels that are off show as well.
+
+Fixed:
+
+- **An ST7565R starts with a volume of 12, not 24.** On the 128x64 module
+  the driver was seen on, 24 lit the background: the picture is clean from
+  8 to 14, the background begins to light up at 16, and past 40 nothing is
+  left of the picture. 24 is the value of an EA DOGM128; a module that
+  wants it calls `dgx_st7565r_contrast(scr, 7, 24)`.
+- **The SSD1306 glass of 72x40 was dim, and its contrast did nothing.** The
+  0.42" module has nothing at the IREF pin of its controller; the driver now
+  turns on the current reference inside the controller, `0xAD 0x30`, as
+  u8g2 does for this glass. Seen on the module of an ESP32-C3 board: with
+  the reference from the pin the picture is dim at every contrast, with the
+  one inside it is bright.
+- **`dgx_screen_brightness(scr, 0)` turned the picture of an SSD1306 off**,
+  where the reference says 0 is dim: a contrast of 0 lights nothing on that
+  glass. On SSD1306, SSD1309 and SH1106 the level is now the contrast
+  doubled every 32 levels, 1 at level 0, 16 at 128 and 255 at the top,
+  because the eye tells ratios of light apart: on the 72x40 glass every
+  contrast from 24 up looked the same, and 1 clearly dimmer. With the new
+  scale that glass is full at levels 255 and 160, dimmer at 96, and dim but
+  lit at 32 and 0, which look alike.
+  `dgx_ssd1306_contrast()` and its like send the contrast as it is given.
+  The SSD1309 and the SH1106 have not been seen with it.
+- Turning the picture off and on by `dgx_screen_display()` has been seen on
+  an SSD1306: it goes dark and comes back with what was drawn meanwhile.
+
+Documentation:
+
+- The calls and constants that got another name or form are called
+  deprecated: [Deprecated names](docs/api-en.md#deprecated-names) in the API
+  reference, in place of "Earlier names", and `@deprecated` with what to
+  use instead in the headers. They compile and work as they did; they are
+  taken away only with a minor version.
+- The API reference named `dgx_screen_batch_begin()` and
+  `dgx_screen_batch_end()` as their own earlier names: those are
+  `dgx_screen_progress_up()` and `dgx_screen_progress_down()`.
+
+Tests:
+
+- `test_st7565r` is new: the driver against a model of the controller.
+
 ## 0.11.1 - 2026-11-15
 
 No call of a program is broken: every name that changed keeps its earlier
-form, listed in [Earlier names](docs/api-en.md#earlier-names). What ran on
+form, listed in [Deprecated names](docs/api-en.md#deprecated-names). What ran on
 a board is said at each entry: the two MIPI-DSI boards, the 7-inch
 JC1060P470 and the 10.1-inch JC8012P4A1C, checked themselves by reading
 their frame buffers back. The rest is host tests, and builds for ESP32,
@@ -160,7 +221,7 @@ Documentation:
 - API reference: [Controlling a display](docs/api-en.md#controlling-a-display)
   with what each display does for the four calls,
   [A picture from flash](docs/api-en.md#a-picture-from-flash),
-  [Earlier names](docs/api-en.md#earlier-names); the context calls of text
+  [Deprecated names](docs/api-en.md#deprecated-names); the context calls of text
   and of handwriting come first, the positional ones after them as the
   earlier form.
 - README: the recipes "A graph" and "An icon or a logo straight on the

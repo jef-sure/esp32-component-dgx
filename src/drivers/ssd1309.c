@@ -24,6 +24,7 @@
 
 #include "../vscreen/dgx_bw_screen_priv.h"
 #include "../vscreen/dgx_soft_turn_priv.h"
+#include "dgx_oled_level_priv.h"
 
 // Control byte of the I2C protocol, the same as the SSD1306
 #define SSD1309_CONTROL_BYTE_CMD_SINGLE  0x80
@@ -193,7 +194,7 @@ static esp_err_t dgx_ssd1309_display(dgx_screen_t *scr_, bool on)
 
 static esp_err_t dgx_ssd1309_brightness(dgx_screen_t *scr_, uint8_t level)
 {
-    dgx_ssd1309_contrast(scr_, level);
+    dgx_ssd1309_contrast(scr_, dgx_oled_level_to_contrast(level));
     return ESP_OK;
 }
 

@@ -134,7 +134,7 @@ uint32_t dgx_utf8_next(const char *str, size_t *idx);
 /** @return The number of code points in a UTF-8 string, as dgx_utf8_next() walks it; 0 for NULL. */
 size_t dgx_utf8_length(const char *str);
 
-/** The name dgx_utf8_next() had before; it stays. */
+/** @deprecated The name dgx_utf8_next() had before. */
 #define decodeUTF8next dgx_utf8_next
 
 /**
@@ -163,6 +163,7 @@ const glyph_t *dgx_font_find_glyph(uint32_t codePoint, dgx_font_t *font, int16_t
  * @param draw_func   Optional custom per-glyph draw callback (NULL for default).
  * @param param       Optional callback parameter.
  * @return Cursor advance in pixels.
+ * @deprecated Use dgx_font_draw_char() with a dgx_font_context_t.
  */
 int dgx_font_char_to_screen(             //
     dgx_screen_t *scr,                   //
@@ -184,6 +185,7 @@ int dgx_font_char_to_screen(             //
  * @param ycorner Out: top Y offset relative to baseline.
  * @param height  Out: total height in pixels.
  * @return Total width in pixels, counted in 16 bits: up to 32767.
+ * @deprecated Use dgx_font_bounds() with a dgx_font_context_t.
  */
 int dgx_font_string_bounds(const char *str, dgx_font_t *font, int16_t *ycorner, int16_t *height);
 
@@ -200,6 +202,7 @@ int dgx_font_string_bounds(const char *str, dgx_font_t *font, int16_t *ycorner, 
  * @param font        Font accessor.
  * @param draw_func   Optional custom per-glyph draw callback (NULL for default).
  * @param param       Optional callback parameter.
+ * @deprecated Use dgx_font_draw() with a dgx_font_context_t.
  */
 void dgx_font_string_utf8_screen(        //
     dgx_screen_t *scr,                   //
@@ -378,7 +381,7 @@ dgx_font_symbol_morph_t *dgx_font_morph_create(  //
  */
 void dgx_font_morph_destroy(dgx_font_symbol_morph_t **ms);
 
-/** The names dgx_font_morph_create() and dgx_font_morph_destroy() had before; they stay. */
+/** @deprecated The names dgx_font_morph_create() and dgx_font_morph_destroy() had before. */
 #define dgx_font_make_morph_struct         dgx_font_morph_create
 #define dgx_font_make_morph_struct_destroy dgx_font_morph_destroy
 

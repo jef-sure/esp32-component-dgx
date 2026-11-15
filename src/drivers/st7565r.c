@@ -8,6 +8,7 @@
 #include "freertos/task.h"
 
 #include "../vscreen/dgx_bw_screen_priv.h"
+#include "../vscreen/dgx_soft_turn_priv.h"
 #include "dgx_backlight_priv.h"
 
 // ST7565R Commands
@@ -51,6 +52,11 @@ typedef struct _dgx_st7565r_t
     gpio_num_t           backlight;
 } dgx_st7565r_t;
 
+/*
+ * The voltage of the glass at the start is ratio 7, volume 12: on the one
+ * module seen on glass the picture is clean from 8 to 14 and the background
+ * lights up from 16. dgx_st7565r_contrast() sets both for another module.
+ */
 static const lcd_init_cmd_t st_init_cmds[] = {
     {ST7565R_RESET,                             0,    10, {0}   }, //
     {ST7565R_DISPLAY_OFF,                       0,    10, {0}   }, //
@@ -62,7 +68,7 @@ static const lcd_init_cmd_t st_init_cmds[] = {
     {ST7565R_SET_POWER_CONTROL | 0x07,          0,    50, {0}   }, //
     {ST7565R_SET_BOOSTER_RATIO,                 1,    10, {0}   }, //
     {ST7565R_SET_VOLTAGE_RESISTOR_RATIO | 0x07, 0,    10, {0}   }, //
-    {ST7565R_CONTRAST,                          1,    10, {0x18}}, //
+    {ST7565R_CONTRAST,                          1,    10, {12}  }, //
     {ST7565R_DISPLAY_ON,                        0,    10, {0}   }, //
     {ST7565R_SET_ALL_PIXEL_NORMAL,              0,    10, {0}   }, //
     {0,                                         0xff, 0,  {0}   }  // Stop
@@ -84,15 +90,15 @@ void dgx_st7565r_update_screen(dgx_screen_t *scr_, int left, int right, int top,
         top       = bottom;
         bottom    = t;
     }
-    if (right < 0 || bottom < 0 || left >= scr->base.base.width || top >= scr->base.base.height) return;
-    if (left < 0) left = 0;
-    if (top < 0) top = 0;
-    if (right >= scr->base.base.width) right = scr->base.base.width - 1;
-    if (bottom >= scr->base.base.height) bottom = scr->base.base.height - 1;
-    uint8_t  page_s = (uint16_t)top >> 3;
-    uint8_t  page_e = (uint16_t)bottom >> 3;
-    uint8_t  clo    = left;
-    uint32_t xw     = right - left + 1u;
+    // clipped to the screen and turned to the panel: from here on the columns and rows are those of the panel
+    int pw, ph;
+    dgx_soft_turn_panel(scr_, &pw, &ph);
+    if (!dgx_soft_turn_rect(scr_, pw, ph, &left, &right, &top, &bottom)) return;
+    uint8_t    page_s = (uint16_t)top >> 3;
+    uint8_t    page_e = (uint16_t)bottom >> 3;
+    uint8_t    clo    = left;
+    uint32_t   xw     = right - left + 1u;
+    const bool turned = dgx_soft_turned(scr_);
     for (uint8_t page = page_s; page <= page_e; ++page) {
         uint8_t crset[3] = {
             ST7565R_SET_COLUMN_UPPER | (clo >> 4),   //
@@ -101,11 +107,33 @@ void dgx_st7565r_update_screen(dgx_screen_t *scr_, int left, int right, int top,
         };
         ESP_LOGD(TAG, "Sending commands: 0x%02x 0x%02x 0x%02x", crset[0], crset[1], crset[2]);
         scr->bus->write_commands(scr->bus, crset, 3 * 8u);
-        uint8_t *pb = scr->base.v_array + page * scr->base.base.width + left;
+        uint8_t  bytes[128];
+        uint8_t *pb = scr->base.v_array + page * pw + left;
+        if (turned) {
+            // the screen turned: the page of the panel gathered bit by bit
+            dgx_soft_turn_page(scr_, scr->base.v_array, pw, ph, page, left, right, bytes);
+            pb = bytes;
+        }
         ESP_LOGD(TAG, "Sending data for page %x: %" PRIu32 " bytes", page, xw);
         ESP_LOG_BUFFER_HEXDUMP(TAG, pb, xw, ESP_LOG_DEBUG);
         scr->bus->write_data(scr->bus, pb, xw * 8u);
     }
+}
+
+/*
+ * The screen turned in software, as on the other page controllers: the ADC
+ * and the scan direction of the controller mirror only, and which way they
+ * mirror depends on how a module wires its glass. With the axes swapped the
+ * picture is cleared; the whole screen is sent.
+ */
+static void dgx_st7565r_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+{
+    dgx_st7565r_t *scr = (dgx_st7565r_t *)scr_;
+    int            pw, ph;
+    dgx_soft_turn_panel(scr_, &pw, &ph);
+    dgx_soft_turn_set(scr_, scr->base.v_array, pw, ph, dir_x, dir_y, swap_xy);
+    dgx_bw_set_area(scr_, 0, (uint16_t)(scr_->width - 1), 0, (uint16_t)(scr_->height - 1));
+    dgx_st7565r_update_screen(scr_, 0, scr_->width - 1, 0, scr_->height - 1);
 }
 
 static void dgx_st7565r_destroy_screen(dgx_screen_t **pscr)
@@ -122,8 +150,9 @@ static esp_err_t dgx_st7565r_display(dgx_screen_t *scr_, bool on)
 }
 
 static const dgx_screen_control_t dgx_st7565r_control = {
-    .backlight = dgx_st7565r_backlight,
-    .display   = dgx_st7565r_display,
+    .orientation = dgx_st7565r_orientation,
+    .backlight   = dgx_st7565r_backlight,
+    .display     = dgx_st7565r_display,
 };
 
 dgx_screen_t *dgx_st7565r_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t backlight)
@@ -186,4 +215,14 @@ dgx_screen_t *dgx_st7565r_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_nu
 esp_err_t dgx_st7565r_backlight(dgx_screen_t *scr, bool on)
 {
     return dgx_backlight_set(((dgx_st7565r_t *)scr)->backlight, on);
+}
+
+/* the gain of the voltage regulator and the electronic volume: together the voltage of the glass */
+esp_err_t dgx_st7565r_contrast(dgx_screen_t *scr_, uint8_t resistor_ratio, uint8_t volume)
+{
+    if (resistor_ratio > 7 || volume > 63) return ESP_ERR_INVALID_ARG;
+    dgx_st7565r_t *scr    = (dgx_st7565r_t *)scr_;
+    const uint8_t  set[3] = {ST7565R_SET_VOLTAGE_RESISTOR_RATIO | resistor_ratio, ST7565R_CONTRAST, volume};
+    scr->bus->write_commands(scr->bus, set, 3 * 8u);
+    return ESP_OK;
 }

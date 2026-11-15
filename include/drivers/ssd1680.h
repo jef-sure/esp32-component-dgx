@@ -25,7 +25,7 @@ extern "C" {
 typedef enum dgx_ssd1680_resolution_t {
     DGX_SSD1680_128X296_BWR, ///< 2.9": WeAct Studio 2.9" Epaper Module with red
     DGX_SSD1680_122X250_BWR, ///< 2.13": WeAct Studio 2.13" Epaper Module with red; not checked on a module
-    /* the names of before; they stay */
+    /* deprecated: the names of before, the same values */
     SSD1680_128X296_BWR = DGX_SSD1680_128X296_BWR,
     SSD1680_122X250_BWR = DGX_SSD1680_122X250_BWR,
 } dgx_ssd1680_resolution_t;
@@ -80,6 +80,7 @@ bool dgx_ssd1680_busy(dgx_screen_t *scr);
  * @param dir_x   DgxScreenLeftRight or DgxScreenRightLeft.
  * @param dir_y   DgxScreenTopBottom or DgxScreenBottomTop.
  * @param swap_xy Swap the X and Y axes.
+ * @deprecated Use dgx_screen_orientation().
  */
 void dgx_ssd1680_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 

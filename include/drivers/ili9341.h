@@ -33,6 +33,7 @@ dgx_screen_t *dgx_ili9341_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_nu
  * @param dir_x   DgxScreenLeftRight or DgxScreenRightLeft.
  * @param dir_y   DgxScreenTopBottom or DgxScreenBottomTop.
  * @param swap_xy Swap the X and Y axes (landscape <-> portrait).
+ * @deprecated Use dgx_screen_orientation().
  */
 void dgx_ili9341_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 
@@ -42,6 +43,7 @@ void dgx_ili9341_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_ori
  * @param scr Screen created by dgx_ili9341_init().
  * @param on  true to turn on the backlight, false to turn it off.
  * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED when the screen was given no backlight GPIO.
+ * @deprecated Use dgx_screen_backlight().
  */
 esp_err_t dgx_ili9341_backlight(dgx_screen_t *_scr, bool on);
 

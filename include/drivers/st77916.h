@@ -40,12 +40,14 @@ dgx_screen_t *dgx_st77916_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_nu
  * @param dir_x   DgxScreenLeftRight or DgxScreenRightLeft.
  * @param dir_y   DgxScreenTopBottom or DgxScreenBottomTop.
  * @param swap_xy Swap the X and Y axes.
+ * @deprecated Use dgx_screen_orientation().
  */
 void dgx_st77916_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 
 /**
  * @brief Control the backlight (if a backlight GPIO was provided at initialization).
  * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED when the screen was given no backlight GPIO.
+ * @deprecated Use dgx_screen_backlight().
  */
 esp_err_t dgx_st77916_backlight(dgx_screen_t *scr, bool on);
 

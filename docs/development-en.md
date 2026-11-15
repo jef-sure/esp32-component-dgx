@@ -37,8 +37,9 @@ A new function on that way gets the mark. The piece has to stay shorter than
 ## How calls are named and shaped
 
 The rules a new call follows. Calls written before some of them differ and
-keep working; where a call got a new name, the earlier one stays, see
-[Earlier names](api-en.md#earlier-names).
+keep working; where a call got a new name or form, the earlier one is
+deprecated and works as it did, see
+[Deprecated names](api-en.md#deprecated-names).
 
 - **Names.** `dgx_<thing>_<verb>()`. A filled figure is `dgx_fill_*()`, an
   outline or a line `dgx_draw_*()`. A call that takes its choices in a
