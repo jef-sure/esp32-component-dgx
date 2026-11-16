@@ -183,8 +183,8 @@ Declared in [include/dgx_font.h](../include/dgx_font.h):
 
 | Function | Description |
 | --- | --- |
-| `dgx_font_draw(ctx, x, y, str)` | Draw a UTF-8 text by a context, `dgx_font_context_t`: `scr`, `font`, `color`, `bg`, `flags`, `orientation`, `scale`, and `dot_func` with `user_data` for a dot font. Returns how far the text goes along its line, scale counted. See [Text with soft edges](../README.md#text-with-soft-edges). |
-| `dgx_font_draw_char(ctx, x, y, codePoint)` | One character by a context; with `DGX_FONT_FILL` it fills the cell of the one character. |
+| `dgx_font_draw(ctx, x, y, str)` | Draw a UTF-8 text by a context, `dgx_font_context_t`: `scr`, `font`, `color`, `bg`, `flags`, `orientation`, `scale`, `dot_func` with `user_data` for a dot font, and `field` with `align` for a text set in a field. Returns how far the text goes along its line, scale counted; with a field, its width. See [Text with soft edges](../README.md#text-with-soft-edges). |
+| `dgx_font_draw_char(ctx, x, y, codePoint)` | One character by a context; with `DGX_FONT_FILL` it fills the cell of the one character, with a field it is a text of one character in it. |
 | `dgx_font_bounds(ctx, str, top, height)` | Measure a text as `dgx_font_draw()` draws it, scale counted: returns its length along the line, fills the top from the base line and the height. |
 | `DGX_FONT_BG`, `DGX_FONT_FILL`, `DGX_FONT_MONO`, `DGX_FONT_HARD` | The flags of a context: mix soft edges with `bg`; fill the cell with `bg` too; draw a soft font cut to one bit; draw every pixel a letter touches in full. |
 | `dgx_font_find_glyph(codePoint, font, xAdvance)` | Look up a single glyph. |
@@ -227,6 +227,7 @@ Table 1. What each way writes and leaves, and what it is for.
 | none | the letters; on a screen that is read, a virtual screen of 4 to 24 bits or a DSI display, their edges mixed with what lies under them; on any other, the font cut to one bit | everything around and between the letters | text over a picture on a screen that is read |
 | `DGX_FONT_BG` | the letters, their edges mixed with `bg`, whatever lies under them | everything around and between the letters | text on a paper of a known color where what lies near the letters must stay: a label over a line or a frame that crosses its cell, two lines set closer than the height of the font, a background with a pattern near the color of `bg`; on a screen that is read, the same look as on a display that is not |
 | `DGX_FONT_FILL` | the whole cell of the text: `bg` where no letter is, the letters over it | nothing in the cell | text drawn again over itself, a clock, a counter, a value: the old text goes in the same call, with no erase of its own |
+| a field: `field` and `align` | the whole field: `bg` where no letter is, the text set in it at its start, middle or end | nothing in the field, nothing outside it | a line of a table, a clock, a counter whose text changes its length: one call a line, and nothing of what was drawn before to remember |
 
 The cell of `DGX_FONT_FILL` is as high as the font, from `yOffsetLowest` to
 `yBottomMax`, whatever the letters, and runs from `x` to the end of the
@@ -249,6 +250,27 @@ A font of one bit has no edges: `DGX_FONT_BG` changes nothing for it, and
 `DGX_FONT_FILL` fills its cell as for a soft one. `DGX_FONT_MONO` and
 `DGX_FONT_HARD` go with either flag: the letters are cut, the paper is as the
 flag says.
+
+A field is a cell of a width the program gives, `field` pixels along the
+line from `x`, as high as the cell of `DGX_FONT_FILL`; it implies that flag.
+The text is set in it by `align`: `DGX_FONT_ALIGN_LEFT` at its start,
+`DGX_FONT_ALIGN_CENTER` in its middle, `DGX_FONT_ALIGN_RIGHT` at its end, by
+the advances of the letters, at a whole pixel of the font from the start of
+the field. The whole field takes `bg` where no letter is, so a shorter text
+leaves nothing of a longer one drawn there before, and nothing goes out of
+the field: a text longer than it is cut at its ends, by the clip of the
+screen cut to the field for the time of the call. On a display of 16 bits a
+pixel behind a bus the field goes in one pass, every pixel once, as the cell
+of `DGX_FONT_FILL` does; the price is the whole width of the field over the
+bus every time, also when one digit has changed. `dgx_font_draw()` returns
+the width of the field, where the next field of the line starts.
+
+```c
+const dgx_font_context_t value = {.scr = lcd, .font = font, .color = white, .bg = black,
+                                  .field = 80, .align = DGX_FONT_ALIGN_RIGHT};
+dgx_font_draw(&value, 150, 40, "1234");
+dgx_font_draw(&value, 150, 40, "7"); // the 1234 is gone, the 7 stands where the 4 stood
+```
 
 ### Handwritten fonts
 
@@ -450,7 +472,7 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_overlay_set_alphas(display, alphas)` | A share of its own for every index, 0 to 255, times the `alpha` of the layer: a button solid and its shadow faint, the alpha of the layer still fading all. Kept when the layer is moved or gets other colors or another alpha, until it is taken away; NULL for 255 each. The place of the layer becomes changed. |
 | `dgx_overlay_clear(display)` | Take the layer away; its place becomes changed. |
 | `dgx_overlay_take_dirty(display, &x, &y, &w, &h)` | The rectangle the layer changed since the last call: drawn into, laid, moved, taken away. Put it again from the picture. |
-| `dgx_image_blit(dst, x, y, image, how)` | Draw a picture of 1, 4 or 8 bits from flash or RAM (`dgx_image.h`): value 0 transparent, a map or one color for the others, clipped, mirrored or rotated around its origin. A picture in one color, of 1 bit or any other with `DGX_IMAGE_SILHOUETTE`, goes on any screen, a display of any depth too, in a color of that screen. By its values or through a map it goes into a linear 8-bit virtual screen only, and returns `ESP_ERR_NOT_SUPPORTED` for another destination. See [A picture from flash](#a-picture-from-flash). |
+| `dgx_image_blit(dst, x, y, image, how)` | Draw a picture of 1, 4 or 8 bits from flash or RAM (`dgx_image.h`): value 0 transparent, or `bg` with `DGX_IMAGE_OPAQUE`, a map or one color for the others, clipped, mirrored or rotated around its origin. A picture in one color, of 1 bit or any other with `DGX_IMAGE_SILHOUETTE`, goes on any screen, a display of any depth too, in a color of that screen. By its values or through a map it goes into a linear 8-bit virtual screen only, and returns `ESP_ERR_NOT_SUPPORTED` for another destination. See [A picture from flash](#a-picture-from-flash). |
 | `dgx_bw_init(width, height)` | Allocate a 1-bit monochrome RAM screen. |
 | `dgx_vscreen_2h_init(left, right)` | Compose two screens as one wide logical screen. |
 | `dgx_vscreen_is_linear(scr)` | True when the screen is a `dgx_vscreen_t` with row-major pixels in `v_array`. |
@@ -494,9 +516,14 @@ dgx_screen_t *picture = dgx_vscreen_from_array((void *)logo, 120, 40, 16, DgxScr
 dgx_vscreen_to_screen(scr, 0, 0, picture, 0);
 ```
 
-The zero bits of an icon leave the screen as it was: for an opaque icon fill
-its box first. On a display behind a bus every run of set pixels along a row
-is one window, as with the rows of a letter.
+The zero bits of an icon leave the screen as it was, and on a display behind
+a bus every run of set pixels along a row is one window, as with the rows of
+a letter. With `DGX_IMAGE_OPAQUE` the zero bits take `bg`, and the box of the
+icon is written whole, every pixel once: on a display behind a bus by one
+window, its rows put through the buffer of the bus, on another screen by
+runs of the two colors. An icon drawn again over itself, or another icon in
+its place, does not blink then. By values or a map on an 8-bit virtual
+screen, a pixel 0 takes `bg` too.
 
 A screen over flash is read by the processor and sent through the buffer of
 the bus in pieces, on MIPI-DSI through the two bands the bus makes for such

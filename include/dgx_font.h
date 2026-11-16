@@ -262,6 +262,16 @@ void dgx_font_string_utf8_screen(        //
 #define DGX_FONT_HARD 0x8u
 
 /**
+ * Where a text is set in its field, dgx_font_context_t::field: at its start,
+ * in its middle or at its end, by the advances of the letters.
+ */
+typedef enum {
+    DGX_FONT_ALIGN_LEFT = 0, ///< at the start of the field
+    DGX_FONT_ALIGN_CENTER,   ///< in the middle of it
+    DGX_FONT_ALIGN_RIGHT,    ///< at its end: digits of a number that changes stay in their places
+} dgx_font_align_t;
+
+/**
  * @brief How text is drawn: the screen, the font, the colors and the rest that
  * stays the same from one text to the next.
  *
@@ -305,16 +315,32 @@ typedef struct dgx_font_context_t {
      */
     void (*dot_func)(const struct dgx_font_context_t *ctx, int x, int y);
     void *user_data; ///< The program's own, for dot_func; DGX does not touch it.
+    /**
+     * The width of a field, in pixels of the screen along the line; 0 for
+     * none. The text is set in the field by `align`, and the whole field, as
+     * high as the cell of DGX_FONT_FILL, takes ctx->bg where the letters are
+     * not: what was drawn there before goes in the same call, however long
+     * it was, so a program draws a line of a table, a clock or a counter by
+     * one call and keeps nothing of what it drew. Implies DGX_FONT_FILL, and
+     * as with it, on a display of 16 bits a pixel behind a bus every pixel of
+     * the field is written once, so the text does not blink. Nothing goes out
+     * of the field: a text longer than it is cut at its ends. The whole width
+     * goes over the bus every time, also when one digit has changed.
+     */
+    int              field;
+    dgx_font_align_t align; ///< Where the text is set in its field: DGX_FONT_ALIGN_LEFT, _CENTER or _RIGHT.
 } dgx_font_context_t;
 
 /**
  * @brief Draw a UTF-8 text.
  * @param ctx How: see dgx_font_context_t.
- * @param x,y The start of the base line of the first letter.
+ * @param x,y The start of the base line of the first letter; with a field,
+ *            the start of the base line of the field.
  * @param str The text.
  * @return How far the text goes along its line, in pixels of the screen, the
  *         scale counted: the next text of the line starts that far on, along
- *         x for a text that is not turned, along y for one that is.
+ *         x for a text that is not turned, along y for one that is. With a
+ *         field, the width of the field.
  */
 int dgx_font_draw(const dgx_font_context_t *ctx, int x, int y, const char *str);
 
@@ -322,8 +348,10 @@ int dgx_font_draw(const dgx_font_context_t *ctx, int x, int y, const char *str);
  * @brief Draw one character, as dgx_font_draw() draws each of a text.
  *
  * With DGX_FONT_FILL its own cell is filled: the cell of a text is one, which
- * a text of these calls is not.
- * @return How far the next character starts along the line, scale counted.
+ * a text of these calls is not. With a field, the character is a text of one
+ * character in it.
+ * @return How far the next character starts along the line, scale counted;
+ *         with a field, the width of the field.
  */
 int dgx_font_draw_char(const dgx_font_context_t *ctx, int x, int y, uint32_t code_point);
 

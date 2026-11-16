@@ -36,8 +36,8 @@ typedef enum {
  * dgx_bw_bitmap_t with is_stream == false). A row takes
  * (width * format + 7) / 8 bytes. The data may stay in flash.
  *
- * A pixel value of 0 is always transparent. A picture without holes simply has
- * no zeros.
+ * A pixel value of 0 is transparent, unless DGX_IMAGE_OPAQUE gives it a
+ * color. A picture without holes simply has no zeros.
  *
  * The origin is a pixel of the picture, like the base line and base column of
  * a glyph: dgx_image_blit() puts it at the point it is given, and mirrors and
@@ -57,12 +57,21 @@ typedef struct {
 #define DGX_IMAGE_SILHOUETTE 1u
 /** Draw only inside the clip rectangle of dgx_image_blit_t, and inside the clip of the destination, dgx_screen_clip(). Without it the clip of the destination alone. */
 #define DGX_IMAGE_CLIP 2u
+/**
+ * A pixel 0 is not transparent: it puts dgx_image_blit_t::bg. The box of the
+ * picture is written whole, every pixel once, so an icon drawn again over
+ * itself on a display does not blink: on a display behind a bus by one window
+ * and the bus buffer, a row at a time; on another screen by runs of the two
+ * colors.
+ */
+#define DGX_IMAGE_OPAQUE 4u
 
 /**
  * @brief How a picture is drawn. A zero-initialized structure draws it as it
  * is: no map, no rotation, no clip.
  *
- * What a pixel p != 0 puts on the destination:
+ * What a pixel p != 0 puts on the destination (a pixel 0 puts nothing, or bg
+ * with DGX_IMAGE_OPAQUE):
  * - 1 bit: color;
  * - 4 bits: map[p - 1], a map of 15 indices; without a map, p itself;
  * - 8 bits: map[p - 1], a map of 255 indices; without a map, p itself;
@@ -77,7 +86,7 @@ typedef struct {
  * on a 16-bit display, 1 or 0 on a monochrome one.
  */
 typedef struct {
-    uint32_t                 flags;       /**< DGX_IMAGE_SILHOUETTE, DGX_IMAGE_CLIP */
+    uint32_t                 flags;       /**< DGX_IMAGE_SILHOUETTE, DGX_IMAGE_CLIP, DGX_IMAGE_OPAQUE */
     const uint8_t           *map;         /**< 4 bits: 15 indices; 8 bits: 255 indices; or NULL */
     uint32_t                 color;       /**< for 1 bit and DGX_IMAGE_SILHOUETTE: an index of an 8-bit virtual screen, a color of any other screen */
     dgx_output_orientation_t orientation; /**< mirror or rotation around the origin */
@@ -85,6 +94,7 @@ typedef struct {
     int16_t                  clip_y;
     int16_t                  clip_w;
     int16_t                  clip_h;
+    uint32_t                 bg;          /**< with DGX_IMAGE_OPAQUE: what a pixel 0 puts, as color: an index of an 8-bit virtual screen, a color of any other screen */
 } dgx_image_blit_t;
 
 /**
@@ -104,8 +114,8 @@ typedef struct {
  * screen, a virtual screen of any depth. This is how an icon or a logo kept
  * as a bitmap is put straight on a display in a given color. Nonzero pixels
  * are drawn in runs along the rows of the screen, one filled rectangle per
- * run, like the rows of a glyph; zero pixels leave the screen as it was. For
- * an opaque icon, fill its box with the background color first.
+ * run, like the rows of a glyph; zero pixels leave the screen as it was, or
+ * take bg with DGX_IMAGE_OPAQUE.
  *
  * @param dst   Destination screen.
  * @param x,y   Where the origin of the picture goes.

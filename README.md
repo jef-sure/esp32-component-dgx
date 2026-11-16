@@ -355,7 +355,10 @@ Where the colors under an edge come from:
   program names the paper: `DGX_FONT_BG` mixes the edges with `bg`, and
   `DGX_FONT_FILL` also fills the cell of the text with it, as high as the
   font: a number drawn again over itself replaces the one before without an
-  erase. On a display of 16 bits a pixel the cell goes in one pass, every
+  erase. A field, `.field` and `.align` of the context, is such a cell of a
+  width the program gives, the text set at its start, middle or end: a
+  shorter number leaves nothing of a longer one, and a line of a table is
+  one call. On a display of 16 bits a pixel the cell goes in one pass, every
   pixel of it written once, so the number does not blink; on one of 18 or 24
   bits the cell is filled first and the letters drawn after, and a number
   that must not blink there is drawn into a virtual screen and sent whole.
@@ -630,7 +633,9 @@ Example: [examples/sprite_palette_demo](https://github.com/jef-sure/esp32-compon
 
 A picture in one color needs no virtual screen. `dgx_image_blit()` puts a
 1-bit picture, or the silhouette of any other, on any screen in a color of
-that screen; its zero bits leave the screen as it was.
+that screen; its zero bits leave the screen as it was, or take a color of
+their own with `DGX_IMAGE_OPAQUE`, and the icon then goes whole, every pixel
+once: an icon drawn again in its place does not blink.
 
 ```c
 #include "dgx_image.h"
@@ -639,6 +644,8 @@ that screen; its zero bits leave the screen as it was.
 static const uint8_t bell_bits[32] = { /* ... */ };
 static const dgx_image_t bell = {.width = 16, .height = 16, .format = DGX_IMAGE_1BPP, .data = bell_bits};
 dgx_image_blit(lcd, 100, 20, &bell, &(dgx_image_blit_t){.color = DGX_GOLD(dgx_rgb_to_16)});
+// on a box of its own: the zero bits black
+dgx_image_blit(lcd, 120, 20, &bell, &(dgx_image_blit_t){.flags = DGX_IMAGE_OPAQUE, .color = DGX_GOLD(dgx_rgb_to_16), .bg = 0});
 ```
 
 A picture in the colors of the display stays in flash too: make a virtual

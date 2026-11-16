@@ -804,8 +804,10 @@ static bool band_ink(void *user_data, int x, int y)
  * the one the paper and the letters drawn after it give, but where two
  * glyphs meet with an edge each. Returns false, with nothing drawn, for
  * another screen, a font that is not of bitmaps, or no memory for a band.
+ * cell: NULL for the cell of the text; or its two ends along the line, in
+ * pixels of the font from the start of the text, for a field.
  */
-static bool fill_in_one_pass(const dgx_font_context_t *ctx, int x, int y, const char *str, const uint32_t *table, int *advance)
+static bool fill_in_one_pass(const dgx_font_context_t *ctx, int x, int y, const char *str, const uint32_t *table, int *advance, const int *cell)
 {
     dgx_screen_t     *scr  = ctx->scr;
     const dgx_font_t *font = ctx->font;
@@ -828,6 +830,7 @@ static bool fill_in_one_pass(const dgx_font_context_t *ctx, int x, int y, const 
     }
     if (pen > right) right = pen;
     *advance = pen * scale;
+    if (cell) left = cell[0], right = cell[1];
     const int width = right - left, height = font->yBottomMax - font->yOffsetLowest;
     if (width <= 0 || height <= 0) return true;
     /* the colors of the levels: mixed over the paper, or cut as DGX_FONT_HARD and DGX_FONT_MONO ask */
@@ -895,9 +898,77 @@ static bool fill_in_one_pass(const dgx_font_context_t *ctx, int x, int y, const 
 }
 #endif
 
+/* a / b brought down to a whole number, also for a negative a: b > 0 */
+static inline int floor_div(int a, int b)
+{
+    return a >= 0 ? a / b : -((-a + b - 1) / b);
+}
+
+/*
+ * A text in its field, ctx->field: the field filled with the paper, the text
+ * set in it by ctx->align, and nothing drawn outside it, by the clip of the
+ * screen cut to the field for the time of the call. Where the text starts in
+ * the field is a whole pixel of the font from its start, so that the cell of
+ * one pass, a band of pixels of the font made larger on its way, has the text
+ * where the paper and the letters drawn after it have it.
+ */
+static int font_field(const dgx_font_context_t *field_ctx, int x, int y, const char *str)
+{
+    dgx_font_context_t ctx = *field_ctx;
+    ctx.flags |= DGX_FONT_FILL;
+    dgx_screen_t *scr = ctx.scr;
+    const int     scale = ctx.scale ? ctx.scale : 1, field = ctx.field;
+    const bool    swap_xy = dgx_output_orientation_swap_xy(ctx.orientation);
+    const int     step    = swap_xy ? dgx_output_orientation_ydir(ctx.orientation) : dgx_output_orientation_xdir(ctx.orientation);
+    /* the advances of the text, in pixels of the font, and where it starts in the field */
+    int    pen = 0;
+    size_t idx = 0;
+    while (str[idx]) {
+        int16_t advance;
+        dgx_font_find_glyph(dgx_utf8_next(str, &idx), ctx.font, &advance);
+        pen += advance;
+    }
+    const int room  = field - pen * scale;
+    const int start = floor_div(ctx.align == DGX_FONT_ALIGN_RIGHT ? room : ctx.align == DGX_FONT_ALIGN_CENTER ? room / 2 : 0, scale);
+    /* the field on the screen, as high as the cell of DGX_FONT_FILL; the clip cut to it */
+    int fx, fy, fw, fh;
+    text_rect(ctx.orientation, 0, ctx.font->yOffsetLowest * scale, field, (ctx.font->yBottomMax - ctx.font->yOffsetLowest) * scale, &fx, &fy, &fw, &fh);
+    fx += x, fy += y;
+    int cx, cy, cw, ch;
+    dgx_screen_clip_get(scr, &cx, &cy, &cw, &ch);
+    const int left = DGX_MAX(cx, fx), top = DGX_MAX(cy, fy), right = DGX_MIN(cx + cw, fx + fw), bottom = DGX_MIN(cy + ch, fy + fh);
+    if (right <= left || bottom <= top) return field;
+    dgx_screen_clip(scr, left, top, right - left, bottom - top);
+    /* the start of the base line of the text */
+    const int tx = swap_xy ? x : x + start * scale * step, ty = swap_xy ? y + start * scale * step : y;
+    uint32_t        colors[16];
+    const uint32_t *table = soft_table(&ctx, colors);
+    dgx_screen_batch_begin(scr);
+    bool done = false;
+#ifdef DGX_FONT_VSCREEN_FAST_PATH
+    /* the cell is the field: from its start to its end, the last pixel of the font that reaches into it counted */
+    const int cell[2] = {-start, (field + scale - 1) / scale - start};
+    int       advance;
+    done = fill_in_one_pass(&ctx, tx, ty, str, table, &advance, cell);
+#endif
+    if (!done) {
+        dgx_fill_rectangle(scr, fx, fy, fw, fh, ctx.bg);
+        int at = 0;
+        idx    = 0;
+        while (str[idx]) {
+            const uint32_t cp = dgx_utf8_next(str, &idx);
+            at += font_char(&ctx, swap_xy ? tx : tx + at * step, swap_xy ? ty + at * step : ty, cp, table);
+        }
+    }
+    dgx_screen_batch_end(scr);
+    dgx_screen_clip(scr, cx, cy, cw, ch);
+    return field;
+}
+
 int dgx_font_draw(const dgx_font_context_t *ctx, int x, int y, const char *str)
 {
     if (!ctx || !ctx->scr || !ctx->font || !str) return 0;
+    if (ctx->field > 0) return font_field(ctx, x, y, str);
     const bool swap_xy = dgx_output_orientation_swap_xy(ctx->orientation);
     const int  step    = swap_xy ? dgx_output_orientation_ydir(ctx->orientation) : dgx_output_orientation_xdir(ctx->orientation);
     uint32_t   colors[16];
@@ -905,7 +976,7 @@ int dgx_font_draw(const dgx_font_context_t *ctx, int x, int y, const char *str)
     dgx_screen_batch_begin(ctx->scr);
 #ifdef DGX_FONT_VSCREEN_FAST_PATH
     int advance;
-    if ((ctx->flags & DGX_FONT_FILL) && fill_in_one_pass(ctx, x, y, str, table, &advance)) {
+    if ((ctx->flags & DGX_FONT_FILL) && fill_in_one_pass(ctx, x, y, str, table, &advance, NULL)) {
         dgx_screen_batch_end(ctx->scr);
         return advance;
     }
@@ -924,22 +995,23 @@ int dgx_font_draw(const dgx_font_context_t *ctx, int x, int y, const char *str)
 int dgx_font_draw_char(const dgx_font_context_t *ctx, int x, int y, uint32_t code_point)
 {
     if (!ctx || !ctx->scr || !ctx->font) return 0;
+    /* its cell, or its field, as of a text of this one character */
+    char one[5] = {0};
+    if (code_point < 0x80) one[0] = (char)code_point;
+    else if (code_point < 0x800) one[0] = (char)(0xC0 | code_point >> 6), one[1] = (char)(0x80 | (code_point & 0x3F));
+    else if (code_point < 0x10000)
+        one[0] = (char)(0xE0 | code_point >> 12), one[1] = (char)(0x80 | ((code_point >> 6) & 0x3F)), one[2] = (char)(0x80 | (code_point & 0x3F));
+    else
+        one[0] = (char)(0xF0 | code_point >> 18), one[1] = (char)(0x80 | ((code_point >> 12) & 0x3F)),
+        one[2] = (char)(0x80 | ((code_point >> 6) & 0x3F)), one[3] = (char)(0x80 | (code_point & 0x3F));
+    if (ctx->field > 0) return font_field(ctx, x, y, one);
     uint32_t        colors[16];
     const uint32_t *table = soft_table(ctx, colors);
     dgx_screen_batch_begin(ctx->scr);
     if (ctx->flags & DGX_FONT_FILL) {
-        /* its cell as of a text of this one character */
-        char one[5] = {0};
-        if (code_point < 0x80) one[0] = (char)code_point;
-        else if (code_point < 0x800) one[0] = (char)(0xC0 | code_point >> 6), one[1] = (char)(0x80 | (code_point & 0x3F));
-        else if (code_point < 0x10000)
-            one[0] = (char)(0xE0 | code_point >> 12), one[1] = (char)(0x80 | ((code_point >> 6) & 0x3F)), one[2] = (char)(0x80 | (code_point & 0x3F));
-        else
-            one[0] = (char)(0xF0 | code_point >> 18), one[1] = (char)(0x80 | ((code_point >> 12) & 0x3F)),
-            one[2] = (char)(0x80 | ((code_point >> 6) & 0x3F)), one[3] = (char)(0x80 | (code_point & 0x3F));
 #ifdef DGX_FONT_VSCREEN_FAST_PATH
         int whole;
-        if (one[0] && fill_in_one_pass(ctx, x, y, one, table, &whole)) {
+        if (one[0] && fill_in_one_pass(ctx, x, y, one, table, &whole, NULL)) {
             dgx_screen_batch_end(ctx->scr);
             return whole;
         }

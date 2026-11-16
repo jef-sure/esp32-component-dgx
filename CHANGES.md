@@ -1,5 +1,39 @@
 # Changes
 
+## 0.11.4 - 2026-11-16
+
+No call of a program is broken: the new members are at the end of their
+structures. Both were seen on the ILI9341 of a CYD; the rest is host tests,
+and builds for ESP32, ESP32-S3 and ESP32-P4 with every driver.
+
+New:
+
+- **An opaque picture, every pixel once.** `DGX_IMAGE_OPAQUE` in the flags
+  of `dgx_image_blit()`: a pixel 0 is not transparent and puts `bg`, a new
+  member at the end of `dgx_image_blit_t`. The box of the picture is
+  written whole and once: on a display behind a bus by one window, its rows
+  put through the buffer of the bus; on another screen by runs of the two
+  colors; by values or a map on an 8-bit virtual screen, 0 takes `bg` too.
+  An icon drawn again in its place does not blink.
+- **A text in a field.** `field` and `align` at the end of
+  `dgx_font_context_t`: the text is set in a field of that width at its
+  start, middle or end (`DGX_FONT_ALIGN_LEFT`, `_CENTER`, `_RIGHT`), the
+  whole field, as high as the cell of `DGX_FONT_FILL`, takes `bg` where no
+  letter is, and a text longer than the field is cut at its ends. A line of
+  a table, a clock or a counter is one call, and the program keeps nothing
+  of what it drew: a shorter text leaves nothing of a longer one. On a
+  display of 16 bits a pixel behind a bus every pixel of the field is
+  written once, as the cell of `DGX_FONT_FILL` is; the whole width of the
+  field goes over the bus every time. `dgx_font_draw()` returns the width of
+  the field.
+- Both are checked by host tests against the same picture drawn by the box
+  or the field filled first, in every orientation, on a model of a 16-bit
+  panel behind a bus that counts the writes of every pixel, and seen on the
+  ILI9341 of a CYD at 40 MHz: a number of 1 to 5 digits in a field 150
+  pixels wide at scale 2 takes 1.87 ms, against 1.90 ms for the box filled
+  and the text drawn after; an opaque icon of 40x40 takes 1.31 ms, against
+  1.69 ms for the box filled and the icon drawn after.
+
 ## 0.11.3 - 2026-11-16
 
 No call of a program is broken. The clip was seen on the ILI9341 of a CYD;

@@ -157,38 +157,80 @@ static inline bool image_inked(const uint8_t *row, unsigned format, int sx)
     }
 }
 
+/* the turned picture walked along a row of the destination: where its first pixel is in the picture, and the step to the next */
+typedef struct {
+    const dgx_image_t *image;
+    size_t             stride;
+    bool               swapped, x_back, y_back;
+    int                box_x, box_y;
+} image_walk_t;
+
+static inline void image_row_start(const image_walk_t *wk, int left, int y, int *sx, int *sy, int *dx, int *dy)
+{
+    const int u = left - wk->box_x, v = y - wk->box_y, w = wk->image->width, h = wk->image->height;
+    *sx = wk->x_back ? w - 1 - (wk->swapped ? v : u) : (wk->swapped ? v : u);
+    *sy = wk->y_back ? h - 1 - (wk->swapped ? u : v) : (wk->swapped ? u : v);
+    *dx = wk->swapped ? 0 : wk->x_back ? -1 : 1, *dy = !wk->swapped ? 0 : wk->y_back ? -1 : 1;
+}
+
 /*
  * A picture in one color on any screen. Covers rows top .. bottom - 1 and
- * columns left .. right - 1 of the destination; (box_x, box_y) is where the
- * corner of the turned picture lies there. Nonzero pixels are gathered into
- * runs along each row, and each run is drawn as a rectangle one pixel high
- * by the screen's own fill, the way glyph rows are drawn: a display behind a
- * bus gets one window per run instead of one per pixel. Zero pixels are left
- * alone.
+ * columns left .. right - 1 of the destination. The pixels of a row are
+ * gathered into runs of one value, and each run is drawn as a rectangle one
+ * pixel high by the screen's own fill, the way glyph rows are drawn: a
+ * display behind a bus gets one window per run instead of one per pixel.
+ * Zero pixels are left alone, or take bg when `opaque`: every pixel once.
  */
-static void image_runs(dgx_screen_t *dst, const dgx_image_t *image, uint32_t color, bool swapped, bool x_back, bool y_back, int left, int top,
-                       int right, int bottom, int box_x, int box_y)
+static void image_runs(dgx_screen_t *dst, const image_walk_t *wk, uint32_t color, bool opaque, uint32_t bg, int left, int top, int right,
+                       int bottom)
 {
-    const int      w = image->width, h = image->height, n = right - left, u = left - box_x;
-    const unsigned format = image->format;
-    const size_t   stride = ((size_t)w * format + 7u) / 8u;
+    const int      n      = right - left;
+    const unsigned format = wk->image->format;
     for (int y = top; y < bottom; ++y) {
-        const int v = y - box_y;
-        /* the source pixel of the first pixel in this row, and the step to the next: along a picture row, or down a picture column */
-        int       sx = x_back ? w - 1 - (swapped ? v : u) : (swapped ? v : u);
-        int       sy = y_back ? h - 1 - (swapped ? u : v) : (swapped ? u : v);
-        const int dx = swapped ? 0 : x_back ? -1 : 1, dy = !swapped ? 0 : y_back ? -1 : 1;
-        int       run = -1; /* where the current run starts, -1 for none */
+        int sx, sy, dx, dy;
+        image_row_start(wk, left, y, &sx, &sy, &dx, &dy);
+        int  run   = 0; /* where the current run starts */
+        bool inked = false;
         for (int i = 0; i < n; ++i, sx += dx, sy += dy) {
-            if (image_inked(image->data + (size_t)sy * stride, format, sx)) {
-                if (run < 0) run = i;
-            } else if (run >= 0) {
-                dgx_fill_rectangle(dst, left + run, y, i - run, 1, color);
-                run = -1;
+            const bool now = image_inked(wk->image->data + (size_t)sy * wk->stride, format, sx);
+            if (i && now != inked) {
+                if (inked || opaque) dgx_fill_rectangle(dst, left + run, y, i - run, 1, inked ? color : bg);
+                run = i;
             }
+            inked = now;
         }
-        if (run >= 0) dgx_fill_rectangle(dst, left + run, y, n - run, 1, color);
+        if (inked || opaque) dgx_fill_rectangle(dst, left + run, y, n - run, 1, inked ? color : bg);
     }
+}
+
+/*
+ * The same picture in one color, opaque, on a display behind a bus: one
+ * window over the whole box, every row put into the buffer of the bus as
+ * pixels of the screen and sent. False, with nothing drawn, when a row does
+ * not fit in the buffer or does not end on a whole byte.
+ */
+static bool image_window(dgx_screen_t *dst, const image_walk_t *wk, uint32_t color, uint32_t bg, int left, int top, int right, int bottom)
+{
+    const int n = right - left;
+    if (dst->screen_subtype != DgxPhysicalScreenWithBus || !dst->draw_buffer || (uint32_t)n * dst->color_bits % 8u) return false;
+    const uint32_t bytes = dgx_color_points_to_bytes(dst->color_bits, (uint32_t)n);
+    if (bytes > dst->draw_buffer_len) return false;
+    const unsigned format = wk->image->format;
+    /* the buffer free first: waiting after the window would send its command alone, ahead of the pixels */
+    if (dst->wait_buffer) dst->wait_buffer(dst);
+    dst->set_area(dst, (uint16_t)left, (uint16_t)(right - 1), (uint16_t)top, (uint16_t)(bottom - 1));
+    for (int y = top; y < bottom; ++y) {
+        int sx, sy, dx, dy;
+        image_row_start(wk, left, y, &sx, &sy, &dx, &dy);
+        /* the row before may still be on its way from the buffer */
+        if (dst->wait_buffer) dst->wait_buffer(dst);
+        uint8_t *lp = dst->draw_buffer;
+        for (int i = 0; i < n; ++i, sx += dx, sy += dy)
+            lp = dgx_fill_buf_value(dst->color_bits, lp, (uint32_t)i, image_inked(wk->image->data + (size_t)sy * wk->stride, format, sx) ? color : bg);
+        dst->write_area(dst, dst->draw_buffer, bytes * 8u);
+    }
+    dgx_screen_touch(dst, left, right - 1, top, bottom - 1);
+    return true;
 }
 
 /* a linear 8-bit virtual screen: the only destination for values and maps */
@@ -246,10 +288,13 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
     bottom = DGX_MIN(bottom, box_y + box_h);
     if (right <= left || bottom <= top) return ESP_OK;
 
+    const bool opaque = (how->flags & DGX_IMAGE_OPAQUE) != 0;
     if (!indexed) {
-        /* the screen draws the runs itself, in one batch */
+        /* the screen draws the runs itself, in one batch; an opaque box on a display behind a bus goes in one window */
+        const image_walk_t wk = {image, ((size_t)w * format + 7u) / 8u, swapped, x_back, y_back, box_x, box_y};
         dgx_screen_batch_begin(dst);
-        image_runs(dst, image, how->color, swapped, x_back, y_back, left, top, right, bottom, box_x, box_y);
+        if (!opaque || !image_window(dst, &wk, how->color, how->bg, left, top, right, bottom))
+            image_runs(dst, &wk, how->color, opaque, how->bg, left, top, right, bottom);
         dgx_screen_batch_end(dst);
         return ESP_OK;
     }
@@ -280,6 +325,8 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
         const int sx = x_back ? w - 1 - u : u;
         for (int v = v0; v < v0 + bottom - top; ++v, row += pitch) {
             const uint8_t *src = image->data + (size_t)(y_back ? h - 1 - v : v) * stride;
+            /* in memory, nothing is seen in between: the row takes the paper, then the pixels that are not 0 */
+            if (opaque) memset(row, (int)(uint8_t)how->bg, (size_t)n);
             if (format == DGX_IMAGE_4BPP) {
                 if (x_back) image_row4_back(row, src, sx, n, ink);
                 else image_row4_fwd(row, src, sx, n, ink);
@@ -299,6 +346,7 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
         for (int v = v0; v < v0 + bottom - top; ++v, row += pitch) {
             const int      sx    = x_back ? w - 1 - v : v;
             const unsigned shift = 8u - format - (unsigned)(sx * format % 8);
+            if (opaque) memset(row, (int)(uint8_t)how->bg, (size_t)n);
             image_column(row, image->data + (size_t)sy0 * stride + (size_t)sx * format / 8u, step, shift, mask, n, ink);
         }
     }

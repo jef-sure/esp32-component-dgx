@@ -230,6 +230,10 @@ static void op_text(dgx_screen_t *s)
         const dgx_font_context_t ctx = {.scr = s, .font = TerminusTTFMedium12(), .color = ink(s, k), .bg = ink(s, k + 4),
                                         .orientation = turns[k], .scale = k == 1 ? 2 : 1, .flags = k == 2 ? DGX_FONT_FILL : 0};
         dgx_font_draw(&ctx, 6 + 10 * k, 14 + 9 * k, "Clip Hg 12");
+        /* a field, longer and shorter than its text */
+        dgx_font_context_t field = ctx;
+        field.field = k % 2 ? 70 : 25, field.align = (dgx_font_align_t)(k % 3), field.flags = 0;
+        dgx_font_draw(&field, 2 + 5 * k, 40 - 8 * k, "12:34");
     }
 }
 
@@ -281,6 +285,7 @@ static void op_images(dgx_screen_t *s)
     const dgx_image_blit_t how  = {.color = ink(s, 1), .orientation = DgxOutputRotate90CW};
     dgx_image_blit(s, 30, 10, &icon, &how);
     dgx_image_blit(s, 50, 40, &icon, &(dgx_image_blit_t){.color = ink(s, 2)});
+    dgx_image_blit(s, 8, 30, &icon, &(dgx_image_blit_t){.flags = DGX_IMAGE_OPAQUE, .color = ink(s, 3), .bg = ink(s, 4), .orientation = DgxOutputMirrorY});
     if (s->color_bits == 8 && dgx_vscreen_is_linear(s)) {
         const dgx_image_t picture = {.width = 17, .height = 13, .format = DGX_IMAGE_8BPP, .data = eight};
         dgx_image_blit(s, 5, 25, &picture, &(dgx_image_blit_t){.orientation = DgxOutputRotate180});
