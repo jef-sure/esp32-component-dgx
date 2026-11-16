@@ -23,6 +23,7 @@
 #include "dgx_screen_with_bus.h"
 #include "dgx_vscreen_priv.h"
 #include "dgx_vscreen.h"
+#include "../dgx_clip_priv.h"
 
 static const char TAG[] = "DGX V-Screen";
 
@@ -79,10 +80,10 @@ static inline bool dgx_transfer_place_near(const dgx_screen_t *dst, const dgx_sc
     const int  tw = swapped ? high : wide, th = swapped ? wide : high;
     int        left = x + ((ul > 0 ? ul : 0) - ul), right = x + ((uh < tw ? uh : tw) - ul);
     int        top = y + ((vl > 0 ? vl : 0) - vl), bottom = y + ((vh < th ? vh : th) - vl);
-    if (left < 0) left = 0;
-    if (top < 0) top = 0;
-    if (right > dst->width) right = dst->width;
-    if (bottom > dst->height) bottom = dst->height;
+    if (left < dgx_clip_left(dst)) left = dgx_clip_left(dst);
+    if (top < dgx_clip_top(dst)) top = dgx_clip_top(dst);
+    if (right > dgx_clip_right(dst)) right = dgx_clip_right(dst);
+    if (bottom > dgx_clip_bottom(dst)) bottom = dgx_clip_bottom(dst);
     if (right <= left || bottom <= top) return false;
     place->x = left, place->y = top, place->w = right - left, place->h = bottom - top;
     place->u = ul + (left - x), place->v = vl + (top - y);
@@ -111,11 +112,11 @@ static __attribute__((noinline)) bool dgx_transfer_place_far(const dgx_screen_t 
     const int64_t tw = swapped ? high : wide, th = swapped ? wide : high;
     int64_t       left = x + ((ul > 0 ? ul : 0) - ul), right = x + ((uh < tw ? uh : tw) - ul);
     int64_t       top = y + ((vl > 0 ? vl : 0) - vl), bottom = y + ((vh < th ? vh : th) - vl);
-    /* and of the destination */
-    if (left < 0) left = 0;
-    if (top < 0) top = 0;
-    if (right > dst->width) right = dst->width;
-    if (bottom > dst->height) bottom = dst->height;
+    /* and of the clip of the destination */
+    if (left < dgx_clip_left(dst)) left = dgx_clip_left(dst);
+    if (top < dgx_clip_top(dst)) top = dgx_clip_top(dst);
+    if (right > dgx_clip_right(dst)) right = dgx_clip_right(dst);
+    if (bottom > dgx_clip_bottom(dst)) bottom = dgx_clip_bottom(dst);
     if (right <= left || bottom <= top) return false;
     place->x = (int)left, place->y = (int)top, place->w = (int)(right - left), place->h = (int)(bottom - top);
     place->u = (int32_t)(ul + (left - x)), place->v = (int32_t)(vl + (top - y));

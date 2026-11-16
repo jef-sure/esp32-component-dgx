@@ -104,4 +104,5 @@ static inline void dgx_soft_turn_set(dgx_screen_t *scr, uint8_t *memory, int pw,
         scr->height = height;
     }
     scr->dirty_left = scr->dirty_right = scr->dirty_top = scr->dirty_bottom = 0;
+    dgx_screen_unclip(scr);
 }

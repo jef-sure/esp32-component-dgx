@@ -251,6 +251,7 @@ void dgx_panel_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orie
     _scr->swap_xy             = swap_xy;
     _scr->width               = swap_xy ? panel->height : panel->width;
     _scr->height              = swap_xy ? panel->width : panel->height;
+    dgx_screen_unclip(_scr);
     dgx_panel_shifts(&scr->base);
     const uint8_t madctl[1] = {dgx_panel_madctl(&scr->base)};
     scr->base.bus->write_command(scr->base.bus, DGX_PANEL_MADCTL);

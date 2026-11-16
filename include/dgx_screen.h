@@ -152,6 +152,15 @@ typedef struct _dgx_screen_t
     int16_t              dirty_top;
     int16_t              dirty_right;
     int16_t              dirty_bottom;
+    /*
+     * The clip: drawing changes only the pixels inside it. Left and top are a column and a row of the screen;
+     * right and bottom are how many columns and rows lie past it, so that a screen made of zeros has the whole
+     * of itself as its clip. Set by dgx_screen_clip() and dgx_screen_unclip(), read by dgx_screen_clip_get().
+     */
+    int16_t              clip_left;
+    int16_t              clip_top;
+    int16_t              clip_right_inset;
+    int16_t              clip_bottom_inset;
     uint16_t             cg_row_shift;
     uint16_t             cg_col_shift;
     uint8_t             *draw_buffer;
@@ -373,19 +382,75 @@ static inline bool dgx_screen_take_dirty(dgx_screen_t *_scr, int *left, int *top
 }
 
 /**
- * @brief Mark an area as changed (inclusive bounds, clipped to the screen).
+ * @brief Let drawing change only the pixels inside a rectangle of the screen.
+ *
+ * Every call that changes pixels of the screen keeps to it: figures, text,
+ * handwriting, pictures and transfers onto the screen. The coordinates stay
+ * those of the screen. The rectangle is cut by the screen; one outside it, or
+ * one of no width or height, lets nothing be drawn. It takes the place of the
+ * one before: to draw inside two, give their common part. A turn of the screen
+ * and a new size by dgx_vscreen_array_set() give back the whole screen.
+ *
+ * What a virtual screen sends to its display is not drawing, and the clip does
+ * not cut it.
+ *
+ * @param _scr Screen to clip.
+ * @param x,y  Top-left corner of the rectangle.
+ * @param w,h  Its size.
+ */
+static inline void dgx_screen_clip(dgx_screen_t *_scr, int x, int y, int w, int h)
+{
+    int right = x + w, bottom = y + h;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (right > _scr->width) right = _scr->width;
+    if (bottom > _scr->height) bottom = _scr->height;
+    if (x >= right || y >= bottom) x = y = right = bottom = 0;
+    _scr->clip_left         = (int16_t)x;
+    _scr->clip_top          = (int16_t)y;
+    _scr->clip_right_inset  = (int16_t)(_scr->width - right);
+    _scr->clip_bottom_inset = (int16_t)(_scr->height - bottom);
+}
+
+/**
+ * @brief Let drawing change the whole screen again, as it does on a new screen.
+ * @param _scr Screen to unclip.
+ */
+static inline void dgx_screen_unclip(dgx_screen_t *_scr)
+{
+    _scr->clip_left = _scr->clip_top = _scr->clip_right_inset = _scr->clip_bottom_inset = 0;
+}
+
+/**
+ * @brief The clip of the screen, to keep it and give it back by dgx_screen_clip() later.
+ *
+ * @param _scr     Screen whose clip is asked.
+ * @param x,y      Out: the top-left corner of the rectangle.
+ * @param w,h      Out: its size; 0 when nothing may be drawn.
+ */
+static inline void dgx_screen_clip_get(const dgx_screen_t *_scr, int *x, int *y, int *w, int *h)
+{
+    *x = _scr->clip_left;
+    *y = _scr->clip_top;
+    *w = _scr->width - _scr->clip_right_inset - _scr->clip_left;
+    *h = _scr->height - _scr->clip_bottom_inset - _scr->clip_top;
+}
+
+/**
+ * @brief Mark an area as changed (inclusive bounds, cut by the clip of the screen).
  *
  * Outside a batch the area is flushed at once; inside it is merged into the
- * pending dirty area.
+ * pending dirty area. Only what lies inside the clip is marked, as drawing
+ * changes nothing outside it: to send the rest, unclip the screen first.
  *
  * @param _scr Screen that was drawn on.
  */
 static inline void dgx_screen_touch(dgx_screen_t *_scr, int left, int right, int top, int bottom)
 {
-    if (left < 0) left = 0;
-    if (top < 0) top = 0;
-    if (right >= _scr->width) right = _scr->width - 1;
-    if (bottom >= _scr->height) bottom = _scr->height - 1;
+    if (left < _scr->clip_left) left = _scr->clip_left;
+    if (top < _scr->clip_top) top = _scr->clip_top;
+    if (right >= _scr->width - _scr->clip_right_inset) right = _scr->width - _scr->clip_right_inset - 1;
+    if (bottom >= _scr->height - _scr->clip_bottom_inset) bottom = _scr->height - _scr->clip_bottom_inset - 1;
     if (left <= right && top <= bottom) {
         if (_scr->dirty_right <= _scr->dirty_left) {
             _scr->dirty_left   = (int16_t)left;

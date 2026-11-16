@@ -17,6 +17,7 @@
 #include "dgx_vscreen.h"
 #include "dgx_overlay_priv.h"
 #include "dgx_vscreen_priv.h"
+#include "../dgx_clip_priv.h"
 
 /* dgx_vscreen_t is defined publicly in dgx_vscreen.h; what moves pictures between screens is in transfer.c */
 
@@ -96,11 +97,11 @@ static void dgx_vscreen_write_area(dgx_screen_t *_scr, uint8_t *data, uint32_t l
 static void dgx_vscreen_set_pixel(dgx_screen_t *_scr, int x, int y, uint32_t color)
 {
     dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
-    if (x < 0 || y < 0 || x >= _scr->width || y >= _scr->height) return;
+    if (!dgx_clip_has(_scr, x, y)) return;
     uint32_t offset = DGX_VSCR_OFFSET(scr, x, y);
     uint8_t *lp     = DGX_VSCR_PTR(scr, offset);
     dgx_fill_buf_value(_scr->color_bits, lp, offset, color);
-    dgx_screen_touch(_scr, x, x, y, y);
+    dgx_screen_touch_inside(_scr, x, x, y, y);
 }
 
 static uint32_t dgx_vscreen_get_pixel(dgx_screen_t *_scr, int x, int y)
@@ -154,16 +155,17 @@ static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, 
      * Depths where pixels share bytes go the common way.
      */
     const uint8_t bits = _scr->color_bits;
+    const int     cl = dgx_clip_left(_scr), cr = dgx_clip_right(_scr), ct = dgx_clip_top(_scr), cb = dgx_clip_bottom(_scr);
     if ((h == 1 || w == 1) && bits >= 8 && bits != 12) {
         const size_t bytes = bits == 18 ? 3u : bits / 8u;
         const size_t pitch = (size_t)_scr->width * bytes;
         if (h == 1) {
-            if (y < 0 || y >= _scr->height) return;
-            if (x < 0) {
-                w += x;
-                x = 0;
+            if (y < ct || y >= cb) return;
+            if (x < cl) {
+                w -= cl - x;
+                x = cl;
             }
-            if (x + w > _scr->width) w = _scr->width - x;
+            if (x + w > cr) w = cr - x;
             if (w <= 0) return;
             uint8_t *lp = scr->v_array + (size_t)y * pitch + (size_t)x * bytes;
             if (bits == 8) {
@@ -176,15 +178,15 @@ static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, 
             } else {
                 dgx_fill_pixels_16(lp, (uint32_t)w, color);
             }
-            dgx_screen_touch(_scr, x, x + w - 1, y, y);
+            dgx_screen_touch_inside(_scr, x, x + w - 1, y, y);
             return;
         }
-        if (x < 0 || x >= _scr->width) return;
-        if (y < 0) {
-            h += y;
-            y = 0;
+        if (x < cl || x >= cr) return;
+        if (y < ct) {
+            h -= ct - y;
+            y = ct;
         }
-        if (y + h > _scr->height) h = _scr->height - y;
+        if (y + h > cb) h = cb - y;
         if (h <= 0) return;
         uint8_t *lp = scr->v_array + (size_t)y * pitch + (size_t)x * bytes;
         switch (bytes) {
@@ -201,23 +203,22 @@ static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, 
             for (int k = 0; k < h; ++k, lp += pitch) dgx_fill_buf_value_32(lp, 0, color);
             break;
         }
-        dgx_screen_touch(_scr, x, x, y, y + h - 1);
+        dgx_screen_touch_inside(_scr, x, x, y, y + h - 1);
         return;
     }
-    if (x + w < 0 || x >= _scr->width || y + h < 0 || y >= _scr->height) return;
-    if (x < 0) {
-        w = x + w;
-        x = 0;
+    if (x < cl) {
+        w -= cl - x;
+        x = cl;
     }
-    if (x + w > _scr->width) {
-        w = _scr->width - x;
+    if (x + w > cr) {
+        w = cr - x;
     }
-    if (y < 0) {
-        h = y + h;
-        y = 0;
+    if (y < ct) {
+        h -= ct - y;
+        y = ct;
     }
-    if (y + h > _scr->height) {
-        h = _scr->height - y;
+    if (y + h > cb) {
+        h = cb - y;
     }
     if (h <= 0 || w <= 0) return;
     if (x == 0 && w == _scr->width && y == 0 && h == _scr->height && color == 0) {
@@ -254,7 +255,7 @@ static void dgx_vscreen_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, 
             dgx_fill_pixels(_scr->color_bits, lp, offset, (uint32_t)w, color);
         }
     }
-    dgx_screen_touch(_scr, x, x + w - 1, y, y + h - 1);
+    dgx_screen_touch_inside(_scr, x, x + w - 1, y, y + h - 1);
 }
 /* a depth the pixels of a virtual screen are kept in, and a size that has pixels */
 static bool dgx_vscreen_fits(int width, int height, uint8_t color_bits)
@@ -368,9 +369,10 @@ void dgx_vscreen_array_set(dgx_screen_t *_scr, void *pixels, int width, int heig
     scr->v_array       = (uint8_t *)pixels;
     _scr->width        = width;
     _scr->height       = height;
-    /* the window and the dirty area are of the old pixels, and may lie outside the new ones */
+    /* the window, the dirty area and the clip are of the old pixels, and may lie outside the new ones */
     memset(&scr->area, 0, sizeof(scr->area));
     _scr->dirty_left = _scr->dirty_right = _scr->dirty_top = _scr->dirty_bottom = 0;
+    dgx_screen_unclip(_scr);
 }
 
 bool dgx_vscreen_copy(dgx_screen_t *_scr_dst, dgx_screen_t *_scr_src)
@@ -391,6 +393,12 @@ bool dgx_vscreen_copy(dgx_screen_t *_scr_dst, dgx_screen_t *_scr_src)
     dgx_vscreen_t *scr_dst = (dgx_vscreen_t *)_scr_dst;
     dgx_vscreen_t *scr_src = (dgx_vscreen_t *)_scr_src;
     if (!scr_dst->v_array || !scr_src->v_array) return false;
+    if (!dgx_clip_is_whole(_scr_dst)) {
+        /* only the clip of the destination changes: its rows, by the transfer that keeps to it */
+        const int cl = dgx_clip_left(_scr_dst), ct = dgx_clip_top(_scr_dst);
+        dgx_vscreen_region_to_screen(_scr_dst, cl, ct, _scr_src, cl, ct, dgx_clip_right(_scr_dst) - cl, dgx_clip_bottom(_scr_dst) - ct, 0);
+        return true;
+    }
     uint32_t asize = dgx_color_points_to_bytes(_scr_src->color_bits, _scr_src->width * _scr_src->height);
     memcpy(scr_dst->v_array, scr_src->v_array, asize);
     dgx_screen_touch(_scr_dst, 0, _scr_dst->width - 1, 0, _scr_dst->height - 1);

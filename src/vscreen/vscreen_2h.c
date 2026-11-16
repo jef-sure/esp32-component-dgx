@@ -29,6 +29,15 @@ static bool dgx_vscreen_2h_one_wire(const dgx_vscreen_2h_t *scr)
     return left && left == ((const dgx_screen_with_bus_t *)scr->right_screen)->bus->wire;
 }
 
+/* to a panel what the screen has: sending it is no drawing, and a clip the program gave the panel does not cut it */
+static void dgx_vscreen_2h_send(dgx_screen_t *panel, int x, dgx_screen_t *src, int x_src, int top, int width, int height)
+{
+    const int16_t left = panel->clip_left, up = panel->clip_top, right = panel->clip_right_inset, down = panel->clip_bottom_inset;
+    dgx_screen_unclip(panel);
+    dgx_vscreen_region_to_screen(panel, x, top, src, x_src, top, width, height, 0);
+    panel->clip_left = left, panel->clip_top = up, panel->clip_right_inset = right, panel->clip_bottom_inset = down;
+}
+
 static void dgx_vscreen_2h_update_area(dgx_screen_t *_scr, int left, int right, int top, int bottom) {
     dgx_vscreen_2h_t *scr = (dgx_vscreen_2h_t *)_scr;
     int ll = DGX_MAX(0, left);
@@ -67,12 +76,8 @@ static void dgx_vscreen_2h_update_area(dgx_screen_t *_scr, int left, int right, 
         dgx_vscreen_halves_flush(&lh);
         dgx_vscreen_halves_flush(&rh);
     } else {
-        if (lw > 0) {
-            dgx_vscreen_region_to_screen(scr->left_screen, ll, top, _scr, ll, top, lw, bottom - top + 1, 0);
-        }
-        if (rw > 0) {
-            dgx_vscreen_region_to_screen(scr->right_screen, rl - scr->left_screen->width, top, _scr, rl, top, rw, bottom - top + 1, 0);
-        }
+        if (lw > 0) dgx_vscreen_2h_send(scr->left_screen, ll, _scr, ll, top, lw, bottom - top + 1);
+        if (rw > 0) dgx_vscreen_2h_send(scr->right_screen, rl - scr->left_screen->width, _scr, rl, top, rw, bottom - top + 1);
     }
 }
 

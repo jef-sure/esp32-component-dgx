@@ -67,6 +67,13 @@ deprecated and works as it did, see
 - **Callbacks.** `user_data` is the first argument.
 - **A faster way is not a new call.** A special case hardware or a shorter
   loop can serve is recognised inside the call a program already makes.
+- **The clip, not the screen.** Code that writes pixels cuts them by the
+  clip of the screen, `dgx_clip_left()`, `dgx_clip_right()` and the two
+  others of `src/dgx_clip_priv.h`, never by 0 and the width and height; the
+  pitch of the memory stays the width. A call whose figure misses the clip,
+  `dgx_clip_misses()`, returns before its work. `test/host/test_clip.c`
+  draws every call with a clip and without one, on screens of every kind: a
+  new call gets a line there.
 
 Headers are for a program or for a driver.
 
@@ -85,7 +92,7 @@ scrolling in memory, the frame buffer of the DSI bus and the
 way its two frame buffers change places, fonts,
 textured quads, sprites of 1, 4 and 8 bits, color tables, the transfers of virtual screens with every flag, scaling
 and smoothing against the shaders it comes from, Bezier curves, handwritten fonts with their writing and
-morphing, the arc gauge) has host tests built with gcc against small ESP-IDF
+morphing, the arc gauge, the clip of a screen against every drawing call) has host tests built with gcc against small ESP-IDF
 stubs and run under ASan/UBSan. A few pieces that do depend on the platform
 are tested there too, each against a model of what is on its wires: the
 8-bit parallel bus with both drivers of IDF under it, the SPI and QSPI buses

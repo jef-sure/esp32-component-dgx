@@ -10,6 +10,7 @@
 #include <stdbool.h>
 
 #include "dgx_draw_priv.h"
+#include "../dgx_clip_priv.h"
 #include "../dgx_hot_priv.h"
 
 /*
@@ -49,7 +50,7 @@ DGX_HOT static void dgx_draw_circle_eighths(dgx_screen_t *scr, int x, int y, int
 DGX_HOT void dgx_draw_circle_runs(dgx_screen_t *scr, int x, int y, int r, uint32_t color)
 {
     if (r < 0) return;
-    if (y + r < 0 || y - r >= scr->height || x - r >= scr->width || x + r < 0) return;
+    if (dgx_clip_misses(scr, x - r, x + r, y - r, y + r)) return;
     if (r == 0) {
         scr->set_pixel(scr, x, y, color);
         return;
@@ -94,7 +95,7 @@ DGX_HOT void dgx_draw_circle_runs(dgx_screen_t *scr, int x, int y, int r, uint32
 DGX_HOT void dgx_draw_solid_circle_rows(dgx_screen_t *scr, int x, int y, int r, uint32_t color)
 {
     if (r < 0) return;
-    if (y + r < 0 || y - r >= scr->height || x - r >= scr->width || x + r < 0) return;
+    if (dgx_clip_misses(scr, x - r, x + r, y - r, y + r)) return;
     if (r == 0) {
         scr->set_pixel(scr, x, y, color);
         return;

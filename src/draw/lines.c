@@ -12,6 +12,7 @@
 #include "dgx_bits.h"
 #include "dgx_draw.h"
 #include "dgx_draw_priv.h"
+#include "../dgx_clip_priv.h"
 #include "../dgx_hot_priv.h"
 
 /*
@@ -26,7 +27,7 @@ DGX_HOT void dgx_draw_line_runs(dgx_screen_t *scr, int x1, int y1, int x2, int y
     int area_right  = DGX_MAX(x1, x2);
     int area_top    = DGX_MIN(y1, y2);
     int area_bottom = DGX_MAX(y1, y2);
-    if (area_bottom < 0 || area_top >= scr->height || area_left >= scr->width || area_right < 0) return;
+    if (dgx_clip_misses(scr, area_left, area_right, area_top, area_bottom)) return;
     if (x1 == x2 && y1 == y2) {
         scr->set_pixel(scr, x1, y1, color);
         return;
@@ -135,10 +136,13 @@ static void dgx_line_thick_runs(dgx_screen_t *scr, int x, int y, int x2, int y2,
     /* the rows from the corner at the upper end that lies highest to the one at the lower end that lies lowest */
     const float rise = (dx > 0 ? left : right) * adx / len, fall = (dx > 0 ? right : left) * adx / len;
     int         top = y - dgx_line_floor(rise + DGX_LINE_SLOP), bottom = y2 + dgx_line_floor(fall + DGX_LINE_SLOP);
-    if (top < 0) top = 0;
-    if (bottom >= (across ? scr->width : scr->height)) bottom = (across ? scr->width : scr->height) - 1;
-    /* no further than the screen goes: a row of a line far off may have bounds no int holds */
-    const float first = -1.0f - x, last = (float)(across ? scr->height : scr->width) - x;
+    /* rows and columns of the clip; across, its columns are the rows */
+    const int row_lo = across ? dgx_clip_left(scr) : dgx_clip_top(scr), row_hi = across ? dgx_clip_right(scr) : dgx_clip_bottom(scr);
+    const int col_lo = across ? dgx_clip_top(scr) : dgx_clip_left(scr), col_hi = across ? dgx_clip_bottom(scr) : dgx_clip_right(scr);
+    if (top < row_lo) top = row_lo;
+    if (bottom >= row_hi) bottom = row_hi - 1;
+    /* no further than the clip goes: a row of a line far off may have bounds no int holds */
+    const float first = (float)col_lo - 1.0f - x, last = (float)col_hi - x;
     int         run_x = 0, run_y = 0, run_w = 0, run_h = 0; /* equal rows one under another not sent yet; run_h == 0: none */
     for (int row = top; row <= bottom; ++row) {
         const float r = (float)(row - y), e = r * end;

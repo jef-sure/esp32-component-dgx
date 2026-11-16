@@ -13,6 +13,7 @@
 #include "dgx_bits.h"
 #include "dgx_draw.h"
 #include "dgx_draw_priv.h"
+#include "../dgx_clip_priv.h"
 
 /* the squares of larger radii do not fit the 64 bits they are compared in */
 #define DGX_ELLIPSE_RADIUS INT16_MAX
@@ -213,7 +214,7 @@ static bool dgx_ellipse_fits(const dgx_screen_t *scr, int x, int y, int rx, int 
 {
     if (rx < 0 || ry < 0 || rx > DGX_ELLIPSE_RADIUS || ry > DGX_ELLIPSE_RADIUS) return false;
     if (x < INT16_MIN || x > INT16_MAX || y < INT16_MIN || y > INT16_MAX) return false;
-    return y + ry + around >= 0 && y - ry - around < scr->height && x + rx + around >= 0 && x - rx - around < scr->width;
+    return !dgx_clip_misses(scr, x - rx - around, x + rx + around, y - ry - around, y + ry + around);
 }
 
 /* the single pixels of the rows top..bottom from the middle, `column` pixels to each side of it; top >= bottom */
@@ -322,7 +323,7 @@ static void dgx_ellipse_arc(dgx_screen_t *scr, int x, int y, int rx, int ry, con
     while (dgx_ellipse_next(&e, &row, &from, &reach)) {
         for (int half = 0; half < (row ? 2 : 1); ++half) {
             const int dy = half ? row : -row;
-            if (y + dy < 0 || y + dy >= scr->height) continue;
+            if (y + dy < dgx_clip_top(scr) || y + dy >= dgx_clip_bottom(scr)) continue;
             if (from == 0) {
                 dgx_ellipse_arc_run(scr, w, x, y, dy, -reach, reach, color, &stacks[half][0]);
             } else {
@@ -379,11 +380,11 @@ static void dgx_ellipse_fill(dgx_screen_t *scr, int x, int y, int rx, int ry, co
     dgx_ellipse_begin(&e, rx, ry);
     dgx_screen_batch_begin(scr);
     while (dgx_ellipse_next(&e, &row, &start, &reach)) {
-        /* no further than the screen goes */
-        const int left = DGX_MAX(-reach, -x), right = DGX_MIN(reach, scr->width - 1 - x);
+        /* no further than the clip goes */
+        const int left = DGX_MAX(-reach, dgx_clip_left(scr) - x), right = DGX_MIN(reach, dgx_clip_right(scr) - 1 - x);
         for (int half = 0; half < (row ? 2 : 1); ++half) {
             const int dy = half ? row : -row;
-            if (y + dy < 0 || y + dy >= scr->height) continue;
+            if (y + dy < dgx_clip_top(scr) || y + dy >= dgx_clip_bottom(scr)) continue;
             const int runs = dgx_wedge_row(w, dy, left, right, out);
             for (int i = 0; i < runs; ++i) dgx_ellipse_band_row(&bands[half][i], scr, x + out[2 * i], x + out[2 * i + 1], y + dy, color);
         }

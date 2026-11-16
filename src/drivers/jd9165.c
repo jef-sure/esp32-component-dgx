@@ -211,6 +211,7 @@ void dgx_jd9165_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_ori
     _scr->swap_xy     = swap_xy;
     _scr->width       = swap_xy ? JD9165_HEIGHT : JD9165_WIDTH;
     _scr->height      = swap_xy ? JD9165_WIDTH : JD9165_HEIGHT;
+    dgx_screen_unclip(_scr);
     dgx_dsi_orientation(scr->base.bus, dir_x == DgxScreenRightLeft, dir_y == DgxScreenBottomTop, swap_xy);
     // the bus has set the window to the whole screen
     scr->base.cached_area.left = scr->base.cached_area.right = 0xffff;

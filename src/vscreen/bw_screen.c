@@ -5,6 +5,7 @@
 #include "dgx_bw_screen.h"
 #include "dgx_bw_screen_priv.h"
 #include "dgx_screen_functions.h"
+#include "../dgx_clip_priv.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 
@@ -126,7 +127,7 @@ void dgx_bw_write_value(dgx_screen_t *scr_, uint32_t value)
 void dgx_bw_set_pixel(dgx_screen_t *scr_, int x, int y, uint32_t color)
 {
     dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)scr_;
-    if (x < 0 || y < 0 || x >= scr->base.width || y >= scr->base.height) return;
+    if (!dgx_clip_has(scr_, x, y)) return;
     /* the page in an int: a screen of more than 256 pages, 2048 rows, has them too */
     const int page = y >> 3;
     uint8_t   bit  = y & 7;
@@ -134,7 +135,7 @@ void dgx_bw_set_pixel(dgx_screen_t *scr_, int x, int y, uint32_t color)
     uint8_t  *pb   = scr->v_array + (size_t)page * (size_t)scr->base.width + (size_t)x;
     if (color) *pb |= mask;
     else *pb &= ~mask;
-    dgx_screen_touch(scr_, x, x, y, y);
+    dgx_screen_touch_inside(scr_, x, x, y, y);
 }
 
 uint32_t dgx_bw_get_pixel(dgx_screen_t *scr_, int x, int y)
@@ -159,8 +160,9 @@ void dgx_bw_blit_or(dgx_screen_t *scr_, int x, int y, const dgx_bw_bitmap_t *bma
     dgx_bw_vscreen_t *scr   = (dgx_bw_vscreen_t *)scr_;
     const int         width = scr->base.width;
     const int         pitch = (bmap->width + 7) / 8;
-    int               row0  = y < 0 ? -y : 0;
-    int               row1  = y + bmap->height > scr->base.height ? scr->base.height - y : bmap->height;
+    const int         cl = dgx_clip_left(scr_), cr = dgx_clip_right(scr_), ct = dgx_clip_top(scr_), cb = dgx_clip_bottom(scr_);
+    int               row0  = y < ct ? ct - y : 0;
+    int               row1  = y + bmap->height > cb ? cb - y : bmap->height;
     for (int row = row0; row < row1; ++row) {
         const uint8_t *src  = bmap->bitmap + row * pitch;
         const int      sy   = y + row;
@@ -172,7 +174,7 @@ void dgx_bw_blit_or(dgx_screen_t *scr_, int x, int y, const dgx_bw_bitmap_t *bma
             int valid = bmap->width - xb * 8;
             if (valid < 8) bits &= (uint8_t)(0xffu << (8 - valid)); // drop row padding
             int sx = x + xb * 8;
-            if (sx >= 0 && sx + 8 <= width) {
+            if (sx >= cl && sx + 8 <= cr) {
                 uint8_t *pb = page + sx;
                 if (bits & 0x80) pb[0] |= mask;
                 if (bits & 0x40) pb[1] |= mask;
@@ -184,7 +186,7 @@ void dgx_bw_blit_or(dgx_screen_t *scr_, int x, int y, const dgx_bw_bitmap_t *bma
                 if (bits & 0x01) pb[7] |= mask;
             } else {
                 for (int bit = 0; bit < 8; ++bit) {
-                    if ((bits & (0x80u >> bit)) && sx + bit >= 0 && sx + bit < width) page[sx + bit] |= mask;
+                    if ((bits & (0x80u >> bit)) && sx + bit >= cl && sx + bit < cr) page[sx + bit] |= mask;
                 }
             }
         }
@@ -200,12 +202,13 @@ void dgx_bw_wait_data(dgx_screen_t *scr)
 void dgx_bw_fast_vline(dgx_screen_t *scr_, int x, int y, int h, uint32_t color)
 {
     dgx_bw_vscreen_t *scr = (dgx_bw_vscreen_t *)scr_;
-    if (x < 0 || x >= scr->base.width) return;
-    if (y < 0) {
-        h += y;
-        y = 0;
+    if (x < dgx_clip_left(scr_) || x >= dgx_clip_right(scr_)) return;
+    const int ct = dgx_clip_top(scr_), cb = dgx_clip_bottom(scr_);
+    if (y < ct) {
+        h -= ct - y;
+        y = ct;
     }
-    if (y + h > scr->base.height) h = scr->base.height - y;
+    if (y + h > cb) h = cb - y;
     if (h <= 0) return;
     int       y2   = y + h - 1;
     const int page = y >> 3;
@@ -216,7 +219,7 @@ void dgx_bw_fast_vline(dgx_screen_t *scr_, int x, int y, int h, uint32_t color)
         if (color) *pb |= mask;
         else *pb &= ~mask;
     }
-    dgx_screen_touch(scr_, x, x, y, y + h - 1);
+    dgx_screen_touch_inside(scr_, x, x, y, y + h - 1);
 }
 
 void dgx_bw_fill_rectangle(dgx_screen_t *scr_, int x, int y, int w, int h, uint32_t color)
@@ -230,13 +233,14 @@ void dgx_bw_fill_rectangle(dgx_screen_t *scr_, int x, int y, int w, int h, uint3
         dgx_bw_fast_vline(scr_, x, y, h, color);
         return;
     }
+    const int cl = dgx_clip_left(scr_), cr = dgx_clip_right(scr_), ct = dgx_clip_top(scr_), cb = dgx_clip_bottom(scr_);
     if (h == 1) {
-        if (y < 0 || y >= scr->base.height) return;
-        if (x < 0) {
-            w += x;
-            x = 0;
+        if (y < ct || y >= cb) return;
+        if (x < cl) {
+            w -= cl - x;
+            x = cl;
         }
-        if (x + w > scr->base.width) w = scr->base.width - x;
+        if (x + w > cr) w = cr - x;
         if (w <= 0) return;
         const uint8_t mask = (uint8_t)(1u << (y & 7));
         uint8_t      *pb   = scr->v_array + (y >> 3) * scr->base.width + x;
@@ -245,23 +249,22 @@ void dgx_bw_fill_rectangle(dgx_screen_t *scr_, int x, int y, int w, int h, uint3
         } else {
             for (int i = 0; i < w; ++i) pb[i] &= (uint8_t)~mask;
         }
-        dgx_screen_touch(scr_, x, x + w - 1, y, y);
+        dgx_screen_touch_inside(scr_, x, x + w - 1, y, y);
         return;
     }
-    if (x + w < 0 || x >= scr->base.width || y + h < 0 || y >= scr->base.height) return;
-    if (x < 0) {
-        w = x + w;
-        x = 0;
+    if (x < cl) {
+        w -= cl - x;
+        x = cl;
     }
-    if (x + w > scr_->width) {
-        w = scr_->width - x;
+    if (x + w > cr) {
+        w = cr - x;
     }
-    if (y < 0) {
-        h = y + h;
-        y = 0;
+    if (y < ct) {
+        h -= ct - y;
+        y = ct;
     }
-    if (y + h > scr->base.height) {
-        h = scr->base.height - y;
+    if (y + h > cb) {
+        h = cb - y;
     }
     if (h <= 0 || w <= 0) return;
     dgx_screen_batch_begin(scr_);
@@ -285,7 +288,7 @@ void dgx_bw_fill_rectangle(dgx_screen_t *scr_, int x, int y, int w, int h, uint3
             }
         }
     }
-    dgx_screen_touch(scr_, x, x + w - 1, y, y + h - 1);
+    dgx_screen_touch_inside(scr_, x, x + w - 1, y, y + h - 1);
     dgx_screen_batch_end(scr_);
 }
 

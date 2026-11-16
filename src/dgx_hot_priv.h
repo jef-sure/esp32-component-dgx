@@ -1,6 +1,4 @@
-#ifndef _DGX_HOT_PRIV_H_
-#define _DGX_HOT_PRIV_H_
-
+#pragma once
 /*
  * DGX_HOT marks the code a display behind a bus runs for every window and
  * every short transfer, and the shapes that are made of such transfers. The
@@ -22,5 +20,3 @@
 #else
 #define DGX_HOT
 #endif
-
-#endif /* _DGX_HOT_PRIV_H_ */

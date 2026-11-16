@@ -46,6 +46,7 @@
 #include "dgx_dsi_scan_priv.h"
 #include "dgx_screen_functions.h"
 #include "dgx_screen_with_bus.h"
+#include "../dgx_clip_priv.h"
 
 #define DGX_DSI_BUFFER_LEN 4096
 
@@ -3325,7 +3326,7 @@ static inline dgx_dsi_bus_t *dgx_dsi_bus_of(dgx_screen_t *scr)
 
 static void dgx_dsi_scr_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color)
 {
-    if (x < 0 || x >= scr->width || y < 0 || y >= scr->height) return;
+    if (!dgx_clip_has(scr, x, y)) return;
     dgx_dsi_bus_t *bus = dgx_dsi_bus_of(scr);
     if (bus->frames == 2) {
         uint16_t px = (uint16_t)x, py = (uint16_t)y;
@@ -3337,7 +3338,7 @@ static void dgx_dsi_scr_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t colo
     }
     dgx_fb_area_set_pixel(&bus->area, (uint16_t)x, (uint16_t)y, color);
     dgx_dsi_written(bus);
-    dgx_screen_touch(scr, x, x, y, y);
+    dgx_screen_touch_inside(scr, x, x, y, y);
 }
 
 static uint32_t dgx_dsi_scr_get_pixel(dgx_screen_t *scr, int x, int y)
@@ -3361,20 +3362,21 @@ static void dgx_dsi_scr_fill_rectangle(dgx_screen_t *scr, int x, int y, int w, i
         x += w;
         w = -w;
     }
-    if (x < 0) {
-        w += x;
-        x = 0;
+    const int cl = dgx_clip_left(scr), cr = dgx_clip_right(scr), ct = dgx_clip_top(scr), cb = dgx_clip_bottom(scr);
+    if (x < cl) {
+        w -= cl - x;
+        x = cl;
     }
-    if (x + w > scr->width) w = scr->width - x;
+    if (x + w > cr) w = cr - x;
     if (h < 0) {
         y += h;
         h = -h;
     }
-    if (y < 0) {
-        h += y;
-        y = 0;
+    if (y < ct) {
+        h -= ct - y;
+        y = ct;
     }
-    if (y + h > scr->height) h = scr->height - y;
+    if (y + h > cb) h = cb - y;
     if (w <= 0 || h <= 0) return;
     dgx_dsi_bus_t *bus = dgx_dsi_bus_of(scr);
     if (bus->frames == 2) {
@@ -3398,14 +3400,14 @@ static void dgx_dsi_scr_fill_rectangle(dgx_screen_t *scr, int x, int y, int w, i
         const uint32_t bytes      = (uint32_t)w * h * bus->area.pixel_bytes;
         if (panel_rows + bytes / bus->tuning.fill_div >= bus->tuning.fill_from && dgx_dsi_ppa_fill_screen(bus, x, y, w, h, color)) {
             bus->rows_written = true;
-            dgx_screen_touch(scr, x, x + w - 1, y, y + h - 1);
+            dgx_screen_touch_inside(scr, x, x + w - 1, y, y + h - 1);
             return;
         }
     }
 #endif
     dgx_fb_area_fill(&bus->area, (uint16_t)x, (uint16_t)y, (uint16_t)w, (uint16_t)h, color);
     dgx_dsi_written(bus);
-    dgx_screen_touch(scr, x, x + w - 1, y, y + h - 1);
+    dgx_screen_touch_inside(scr, x, x + w - 1, y, y + h - 1);
 }
 
 /*

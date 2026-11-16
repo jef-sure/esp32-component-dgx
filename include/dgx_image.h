@@ -55,7 +55,7 @@ typedef struct {
 
 /** Every pixel that is not 0 becomes dgx_image_blit_t::color; the map is not used. A silhouette can be drawn on any screen. */
 #define DGX_IMAGE_SILHOUETTE 1u
-/** Draw only inside the clip rectangle of dgx_image_blit_t. Without it the whole destination is the clip. */
+/** Draw only inside the clip rectangle of dgx_image_blit_t, and inside the clip of the destination, dgx_screen_clip(). Without it the clip of the destination alone. */
 #define DGX_IMAGE_CLIP 2u
 
 /**

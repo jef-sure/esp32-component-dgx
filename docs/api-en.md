@@ -14,6 +14,7 @@ together: the recipes of the [README](../README.md#recipes).
   - [Arc gauge](#arc-gauge)
   - [Bus backends](#bus-backends)
   - [Controlling a display](#controlling-a-display)
+  - [Drawing inside a rectangle: the clip](#drawing-inside-a-rectangle-the-clip)
   - [Flush control and batching](#flush-control-and-batching)
 - [Drawing from several tasks](#drawing-from-several-tasks)
 - [Coordinates and orientation](#coordinates-and-orientation)
@@ -727,6 +728,46 @@ What only one controller has keeps the name of its driver:
 `dgx_ssd1680_refresh()` and the like, see
 [Supported panels](panels-en.md).
 
+### Drawing inside a rectangle: the clip
+
+Declared in [include/dgx_screen.h](../include/dgx_screen.h). A screen has a
+clip, a rectangle outside which no drawing changes a pixel. A new screen has
+the whole of itself as its clip.
+
+| Function | Description |
+| --- | --- |
+| `dgx_screen_clip(scr, x, y, w, h)` | Only the pixels inside the rectangle change from now on. The rectangle is cut by the screen; one outside it, or one of no width or height, lets nothing be drawn. It takes the place of the clip before: to draw inside two rectangles, give the part they have in common. |
+| `dgx_screen_unclip(scr)` | The whole screen again. |
+| `dgx_screen_clip_get(scr, &x, &y, &w, &h)` | The clip as it is now, to give it back by `dgx_screen_clip()` later; `w` and `h` are 0 when nothing may be drawn. |
+
+Every call that changes pixels of the screen keeps to it: figures, lines
+and curves, text and handwriting, pictures and icons, transfers of virtual
+screens onto it, the morphs, the gauge, `dgx_vscreen_copy()`. The
+coordinates stay those of the screen. A figure, a picture or a transfer
+that lies all outside the clip returns at once, and of a text only the
+letters that reach into the clip are drawn. `dgx_scroll()` moves only what
+of its rectangle lies inside the clip, as it moves only what lies on the
+screen.
+
+The clip cuts the area marked as changed as well, `dgx_screen_touch()`: what
+a virtual screen sends to its display is no more than the clip. Sending is
+not drawing, and the clip does not cut it: a virtual screen sends its whole
+changed area, and so do the two halves of `dgx_vscreen_2h_init()`. A part of
+a display sent again by a program, as after `dgx_overlay_take_dirty()`, is
+sent by a transfer, and the clip cuts that as any other: unclip first. The
+window calls of a screen itself, `set_area` and `write_area`, are not cut.
+
+A turn of the screen, `dgx_screen_orientation()`, and a new size by
+`dgx_vscreen_array_set()` give back the whole screen.
+
+```c
+int x, y, w, h;
+dgx_screen_clip_get(scr, &x, &y, &w, &h); // the clip of whatever this label lies in
+dgx_screen_clip(scr, 20, 40, 100, 16);    // the label inside it: give the common part of the two
+dgx_font_draw(&ctx, 22, 52, "a text longer than its label");
+dgx_screen_clip(scr, x, y, w, h);         // the clip as it was
+```
+
 ### Flush control and batching
 
 For a physical display that should not be updated after every primitive, draw
@@ -758,7 +799,7 @@ Declared in [include/dgx_screen.h](../include/dgx_screen.h):
 | --- | --- |
 | `dgx_screen_batch_begin(scr)` | Open a batch; batches nest. Returns the new depth. `dgx_screen_progress_up()` is its deprecated name. |
 | `dgx_screen_batch_end(scr)` | Close a batch; the outermost one commits the pending dirty area. Returns the new depth. `dgx_screen_progress_down()` is its deprecated name. |
-| `dgx_screen_touch(scr, left, right, top, bottom)` | Mark an area as changed (inclusive, clipped). For code that writes pixels directly, e.g. into `v_array`. |
+| `dgx_screen_touch(scr, left, right, top, bottom)` | Mark an area as changed (inclusive, cut by the clip of the screen). For code that writes pixels directly, e.g. into `v_array`. |
 | `dgx_screen_flush(scr)` | Commit the pending dirty area now. |
 | `dgx_screen_take_dirty(scr, &left, &top, &width, &height)` | Take the pending dirty area and clear it without committing; `false` when nothing has changed. For a virtual screen shown by parts: open a batch before anything is drawn and keep it open, see [Animation without flicker](../README.md#animation-without-flicker). |
 | `dgx_screen_destroy(&scr)` | Destroy a screen allocated by a driver or virtual screen constructor. |

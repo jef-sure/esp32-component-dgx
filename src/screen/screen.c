@@ -19,6 +19,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "../draw/dgx_draw_priv.h"
+#include "../dgx_clip_priv.h"
 #include "../dgx_hot_priv.h"
 
 static void dgx_scr_set_area_sb(dgx_screen_t *scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom);
@@ -29,25 +30,26 @@ DGX_HOT static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, i
         x += w;
         w = -w;
     }
-    if (x < 0) {
-        w += x;
-        x = 0;
+    const int cl = dgx_clip_left(scr), cr = dgx_clip_right(scr), ct = dgx_clip_top(scr), cb = dgx_clip_bottom(scr);
+    if (x < cl) {
+        w -= cl - x;
+        x = cl;
     }
-    if (x + w > scr->width) {
-        w = scr->width - x;
+    if (x + w > cr) {
+        w = cr - x;
     }
     if (h < 0) {
         y += h;
         h = -h;
     }
-    if (y < 0) {
-        h += y;
-        y = 0;
+    if (y < ct) {
+        h -= ct - y;
+        y = ct;
     }
-    if (y + h > scr->height) {
-        h = scr->height - y;
+    if (y + h > cb) {
+        h = cb - y;
     }
-    if (w <= 0 || x + w <= 0 || x >= scr->width || h <= 0 || y + h <= 0 || y >= scr->height) return;
+    if (w <= 0 || h <= 0) return;
     dgx_screen_batch_begin(scr);
     uint32_t fill_scr_size   = h * w;
     uint8_t *draw_buffer     = 0;
@@ -115,7 +117,7 @@ DGX_HOT static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, i
     if (draw_buffer != scr->draw_buffer) {
         free(draw_buffer);
     }
-    dgx_screen_touch(scr, x, x + w - 1, y, y + h - 1);
+    dgx_screen_touch_inside(scr, x, x + w - 1, y, y + h - 1);
     dgx_screen_batch_end(scr);
 }
 
@@ -126,14 +128,14 @@ DGX_HOT static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, i
  */
 DGX_HOT static void dgx_scr_set_pixel_sb(dgx_screen_t *scr, int x, int y, uint32_t color)
 {
-    if (x < 0 || x >= scr->width || y < 0 || y >= scr->height || scr->screen_subtype != DgxPhysicalScreenWithBus) return;
+    if (!dgx_clip_has(scr, x, y) || scr->screen_subtype != DgxPhysicalScreenWithBus) return;
     uint8_t *pixel = ((dgx_screen_with_bus_t *)scr)->pixel;
     if (scr->wait_buffer) scr->wait_buffer(scr);
     memset(pixel, 0, 4);
     dgx_fill_buf_value(scr->color_bits, pixel, 0, color);
     scr->set_area(scr, x, x, y, y);
     scr->write_area(scr, pixel, dgx_color_points_to_bytes(scr->color_bits, 1) * 8u);
-    dgx_screen_touch(scr, x, x, y, y);
+    dgx_screen_touch_inside(scr, x, x, y, y);
 }
 
 /*

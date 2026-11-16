@@ -9,6 +9,7 @@
 #include "dgx_morph_render.h"
 #include "dgx_vscreen.h"
 #include "esp_log.h"
+#include "../dgx_clip_priv.h"
 #include "../vscreen/dgx_halves_priv.h"
 
 static const char TAG[] = "DGX MORPH";
@@ -311,10 +312,11 @@ static void glow_send(dgx_morph_glow_t *g, dgx_screen_t *scr, int x_dst, int y_d
         ESP_LOGE(TAG, "glow color bits %d != screen %d", g->color_bits, scr->color_bits);
         return;
     }
-    /* the part of the frame that is on the screen */
-    int left = x_dst < 0 ? -x_dst : 0, top = y_dst < 0 ? -y_dst : 0;
-    int right = scr->width - x_dst < g->width ? scr->width - x_dst : g->width;
-    int bottom = scr->height - y_dst < g->height ? scr->height - y_dst : g->height;
+    /* the part of the frame that is inside the clip of the screen */
+    const int cl = dgx_clip_left(scr), ct = dgx_clip_top(scr), cr = dgx_clip_right(scr), cb = dgx_clip_bottom(scr);
+    int left = x_dst < cl ? cl - x_dst : 0, top = y_dst < ct ? ct - y_dst : 0;
+    int right = cr - x_dst < g->width ? cr - x_dst : g->width;
+    int bottom = cb - y_dst < g->height ? cb - y_dst : g->height;
     if (left >= right || top >= bottom) return;
     int    width = right - left;
     size_t pixel_bytes = g->color_bits == 16 ? 2 : 3;
@@ -489,17 +491,17 @@ void dgx_morph_sprite_dot(void *sprite, const dgx_point_2d_t *point, uint8_t int
     int x0 = point->x - d / 2;
     int y0 = point->y - d / 2;
     int dw = s->target->width;
-    int dh = s->target->height;
+    const int cl = dgx_clip_left(s->target), ct = dgx_clip_top(s->target), cr = dgx_clip_right(s->target), cb = dgx_clip_bottom(s->target);
     const uint8_t *src = ((dgx_vscreen_t *)s->vpoint)->v_array;
     uint8_t *dst = ((dgx_vscreen_t *)s->target)->v_array;
     uint8_t bits = s->target->color_bits;
     size_t bpp = bits == 8 ? 1 : bits == 16 ? 2 : 3;
     for (int sy = 0; sy < d; ++sy) {
         int ty = y0 + sy;
-        if (ty < 0 || ty >= dh) continue;
+        if (ty < ct || ty >= cb) continue;
         for (int sx = 0; sx < d; ++sx) {
             int tx = x0 + sx;
-            if (tx < 0 || tx >= dw) continue;
+            if (tx < cl || tx >= cr) continue;
             uint32_t idx = dgx_morph_div255((uint32_t)src[sy * d + sx] * intensity);
             if (idx == 0) continue;
             uint8_t *at = dst + bpp * ((size_t)ty * dw + tx);

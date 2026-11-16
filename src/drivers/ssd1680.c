@@ -32,6 +32,7 @@
 #include "dgx_screen_functions.h"
 #include "esp_log.h"
 
+#include "../dgx_clip_priv.h"
 #include "../vscreen/dgx_soft_turn_priv.h"
 
 #define SSD1680_CMD_DRIVER_OUTPUT  0x01 ///< gate lines - 1, low byte and bit 8; scan direction
@@ -133,11 +134,11 @@ static inline void dgx_ssd1680_to_glass(const dgx_ssd1680_t *scr, int x, int y, 
 static void dgx_ssd1680_set_pixel(dgx_screen_t *_scr, int x, int y, uint32_t color)
 {
     dgx_ssd1680_t *scr = (dgx_ssd1680_t *)_scr;
-    if (x < 0 || y < 0 || x >= _scr->width || y >= _scr->height) return;
+    if (!dgx_clip_has(_scr, x, y)) return;
     int px, py;
     dgx_ssd1680_to_glass(scr, x, y, &px, &py);
     dgx_ssd1680_put(scr, px, py, color);
-    dgx_screen_touch(_scr, x, x, y, y);
+    dgx_screen_touch_inside(_scr, x, x, y, y);
 }
 
 static uint32_t dgx_ssd1680_get_pixel(dgx_screen_t *_scr, int x, int y)
@@ -158,17 +159,19 @@ static void dgx_ssd1680_fill_rectangle(dgx_screen_t *_scr, int x, int y, int w, 
     /* a negative width or height goes to the left of x or up from y, as on a display behind a bus */
     if (w < 0) x += w, w = -w;
     if (h < 0) y += h, h = -h;
-    /* clipped to the screen; the far corner in 64 bits, for x + w of a huge w */
-    const int sl = x < 0 ? 0 : x, st = y < 0 ? 0 : y;
-    const int sr = (int64_t)x + w > _scr->width ? _scr->width - 1 : x + w - 1;
-    const int sb = (int64_t)y + h > _scr->height ? _scr->height - 1 : y + h - 1;
-    int       left = sl, right = sr, top = st, bottom = sb;
+    /* cut by the clip; the far corner in 64 bits, for x + w of a huge w */
+    const int cl = dgx_clip_left(_scr), cr = dgx_clip_right(_scr), ct = dgx_clip_top(_scr), cb = dgx_clip_bottom(_scr);
+    const int sl = x < cl ? cl : x, st = y < ct ? ct : y;
+    const int sr = (int64_t)x + w > cr ? cr - 1 : x + w - 1;
+    const int sb = (int64_t)y + h > cb ? cb - 1 : y + h - 1;
+    if (sl > sr || st > sb) return;
+    int left = sl, right = sr, top = st, bottom = sb;
     if (!dgx_soft_turn_rect(_scr, scr->module->width, scr->module->height, &left, &right, &top, &bottom)) return;
     for (int py = top; py <= bottom; ++py) {
         dgx_ssd1680_run(scr->bw + (size_t)py * (size_t)scr->pitch, left, right, dgx_ssd1680_bw_bit(color));
         dgx_ssd1680_run(scr->red + (size_t)py * (size_t)scr->pitch, left, right, dgx_ssd1680_red_bit(color));
     }
-    dgx_screen_touch(_scr, sl, sr, st, sb);
+    dgx_screen_touch_inside(_scr, sl, sr, st, sb);
 }
 
 static void dgx_ssd1680_set_area(dgx_screen_t *_scr, uint16_t left, uint16_t right, uint16_t top, uint16_t bottom)
@@ -329,6 +332,7 @@ void dgx_ssd1680_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_or
     _scr->width        = swap_xy ? scr->module->height : scr->module->width;
     _scr->height       = swap_xy ? scr->module->width : scr->module->height;
     _scr->dirty_left = _scr->dirty_right = _scr->dirty_top = _scr->dirty_bottom = 0;
+    dgx_screen_unclip(_scr);
     dgx_ssd1680_set_area(_scr, 0, (uint16_t)(_scr->width - 1), 0, (uint16_t)(_scr->height - 1));
 }
 

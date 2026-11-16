@@ -15,6 +15,7 @@
 #include "dgx_draw.h"
 #include "dgx_image.h"
 #include "dgx_vscreen.h"
+#include "../dgx_clip_priv.h"
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
@@ -231,8 +232,8 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
     const int box_x = x - (swapped ? oy : ox), box_y = y - (swapped ? ox : oy);
     const int box_w = swapped ? h : w, box_h = swapped ? w : h;
 
-    /* what of it may change: the destination, cut by the clip */
-    int left = 0, top = 0, right = dst->width, bottom = dst->height;
+    /* what of it may change: the clip of the destination, cut by the clip of the call */
+    int left = dgx_clip_left(dst), top = dgx_clip_top(dst), right = dgx_clip_right(dst), bottom = dgx_clip_bottom(dst);
     if (how->flags & DGX_IMAGE_CLIP) {
         left   = DGX_MAX(left, how->clip_x);
         top    = DGX_MAX(top, how->clip_y);

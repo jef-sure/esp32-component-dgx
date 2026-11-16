@@ -84,6 +84,17 @@ draw into, need `CONFIG_DGX_ENABLE_VSCREEN`. To work on DGX itself, check the
 repository out under `components/` instead; a git submodule at
 `components/dgx` works well.
 
+To start from a program that already runs, make a new project of one of the
+[examples](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples):
+
+```sh
+compote project create-from-example -p my_project jef-sure/dgx:hw_morph_demo
+```
+
+The project takes DGX from the registry and has its DGX options in
+`sdkconfig.defaults` already. The README of each example names the board it
+was written for, the CYD (ESP32-2432S028R) most often, and its pins.
+
 ## A minimal example
 
 Here's a complete setup for an ST7789 panel over SPI:

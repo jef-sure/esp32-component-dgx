@@ -12,6 +12,7 @@
 
 #include "dgx_draw.h"
 #include "dgx_draw_priv.h"
+#include "../dgx_clip_priv.h"
 #include "../dgx_hot_priv.h"
 
 /* a negative width or height takes the rectangle the other way, as dgx_fill_rectangle() does; false when nothing is left */
@@ -91,7 +92,7 @@ DGX_HOT void dgx_draw_round_rectangle(dgx_screen_t *scr, int x, int y, int w, in
         dgx_draw_rectangle(scr, x, y, w, h, color);
         return;
     }
-    if (y + h <= 0 || y >= scr->height || x + w <= 0 || x >= scr->width) return;
+    if (dgx_clip_misses(scr, x, x + w - 1, y, y + h - 1)) return;
     const int left = x + r, top = y + r, right = x + w - 1 - r, bottom = y + h - 1 - r;
     int       f   = 1 - r;
     int       ddx = 1;
@@ -154,7 +155,7 @@ DGX_HOT void dgx_fill_round_rectangle(dgx_screen_t *scr, int x, int y, int w, in
 {
     if (!dgx_rectangle_upright(&x, &y, &w, &h)) return;
     r = dgx_round_radius(w, h, r);
-    if (y + h <= 0 || y >= scr->height || x + w <= 0 || x >= scr->width) return;
+    if (dgx_clip_misses(scr, x, x + w - 1, y, y + h - 1)) return;
     const int left = x + r, top = y + r, right = x + w - 1 - r, bottom = y + h - 1 - r;
     const int across = right - left + 1, down = bottom - top + 1; /* between the centres of the corners, both ends in */
     const int middle = dgx_round_walk_end(r);                       /* the rows near the middle go this high */

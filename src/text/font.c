@@ -8,6 +8,7 @@
 #include "dgx_font.h"
 #include "dgx_font_priv.h"
 #include "dgx_vscreen.h"
+#include "../dgx_clip_priv.h"
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
@@ -310,8 +311,9 @@ static bool span_to_bus(dgx_screen_t *scr, const glyph_place_t *p, const uint8_t
 {
     int rx, ry, rw, rh;
     place_run(p, by, from, to, &rx, &ry, &rw, &rh);
-    const int x0 = rx < 0 ? 0 : rx, x1 = rx + rw > scr->width ? scr->width - 1 : rx + rw - 1;
-    const int y0 = ry < 0 ? 0 : ry, y1 = ry + rh > scr->height ? scr->height - 1 : ry + rh - 1;
+    const int cl = dgx_clip_left(scr), cr = dgx_clip_right(scr), ct = dgx_clip_top(scr), cb = dgx_clip_bottom(scr);
+    const int x0 = rx < cl ? cl : rx, x1 = rx + rw > cr ? cr - 1 : rx + rw - 1;
+    const int y0 = ry < ct ? ct : ry, y1 = ry + rh > cb ? cb - 1 : ry + rh - 1;
     if (x0 > x1 || y0 > y1) return true;
     const uint32_t bytes = dgx_color_points_to_bytes(scr->color_bits, (uint32_t)(x1 - x0 + 1));
     if (bytes > scr->draw_buffer_len) return false;
@@ -380,7 +382,8 @@ static void soft_glyph_memory(const dgx_font_context_t *ctx, const glyph_t *g, c
 {
     dgx_screen_t  *scr   = ctx->scr;
     const int      depth = font_depth(ctx->font), top = (1 << depth) - 1, pitch = (g->width * depth + 7) / 8;
-    const int      bits = scr->color_bits, width = scr->width, height = scr->height;
+    const int      bits = scr->color_bits, width = scr->width;
+    const int      cl = dgx_clip_left(scr), cr = dgx_clip_right(scr), ct = dgx_clip_top(scr), cb = dgx_clip_bottom(scr);
     const uint8_t *alpha = depth == 4 ? soft_alpha4 : soft_alpha2;
     uint8_t       *memory = ((dgx_vscreen_t *)scr)->v_array;
     const uint32_t color  = ctx->color;
@@ -394,8 +397,8 @@ static void soft_glyph_memory(const dgx_font_context_t *ctx, const glyph_t *g, c
             const uint32_t c     = cut ? color : table ? table[level] : color;
             int            rx, ry, rw, rh;
             place_run(p, by, bx, bx, &rx, &ry, &rw, &rh);
-            const int x0 = rx < 0 ? 0 : rx, x1 = rx + rw > width ? width : rx + rw;
-            const int y0 = ry < 0 ? 0 : ry, y1 = ry + rh > height ? height : ry + rh;
+            const int x0 = rx < cl ? cl : rx, x1 = rx + rw > cr ? cr : rx + rw;
+            const int y0 = ry < ct ? ct : ry, y1 = ry + rh > cb ? cb : ry + rh;
             for (int sy = y0; sy < y1; ++sy) {
                 uint8_t *m = memory + ((size_t)sy * (size_t)width + (size_t)x0) * (size_t)bytes;
                 for (int sx = x0; sx < x1; ++sx, m += bytes) memory_put(m, bytes, mixed ? mix_color(bits, memory_get(m, bytes), color, alpha[level]) : c);
@@ -523,6 +526,8 @@ static int font_char(const dgx_font_context_t *ctx, int x, int y, uint32_t codeP
                                      .swap_xy = swap_xy,
                                      .flip_x  = xdir != DgxScreenLeftRight,
                                      .flip_y  = ydir != DgxScreenTopBottom};
+        /* a glyph all outside the clip is not looked at: a long text cut by a small clip costs its advances only */
+        if (dgx_clip_misses(scr, place.x, place.x + (right + 1) * scale - 1, place.y, place.y + (bottom + 1) * scale - 1)) return xAdvance * scale;
         if (font->f_type == DGX_FONT_BITMAP_DEPTH2 || font->f_type == DGX_FONT_BITMAP_DEPTH4) {
             dgx_screen_batch_begin(scr);
             soft_glyph(ctx, g, &place, table);
@@ -541,7 +546,8 @@ static int font_char(const dgx_font_context_t *ctx, int x, int y, uint32_t codeP
             scale == 1 && !swap_xy &&
             xdir == DgxScreenLeftRight && ydir == DgxScreenTopBottom &&
             color != 0 && scr->color_bits == 1 &&
-            scr->width % 8 == 0 && dgx_vscreen_is_linear(scr)) {
+            scr->width % 8 == 0 && dgx_vscreen_is_linear(scr) &&
+            (dgx_clip_is_whole(scr) || dgx_clip_holds(scr, x + x_shift, x + x_shift + g->width - 1, y + y_shift, y + y_shift + g->height - 1))) {
             dgx_vscreen_t  *vscr = (dgx_vscreen_t *)scr;
             dgx_bw_bitmap_t dst  = dgx_bw_bitmap_make_of(vscr->v_array, scr->width, scr->height, false);
             int             gx0  = x + x_shift;

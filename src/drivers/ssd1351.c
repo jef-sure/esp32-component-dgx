@@ -226,6 +226,7 @@ void dgx_ssd1351_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_or
     _scr->dir_x = dir_x;
     _scr->dir_y = dir_y;
     _scr->swap_xy = swap_xy;
+    dgx_screen_unclip(_scr);
     if (scr->base.scr.rgb_order == DgxScreenBGR) {
         adj_data[0] &= ~0x4;
     }

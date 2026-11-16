@@ -1,5 +1,47 @@
 # Changes
 
+## 0.11.3 - 2026-11-16
+
+No call of a program is broken. The clip was seen on the ILI9341 of a CYD;
+the rest is host tests, and builds for ESP32, ESP32-S3 and ESP32-P4 with
+every driver.
+
+New:
+
+- **A clip on every screen.** `dgx_screen_clip(scr, x, y, w, h)` lets
+  drawing change only the pixels inside a rectangle, `dgx_screen_unclip()`
+  gives back the whole screen, and `dgx_screen_clip_get()` tells what the
+  clip is, so that it can be put back. Every call that changes pixels keeps
+  to it: figures, lines and curves, text and handwriting, pictures,
+  transfers onto the screen, morphs, the gauge. A figure, a picture or a
+  transfer that lies all outside the clip returns at once, and of a text
+  only the letters that reach into it are drawn. `dgx_scroll()` moves only
+  what lies inside it, and the area marked as changed is cut by it too. A
+  turn of the screen and a new size by `dgx_vscreen_array_set()` give back
+  the whole screen. It is meant for a UI module: a widget draws inside its
+  own rectangle, and a part of the screen is drawn again under a clip.
+  Checked by host tests on virtual screens of every depth, on a screen of
+  pages and on a model of a 16-bit panel behind a bus, and seen on the
+  ILI9341 of a CYD: fills, circles, lines, thick lines, a triangle, text
+  turned and scaled, handwriting, a picture from memory made larger, a
+  clip moved from frame to frame and an empty one, all drawn straight on
+  the panel, changed nothing outside the clip. On the CYD
+  graphicstest takes the same time as before, within 1% on every line;
+  RAM is the same, the code is 464 bytes larger, and a screen takes 8
+  bytes more of the heap.
+
+Changes a program may see:
+
+- `dgx_screen_t` has four more fields, the clip. A screen made of zeros, by
+  `calloc()` or by an initializer, has no clip, so a screen a program makes
+  itself works as before; one taken from `malloc()` and filled field by
+  field has to have them set to zero.
+
+Documentation:
+
+- README, Getting started: a new project made of an example with
+  `compote project create-from-example -p my_project jef-sure/dgx:hw_morph_demo`.
+
 ## 0.11.2 - 2026-11-15
 
 No call of a program is broken. What was seen on a display is said at each

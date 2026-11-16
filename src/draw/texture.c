@@ -5,6 +5,7 @@
 #include "dgx_bits.h"
 #include "dgx_draw.h"
 #include "dgx_vscreen.h"
+#include "../dgx_clip_priv.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #ifdef ESP_PLATFORM
@@ -97,7 +98,8 @@ static inline void dgx_texture_edge_step(dgx_texture_edge_t *e)
 static void dgx_texture_span(dgx_texture_ctx_t *ctx, int y, const dgx_texture_edge_t *a, const dgx_texture_edge_t *b)
 {
     dgx_screen_t *dst = ctx->dst;
-    if (y < 0 || y >= dst->height) return;
+    const int     cl = dgx_clip_left(dst), cr = dgx_clip_right(dst);
+    if (y < dgx_clip_top(dst) || y >= dgx_clip_bottom(dst)) return;
     int x0 = DGX_FP_ROUND(a->x);
     int x1 = DGX_FP_ROUND(b->x);
     if (x1 < x0) {
@@ -108,7 +110,7 @@ static void dgx_texture_span(dgx_texture_ctx_t *ctx, int y, const dgx_texture_ed
         x0                          = x1;
         x1                          = tx;
     }
-    if (x1 < 0 || x0 >= dst->width) return;
+    if (x1 < cl || x0 >= cr) return;
 
     /* sample at pixel centers: the span covers the texture from a's coordinate to b's */
     int     pixels = x1 - x0 + 1;
@@ -116,12 +118,12 @@ static void dgx_texture_span(dgx_texture_ctx_t *ctx, int y, const dgx_texture_ed
     int32_t dv     = (int32_t)(((int64_t)b->v - a->v) / pixels);
     int32_t u      = a->u + du / 2;
     int32_t v      = a->v + dv / 2;
-    if (x0 < 0) {
-        u  = (int32_t)(u + (int64_t)du * -x0);
-        v  = (int32_t)(v + (int64_t)dv * -x0);
-        x0 = 0;
+    if (x0 < cl) {
+        u  = (int32_t)(u + (int64_t)du * (cl - x0));
+        v  = (int32_t)(v + (int64_t)dv * (cl - x0));
+        x0 = cl;
     }
-    if (x1 >= dst->width) x1 = dst->width - 1;
+    if (x1 >= cr) x1 = cr - 1;
     int count = x1 - x0 + 1;
 
     /* the previous scanline may still be on its way to the panel from this buffer */
@@ -214,7 +216,7 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
         if (quad[i].x < x_min) x_min = quad[i].x;
         if (quad[i].x > x_max) x_max = quad[i].x;
     }
-    if (y_end < 0 || y_start >= scr->height || x_max < 0 || x_min >= scr->width) return;
+    if (dgx_clip_misses(scr, x_min, x_max, y_start, y_end)) return;
     /* nor a slope of 32768 pixels and more a row */
     if (x_max - x_min > INT16_MAX) {
         ESP_LOGE(TAG, "quad is too large for 16.16 fixed point");
@@ -229,7 +231,7 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
         .right      = tx + tw - 1,
         .bottom     = ty + th - 1,
         .pixel_bits = scr->color_bits == 18 ? 24u : scr->color_bits,
-        .y_last     = y_end < scr->height ? y_end : scr->height - 1,
+        .y_last     = y_end < dgx_clip_bottom(scr) ? y_end : dgx_clip_bottom(scr) - 1,
         .win_y      = INT32_MIN,
     };
 #ifdef DGX_TEXTURE_VSCREEN_FAST_PATH

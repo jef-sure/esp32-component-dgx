@@ -12,6 +12,7 @@
 
 #include "dgx_bits.h"
 #include "dgx_draw.h"
+#include "../dgx_clip_priv.h"
 #include "../dgx_hot_priv.h"
 
 /* ------------------------------------------------------------------------- */
@@ -105,17 +106,20 @@ static inline __attribute__((always_inline)) void dgx_side_row(dgx_side_t *s, in
 DGX_HOT void dgx_fill_triangle(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color)
 {
     DGX_SORT3PUD(x0, y0, x1, y1, x2, y2);
+    if (dgx_clip_misses(scr, DGX_MIN(DGX_MIN(x0, x1), x2), DGX_MAX(DGX_MAX(x0, x1), x2), y0, y2)) return;
+    /* the sides are walked from the top, so rows above the clip are walked too, but none below it */
+    const int last = DGX_MIN(y2, dgx_clip_bottom(scr) - 1), first = dgx_clip_top(scr);
     dgx_side_t longest, upper, lower;
     dgx_side_begin(&longest, x0, y0, x2, y2);
     dgx_side_begin(&upper, x0, y0, x1, y1);
     dgx_side_begin(&lower, x1, y1, x2, y2);
     dgx_screen_batch_begin(scr);
-    for (int y = y0; y <= y2; ++y) {
+    for (int y = y0; y <= last; ++y) {
         int a = longest.x, b = a;
         dgx_side_row(&longest, &a, &b);
         if (y <= y1) dgx_side_row(&upper, &a, &b);
         if (y >= y1) dgx_side_row(&lower, &a, &b);
-        scr->fill_rectangle(scr, a, y, b - a + 1, 1, color);
+        if (y >= first) scr->fill_rectangle(scr, a, y, b - a + 1, 1, color);
     }
     dgx_screen_batch_end(scr);
 }
@@ -184,8 +188,11 @@ void dgx_fill_polygon4(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2
         return;
     }
 
+    if (dgx_clip_misses(scr, DGX_MIN(DGX_MIN(x0, x1), DGX_MIN(x2, x3)), DGX_MAX(DGX_MAX(x0, x1), DGX_MAX(x2, x3)), dirty_top, dirty_bottom)) return;
     dgx_screen_batch_begin(scr);
-    for (int y = dirty_top; y <= dirty_bottom; ++y) {
+    /* rows outside the clip are left out: each row is worked out by itself */
+    const int first = DGX_MAX(dirty_top, dgx_clip_top(scr)), last = DGX_MIN(dirty_bottom, dgx_clip_bottom(scr) - 1);
+    for (int y = first; y <= last; ++y) {
         int xs[4];
         int count = 0;
 

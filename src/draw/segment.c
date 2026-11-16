@@ -18,6 +18,7 @@
 #include "dgx_draw.h"
 #include "dgx_draw_priv.h"
 #include "dgx_vscreen.h"
+#include "../dgx_clip_priv.h"
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
@@ -244,9 +245,9 @@ static void dgx_stroke_figure(dgx_stroke_t *s, int bx, int by, float len, float 
         if (top > bottom || rtop < top) top = rtop;
         if (top > bottom || rbottom > bottom) bottom = rbottom;
     }
-    /* a pen of any width may be asked for: only the rows of the screen are gone through */
-    if (top < 0) top = 0;
-    if (bottom >= s->scr->height) bottom = s->scr->height - 1;
+    /* a pen of any width may be asked for: only the rows of the clip are gone through */
+    if (top < dgx_clip_top(s->scr)) top = dgx_clip_top(s->scr);
+    if (bottom >= dgx_clip_bottom(s->scr)) bottom = dgx_clip_bottom(s->scr) - 1;
     int        chord = (d & 1) ^ 1; /* of the disc, in half pixels */
     int64_t    chord_wide = chord;  /* the same for a disc whose square is too large for 32 bits */
     const bool wide = d > 23000;
@@ -255,7 +256,7 @@ static void dgx_stroke_figure(dgx_stroke_t *s, int bx, int by, float len, float 
      * A virtual screen of whole bytes a pixel has its rows put here, not asked for one by one: a figure
      * of a small text is a few rows of a few pixels, and to ask for a row costs more than to fill it.
      */
-    const int bytes = s->direct, width = s->scr->width;
+    const int bytes = s->direct, width = s->scr->width, clip_lo = dgx_clip_left(s->scr), clip_hi = dgx_clip_right(s->scr) - 1;
     uint8_t  *line = bytes ? ((dgx_vscreen_t *)s->scr)->v_array + (size_t)top * (size_t)width * (size_t)bytes : NULL;
     int       touched_left = width, touched_right = -1;
 #endif
@@ -308,8 +309,8 @@ static void dgx_stroke_figure(dgx_stroke_t *s, int bx, int by, float len, float 
         }
 #if DGX_STROKE_MEMORY
         if (bytes) {
-            if (left < 0) left = 0;
-            if (right >= width) right = width - 1;
+            if (left < clip_lo) left = clip_lo;
+            if (right > clip_hi) right = clip_hi;
             if (left <= right) {
                 if (bytes == 1) {
                     const uint8_t ink = (uint8_t)s->color;
@@ -521,19 +522,19 @@ static void dgx_stroke_bar(dgx_stroke_t *s, float ax, float ay, float ux, float 
 {
     const float edge = 0.5f + s->width * 0.5f, wx = ux < 0 ? -ux : ux, wy = uy < 0 ? -uy : uy;
     const bool  erase = (s->color & 0xff) == 0, stopped = pen < len;
-    const int   width = s->scr->width, last = width - 1;
+    const int   width = s->scr->width, first_column = dgx_clip_left(s->scr), last = dgx_clip_right(s->scr) - 1;
     /* how far along the piece ink is put: the soft end of a part does not go past the end of the piece */
     const float reach = stopped && pen + 0.5f < end ? pen + 0.5f : end;
     const float x0 = ax + start * ux, x1 = ax + reach * ux, y0 = ay + start * uy, y1 = ay + reach * uy;
     const float out_x = edge * wy, out_y = edge * wx;
     int         top = -dgx_stroke_floor(-((y0 < y1 ? y0 : y1) - out_y)), bottom = dgx_stroke_floor((y0 < y1 ? y1 : y0) + out_y);
-    /* a pen of any width at any place may be asked for: only the pixels of the screen are gone through */
-    if (top < 0) top = 0;
-    if (bottom >= s->scr->height) bottom = s->scr->height - 1;
+    /* a pen of any width at any place may be asked for: only the pixels of the clip are gone through */
+    if (top < dgx_clip_top(s->scr)) top = dgx_clip_top(s->scr);
+    if (bottom >= dgx_clip_bottom(s->scr)) bottom = dgx_clip_bottom(s->scr) - 1;
     if (top > bottom) return;
     /* the columns the bar lies between */
     float       most_lo = (x0 < x1 ? x0 : x1) - out_x, most_hi = (x0 < x1 ? x1 : x0) + out_x;
-    if (most_lo < 0) most_lo = 0;
+    if (most_lo < first_column) most_lo = first_column;
     if (most_hi > last) most_hi = last;
     if (!(most_lo <= most_hi)) return;
     const int most_left = -dgx_stroke_floor(-most_lo), most_right = (int)most_hi;
@@ -589,7 +590,7 @@ static void dgx_stroke_disc(dgx_stroke_t *s, float cx, float cy, int d, const fl
     const float dr = d * 0.5f, reach = dr + 0.5f;
     const bool  erase = (s->color & 0xff) == 0;
     const int   ink_all = erase ? 255 : (int)(s->color & 0xff);
-    const int   last = s->scr->width - 1;
+    const int   first_column = dgx_clip_left(s->scr), last = dgx_clip_right(s->scr) - 1;
     /* how far from the centre the pixels to look at lie: left, right, up and down */
     float       west = reach, east = reach, north = reach, south = reach;
     if (d < 1) return;
@@ -609,14 +610,14 @@ static void dgx_stroke_disc(dgx_stroke_t *s, float cx, float cy, int d, const fl
         if (v[1] < 0 && by_y < north) north = by_y;
     }
     float lo = cx - west, hi = cx + east;
-    /* a pen of any width at any place may be asked for: only the pixels of the screen are gone through */
-    if (lo < 0) lo = 0;
+    /* a pen of any width at any place may be asked for: only the pixels of the clip are gone through */
+    if (lo < first_column) lo = first_column;
     if (hi > last) hi = last;
     if (!(lo <= hi)) return;
     const int left = -dgx_stroke_floor(-lo), right = (int)hi;
     int       top = -dgx_stroke_floor(-(cy - north)), bottom = dgx_stroke_floor(cy + south);
-    if (top < 0) top = 0;
-    if (bottom >= s->scr->height) bottom = s->scr->height - 1;
+    if (top < dgx_clip_top(s->scr)) top = dgx_clip_top(s->scr);
+    if (bottom >= dgx_clip_bottom(s->scr)) bottom = dgx_clip_bottom(s->scr) - 1;
     if (left > right || top > bottom) return;
     /* so many to a pixel that the square of the way from the centre to the edge fits a whole number */
     int   q = 6;
@@ -770,8 +771,9 @@ static inline void dgx_soft_circle_inside(uint8_t *p, int n, int ink, bool keep_
 bool dgx_soft_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color, bool cover)
 {
     if (!DGX_STROKE_SOFT || r < 0 || r > DGX_SOFT_CIRCLE_MOST || scr->color_bits != 8 || !dgx_vscreen_is_linear(scr)) return false;
-    const int top = y - r < 0 ? 0 : y - r, bottom = y + r >= scr->height ? scr->height - 1 : y + r;
-    const int first = x - r < 0 ? 0 : x - r, last = x + r >= scr->width ? scr->width - 1 : x + r;
+    const int ct = dgx_clip_top(scr), cb = dgx_clip_bottom(scr), cl = dgx_clip_left(scr), cr = dgx_clip_right(scr);
+    const int top = y - r < ct ? ct : y - r, bottom = y + r >= cb ? cb - 1 : y + r;
+    const int first = x - r < cl ? cl : x - r, last = x + r >= cr ? cr - 1 : x + r;
     if (top > bottom || first > last) return true;
     const int  given = (int)(color & 0xff);
     const bool erase = !cover && given == 0;
@@ -860,9 +862,11 @@ static void dgx_stroke_thin(dgx_stroke_t *s, int bx, int by, float len, float f0
         const int      width = s->scr->width, height = s->scr->height, bytes = s->direct, step_x = dx < 0 ? -1 : 1, step_y = dy < 0 ? -1 : 1;
         uint8_t *const memory = ((dgx_vscreen_t *)s->scr)->v_array;
         const uint8_t  hi = (uint8_t)(s->color >> 8), lo = (uint8_t)s->color;
+        const int      cl = dgx_clip_left(s->scr), ct = dgx_clip_top(s->scr);
+        const unsigned cw = (unsigned)(dgx_clip_right(s->scr) - cl), ch = (unsigned)(dgx_clip_bottom(s->scr) - ct);
         int            left = width, right = -1, top = height, bottom = -1;
         for (int k = from; k <= to; ++k) {
-            if ((unsigned)x < (unsigned)width && (unsigned)y < (unsigned)height) {
+            if ((unsigned)(x - cl) < cw && (unsigned)(y - ct) < ch) {
                 uint8_t *p = memory + ((size_t)y * (size_t)width + (size_t)x) * (size_t)bytes;
                 if (bytes == 1) p[0] = lo;
                 else p[0] = hi, p[1] = lo;

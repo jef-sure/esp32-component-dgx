@@ -12,6 +12,7 @@
 
 #include "dgx_draw.h"
 #include "dgx_spi_area_protocol.h"
+#include "../dgx_clip_priv.h"
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
@@ -23,17 +24,18 @@
 /* the move; the strips the picture has left are filled with `color` when `fill` says so, else left as they are */
 static esp_err_t dgx_scroll_with(dgx_screen_t *scr, int x, int y, int w, int h, int dx, int dy, bool fill, uint32_t color)
 {
-    /* of the rectangle, what the screen has */
-    if (x < 0) {
-        w += x;
-        x = 0;
+    /* of the rectangle, what the clip of the screen has: a panel scrolls itself only when that is whole rows */
+    const int cl = dgx_clip_left(scr), ct = dgx_clip_top(scr);
+    if (x < cl) {
+        w -= cl - x;
+        x = cl;
     }
-    if (y < 0) {
-        h += y;
-        y = 0;
+    if (y < ct) {
+        h -= ct - y;
+        y = ct;
     }
-    if (w > scr->width - x) w = scr->width - x;
-    if (h > scr->height - y) h = scr->height - y;
+    if (w > dgx_clip_right(scr) - x) w = dgx_clip_right(scr) - x;
+    if (h > dgx_clip_bottom(scr) - y) h = dgx_clip_bottom(scr) - y;
     if (w <= 0 || h <= 0 || (!dx && !dy)) return ESP_OK;
     /*
      * A display that keeps its pixels in the panel behind a bus is not read. A panel that scrolls

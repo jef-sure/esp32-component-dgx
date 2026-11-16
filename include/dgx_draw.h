@@ -285,7 +285,8 @@ bool dgx_screen_is_readable(const dgx_screen_t *scr);
  * are a move aslant. What leaves the rectangle is lost, what is outside it
  * stays as it is, and the strips the picture has left are filled with
  * @p color. A move as large as the rectangle, or larger, only fills it. The
- * rectangle is cut by the screen first.
+ * rectangle is cut by the clip of the screen first, as by its edges: only
+ * what lies inside the clip moves, and nothing comes in from outside it.
  *
  * The picture is read from the screen, so the screen has to give its pixels
  * back, dgx_screen_is_readable(). A virtual screen of whole bytes a pixel, 8
