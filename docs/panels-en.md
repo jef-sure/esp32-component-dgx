@@ -28,6 +28,7 @@ board does not wire.
 | SSD1680 | e-paper of black, white and red, 128x296 and 122x250 | SPI | `dgx_ssd1680_init(bus, resolution, rst, busy)` | `CONFIG_DGX_ENABLE_SSD1680` |
 | JD9165 | color TFT, 1024x600 | DSI | `dgx_jd9165_init(bus, rst, backlight, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9165` |
 | JD9365 | color TFT, 800x1280 | DSI | `dgx_jd9365_init(bus, rst, backlight, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9365` |
+| ST7701S | color TFT, 480x800 | DSI | `dgx_st7701_init(bus, rst, backlight, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_ST7701` |
 
 Common parameters:
 
@@ -37,7 +38,7 @@ Common parameters:
 - `backlight` (every display with a backlight: the color TFTs and the mono
   LCDs; the OLEDs and e-paper have none) — backlight GPIO, high for on, or
   `GPIO_NUM_NC` if it is not under software control. The driver turns it on
-  once the panel is set up, and `dgx_<driver>_backlight(scr, on)` turns it
+  once the panel is set up, and `dgx_screen_backlight(scr, on)` turns it
   off and on; without the line that call returns `ESP_ERR_NOT_SUPPORTED`.
   The driver does no more than that. For brightness by PWM the program
   drives the line with LEDC itself and passes `GPIO_NUM_NC` here: once LEDC
@@ -76,7 +77,7 @@ driver: `dgx_screen_orientation()`, `dgx_screen_backlight()`,
 `dgx_screen_display()` and `dgx_screen_brightness()`, see
 [Controlling a display](api-en.md#controlling-a-display) for what each
 display does for them. The calls named after a driver below do the same and
-stay.
+stay. ST7701S has none of them, only the common calls.
 
 Color panels, ST7920, SSD1306, SSD1309, SH1106, SSD1322 and SSD1680
 expose an orientation setter (`dgx_<driver>_orientation(scr, dir_x, dir_y,
@@ -103,8 +104,11 @@ changes that buffer, so a pixel can be read back and all eight orientations
 work. The driver has the init commands of the 7-inch panel of the Guition
 JC1060P470 board. JD9365 works the same way: an 800x1280 portrait panel with
 the init commands of the newer panel of the 10.1-inch Guition JC8012P4A1C
-board, 2 MB a frame at 16 bits. The last argument of the constructor,
-`frames`, chooses how the screen is updated:
+board, 2 MB a frame at 16 bits. So does ST7701S, a 480x800 portrait panel
+with the init commands of the 4.3-inch Guition JC4880P443C board, 750 KB a
+frame at 16 bits; only the MIPI-DSI kind of that controller is driven, not
+one on an RGB bus. The last argument of the constructor, `frames`, chooses
+how the screen is updated:
 
 | `frames` | Frame buffers | Tearing |
 | --- | --- | --- |
@@ -176,7 +180,7 @@ controller takes over that bus but DGX does not set up, where they are known:
 | SSD1306, SSD1309, SH1106 | SPI, I2C | 1 | |
 | ST7565R, ST7920 | SPI | 1 | |
 | SSD1680 | SPI | 8: an ink a pixel, black, white or red | |
-| JD9165, JD9365 | DSI | 16, 24 | |
+| JD9165, JD9365, ST7701S | DSI | 16, 24 | |
 | the window on the computer | none | 16, 18; 24 with `no_bus` | |
 | a virtual screen | none | 1, 4, 8, 12, 16, 18, 24, 32 | |
 

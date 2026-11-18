@@ -1,5 +1,52 @@
 # Changes
 
+## 0.11.5 - 2026-11-18
+
+No call of a program is broken. A program on a 24-bit DSI display sees its
+virtual screens reach the display faster, the same pixels. Everything here
+was seen on the Guition JC4880P443C; the rest is host tests and builds for
+the ESP32-P4 under IDF 5.5.4 and 6.1.
+
+New:
+
+- **The ST7701S driver** (`drivers/st7701.h`, `CONFIG_DGX_ENABLE_ST7701`),
+  for the 4.3-inch 480x800 panel of the Guition JC4880P443C on MIPI-DSI:
+  `dgx_st7701_init(bus, rst, backlight, color_bits, cbo, frames)`, the same
+  arguments as the JD9165 and JD9365 drivers. Its init commands are those
+  the board's factory firmware sends. The pixel clock is 240/7 MHz, which
+  IDF makes exactly, so the DSI host and the bridge have the same line;
+  the frame is 16.4 ms, 61 a second. The driver has no calls of its own:
+  `dgx_screen_orientation()`, `dgx_screen_backlight()` and
+  `dgx_screen_display()` do it. Only the MIPI-DSI kind of the controller is
+  driven, not one on an RGB bus. Seen right on that board at 16 and 24 bits:
+  the frame on the edge of the glass, the colors, all eight orientations,
+  and the backlight. At 16 bits the board measurement asks for two frame
+  buffers at PSRAM 200 MHz (27 to 28 drops a frame) and not at 250 (10); at
+  24 bits it asks for them at 250 too (50). With one buffer the moving bars
+  tore every time and never flashed.
+
+Faster:
+
+- **A 24-bit virtual screen goes to a DSI display by the 2D DMA**, as a
+  16-bit one did, under the same rule: at its own size, on a screen neither
+  mirrored nor rotated, from the threshold of the board on. The DMA
+  exchanges red and blue on the way; the bus sets the field of the chip for
+  pixels of 3 bytes itself, as it sets the one for 2 bytes, since IDF 5.5
+  sets the field for 2 bytes whatever the pixels and IDF 6.0.3 and later the
+  one for 3. On the JC4880P443C a 480x200 part takes 2.6 ms, and the moving
+  bars went from 75 pictures a second to 197. Checked there under IDF 5.5.4
+  and 6.1 by reading the frame buffer back: 14 rectangles, from odd columns,
+  of odd widths, a column one pixel wide, a single pixel, are right in every
+  pixel and touch nothing around them, at 24 bits and, as before, at 16.
+
+Documentation:
+
+- The 4.3-inch board in docs/dsi-display-en.md and docs/dsi-usage-en.md,
+  with their Russian versions: what is known of it, why 240/7 MHz, the board
+  measurement at two PSRAM clocks and two depths; the byte exchange of
+  24-bit pixels. docs/panels-en.md said a display is lit by
+  `dgx_<driver>_backlight()`; it is `dgx_screen_backlight()`.
+
 ## 0.11.4 - 2026-11-16
 
 No call of a program is broken: the new members are at the end of their

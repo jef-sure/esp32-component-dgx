@@ -1387,7 +1387,7 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
 ## What's in the box
 
 - Panel drivers for ST7735, ST7789, ILI9341, NV3041A, ST77916, GC9A01, SSD1351, SSD1306,
-  SSD1309, SH1106, ST7565R, ST7920, SSD1322, JD9165 and JD9365, and SSD1680 for
+  SSD1309, SH1106, ST7565R, ST7920, SSD1322, JD9165, JD9365 and ST7701S, and SSD1680 for
   e-paper of black, white and red.
 - SPI, QSPI, I2C and 8-bit parallel (I80) transports for ESP32, and MIPI-DSI
   for ESP32-P4.

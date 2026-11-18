@@ -324,7 +324,7 @@ struct _dgx_dsi_bus_t {
     dma2d_descriptor_t *dma_desc;
     dma2d_trans_t      *dma_trans;
     SemaphoreHandle_t   dma_done;
-    bool                dma_exchange; /* the transfer under way exchanges the bytes of 16-bit pixels */
+    bool                dma_exchange; /* the transfer under way exchanges the bytes of its pixels, as DGX and the frame buffer keep them */
     /* the transfer under way: no piece was being copied when it started, its bytes, when it started */
     bool                dma_undisturbed;
     bool                dma_behind_scan; /* it was started behind the scan, and its time is taken for those */
@@ -752,14 +752,17 @@ static IRAM_ATTR bool dgx_dsi_dma_picked(uint32_t count, const dma2d_trans_chann
     dgx_dsi_bus_t         *bus = (dgx_dsi_bus_t *)user;
     dma2d_channel_handle_t tx, rx;
     dgx_dsi_dma_channels(count, channels, &tx, &rx);
+    const bool three = bus->area.pixel_bytes == 3;
     if (bus->dma_exchange) {
         /*
          * Of the three bytes the DMA may put in another order a 16-bit
-         * pixel has the lower two: they change places.
+         * pixel has the lower two: they change places. A 24-bit pixel has
+         * all three, red, green, blue in DGX and blue, green, red in the
+         * frame buffer: the first and the last change places.
          */
         dma2d_csc_config_t exchange = {
             .tx_csc_option = DMA2D_CSC_TX_SCRAMBLE,
-            .pre_scramble  = DMA2D_SCRAMBLE_ORDER_BYTE2_0_1,
+            .pre_scramble  = three ? DMA2D_SCRAMBLE_ORDER_BYTE0_1_2 : DMA2D_SCRAMBLE_ORDER_BYTE2_0_1,
         };
         dma2d_configure_color_space_conversion(tx, &exchange);
     }
@@ -771,15 +774,16 @@ static IRAM_ATTR bool dgx_dsi_dma_picked(uint32_t count, const dma2d_trans_chann
         /*
          * The chip has two ways to take pixels whose bytes it puts in
          * another order: 2, "other 2 byte/pixel type", and 3, the same for
-         * 3 bytes. IDF 5.5.4 sets 2, IDF 6.1 sets 3 and says that only
-         * pixels of 3 bytes are supported; with 2-byte pixels the transfer
-         * never ends then (esp-idf issue 19226). So the field is set here,
-         * in the channel that was given the descriptor: the driver does not
+         * 3 bytes, each right for its own pixels only. IDF 5.5.4 sets 2
+         * whatever the pixels, and 3-byte pixels come out garbled; IDF 6.1
+         * sets 3, and with 2-byte pixels the transfer never ends (esp-idf
+         * issue 19226). So the field is set here by the size of a pixel, in
+         * the channel that was given the descriptor: the driver does not
          * tell its number.
          */
         for (size_t i = 0; i < sizeof(DMA2D.out_channel) / sizeof(DMA2D.out_channel[0]); ++i) {
             if (DMA2D.out_channel[i].out_link_addr.outlink_addr_chn == (uint32_t)(intptr_t)&bus->dma_desc[0]) {
-                DMA2D.out_channel[i].out_color_convert.out_color_input_sel_chn = 2;
+                DMA2D.out_channel[i].out_color_convert.out_color_input_sel_chn = three ? 3 : 2;
             }
         }
     }
@@ -1576,15 +1580,16 @@ static inline void dgx_dsi_late_idle(dgx_dsi_bus_t *bus)
 /*
  * Rows of pixels of a program, kept as DGX keeps them, straight into a
  * rectangle of the screen by the 2D DMA. It does what sending them through
- * the window does, several times as fast, when the pixels are 16-bit, the
- * screen lies on the panel as it is and the rectangle is not small.
+ * the window does, several times as fast, when the screen lies on the panel
+ * as it is and the rectangle is not small; the pixels are of 16 or 24 bits.
  */
 static bool dgx_dsi_write_rows(struct _dgx_bus_protocols_t *_bus, uint16_t left, uint16_t top, uint16_t width, uint16_t height, const uint8_t *rows,
                                uint32_t pitch)
 {
-    dgx_dsi_bus_t *bus = (dgx_dsi_bus_t *)_bus;
-    if (!bus->area.fb || bus->area.pixel_bytes != 2 || bus->area.swap_rb || bus->turned || (pitch & 1u)) return false;
-    if ((uint32_t)width * height * 2u < bus->tuning.rows_from) return false;
+    dgx_dsi_bus_t *bus   = (dgx_dsi_bus_t *)_bus;
+    const uint32_t bytes = bus->area.pixel_bytes;
+    if (!bus->area.fb || (bytes != 2 && bytes != 3) || bus->area.swap_rb || bus->turned || pitch % bytes) return false;
+    if ((uint32_t)width * height * bytes < bus->tuning.rows_from) return false;
     if ((uint32_t)left + width > bus->area.fb_width || (uint32_t)top + height > bus->area.fb_height) return false;
     if (bus->frames == 2) {
         dgx_dsi_draw_ready(bus);
@@ -1592,9 +1597,9 @@ static bool dgx_dsi_write_rows(struct _dgx_bus_protocols_t *_bus, uint16_t left,
         /* every pixel of the rectangle is written: of its tiles only what lies outside it is brought up to date */
         dgx_dsi_tiles_ready(bus, left, left + width - 1, top, top + height - 1, true, true);
     }
-    uint8_t *to = bus->area.fb + (size_t)top * bus->area.fb_width * 2u;
+    uint8_t *to = bus->area.fb + (size_t)top * bus->area.fb_width * bytes;
     /* `pitch` is in bytes, the DMA wants the stride in pixels; the bytes of every pixel change places on the way */
-    if (!dgx_dsi_dma(bus, rows, pitch / 2u, 0, to, left, width, height, true, bus->after_scan)) return false;
+    if (!dgx_dsi_dma(bus, rows, pitch / bytes, 0, to, left, width, height, true, bus->after_scan)) return false;
     bus->rows_written = true;
     return true;
 }

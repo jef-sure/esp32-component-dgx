@@ -7,7 +7,7 @@ and NV3041A, which is on QSPI only.
 Pass `18` as `color_bits` to the driver's init function. You get 262,144 colors instead of 65,536 (red
 and blue get six bits instead of five; green has six either way), at the
 price of three bytes per pixel on the wire instead of two. The DSI panels
-(JD9165, JD9365) take 16 or 24 bits and are not covered here.
+(JD9165, JD9365, ST7701S) take 16 or 24 bits and are not covered here.
 
 ## A pixel in memory and on the wire
 

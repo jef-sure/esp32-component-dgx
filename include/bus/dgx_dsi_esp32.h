@@ -80,11 +80,12 @@ typedef enum {
      * A 16-bit part of 16 KB or more goes by the 2D DMA: at once when it
      * is put as it is on a screen neither mirrored nor turned with no
      * overlay layer over it, otherwise in bands the processor makes, as an
-     * 8-bit one through a table of colors goes. Bands are whole as long as
+     * 8-bit one through a table of colors goes. A 24-bit part goes at once
+     * by the same rule, and otherwise through the window. Bands are whole as long as
      * the processor makes them faster than the display reads.
      *
      * Pixels the processor sends through the window (small parts, a
-     * smoothed 16-bit part, 24-bit color, every part without
+     * smoothed 16-bit part, a 24-bit part another way, every part without
      * CONFIG_DGX_DSI_PRIVATE_DMA2D) wait until the scan has left the rows of
      * the window, when they can be written before it is back.
      * That holds for about 160 rows of 1024 pixels; a larger window goes as

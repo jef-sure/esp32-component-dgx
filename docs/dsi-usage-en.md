@@ -117,7 +117,10 @@ at 24 bits.
   mirrored or rotated, and the picture has to go at its own size, not turned,
   with no overlay layer and no transparency. Otherwise it goes in bands the
   processor makes and the 2D DMA moves, as an 8-bit screen through a table
-  does; smoothed, with holes, and at 24 bits the processor moves the pixels.
+  does; smoothed or with holes, the processor moves the pixels. A 24-bit
+  part goes by the 2D DMA by the same rule, red and blue exchanged on the
+  way: a 480x200 part, 281 KB, in 2.6 ms on the 4.3-inch JC4880P443C.
+  Otherwise the processor moves it.
 - A large rectangle is filled by the pixel processing accelerator (PPA): the
   full screen in 3.5 ms instead of 16, in any orientation and color depth.
 - An 8-bit virtual screen whose table is a ramp between two colors, like the
@@ -210,7 +213,12 @@ The limits were found by eye on the 10.1-inch JC8012P4A1C, chip revision
 3.2, IDF 6.0.1: 16 bits gave 28 to 33 drops a frame with PSRAM at 200 MHz
 and 8 to 11 at 250 MHz; 24 bits took 96% of the lanes and flashed now and
 then with nothing drawn. What the screen showed is under "PSRAM speed"
-below. Other boards may draw the line elsewhere.
+below. Other boards may draw the line elsewhere. On the 4.3-inch
+JC4880P443C (ST7701S, chip revision 3.2, IDF 6.1) the measurement counts
+27 to 28 drops a frame at 16 bits with 200 MHz, 10 with 250 MHz, and 50 at
+24 bits with 250 MHz, so the advice asks for two buffers in the first and the
+last; there, with one buffer, the moving bars tore in all three and never
+flashed.
 
 **Tile size.** The best size depends on what a program draws. The default
 is 32x4. Compared with 32x8, which is the fastest for the DGX demos, it is
@@ -274,7 +282,7 @@ slower; the numbers are under "Behind the scan" in
 What is seen whole this way:
 
 - a large rectangle filled by the PPA, in any orientation and color depth;
-- a part of a 16-bit virtual screen the 2D DMA puts at once: 16 KB or more,
+- a part of a 16- or 24-bit virtual screen the 2D DMA puts at once: 16 KB or more,
   on a screen neither mirrored nor rotated, at its own size and not turned,
   with no overlay layer over it, put without transparency, and with
   `CONFIG_DGX_DSI_PRIVATE_DMA2D` on, as it is by default;
@@ -287,7 +295,7 @@ What is seen whole this way:
 
 Anything else from a virtual screen is sent through the window by the
 processor, which writes slower than the display reads: a smoothed 16-bit
-picture, 24-bit color, a part under 16 KB. Such a window
+picture, a 24-bit one put another way, a part under 16 KB. Such a window
 waits for the scan only when it can be written before the scan is back,
 about 160 rows of 1024 pixels; a larger one goes at once and may tear, as
 with `DgxDsiOneFrame`. Where such a picture must not tear, take

@@ -133,6 +133,14 @@ config DGX_ENABLE_JD9365
     depends on DGX_ENABLE_DSI
     default n
 
+config DGX_ENABLE_ST7701
+    bool "Enable ST7701S panel driver"
+    depends on DGX_ENABLE_DSI
+    default n
+    help
+        The 480x800 controller of 4.3-inch panels on MIPI-DSI, as on the
+        Guition JC4880P443C board.
+
 config DGX_ENABLE_SSD1306
     bool "Enable SSD1306 controller"
     depends on DGX_ENABLE_SPI || DGX_ENABLE_I2C

@@ -91,6 +91,10 @@ if(CONFIG_DGX_ENABLE_JD9365)
 	list(APPEND srcs "src/drivers/jd9365.c")
 endif()
 
+if(CONFIG_DGX_ENABLE_ST7701)
+	list(APPEND srcs "src/drivers/st7701.c")
+endif()
+
 if(CONFIG_DGX_ENABLE_ST7920)
 	list(APPEND srcs "src/drivers/st7920.c")
 endif()

@@ -10,14 +10,14 @@ program needs to know to use such a display is shorter and lives in
 The note describes the code of DGX 0.11.0. The bus is `src/bus/dsi_esp32.c`, the
 frame buffer core `src/bus/fb_area.c`, the tile maps `src/bus/fb_tiles.c`,
 the swap of two buffers `src/bus/fb_flip.c`, the drivers
-`src/drivers/jd9165.c` and `src/drivers/jd9365.c`.
+`src/drivers/jd9165.c`, `src/drivers/jd9365.c` and `src/drivers/st7701.c`.
 
 How to read this note.
 
-- **There are two boards**, and they are always named by the panel
-  controller: **JD9165 (7")**, 1024x600, and **JD9365 (10")**, 800x1280.
-  Nearly everything was measured on the JD9165 (7"). When a table does not
-  name a board, it is that one.
+- **There are three boards**, and they are always named by the panel
+  controller: **JD9165 (7")**, 1024x600, **JD9365 (10")**, 800x1280, and
+  **ST7701S (4.3")**, 480x800. Nearly everything was measured on the JD9165
+  (7"). When a table does not name a board, it is that one.
 - **Every table of numbers** is preceded by one line saying which board,
   which mode and which IDF it was taken on, and what the cells hold.
 - **The text describes the current code.** How it changed from release to
@@ -26,12 +26,13 @@ How to read this note.
   KB is 1024 bytes. Speeds are in KB/ms. They are best weighed against how
   fast the display itself reads its frame buffer while it goes over the
   visible rows: the JD9165 (7") at 77 KB/ms, the JD9365 (10") at 124 KB/ms,
-  both measured. That is the bytes of one row of the buffer in the time of
-  one row of the panel, its blanking included; every panel has its own.
+  both measured, the ST7701S (4.3") at 56 KB/ms by its timings. That is the
+  bytes of one row of the buffer in the time of one row of the panel, its
+  blanking included; every panel has its own.
 
 ## Contents
 
-- [The two boards](#the-two-boards): [what is known about them](#what-is-known-about-the-boards)
+- [The boards](#the-boards): [what is known about them](#what-is-known-about-the-boards)
 - [The bench and its scenes](#the-bench-and-its-scenes)
 - [Terms](#terms): [window](#window), [batch](#batch), [tile](#tile)
 - [What the bus looks like to a driver](#what-the-bus-looks-like-to-a-driver)
@@ -65,28 +66,28 @@ How to read this note.
 - [How it was checked](#how-it-was-checked)
 - [How it changed](#how-it-changed)
 
-## The two boards
+## The boards
 
-| | JD9165 (7") | JD9365 (10") |
-| --- | --- | --- |
-| Board | Guition JC1060P470, 7 inches | Guition JC8012P4A1C, 10.1 inches, with an ESP32-C6 for radio |
-| Panel | JD9165, 1024x600, landscape | JD9365, 800x1280, portrait. The newer of the two panels the board was sold with |
-| Chip | ESP32-P4 revision v1.3 as `esptool` reports it, two cores | ESP32-P4 revision v3.2 as `esptool` reports it ("Dual Core + LP Core, 400MHz"), ROM `esp32p4-eco7-20260109`, efuse block v1.2 |
-| CPU clock | 360 MHz, `CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=360`, the default for revisions below 3 | 400 MHz, `CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_400=y` |
-| Build for the revision | `CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y`, minimum revision 0 | minimum revision 3.1, `CONFIG_ESP32P4_REV_MIN_FULL=301` |
-| Flash | 16 MB | 16 MB, Boya (manufacturer 0x68, device 0x4018); IDF warns that it drives it with the generic driver |
-| PSRAM | 32 MB, HEX mode, 200 MHz | 32 MB AP Memory generation 4, X16 HEX mode, fixed latency of 18 clocks. Runs at 200 and at 250 MHz (`CONFIG_SPIRAM_SPEED_250M`, revision 3 and newer only); the memory test at start passes at both |
-| L2 cache | 256 KB, 64-byte line, unless said otherwise | not varied |
-| DSI lanes | 2 at 750 Mbit/s | 2 at 1000 Mbit/s |
-| Pixel clock | 52 MHz | 80 MHz, see 70 and 80 below |
-| Frame | 16418 µs, 60.9 Hz, measured | 16682 µs, 59.9 Hz, measured |
-| Optimization | `CONFIG_COMPILER_OPTIMIZATION_PERF=y` | the same |
-| IDF | timing tables taken under 5.5.4, 6.0.1 and 6.1, each table says which; builds also checked under 5.5.5 and 6.0.3 | 6.0.1; the example also builds under 5.5.5 |
-| Panel driver in DGX | `dgx_jd9165_init()`, `src/drivers/jd9165.c` | `dgx_jd9365_init()`, `src/drivers/jd9365.c` |
-| What was measured on it | all timing tables, the tearing checks, the choice of tile size, the comparison of the board measurement with the bus's choices | the bus on revision 3, the end of frame on that revision, PSRAM bandwidth, the thresholds of `dgx_dsi_advise()`, the timing tables of `write_indexed` |
-| In use since | the start | 2026-10-17 |
+| | JD9165 (7") | JD9365 (10") | ST7701S (4.3") |
+| --- | --- | --- | --- |
+| Board | Guition JC1060P470, 7 inches | Guition JC8012P4A1C, 10.1 inches, with an ESP32-C6 for radio | Guition JC4880P443C, 4.3 inches, with an ESP32-C6 for radio |
+| Panel | JD9165, 1024x600, landscape | JD9365, 800x1280, portrait. The newer of the two panels the board was sold with | ST7701S, 480x800, portrait, IPS |
+| Chip | ESP32-P4 revision v1.3 as `esptool` reports it, two cores | ESP32-P4 revision v3.2 as `esptool` reports it ("Dual Core + LP Core, 400MHz"), ROM `esp32p4-eco7-20260109`, efuse block v1.2 | ESP32-P4 revision v3.2 as `esptool` reports it |
+| CPU clock | 360 MHz, `CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=360`, the default for revisions below 3 | 400 MHz, `CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_400=y` | 400 MHz |
+| Build for the revision | `CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y`, minimum revision 0 | minimum revision 3.1, `CONFIG_ESP32P4_REV_MIN_FULL=301` | minimum revision 3.1 |
+| Flash | 16 MB | 16 MB, Boya (manufacturer 0x68, device 0x4018); IDF warns that it drives it with the generic driver | 16 MB, Boya (0x68, 0x4018), as on the 10" |
+| PSRAM | 32 MB, HEX mode, 200 MHz | 32 MB AP Memory generation 4, X16 HEX mode, fixed latency of 18 clocks. Runs at 200 and at 250 MHz (`CONFIG_SPIRAM_SPEED_250M`, revision 3 and newer only); the memory test at start passes at both | 32 MB, HEX mode; runs at 200 and at 250 MHz |
+| L2 cache | 256 KB, 64-byte line, unless said otherwise | not varied | 256 KB, not varied |
+| DSI lanes | 2 at 750 Mbit/s | 2 at 1000 Mbit/s | 2 at 1000 Mbit/s |
+| Pixel clock | 52 MHz | 80 MHz, see 70 and 80 below | 240/7 = 34.29 MHz, see below |
+| Frame | 16418 µs, 60.9 Hz, measured | 16682 µs, 59.9 Hz, measured | 16397 µs, 61.0 Hz, measured |
+| Optimization | `CONFIG_COMPILER_OPTIMIZATION_PERF=y` | the same | the same |
+| IDF | timing tables taken under 5.5.4, 6.0.1 and 6.1, each table says which; builds also checked under 5.5.5 and 6.0.3 | 6.0.1; the example also builds under 5.5.5 | 6.1 |
+| Panel driver in DGX | `dgx_jd9165_init()`, `src/drivers/jd9165.c` | `dgx_jd9365_init()`, `src/drivers/jd9365.c` | `dgx_st7701_init()`, `src/drivers/st7701.c` |
+| What was measured on it | all timing tables, the tearing checks, the choice of tile size, the comparison of the board measurement with the bus's choices | the bus on revision 3, the end of frame on that revision, PSRAM bandwidth, the thresholds of `dgx_dsi_advise()`, the timing tables of `write_indexed` | the board measurement at two PSRAM clocks and two depths; by eye the colors, the eight orientations and tearing, at 16 and 24 bits |
+| In use since | the start | 2026-10-17 | 2026-11-18 |
 
-Under the DGX bus (`dgx_dsi_init()`, `src/bus/dsi_esp32.c`) both have the
+Under the DGX bus (`dgx_dsi_init()`, `src/bus/dsi_esp32.c`) all three have the
 MIPI-DSI driver of the IDF `esp_lcd` component: `esp_lcd_new_dsi_bus()`,
 `esp_lcd_new_panel_io_dbi()` for commands, `esp_lcd_new_panel_dpi()` for
 video mode. The Espressif component `espressif/esp_lcd_jd9165` is not used
@@ -133,6 +134,53 @@ do not come from here.
 
 How much this panel reads from PSRAM, calculated from the timings: 160 MB/s
 within a line (80 MHz at 2 bytes), 123 MB/s on average over a frame.
+
+**ST7701S (4.3").** The factory firmware, `esp_brookesia_demo` on IDF
+v6.0.2, is page for page the image the maker publishes as V2.3, but for the
+NVS. After MADCTL and COLMOD it sends the panel the 39 commands of the
+MIPI-DSI table of `esp_lcd_st7701` 1.1.3, the last two SLPOUT and DISPON.
+The image also holds the 35 commands of the RGB kind of that driver, which
+it never sends; they are not this panel's.
+
+| Parameter of the ST7701S (4.3") | Value |
+| --- | --- |
+| Line: sync pulse, back porch, front porch | 12, 42, 42 pixels |
+| Frame: sync pulse, back porch, front porch | 2, 8, 166 rows |
+| PHY power | LDO channel 3, 2500 mV |
+| Panel reset | GPIO5: low 10 ms, then 120 ms before the first command |
+| Backlight | GPIO23, the enable of a boost converter, on when high |
+| Init table | 39 commands, taken from the factory firmware |
+
+The firmware asks for 28 MHz, 49.8 frames a second. IDF divides its 240 MHz
+by 9 and gets 26.67 MHz, keeps the rate by a front porch shorter by 27 points
+at the bridge, and sizes the line of the DSI host by 28 MHz: 2571 byte
+clocks, 20.568 µs, against 20.588 µs at the bridge, the host 20 ns early
+every line, the same issue 19188 as on the 10". The DGX driver asks for
+240/7 MHz, a whole divider: both lines are 16.8 µs, 2100 byte clocks at
+1000 Mbit/s, and the frame is 16397 µs. The maker's video demo asks for
+34 MHz and gets the same clock.
+
+What this panel reads from PSRAM, calculated: 69 MB/s within a line, 47 MB/s
+on average over a frame. Little as that is, under the 2D DMA it still runs
+short of data nearly as often as the 10". The board measurement,
+`dgx_dsi_bench()`, one frame buffer, IDF 6.1:
+
+| Number | 16 bits, PSRAM 200 MHz | 16 bits, PSRAM 250 MHz | 24 bits, PSRAM 250 MHz |
+| --- | --- | --- | --- |
+| Writing through a window, KB/ms | 25 | 28 | 25 |
+| Bringing out of the cache, KB/ms | 250–260 | 252 | 279 |
+| Speed of the 2D DMA, KB/ms | 155 | 187 | 181 |
+| FIFO drops a frame under the DMA copy | 27–28 | 10 | 50 |
+| Share of the DSI lanes taken by pixels | 27% | 27% | 41% |
+
+`dgx_dsi_advise()` therefore asks for two frame buffers at 16 bits with
+200 MHz and at 24 bits. By eye, with cyan bars moving sideways in the middle
+third of the screen, put with no pause, one frame buffer: tearing in all
+three, and no flash in any. The 2D DMA puts the bars, about 370 pictures a
+second at 16 bits and 200 MHz, 430 at 250, and 197 at 24 bits. IDF printed
+no "underrun happens". On
+this board the advice comes without the flashes it is there to prevent; its
+threshold of 15 drops a frame was set by eye on the JD9365 (10").
 
 ## The bench and its scenes
 
@@ -408,8 +456,9 @@ What was considered.
 - **Exchange in an intermediate buffer, then send.** Slower: 23.1 ms against
   17.8 ms, see "Writing into the frame buffer".
 - **Write a pixel as a 16-bit value.** Slower than two bytes, same place.
-- **24 bits.** Exchanging red and blue by the 2D DMA is not done: 24-bit
-  pixels are moved by the processor.
+- **24 bits.** The same DMA exchanges red and blue, with another order of
+  the bytes and the field of the chip set for pixels of 3 bytes, see "The
+  byte exchange".
 
 LVGL made the opposite choice: the pixel lies in memory in the processor's
 order, and for an SPI display the port exchanges the bytes before sending
@@ -1725,7 +1774,7 @@ five jobs.
 
 | Job | By | What is done | From what size |
 | --- | --- | --- | --- |
-| Putting a virtual screen to the display | 2D DMA | rows of a 16-bit virtual screen go into the frame buffer, bytes exchanged | 16 KB and more |
+| Putting a virtual screen to the display | 2D DMA | rows of a 16- or 24-bit virtual screen go into the frame buffer, bytes exchanged | 16 KB and more |
 | Putting an 8-bit screen through a colour table | 2D DMA | bands of colours the processor makes go into the frame buffer, in any orientation | 16 KB and more |
 | The catch-up copy with two buffers | 2D DMA | what is left to copy before the swap goes from one frame buffer into the other | rows × (width + 53) at least 8000 |
 | Filling a rectangle | PPA | a rectangle of the frame buffer is filled with a colour | rows + bytes / 64 at least 200 |
@@ -1771,6 +1820,12 @@ bytes, the setting is called scramble. For a 16-bit pixel the permutation
     in:  a0 10 a1 11 a2 12
     out: 10 a0 11 a1 12 a2
 
+For a 24-bit pixel `DMA2D_SCRAMBLE_ORDER_BYTE0_1_2` swaps its first byte
+and its last, red and blue:
+
+    in:  r0 g0 b0 r1 g1 b1
+    out: b0 g0 r0 b1 g1 r1
+
 But this works only in the right input mode. In the chip register
 `OUT_COLOR_INPUT_SEL` it has two values for the exchange:
 
@@ -1784,7 +1839,7 @@ The IDF driver sets one of them itself, and which depends on the version.
 | IDF | What the driver sets | 16-bit pixels | 24-bit pixels |
 | --- | --- | --- | --- |
 | 5.3.4, 5.4.3, 5.5.4, 5.5.5, 6.0.1, 6.0.2 | 2 | works | garbage comes out |
-| 6.0.3, 6.1, master | 3 | the transfer never completes | works by the commit's intent; not checked |
+| 6.0.3, 6.1, master | 3 | the transfer never completes | works |
 
 The value for each version is taken from its source. The behaviour was
 measured under 5.5.4, 6.0.1 and 6.1. The value was changed by commit
@@ -1793,10 +1848,11 @@ bits and broke 16. This is reported in
 [issue 19226](https://github.com/espressif/esp-idf/issues/19226) with an
 example that reproduces the hang without a display; no answer yet.
 
-After the driver's setup the bus itself writes 2 into the register field. The
-driver does not tell the channel number, so the channel is found by the
-address of its own descriptor. Under 5.5.4 this changes nothing; under 6.0.3
-and 6.1 the transfer hangs without it.
+After the driver's setup the bus itself writes the register field, 2 for
+16-bit pixels and 3 for 24-bit ones. The driver does not tell the channel
+number, so the channel is found by the address of its own descriptor. For
+16-bit pixels this changes nothing under 5.5.4, and under 6.0.3 and 6.1 the
+transfer hangs without it; for 24-bit ones it is the other way round.
 
 Checked under 5.5.4 and 6.1, the display running from the same PSRAM:
 
@@ -1806,6 +1862,15 @@ Checked under 5.5.4 and 6.1, the display running from the same PSRAM:
   600 high, are right inside and touch nothing outside: 14 cases. The IDF
   header warns that the destination needs 4-byte alignment; in practice the
   neighbouring pixels do not suffer.
+
+24-bit pixels were checked on the ST7701S (4.3") under 5.5.4 and 6.1, read
+back from the frame buffer pixel by pixel: 14 rectangles of a 480x200
+picture whose red, green and blue all differ, the whole of it, from odd
+columns, of odd widths, a column one pixel wide, a single pixel, at the
+edges of the screen, each with the threshold of the board and again with it
+set to one byte, so that the small ones went by the DMA too. Every pixel
+inside was right, and the ring of one pixel around each rectangle stayed
+black. The same check at 16 bits came out the same.
 
 ### A virtual screen put to the display
 
@@ -1820,7 +1885,8 @@ picture scaled, turned, under a layer or mixed goes by `write_indexed` as
 colours of 16 bits, see below, and a smoothed or transparent one through a
 window. The DSI bus takes the rows when all of this holds:
 
-- the pixels are 16-bit, and red and blue do not change places;
+- the pixels are of 16 or 24 bits, and the panel does not take red and blue
+  the other way round;
 - the screen is neither mirrored nor rotated: the DMA writes only left to
   right and top to bottom;
 - the rectangle is at least 16 KB. Anything smaller the processor puts
@@ -2800,8 +2866,8 @@ With the current code scenes 1–6 with two buffers give 42.3, 60.9, 34.8,
   way to wait for the next frame there: a program that refreshes more often
   than the display holds itself back. The condition for writing by the
   processor is twice as strict as needed; after the DMA that changes little.
-- **A 16-bit screen on a mirrored or rotated display, and 24 bits,** are put by
-  the processor: 34 ms a screen. An 8-bit screen goes by the 2D DMA there, and
+- **A 16-bit screen on a mirrored or rotated display, and a 24-bit one
+  there,** are put by the processor: 34 ms a screen. An 8-bit screen goes by the 2D DMA there, and
   the fill by the PPA works too.
 - **Revision 3.** On the JD9365 (10") the branch with `on_refresh_done` was
   checked under IDF 6.0.1 and the branch with `on_frame_buf_complete` under
@@ -2909,6 +2975,7 @@ the JD9165 (7") its aiming was only built.
 | 0.9.3 | 0.9.2 was not released, its work came with this version. A display whose start failed can be made again on the same bus. Where frames are counted at the buffer switch, a batch finished in the last 0.3 ms of a frame waits one more frame, `DGX_FB_FLIP_SWITCH_US`, and the bus counts the frame first thing in its interrupt. A wait for the scan no longer ends at once when the end of a frame is due but not yet counted. The configuration of `dma2d_enqueue()` lives in the bus, not on the stack. With `CONFIG_LCD_DSI_ISR_CACHE_SAFE` or `CONFIG_DMA2D_ISR_IRAM_SAFE` but no `CONFIG_DMA2D_OPERATION_FUNC_IN_IRAM` the copy after the swap is off. A piece is left for that copy only when its rows start and end on cache lines. The interrupt that finishes a late piece reads the number of pieces before it marks its piece done. The bands of `write_indexed` are taken with `MALLOC_CAP_DMA` |
 | 0.10.16 | `write_indexed` takes 16-bit colours too: a 16-bit picture scaled, turned or under an overlay layer goes by bands instead of through the window; `DGX_VSCREEN_ALPHA` mixes a band with the frame buffer by the accelerator or by the processor; every index of an overlay layer may weigh its own; behind the scan a write of the 2D DMA or the PPA is started by its measured speed, early enough for a write slower than the scan; the code of interrupts is kept in the instruction cache against "Illegal instruction" on the 10-inch board |
 | 0.11.0 | a batch counts for the estimate of its length a second at least and two at most, instead of being forgotten by an eighth with every batch after it: a long batch among short ones no longer keeps a finished picture back; the speed of the 2D DMA, by which a piece is left for the copy after the swap, is timed to the end its interrupt sees, not to when the task comes to wait for it; the bus no longer answers the command that reads memory from the frame buffer; the whole rows of a window turned on the panel that come in one call are written a column of the screen at a time, side by side in a row of the panel: the logo of the PDQ test on the 7" in 0.41 s instead of 1.75 |
+| 0.11.5 | the ST7701S driver and the 4.3" board; the 2D DMA puts a 24-bit virtual screen too, red and blue exchanged on the way, the field of the chip set for pixels of 3 bytes: on the 4.3" the moving bars went from 75 pictures a second, put by the processor, to 197 |
 
 ### The strips of 0.5.4
 

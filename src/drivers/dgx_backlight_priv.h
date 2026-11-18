@@ -2,7 +2,7 @@
  * dgx_backlight_priv.h
  *
  *  The backlight line of a display whose driver is not made of a
- *  dgx_panel_t: JD9165, JD9365, ST7920, ST7565R. High is on. panel.c has
+ *  dgx_panel_t: JD9165, JD9365, ST7701, ST7920, ST7565R. High is on. panel.c has
  *  the same for the panels, with the line off until the screen is black for
  *  DGX_PANEL_CLEAR_FIRST.
  *

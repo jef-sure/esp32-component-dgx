@@ -739,7 +739,7 @@ Table 5. What each display does for the four calls; a dash is `ESP_ERR_NOT_SUPPO
 | SSD1680 (e-paper) | yes | - | - | - |
 | ST7565R | in the memory of the screen | the line | yes | - |
 | ST7920 | in the memory of the screen | the line | yes | - |
-| JD9165, JD9365 (MIPI-DSI) | by the bus, in the frame buffer | the line | DISPON / DISPOFF beside the video | - |
+| JD9165, JD9365, ST7701S (MIPI-DSI) | by the bus, in the frame buffer | the line | DISPON / DISPOFF beside the video | - |
 | a virtual screen | - | - | - | - |
 
 ```c
@@ -1011,6 +1011,7 @@ with its transport: see [Getting started](../README.md#getting-started).
 | `CONFIG_DGX_ENABLE_SSD1680` | `drivers/ssd1680.c` | needs SPI |
 | `CONFIG_DGX_ENABLE_JD9165` | `drivers/jd9165.c` | needs DSI |
 | `CONFIG_DGX_ENABLE_JD9365` | `drivers/jd9365.c` | needs DSI |
+| `CONFIG_DGX_ENABLE_ST7701` | `drivers/st7701.c` | needs DSI |
 | `CONFIG_DGX_ENABLE_V_BW_SCREEN` | `vscreen/bw_screen.c` | 1-bit virtual screen |
 | `CONFIG_DGX_ENABLE_VSCREEN` | `vscreen/vscreen.c`, `vscreen/transfer.c`, `vscreen/image.c` | color RAM-backed screen and the transfers |
 | `CONFIG_DGX_ENABLE_VSCREEN_2H` | `vscreen/vscreen_2h.c` | needs `VSCREEN` |
@@ -1043,7 +1044,7 @@ A couple of practical limitations are worth knowing up front:
 - **Pixel readback works only from RAM.** `get_pixel()` reads virtual screens,
   panels that draw into a virtual back screen first (ST7920, SSD1306,
   SSD1309, SH1106, ST7565R, SSD1322, SSD1680) and a DSI display, whose frame buffer is memory of the chip
-  (JD9165, JD9365). Direct panels (ILI9341, ST7789, ...) return 0: many SPI modules
+  (JD9165, JD9365, ST7701S). Direct panels (ILI9341, ST7789, ...) return 0: many SPI modules
   have no MISO line at all, and where RAMRD works it is far too slow. If you
   need to read what you drew, draw into a `vscreen` and push it with
   `dgx_vscreen_to_screen()`. `dgx_screen_is_readable()` tells which of the two
