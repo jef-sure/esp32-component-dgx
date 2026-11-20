@@ -20,6 +20,7 @@ void dgx_fb_area_init(dgx_fb_area_t *area, uint8_t *fb, uint16_t fb_width, uint1
     area->fb_height   = fb_height;
     area->pixel_bytes = pixel_bytes;
     area->swap_rb     = swap_rb;
+    area->high_first  = false;
     area->dirty_from = area->dirty_to = 0;
     area->dirty_weight               = 0;
     area->command                    = 0;
@@ -203,16 +204,22 @@ static void dgx_fb_area_write_across(dgx_fb_area_t *area, const uint8_t *data, u
         dgx_fb_area_touch(area, first, across, rows);
         uint8_t       *to   = first;
         const uint8_t *from = data;
-        if (bytes == 2 && !area->swap_rb) {
+        if (bytes == 2 && !area->swap_rb && area->high_first) {
+            for (uint32_t row = rows; row; --row, from += pitch, to += across) {
+                to[0] = from[0];
+                to[1] = from[1];
+            }
+        } else if (bytes == 2 && !area->swap_rb) {
             for (uint32_t row = rows; row; --row, from += pitch, to += across) {
                 to[0] = from[1];
                 to[1] = from[0];
             }
         } else if (bytes == 2) {
+            const uint32_t hi = area->high_first ? 0 : 1;
             for (uint32_t row = rows; row; --row, from += pitch, to += across) {
                 uint16_t color = dgx_fb_area_swap_565((uint16_t)(from[0] << 8 | from[1]));
-                to[0]          = (uint8_t)color;
-                to[1]          = (uint8_t)(color >> 8);
+                to[hi]         = (uint8_t)(color >> 8);
+                to[hi ^ 1u]    = (uint8_t)color;
             }
         } else {
             uint32_t r = area->swap_rb ? 0 : 2, b = 2 - r;
@@ -248,7 +255,16 @@ void dgx_fb_area_write(dgx_fb_area_t *area, const uint8_t *data, uint32_t pixels
         dgx_fb_area_touch(area, to, step, count);
         pixels -= count;
         if (area->pixel_bytes == 2) {
-            if (!area->swap_rb && step == 2) {
+            if (!area->swap_rb && area->high_first && step == 2) {
+                /* the frame buffer keeps pixels as the buffer does */
+                memcpy(to, data, (size_t)count * 2u);
+                data += (size_t)count * 2u;
+            } else if (!area->swap_rb && area->high_first) {
+                for (; count; --count, data += 2, to += step) {
+                    to[0] = data[0];
+                    to[1] = data[1];
+                }
+            } else if (!area->swap_rb && step == 2) {
                 /* the buffer has the high byte first, the frame buffer the low one */
                 dgx_fb_area_write_words(to, data, count);
                 data += (size_t)count * 2u;
@@ -259,10 +275,11 @@ void dgx_fb_area_write(dgx_fb_area_t *area, const uint8_t *data, uint32_t pixels
                     to[1] = data[0];
                 }
             } else {
+                const uint32_t hi = area->high_first ? 0 : 1;
                 for (; count; --count, data += 2, to += step) {
                     uint16_t color = dgx_fb_area_swap_565((uint16_t)(data[0] << 8 | data[1]));
-                    to[0]          = (uint8_t)color;
-                    to[1]          = (uint8_t)(color >> 8);
+                    to[hi]         = (uint8_t)(color >> 8);
+                    to[hi ^ 1u]    = (uint8_t)color;
                 }
             }
         } else {
@@ -282,8 +299,9 @@ static void dgx_fb_area_stored(const dgx_fb_area_t *area, uint32_t color, uint8_
 {
     if (area->pixel_bytes == 2) {
         if (area->swap_rb) color = dgx_fb_area_swap_565((uint16_t)color);
-        stored[0] = (uint8_t)color;
-        stored[1] = (uint8_t)(color >> 8);
+        const uint32_t hi = area->high_first ? 0 : 1;
+        stored[hi]        = (uint8_t)(color >> 8);
+        stored[hi ^ 1u]   = (uint8_t)color;
     } else {
         uint8_t r = area->swap_rb ? 0 : 2;
         stored[r]     = (uint8_t)(color >> 16);
@@ -305,7 +323,8 @@ uint32_t dgx_fb_area_get_pixel(const dgx_fb_area_t *area, uint16_t x, uint16_t y
     ptrdiff_t      step;
     const uint8_t *from = dgx_fb_area_at(area, x, y, &step);
     if (area->pixel_bytes == 2) {
-        uint16_t color = (uint16_t)(from[1] << 8 | from[0]);
+        const uint32_t hi    = area->high_first ? 0 : 1;
+        uint16_t       color = (uint16_t)(from[hi] << 8 | from[hi ^ 1u]);
         return area->swap_rb ? dgx_fb_area_swap_565(color) : color;
     }
     uint8_t r = area->swap_rb ? 0 : 2;

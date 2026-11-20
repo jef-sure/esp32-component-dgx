@@ -16,7 +16,7 @@ LDLIBS  += $(DGX_HOST_LDLIBS)
 
 LIB_SRCS := $(DGX_HOST_SRCS)
 
-TESTS := test_fb_area test_fb_tiles test_fb_flip test_pixels test_fill test_circle test_ellipse test_scroll test_panel_scroll test_matrix test_morph test_render test_fonts test_screen test_region test_bw test_texture test_bezier test_segment test_soft_circle test_soft_text test_bar_rows test_curve_rows test_hw_font test_hw_line test_hw_write test_hw_morph test_soft_pen test_gauge test_oriented test_p8 test_p8_lcdcam test_p8_idf6 test_st7920 test_ssd1306 test_ssd1309 test_sh1106 test_st7565r test_ssd1322 test_ssd1680 test_image test_lut test_overlay test_overlay_whole_rows test_alpha test_frame_to_panel test_life_panel test_scale test_transfer test_polygon test_ssd1351 test_bus_owner test_argb test_bus_fill test_spi test_spi_idf54 test_spi_ndebug test_spi_p4 test_st7789 test_st7735 test_vscreen_2h test_line_thick test_panel_streams test_rectangles test_vscreen_area test_vscreen_array test_dsi_scan test_fill_names test_polyline test_image_screens test_const_picture test_hw_context test_clip test_once
+TESTS := test_fb_area test_fb_tiles test_fb_flip test_pixels test_fill test_circle test_ellipse test_scroll test_panel_scroll test_matrix test_morph test_render test_fonts test_screen test_region test_bw test_texture test_bezier test_segment test_soft_circle test_soft_text test_bar_rows test_curve_rows test_hw_font test_hw_line test_hw_write test_hw_morph test_soft_pen test_gauge test_oriented test_p8 test_p8_lcdcam test_p8_idf6 test_st7920 test_ssd1306 test_ssd1309 test_sh1106 test_st7565r test_ssd1322 test_ssd1680 test_image test_lut test_overlay test_overlay_whole_rows test_alpha test_frame_to_panel test_life_panel test_scale test_transfer test_polygon test_ssd1351 test_bus_owner test_argb test_bus_fill test_spi test_spi_idf54 test_spi_ndebug test_spi_p4 test_st7789 test_st7735 test_vscreen_2h test_line_thick test_panel_streams test_rectangles test_vscreen_area test_vscreen_array test_dsi_scan test_fill_names test_polyline test_image_screens test_const_picture test_hw_context test_clip test_once test_moved test_rgb_advice
 BUILD := build
 
 all: $(addprefix run-, $(TESTS))
@@ -32,6 +32,9 @@ $(SPI_TESTS): test_spi.c
 $(BUILD)/test_bar_rows: LIB_SRCS := $(filter-out %/segment.c, $(DGX_HOST_SRCS))
 # the same for the bar of a curve: bezier.c is built into the test
 $(BUILD)/test_curve_rows: LIB_SRCS := $(filter-out %/bezier.c, $(DGX_HOST_SRCS))
+
+# what the bench of the RGB bus found, read back: the one file of the bus that does not touch the chip
+$(BUILD)/test_rgb_advice: LIB_SRCS := $(DGX_HOST_SRCS) $(ROOT)/src/bus/rgb_advice.c
 
 # the colour drivers, with the levels of their pins and their waits recorded (panel_record.h)
 PANEL_DRIVERS := $(addprefix $(ROOT)/src/drivers/, dgx_lcd_init.c panel.c ili9341.c st7789.c st7735.c gc9a01.c ssd1351.c nv3041a.c st77916.c)

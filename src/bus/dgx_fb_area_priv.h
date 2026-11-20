@@ -31,6 +31,7 @@ typedef struct _dgx_fb_area_t {
     uint16_t fb_height;
     uint8_t  pixel_bytes; /* 2: RGB565, low byte first; 3: blue, green, red */
     bool     swap_rb;     /* the panel takes red and blue the other way round */
+    bool     high_first;  /* 2 bytes a pixel kept as DGX keeps them, the high byte first: the video interface exchanges them itself */
     /* as the MX, MY and MV bits of a display controller */
     bool     mirror_x;    /* the columns of the panel are counted from the right */
     bool     mirror_y;    /* the rows of the panel are counted from the bottom */
@@ -66,6 +67,17 @@ static inline uint16_t dgx_fb_area_height(const dgx_fb_area_t *area)
 /** @brief Take a frame buffer; the window becomes the whole screen. */
 void dgx_fb_area_init(dgx_fb_area_t *area, uint8_t *fb, uint16_t fb_width, uint16_t fb_height, uint8_t pixel_bytes, bool swap_rb);
 
+/**
+ * @brief Keep 16-bit pixels the high byte first, as DGX keeps them, for a video interface that exchanges the two bytes itself.
+ *
+ * Rows of pixels then go into the frame buffer as they are. Not for the rows
+ * of dgx_fb_area_indexed_rows() and dgx_fb_area_overlay_rows(), which are
+ * made the low byte first.
+ */
+static inline void dgx_fb_area_high_first(dgx_fb_area_t *area, bool high_first)
+{
+    area->high_first = high_first && area->pixel_bytes == 2;
+}
 /** @brief Set how the screen lies on the panel; the window becomes the whole screen. */
 void dgx_fb_area_orientation(dgx_fb_area_t *area, bool mirror_x, bool mirror_y, bool swap_xy);
 

@@ -684,6 +684,19 @@ static inline int dgx_stroke_round(float v)
 }
 
 /*
+ * A place on the screen brought to a whole pixel: a half goes up, where
+ * lroundf() takes it away from 0. Both are the same at 0 and past it; below
+ * 0, where a screen moved by whole pixels puts the part of a picture before
+ * its edge, a half away from 0 would put that part a pixel off, and the
+ * picture would not be the same.
+ */
+static inline int dgx_stroke_place(float v)
+{
+    const int whole = dgx_stroke_floor(v);
+    return v - (float)whole >= 0.5f ? whole + 1 : whole;
+}
+
+/*
  * How long a piece of (dx, dy) is. The ends may be the whole range of a point apart: not to be squared
  * in whole numbers. The root is that of the library: one found in place may differ from it in the last
  * bit, and a pixel that lies on the very edge of a line would then come and go.
@@ -741,8 +754,8 @@ static void dgx_bezier_begin(dgx_bezier_t *b, dgx_screen_t *scr, dgx_point_2d_t 
         b->next_length = 0;
     }
     if (!b->soft) {
-        b->x = dgx_stroke_round(b->kx[3]);
-        b->y = dgx_stroke_round(b->ky[3]);
+        b->x = dgx_stroke_place(b->kx[3]);
+        b->y = dgx_stroke_place(b->ky[3]);
         b->ex = b->ey = 0;
         b->rh = 0;
     }
@@ -800,8 +813,9 @@ static void dgx_bezier_point(const dgx_bezier_t *b, int piece, int *x, int *y)
         return;
     }
     float t = (float)piece / b->pieces;
-    *x = dgx_stroke_round(((b->kx[0] * t + b->kx[1]) * t + b->kx[2]) * t + b->kx[3]);
-    *y = dgx_stroke_round(((b->ky[0] * t + b->ky[1]) * t + b->ky[2]) * t + b->ky[3]);
+    /* the start is a whole pixel: the way from it rounded alone, a sum with the start would round by how far from 0 the curve lies */
+    *x = (int)b->kx[3] + dgx_stroke_place(((b->kx[0] * t + b->kx[1]) * t + b->kx[2]) * t);
+    *y = (int)b->ky[3] + dgx_stroke_place(((b->ky[0] * t + b->ky[1]) * t + b->ky[2]) * t);
 }
 
 /* the same for a soft line, pieces counted from 0, the start of the curve: the point as it is */
@@ -834,7 +848,7 @@ float dgx_bezier_length(dgx_bezier_t *b)
         }
     }
     if (b->length < 0) {
-        int x0 = dgx_stroke_round(b->kx[3]), y0 = dgx_stroke_round(b->ky[3]);
+        int x0 = dgx_stroke_place(b->kx[3]), y0 = dgx_stroke_place(b->ky[3]);
         b->length = 0;
         for (int i = 1; i <= b->pieces; ++i) {
             int x, y;

@@ -29,11 +29,12 @@ board does not wire.
 | JD9165 | color TFT, 1024x600 | DSI | `dgx_jd9165_init(bus, rst, backlight, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9165` |
 | JD9365 | color TFT, 800x1280 | DSI | `dgx_jd9365_init(bus, rst, backlight, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9365` |
 | ST7701S | color TFT, 480x800 | DSI | `dgx_st7701_init(bus, rst, backlight, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_ST7701` |
+| an RGB glass (EK9716, ST7262, ...) | color TFT, 800x480 described | RGB | `dgx_rgb_panel_init(bus, &panel, rst, backlight, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_RGB` |
 
 Common parameters:
 
 - `bus` — a `dgx_bus_protocols_t *` from `dgx_spi_init()`, `dgx_qspi_init()`,
-  `dgx_i2c_init()`, `dgx_p8_init()` or `dgx_dsi_init()`.
+  `dgx_i2c_init()`, `dgx_p8_init()`, `dgx_dsi_init()` or `dgx_rgb_init()`.
 - `rst` — reset GPIO, or `GPIO_NUM_NC` if the panel has no reset line.
 - `backlight` (every display with a backlight: the color TFTs and the mono
   LCDs; the OLEDs and e-paper have none) — backlight GPIO, high for on, or
@@ -125,6 +126,23 @@ tasks. How the bus is built and what was measured on it is in
 ([Russian](dsi-display-ru.md)), and
 [examples/dsi_demo](../examples/dsi_demo) is a working program.
 
+A glass on the parallel RGB interface of an ESP32-S3 has no memory and
+takes no commands: its controller is set up by pins on the glass, so it is
+described, not driven. `dgx_rgb_panel_t` holds its size, porches and the
+pixel clock its sheet allows, and `dgx_rgb_panel_jc8048b070n` is the 7-inch
+800x480 glass of the Sunton ESP32-8048S070. The bus keeps the frame buffer
+in PSRAM, 750 KB for 800x480, and sends it through two bounce buffers in
+internal memory; the pixel clock is an argument of `dgx_rgb_init()`, 33 MHz
+on that board. The screen turns in all eight orientations and a pixel can
+be read back; the last argument of the constructor, `frames`, is one frame
+buffer, `DgxRgbOneFrame`, or two, `DgxRgbTwoFrames`. The display is made on
+the core that draws. A program that writes to the flash sets
+`CONFIG_SPIRAM_XIP_FROM_PSRAM`, or the picture is spoilt while it writes,
+and `CONFIG_LCD_RGB_RESTART_IN_VSYNC` is best left off. How it works and
+what it costs the processor:
+[docs/rgb-display-en.md](rgb-display-en.md)
+([Russian](rgb-display-ru.md)).
+
 NV3041A is the controller of 4.3-inch 480x272 panels on a QSPI bus, as on
 the Guition JC4827W543 (ESP32-S3). The driver has the init commands of that
 board's panel, takes 16-bit color only, and starts in upright landscape. It
@@ -181,6 +199,7 @@ controller takes over that bus but DGX does not set up, where they are known:
 | ST7565R, ST7920 | SPI | 1 | |
 | SSD1680 | SPI | 8: an ink a pixel, black, white or red | |
 | JD9165, JD9365, ST7701S | DSI | 16, 24 | |
+| an RGB glass | RGB | 16 | |
 | the window on the computer | none | 16, 18; 24 with `no_bus` | |
 | a virtual screen | none | 1, 4, 8, 12, 16, 18, 24, 32 | |
 

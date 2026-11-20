@@ -1,6 +1,6 @@
 ## IDF Component Manager Manifest File
-version: "0.11.5"
-description: "Display and graphics component for ESP32 with SPI, QSPI, I2C, parallel and MIPI-DSI display buses, virtual screens, drawing primitives, fonts with anti-aliased edges, handwritten text and morphing"
+version: "0.11.6"
+description: "Display and graphics component for ESP32 with SPI, QSPI, I2C, parallel, RGB and MIPI-DSI display buses, virtual screens, drawing primitives, fonts with anti-aliased edges, handwritten text and morphing"
 url: https://github.com/jef-sure/esp32-component-dgx
 repository: https://github.com/jef-sure/esp32-component-dgx.git
 documentation: https://github.com/jef-sure/esp32-component-dgx/blob/main/README.md
@@ -41,6 +41,7 @@ tags:
   - jd9165
   - jd9365
   - st7701
+  - rgb
   - ssd1306
   - ssd1309
   - sh1106
@@ -114,6 +115,7 @@ files:
     - "docs/nv3041a-??.md"
     - "docs/panels-??.md"
     - "docs/pen-??.md"
+    - "docs/rgb-display-??.md"
     # one level each, so that nothing comes from the build directories of the examples
     - "examples/*/CMakeLists.txt"
     # the build of an example for the window on the computer

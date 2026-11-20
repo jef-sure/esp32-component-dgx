@@ -54,6 +54,14 @@ int main(void)
         dgx_fill_buf_value(18, wire, 0, dgx_rgb_to_18(rgb[c][0], rgb[c][1], rgb[c][2]));
         for (int k = 0; k < 3; ++k) CHECK(wire[k] == (rgb[c][k] & 0xfcu));
     }
+    /*
+     * A 12-bit pixel takes the 12 high bits of 16; what a color has above them
+     * goes nowhere, not into the pixel before, whose half byte it shares.
+     */
+    uint8_t  two[3] = {0, 0, 0};
+    uint8_t *lp     = dgx_fill_buf_value(12, two, 0, 0x3840u);
+    dgx_fill_buf_value(12, lp, 1, 0x17550u);
+    CHECK(two[0] == 0x38 && two[1] == 0x47 && two[2] == 0x55);
     /* a depth there is no layout for: nothing is written, nothing breaks */
     memset(at_once, 0x77, ROOM);
     dgx_fill_pixels(7, at_once + 8, 0, 100, 0x123456);

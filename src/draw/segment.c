@@ -109,6 +109,19 @@ static inline int dgx_stroke_round(float v)
 }
 
 /*
+ * A place on the screen brought to a whole pixel: a half goes up, where
+ * lroundf() takes it away from 0. Both are the same at 0 and past it; below
+ * 0, where a screen moved by whole pixels puts the part of a picture before
+ * its edge, a half away from 0 would put that part a pixel off, and the
+ * picture would not be the same.
+ */
+static inline int dgx_stroke_place(float v)
+{
+    const int whole = dgx_stroke_floor(v);
+    return v - (float)whole >= 0.5f ? whole + 1 : whole;
+}
+
+/*
  * How long a piece of (dx, dy) is. The ends may be the whole range of a point apart: not to be squared
  * in whole numbers. The root is that of the library: one found in place may differ from it in the last
  * bit, and a pixel that lies on the very edge of a line would then come and go.
@@ -912,8 +925,8 @@ typedef struct {
  */
 static void dgx_segment_hard(dgx_stroke_t *s, float x1, float y1, float x2, float y2, const dgx_segment_step_t *w)
 {
-    s->x = dgx_stroke_round(x1), s->y = dgx_stroke_round(y1);
-    const int bx = dgx_stroke_round(x2), by = dgx_stroke_round(y2), dx = bx - s->x, dy = by - s->y;
+    s->x = dgx_stroke_place(x1), s->y = dgx_stroke_place(y1);
+    const int bx = dgx_stroke_place(x2), by = dgx_stroke_place(y2), dx = bx - s->x, dy = by - s->y;
     s->rh = 0;
     /*
      * An even width has no middle pixel: like dgx_draw_thick_line() gives the spare pixel to the right of the

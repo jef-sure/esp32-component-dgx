@@ -1388,9 +1388,9 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
 
 - Panel drivers for ST7735, ST7789, ILI9341, NV3041A, ST77916, GC9A01, SSD1351, SSD1306,
   SSD1309, SH1106, ST7565R, ST7920, SSD1322, JD9165, JD9365 and ST7701S, and SSD1680 for
-  e-paper of black, white and red.
-- SPI, QSPI, I2C and 8-bit parallel (I80) transports for ESP32, and MIPI-DSI
-  for ESP32-P4.
+  e-paper of black, white and red; glasses on parallel RGB described by their timing.
+- SPI, QSPI, I2C and 8-bit parallel (I80) transports for ESP32, MIPI-DSI
+  for ESP32-P4, and parallel RGB for ESP32-S3 and ESP32-P4.
 - A color RAM-backed virtual screen and a 1-bit monochrome virtual screen.
   They are useful on their own, as staging buffers for animation, or as shadow
   buffers behind monochrome controllers. A virtual screen goes to a display or
@@ -1441,6 +1441,7 @@ Beyond the recipes:
 | [Handwriting](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/handwriting-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/handwriting-ru.md)), [the pen](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/pen-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/pen-ru.md)) | handwritten fonts, writing at the pace of a pen, the soft pen and what it costs |
 | [Morphing](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/morphing-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/morphing-ru.md)) | the dot morphs and their renderers |
 | [A MIPI-DSI display](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/dsi-usage-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/dsi-usage-ru.md)), [how it is built](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/dsi-display-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/dsi-display-ru.md)) | using the DSI displays of an ESP32-P4, and the measurements behind it |
+| [A parallel RGB display](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/rgb-display-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/rgb-display-ru.md)) | the RGB displays of an ESP32-S3: how the bus sends the frame, the Sunton ESP32-8048S070, what it costs the processor |
 | [The window on the computer](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/host-window-en.md) | several windows, mouse and keyboard, the figures of the title, scripts, the linux target of ESP-IDF |
 | [An Arduino sketch](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/arduino-en.md) | Arduino libraries sharing a bus with a display, PlatformIO |
 | [Benchmarks](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/benchmarks-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/benchmarks-ru.md)) | the numbers behind [How fast](#how-fast) |

@@ -21,6 +21,51 @@ config DGX_ENABLE_DSI
     depends on SOC_MIPI_DSI_SUPPORTED
     default n
 
+config DGX_ENABLE_RGB
+    bool "Enable the parallel RGB transport backend"
+    depends on SOC_LCD_RGB_SUPPORTED
+    default n
+    help
+        A display with no memory on the 16 data lines of the RGB interface,
+        its frame buffer in PSRAM: dgx_rgb_init() and dgx_rgb_panel_init().
+
+        A program that writes to the flash, to NVS or for an update, also
+        sets SPIRAM_XIP_FROM_PSRAM (Component config > ESP PSRAM > SPI RAM
+        config > Enable Executable in place from (XiP) from PSRAM feature).
+        Without it IDF turns the cache off for every write to the flash, the
+        bus cannot read the frame buffer meanwhile, and the picture is
+        spoilt. DGX does not set it: it is a setting of the whole program,
+        and the code and the constants of the program take their size again
+        in PSRAM. See docs/rgb-display-en.md, "What a program sets".
+
+        LCD_RGB_RESTART_IN_VSYNC (Component config > ESP-Driver:LCD
+        Controller Configurations > Always restart RGB LCD transmission in
+        VSYNC) is best left off. With it, up to IDF 5.5.6, 6.0.3 and 6.1,
+        esp_lcd starts every frame from the first bounce buffer but goes on
+        counting which buffer to fill as before: after a copy that came more
+        than a period late it fills the buffer being sent from then on, and
+        the picture keeps short stripes until the display is made again.
+        IDF 6.1.1 counts anew at every frame, and the release branches of
+        5.5 and 6.0 do since then. Without the option esp_lcd counts anew at
+        every frame in every version.
+
+comment "No SPIRAM_XIP_FROM_PSRAM: writing to the flash spoils the RGB picture"
+    depends on DGX_ENABLE_RGB && !SPIRAM_XIP_FROM_PSRAM
+
+comment "LCD_RGB_RESTART_IN_VSYNC: before IDF 6.1.1 one late copy leaves the RGB picture striped"
+    depends on DGX_ENABLE_RGB && LCD_RGB_RESTART_IN_VSYNC
+
+config DGX_RGB_BOUNCE_ROWS
+    int "Rows of the panel in each of the two bounce buffers"
+    depends on DGX_ENABLE_RGB
+    range 1 120
+    default 10
+    help
+        The bus copies the frame buffer from PSRAM into two buffers of
+        internal memory, which the panel is sent from. Each takes this many
+        rows: 16000 bytes for 10 rows of 800 pixels. More rows give the copy
+        more time, and take more internal memory.
+
 config DGX_DSI_LOCK_INTERRUPT_CODE
     bool "Keep the code of interrupts in the instruction cache"
     depends on DGX_ENABLE_DSI && IDF_TARGET_ESP32P4

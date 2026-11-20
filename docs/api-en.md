@@ -574,6 +574,11 @@ Declared in [include/dgx_gauge.h](../include/dgx_gauge.h):
 | `dgx_gauge_set_value(gauge, value)` | Update the value, redrawing only changed steps. |
 | `dgx_gauge_redraw(gauge)` | Redraw the whole gauge. |
 
+A pixel of the ring is of one step: the step whose degree holds its centre,
+from `inner_radius - 1/2` to `inner_radius + width - 1/2` from the centre of
+the ring. A change of the value writes each pixel of the steps that change
+once, and a value looks the same whatever value the gauge came from.
+
 ### Bus backends
 
 Declared under [include/bus/](../include/bus):
@@ -590,6 +595,11 @@ Declared under [include/bus/](../include/bus):
 | `dgx_p8_init(d0..d7, wr, rd, cs, dc, pclk_hz)` | 8-bit parallel (I80) bus. |
 | `dgx_p8_init_on_bus(i80_bus, rd, cs, pclk_hz)` | A display on an I80 bus the program owns. |
 | `dgx_dsi_init(bus_id, data_lanes, lane_bit_rate_mbps, phy_ldo_chan, phy_ldo_mv)` | MIPI-DSI bus of ESP32-P4. `phy_ldo_chan` and `phy_ldo_mv` name the regulator of the chip that powers the DSI PHY, 3 and 2500 on the usual boards; -1 when it is powered otherwise. |
+| `dgx_rgb_init(pins, pclk_hz)` | Parallel RGB bus of ESP32-S3 and ESP32-P4: the 16 data lines, PCLK, HSYNC, VSYNC, DE and DISP of the board in a `dgx_rgb_pins_t`, and the pixel clock, which is the board's. The frame buffer lies in PSRAM and goes to the panel through two bounce buffers in internal memory. Made on the core that draws. A program that writes to the flash sets `CONFIG_SPIRAM_XIP_FROM_PSRAM`, or the picture is spoilt meanwhile, and `CONFIG_LCD_RGB_RESTART_IN_VSYNC` is best left off: [What a program sets](rgb-display-en.md#what-a-program-sets). |
+| `dgx_rgb_counters(bus, &counters)` | What the copies into the bounce buffers have cost since the bus started: frames, copies, the time of all copies and of the longest, the period a copy has, and the longest time between two copies, which past two periods means the bus did not keep up: [The counters](rgb-display-en.md#the-counters). |
+| `dgx_rgb_bench(bus, &bench)` | Find the highest pixel clock at which the bus keeps up on the board at hand, with whatever else the program runs; called from the task that draws, 1.5 s a clock, the picture unchanged: [The bench and the advice](rgb-display-en.md#the-bench-and-the-advice). |
+| `dgx_rgb_advise(&bench)` | The pixel clock to give `dgx_rgb_init()`: the highest that held in the bench; 0 when none did. |
+| `dgx_rgb_bench_text(&bench, text, size)` | What the bench found, in words, and what to mend: the core of the display, the other core's work in PSRAM, XIP off, a restart that keeps on counting. |
 
 Each returns a `dgx_bus_protocols_t *` to hand to a driver constructor. The
 program gives up a backend with `dgx_bus_dispose(&bus)` after the screens on
@@ -740,6 +750,7 @@ Table 5. What each display does for the four calls; a dash is `ESP_ERR_NOT_SUPPO
 | ST7565R | in the memory of the screen | the line | yes | - |
 | ST7920 | in the memory of the screen | the line | yes | - |
 | JD9165, JD9365, ST7701S (MIPI-DSI) | by the bus, in the frame buffer | the line | DISPON / DISPOFF beside the video | - |
+| an RGB glass | by the bus, in the frame buffer | the line | - | - |
 | a virtual screen | - | - | - | - |
 
 ```c
@@ -995,6 +1006,8 @@ with its transport: see [Getting started](../README.md#getting-started).
 | `CONFIG_DGX_ENABLE_I2C` | `bus/i2c_esp32.c` | I2C transport |
 | `CONFIG_DGX_ENABLE_P8` | `bus/p8_esp32.c`, `drivers/panel.c` | 8-bit parallel (I80) transport, and `dgx_panel_init()` |
 | `CONFIG_DGX_ENABLE_DSI` | `bus/dsi_esp32.c`, `bus/fb_area.c`, `bus/fb_tiles.c`, `bus/fb_flip.c` | MIPI-DSI transport; chips that have it (ESP32-P4) |
+| `CONFIG_DGX_ENABLE_RGB` | `bus/rgb_esp32.c`, `bus/fb_area.c`, `bus/fb_tiles.c`, `bus/fb_flip.c`, `drivers/rgb_panel.c` | parallel RGB transport and `dgx_rgb_panel_init()`; chips that have it (ESP32-S3, ESP32-P4); a program that writes to the flash also sets `CONFIG_SPIRAM_XIP_FROM_PSRAM` of IDF |
+| `CONFIG_DGX_RGB_BOUNCE_ROWS` | - | rows of the panel in each of the two bounce buffers of the RGB bus, 10 by default |
 | `CONFIG_DGX_ENABLE_SPI_ST7735` | `drivers/st7735.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SPI_ST7789` | `drivers/st7789.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SPI_GC9A01` | `drivers/gc9a01.c` | needs SPI or P8 |
@@ -1044,7 +1057,7 @@ A couple of practical limitations are worth knowing up front:
 - **Pixel readback works only from RAM.** `get_pixel()` reads virtual screens,
   panels that draw into a virtual back screen first (ST7920, SSD1306,
   SSD1309, SH1106, ST7565R, SSD1322, SSD1680) and a DSI display, whose frame buffer is memory of the chip
-  (JD9165, JD9365, ST7701S). Direct panels (ILI9341, ST7789, ...) return 0: many SPI modules
+  (JD9165, JD9365, ST7701S) and an RGB display. Direct panels (ILI9341, ST7789, ...) return 0: many SPI modules
   have no MISO line at all, and where RAMRD works it is far too slow. If you
   need to read what you drew, draw into a `vscreen` and push it with
   `dgx_vscreen_to_screen()`. `dgx_screen_is_readable()` tells which of the two

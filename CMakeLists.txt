@@ -53,6 +53,13 @@ if(CONFIG_DGX_ENABLE_DSI)
 	list(APPEND srcs "src/bus/dsi_esp32.c" "src/bus/fb_area.c" "src/bus/fb_tiles.c" "src/bus/fb_flip.c")
 endif()
 
+if(CONFIG_DGX_ENABLE_RGB)
+	list(APPEND srcs "src/bus/rgb_esp32.c" "src/bus/rgb_advice.c" "src/drivers/rgb_panel.c")
+	if(NOT CONFIG_DGX_ENABLE_DSI)
+		list(APPEND srcs "src/bus/fb_area.c" "src/bus/fb_tiles.c" "src/bus/fb_flip.c")
+	endif()
+endif()
+
 # a panel of the MIPI display command set made from its description: the drivers below are such descriptions, and a
 # program may make one of its own, so it comes with the buses of such panels
 if(CONFIG_DGX_ENABLE_SPI OR CONFIG_DGX_ENABLE_P8)

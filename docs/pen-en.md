@@ -190,8 +190,11 @@ A row of up to 8 pixels is filled by a loop in place, a longer one by
 for a short row the call costs more than the loop, and an empty `__asm__`
 statement keeps the loop from it.
 
-The ends of the pieces are rounded in place, without `lroundf`. The result is
-the same: a half goes away from zero.
+The ends of the pieces are rounded in place, without `lroundf`, and a half
+goes up, not away from zero as with `lroundf`. From zero up the two are the
+same. Below zero, where a screen moved by whole pixels puts the part of a
+picture beyond its top or left edge, a half away from zero put that part a
+pixel off, and the picture in such a screen was not the same.
 
 The length of a piece stayed with `sqrtf`. A root found in place, the way the
 soft pen does it, with a step of Newton more, differs from that of the

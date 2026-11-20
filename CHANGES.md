@@ -1,5 +1,120 @@
 # Changes
 
+## 0.11.6 - 2026-11-20
+
+No call of a program is broken. The RGB displays were seen on a Sunton
+ESP32-8048S070 by a contributor with the board and counted on a Guition
+JC4827W543 as well; the gauge was timed on the NV3041A of that board; the
+rest is host tests and builds for the ESP32-S3 and ESP32-P4 under IDF 5.5.4
+and 6.1.
+
+New:
+
+- **Displays on parallel RGB** (`bus/dgx_rgb_esp32.h`,
+  `drivers/rgb_panel.h`, `CONFIG_DGX_ENABLE_RGB`), on the chips that have
+  the interface, the ESP32-S3 and the ESP32-P4. `dgx_rgb_init(pins,
+  pclk_hz)` makes the bus with the 16 data lines and the syncs of the board
+  and the pixel clock, which is the board's. An RGB glass takes no commands,
+  so it is described rather than driven: a `dgx_rgb_panel_t` holds its size,
+  timing and the pixel clock its sheet allows, and
+  `dgx_rgb_panel_init(bus, &panel, rst, backlight, 16, cbo, frames)` makes
+  the screen with one frame buffer or two, `DgxRgbOneFrame` or
+  `DgxRgbTwoFrames`. `dgx_rgb_panel_jc8048b070n` is the 7-inch 800x480
+  glass of the Sunton ESP32-8048S070. A frame buffer, 750 KB, lies in PSRAM
+  and goes to the panel through two bounce buffers of 10 rows in internal
+  memory (`CONFIG_DGX_RGB_BOUNCE_ROWS`), which the bus fills, the rows of
+  each copy brought into the cache before it as esp_lcd does; the LCD
+  peripheral exchanges the bytes of a pixel itself, so a virtual screen is
+  copied into the frame buffer row by row. The screen turns in all eight
+  orientations and a pixel can be read back. On that board the bus holds
+  33 MHz, 59.5 frames a second, while the processor draws as fast as it
+  can, where the maker runs 16, and the glass takes up to 38; at 33 MHz the
+  copies take 12% of the core that made the display with the picture still
+  and 29% while it draws, and with two frame buffers a moving picture does
+  not tear. `dgx_rgb_counters()` tells what the copies cost and whether the
+  bus keeps up.
+- **A bench and advice for an RGB display**: `dgx_rgb_bench()` goes down
+  from the top of the clocks the glass allows until the bus keeps up on the
+  board at hand, with whatever else the program runs, and logs what it
+  found; `dgx_rgb_advise()` gives that clock for `dgx_rgb_init()`, and
+  `dgx_rgb_bench_text()` the rest in words: on which core to make the
+  display, the other core's work in PSRAM, the settings of the build. The
+  result is flat, to keep in NVS. On the Guition JC4827W543 it found
+  38 MHz with the display on the core that draws, 19.4 with the display on
+  the other core, 22.2 with the other core copying in PSRAM.
+- **What a program on an RGB display sets**, in
+  docs/rgb-display-en.md: the display is made on the core that draws; at
+  33 MHz the other core keeps off PSRAM, and with drawing there the bus
+  holds 20 MHz; a program that writes to the flash, to NVS or for an
+  update, sets `CONFIG_SPIRAM_XIP_FROM_PSRAM` of IDF, or the picture jumps
+  while it writes; and `CONFIG_LCD_RGB_RESTART_IN_VSYNC` is best left off:
+  up to IDF 5.5.6, 6.0.3 and 6.1 one copy that came late left the picture
+  with short stripes until the display was made again. DGX sets neither, as
+  both are settings of the whole program; menuconfig shows a line under the
+  RGB option of DGX while XIP is off or the restart is on, and the bus warns
+  in the log about the restart with an IDF that has the fault.
+
+Fixed:
+
+- **The hard pen draws the same pixels in a screen moved by whole
+  pixels.** A segment, a curve or a handwritten line drawn in a screen
+  whose top or left edge cuts it, such as the screen of a strip of rows,
+  came out a pixel off near that edge in places: the ends of a segment and
+  the points of a curve were rounded as `lroundf` rounds, a half away from
+  zero, and below zero that is not the same place moved. A half now goes
+  up; where the places are 0 and more nothing changes. The soft pen may
+  still differ there by an ink level of 1 or 2 of 255 at a few pixels of
+  one curve in two hundred: its places are sums of floats.
+- **A gauge writes each pixel of its ring once, and a value looks the same
+  however the gauge came to it.** A step was a quadrilateral of one degree
+  filled with both its edges, so neighbouring steps shared pixels: a ring
+  cost about twice the writes to the bus, and a value stepped up to
+  differed from the same value redrawn in a line of pixels as long as the
+  ring is thick. A step is now the pixels whose centres lie in its degree
+  and in the band of the ring. On the 4.3-inch NV3041A of a Guition
+  JC4827W543 over QSPI at 40 MHz a whole ring of 270 steps takes 6.6 ms
+  instead of 11.3 from 20 to 24 pixels out, 18.2 instead of 22.3 from 30
+  to 40, and 43.9 instead of 42.7 from 70 to 90.
+- **An odd pixel of a 12-bit screen no longer spoils the pixel before it**
+  when its color has bits above the 16 it is read from: they went into the
+  half byte the two pixels share.
+
+Inside DGX:
+
+- `fb_area`, the frame buffer core of the DSI and RGB buses, keeps 16-bit
+  pixels the high byte first for a video interface that exchanges the bytes
+  itself (`dgx_fb_area_high_first()`). `DGX_BUS_RGB` is the last of the bus
+  types. `test_fb_area` writes, fills, reads and moves such pixels in every
+  orientation, with red and blue exchanged and not.
+- The two frame buffers of the RGB bus are kept by the cores of the DSI
+  bus, `fb_flip` and `fb_tiles`, built for RGB without DSI as well.
+
+Documentation:
+
+- docs/rgb-display-en.md, with its Russian version: how the RGB bus sends
+  the frame, what a program sets, the Sunton ESP32-8048S070 and how it was
+  checked, three ways to send a frame tried by eye at 12 to 33 MHz, what
+  the copy costs the processor by pixel clock, two frame buffers, the
+  counters and how to read them, the bench and the advice, a copy by the
+  GDMA tried and dropped, and the backlight driven by PWM. The RGB bus and
+  glass in docs/panels-en.md, docs/api-en.md and the README.
+- docs/api-en.md: the gauge gives each pixel of its ring to one step.
+- docs/pen-en.md, with its Russian version: how the ends of the pieces are
+  rounded, and why a half goes up.
+
+Tests:
+
+- `test_moved` is new: segments, curves and handwriting by the hard pen
+  drawn in screens moved by whole pixels are the same pixels.
+- `test_gauge`: rings thin and thick, a sweep either way and a whole
+  circle; a redraw writes each pixel once, and every value is the same
+  stepped up to, stepped down to and drawn at once.
+- `test_pixels`: the bytes of two 12-bit pixels side by side, the second
+  of a color wider than 16 bits.
+- `test_rgb_advice` is new: the clock advised and the text of the bench,
+  from a bench that held at once, one that held lower down with the display
+  on the other core, one that never held, and the text cut short.
+
 ## 0.11.5 - 2026-11-18
 
 No call of a program is broken. A program on a 24-bit DSI display sees its

@@ -27,6 +27,9 @@ static int rnd(int from, int to)
 
 static uint8_t fb[FW * FH * 3 + 8], model[FW * FH * 3 + 8];
 
+/* the frame buffer keeps 16-bit pixels the high byte first, as for a video interface that exchanges them itself */
+static bool high_first;
+
 /* where the pixel (x, y) of the screen lies in the frame buffer */
 static uint8_t *model_pixel(const dgx_fb_area_t *area, int x, int y)
 {
@@ -42,8 +45,8 @@ static void model_put(const dgx_fb_area_t *area, int x, int y, uint32_t color)
     uint8_t *p = model_pixel(area, x, y);
     if (area->pixel_bytes == 2) {
         if (area->swap_rb) color = (color & 0x07e0u) | (color >> 11) | ((color & 0x1fu) << 11);
-        p[0] = (uint8_t)color;
-        p[1] = (uint8_t)(color >> 8);
+        p[high_first ? 1 : 0] = (uint8_t)color;
+        p[high_first ? 0 : 1] = (uint8_t)(color >> 8);
     } else {
         uint8_t r = (uint8_t)(color >> 16), g = (uint8_t)(color >> 8), b = (uint8_t)color;
         p[0] = area->swap_rb ? r : b;
@@ -79,6 +82,7 @@ static void test_windows(uint8_t pixel_bytes, bool swap_rb, bool mirror_x, bool 
     memset(fb, 0xa5, sizeof(fb));
     memset(model, 0xa5, sizeof(model));
     dgx_fb_area_init(&area, fb + 4, FW, FH, pixel_bytes, swap_rb);
+    dgx_fb_area_high_first(&area, high_first);
     dgx_fb_area_orientation(&area, mirror_x, mirror_y, swap_xy);
     int w = dgx_fb_area_width(&area), h = dgx_fb_area_height(&area);
     CHECK(w == (swap_xy ? FH : FW) && h == (swap_xy ? FW : FH));
@@ -145,6 +149,7 @@ static void test_direct(uint8_t pixel_bytes, bool swap_rb, bool mirror_x, bool m
     dgx_fb_area_t area;
     memset(fb, 0xa5, sizeof(fb));
     dgx_fb_area_init(&area, fb + 4, FW, FH, pixel_bytes, swap_rb);
+    dgx_fb_area_high_first(&area, high_first);
     dgx_fb_area_orientation(&area, mirror_x, mirror_y, swap_xy);
     int      w = dgx_fb_area_width(&area), h = dgx_fb_area_height(&area);
     uint32_t color_mask = pixel_bytes == 2 ? 0xffffu : 0xffffffu;
@@ -214,6 +219,7 @@ static void test_move(uint8_t pixel_bytes, bool swap_rb, bool mirror_x, bool mir
     dgx_fb_area_t   area;
     memset(fb, 0xa5, sizeof(fb));
     dgx_fb_area_init(&area, fb + 4, FW, FH, pixel_bytes, swap_rb);
+    dgx_fb_area_high_first(&area, high_first);
     dgx_fb_area_orientation(&area, mirror_x, mirror_y, swap_xy);
     const int w = dgx_fb_area_width(&area), h = dgx_fb_area_height(&area);
     uint32_t  from, length;
@@ -470,6 +476,14 @@ int main(void)
         test_direct(bits & 16 ? 3 : 2, bits & 8, bits & 4, bits & 2, bits & 1);
         test_move(bits & 16 ? 3 : 2, bits & 8, bits & 4, bits & 2, bits & 1);
     }
+    /* 16-bit pixels the high byte first */
+    high_first = true;
+    for (int bits = 0; bits < 16; ++bits) {
+        test_windows(2, bits & 8, bits & 4, bits & 2, bits & 1);
+        test_direct(2, bits & 8, bits & 4, bits & 2, bits & 1);
+        test_move(2, bits & 8, bits & 4, bits & 2, bits & 1);
+    }
+    high_first = false;
     for (int bits = 0; bits < 8; ++bits) {
         test_pictures(bits & 4, bits & 2, bits & 1);
     }

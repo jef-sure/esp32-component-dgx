@@ -270,7 +270,7 @@ static inline uint8_t *dgx_fill_buf_value_12(uint8_t *lp, int idx, uint32_t valu
         *lp   = (uint8_t)((*lp & 0x0fu) | (value & 0xf0u)); // low nibble belongs to the next pixel
     } else {
         uint8_t pb = *lp & 0xf0u;
-        *lp++      = pb | (uint8_t)(value >> 12);
+        *lp++      = pb | (uint8_t)((value >> 12) & 0x0fu); // the bits of a color above 16 would go into the pixel before
         *lp++      = (uint8_t)(value >> 4);
     }
     return lp;

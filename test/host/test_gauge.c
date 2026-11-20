@@ -1,5 +1,10 @@
-/* The arc gauge: its empty ring is there after dgx_gauge_init(), and a change of the value is one update of the screen. */
+/*
+ * The arc gauge: its empty ring is there after dgx_gauge_init(), and a change of the value is one update of the
+ * screen. A pixel of the ring is of one step only: a redraw writes each once, and the picture of a value is the same
+ * whichever value the gauge came from.
+ */
 #include <stdint.h>
+#include <string.h>
 
 #include "check.h"
 #include "dgx_draw.h"
@@ -23,6 +28,23 @@ static void count_update(dgx_screen_t *scr, int left, int right, int top, int bo
 static uint32_t gauge_color(int value)
 {
     return value < 70 ? LOW : HIGH;
+}
+
+/* how many times each pixel was written, through the fill of the screen, which the gauge draws by */
+static uint8_t                     writes[H][W];
+static dgx_scr_fill_rectangle_func plain_fill;
+
+static void counting_fill(dgx_screen_t *scr, int x, int y, int w, int h, uint32_t color)
+{
+    for (int j = y; j < y + h; ++j)
+        for (int i = x; i < x + w; ++i)
+            if (i >= 0 && j >= 0 && i < W && j < H && writes[j][i] < 255) ++writes[j][i];
+    plain_fill(scr, x, y, w, h, color);
+}
+
+static uint32_t value_color(int value)
+{
+    return 0x0800u + (uint32_t)value;
 }
 
 static int pixels_of(dgx_screen_t *scr, uint32_t color)
@@ -84,10 +106,9 @@ int main(void)
     updates = 0;
     dgx_gauge_redraw(&gauge);
     CHECK(updates == 1);
-    /* neighbouring steps share the pixels of their common edge, and the one drawn later has them: the boundary may move by that edge */
-    const int again = pixels_of(scr, LOW);
-    CHECK(again > half - 15 && again < half + 15);
-    CHECK(pixels_of(scr, BACK) + again == ring);
+    /* a pixel is of one step, so the boundary is where it was */
+    CHECK(pixels_of(scr, LOW) == half);
+    CHECK(pixels_of(scr, BACK) + half == ring);
 
     /* a range of millions, as of the bytes of PSRAM: a value times the degrees of the sweep is more than an int holds */
     dgx_fill_rectangle(scr, 0, 0, W, H, 0);
@@ -116,6 +137,43 @@ int main(void)
             }
         }
         CHECK(sweep < 0 ? left > 900 && right == 0 : right > 900 && left == 0);
+    }
+
+    /* each pixel of the ring once in a redraw, steps of every color in turn, rings thin and thick, a sweep either way and a whole circle */
+    static const int rings[][3] = {{30, 10, 270}, {20, 4, -270}, {10, 14, 360}, {44, 1, 90}, {0, 6, 180}};
+    plain_fill = scr->fill_rectangle;
+    for (unsigned r = 0; r < sizeof(rings) / sizeof(rings[0]); ++r) {
+        const int inner = rings[r][0], width = rings[r][1], sweep = rings[r][2], steps = sweep < 0 ? -sweep : sweep;
+        dgx_screen_t *again = dgx_vscreen_init(W, H, 16, DgxScreenRGB);
+        dgx_gauge_t   other;
+        dgx_fill_rectangle(scr, 0, 0, W, H, 0);
+        dgx_gauge_init(&gauge, scr, W / 2, H / 2, inner, width, 225.0f, sweep, 0, steps, BACK, value_color);
+        dgx_gauge_set_value(&gauge, steps);
+        memset(writes, 0, sizeof(writes));
+        scr->fill_rectangle = counting_fill;
+        dgx_gauge_redraw(&gauge);
+        scr->fill_rectangle = plain_fill;
+        int twice = 0, once = 0;
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x) twice += writes[y][x] > 1, once += writes[y][x] == 1;
+        CHECK(twice == 0);
+        CHECK(once > 0 && pixels_of(scr, BACK) == 0);
+        /* and every value comes out the same stepped up to it, stepped down to it and drawn at once */
+        int differ = 0;
+        for (int value = 0; value <= steps; value += 7) {
+            dgx_gauge_set_value(&gauge, 0);
+            for (int v = 0; v <= value; ++v) dgx_gauge_set_value(&gauge, v);
+            dgx_fill_rectangle(again, 0, 0, W, H, 0);
+            dgx_gauge_init(&other, again, W / 2, H / 2, inner, width, 225.0f, sweep, 0, steps, BACK, value_color);
+            dgx_gauge_set_value(&other, value);
+            for (int y = 0; y < H; ++y)
+                for (int x = 0; x < W; ++x) differ += dgx_get_pixel(scr, x, y) != dgx_get_pixel(again, x, y);
+            for (int v = steps; v >= value; --v) dgx_gauge_set_value(&gauge, v);
+            for (int y = 0; y < H; ++y)
+                for (int x = 0; x < W; ++x) differ += dgx_get_pixel(scr, x, y) != dgx_get_pixel(again, x, y);
+        }
+        CHECK(differ == 0);
+        dgx_screen_destroy(&again);
     }
 
     dgx_screen_destroy(&scr);
