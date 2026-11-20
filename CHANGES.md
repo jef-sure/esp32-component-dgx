@@ -1,5 +1,20 @@
 # Changes
 
+## 0.11.7 - 2026-11-20
+
+No call of a program is broken. One fix in the build of fonts, checked by
+the host test of the fonts and by builds for ESP32, ESP32-S3 and ESP32-P4
+under IDF 5.5.4 and 6.1.
+
+Fixed:
+
+- **A needs file takes `bits`.** A line `bits 4` in a file read by
+  `dgx_font_needs_file()` stopped the configure with "not a keyword of a
+  need", though docs/fonts-en.md gives it as the form of `BITS 4` in a
+  needs file and `dgx_fonts.py build` reads it on the host. It had been so
+  since the bits came in, in 0.10.15. `BITS` in `dgx_font_need()` worked.
+  test/fonts/test_fonts.py now builds a font of 4 bits from a needs file.
+
 ## 0.11.6 - 2026-11-20
 
 No call of a program is broken. The RGB displays were seen on a Sunton

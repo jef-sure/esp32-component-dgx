@@ -728,7 +728,8 @@ def test_cmake(work):
     with open(os.path.join(cm, "fonts.rules"), "w", encoding="utf-8") as f:
         f.write('source system\nallow "DejaVu Sans" 1..\n')
     with open(os.path.join(cm, "x.needs"), "w", encoding="utf-8-sig") as f:
-        f.write("need fromfile\nsize 12px\npostscript DejaVuSans\nletters [{]; \ntext t.txt\n")
+        f.write("need fromfile\nsize 12px\npostscript DejaVuSans\nletters [{]; \ntext t.txt\n"
+                "need softfile\nsize 12px\npostscript DejaVuSans\nbits 4\ntext t.txt\n")
     with open(os.path.join(cm, "own.letters"), "w", encoding="utf-8") as f:
         f.write("xyz")
     with open(os.path.join(cm, "own.list"), "w", encoding="utf-8") as f:
@@ -800,6 +801,9 @@ endif()
               "LETTERS \"DGX\" and EXCEPT MONO are characters, not the keywords DGX and MONO")
         check("letters [{]; \n" in needs, "the letters of a needs file reach it as written, the space at the end too")
         check(f"text {os.path.join(cm, 't.txt')}" in needs and "need fromfile" in needs, "a needs file with a byte order mark is read")
+        softfile = needs[needs.find("need softfile"):] if "need softfile" in needs else ""
+        end = softfile.find("\nneed ")
+        check("\nbits 4\n" in (softfile if end < 0 else softfile[:end + 1]), "the bits of a needs file reach it")
         ninja = open(os.path.join(build_dir, "build.ninja"), encoding="utf-8").read()
         check("own.letters" in ninja, "the file of -f in a list is an input of the rule")
         check("DejaVuSansBook12.patch.json" in ninja, "a patch beside the CMakeLists is an input of the rule")
@@ -810,6 +814,8 @@ endif()
             check("dgx_font_t *dgx_font_brackets(void);" in h and "dgx_font_t *dgx_font_fromfile(void);" in h and "dgx_font_t *widget(void);" in h,
                   "the three fonts of the three ways are in the header")
             check("dgx_font_t *dgx_font_soft(void);" in h and "4 bits a pixel" in h, "the font of BITS 4 is in the header, its depth told")
+            check("dgx_font_t *dgx_font_softfile(void);" in h and any(l.startswith("/* softfile:") and "4 bits a pixel" in l for l in h.splitlines()),
+                  "the font of bits 4 in a needs file is in the header, its depth told")
             c = os.path.join(build_dir, "dgx_fonts", "dgx_fonts.c")
             # the three are one face at 12 px, so one font with the characters of all three
             check(set("[a;b]tq") <= (glyphs_of(c, "dgx_font_brackets") or set()), "the characters of LETTERS with brackets and a semicolon are in the font")
