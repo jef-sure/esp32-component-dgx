@@ -239,11 +239,11 @@ void dgx_font_string_utf8_screen(        //
  * itself leaves nothing of the one before when it is as long. On a display
  * of 16 bits a pixel behind a bus, which cannot be read, the cell is made by
  * bands of its rows and sent through the colors of the levels of the font,
- * every pixel once, so the text does not blink; where two glyphs meet, the
- * greater level of the two counts. Elsewhere the cell is filled first and the
- * letters drawn after: on a display of 18 or 24 bits behind a bus the cell
- * shows only the paper for the time the letters take, and text that must not
- * blink there is drawn into a virtual screen and sent whole.
+ * every pixel once, so the text does not blink; the pixels are those the
+ * paper and the letters drawn over it give. Elsewhere the cell is filled
+ * first and the letters drawn after: on a display of 18 or 24 bits behind a
+ * bus the cell shows only the paper for the time the letters take, and text
+ * that must not blink there is drawn into a virtual screen and sent whole.
  */
 #define DGX_FONT_FILL 0x2u
 /**

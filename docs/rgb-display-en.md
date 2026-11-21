@@ -281,6 +281,68 @@ NVS. `dgx_rgb_bench_text()` says the rest in words: on which core to make
 the display, the work of the other core in PSRAM, XIP off, a restart that
 keeps on counting. The bench logs both.
 
+A program measures once and keeps what the bench found. At the first start
+it makes the display at a clock low enough for any setup, starts the rest
+of its work, since the bench measures with it, runs the bench from the
+task that draws, keeps the result in NVS and starts again: the clock is
+given to `dgx_rgb_init()` only. Later starts find the result there and
+make the display at the clock it advises.
+
+```c
+#include "esp_system.h"
+#include "nvs.h"
+#include "nvs_flash.h"
+
+/* what the bench found at an earlier start, when it was for this glass */
+static bool rgb_bench_kept(dgx_rgb_bench_t *bench)
+{
+    nvs_handle_t nvs;
+    size_t       size = sizeof(*bench);
+    if (nvs_open("dgx", NVS_READONLY, &nvs) != ESP_OK) return false;
+    const bool found = nvs_get_blob(nvs, "rgb_bench", bench, &size) == ESP_OK && size == sizeof(*bench);
+    nvs_close(nvs);
+    return found && bench->version == DGX_RGB_BENCH_VERSION && bench->size == sizeof(*bench) &&
+           bench->width == dgx_rgb_panel_jc8048b070n.video.width && bench->height == dgx_rgb_panel_jc8048b070n.video.height;
+}
+
+static void rgb_bench_keep(const dgx_rgb_bench_t *bench)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("dgx", NVS_READWRITE, &nvs) != ESP_OK) return;
+    if (nvs_set_blob(nvs, "rgb_bench", bench, sizeof(*bench)) == ESP_OK) nvs_commit(nvs);
+    nvs_close(nvs);
+}
+
+void app_main(void)
+{
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        nvs_flash_init();
+    }
+    dgx_rgb_bench_t      bench;
+    const bool           kept = rgb_bench_kept(&bench);
+    const uint32_t       hz   = kept ? dgx_rgb_advise(&bench) : 0;
+    dgx_bus_protocols_t *bus  = dgx_rgb_init(&pins, hz ? hz : 16000000);
+    dgx_screen_t        *lcd  = dgx_rgb_panel_init(bus, &dgx_rgb_panel_jc8048b070n, GPIO_NUM_NC, GPIO_NUM_2, 16, DgxScreenRGB, DgxRgbTwoFrames);
+    /* ... the rest of the program started: Wi-Fi, its other tasks ... */
+    if (!kept && dgx_rgb_bench(bus, &bench)) {
+        rgb_bench_keep(&bench);
+        if (dgx_rgb_advise(&bench)) esp_restart();
+    }
+    /* ... drawing on lcd ... */
+}
+```
+
+The pins are those of the first example. 16 MHz is what the maker's demo
+runs the Sunton glass at; it held in every setup measured, and it is below
+what the sheet asks, so the log says so once. A bench that found no clock
+holding is kept as well, and the display stays at 16 MHz: the text in the
+log says what to mend. A new build that runs other work beside the display
+measures again: it erases the key with `nvs_erase_key()`, or the program
+keeps the version of the build beside it. Writing NVS writes the flash, and
+with `CONFIG_SPIRAM_XIP_FROM_PSRAM` off the picture jumps for that moment.
+
 Table 6. What the bench found on the Guition JC4827W543 at the timing of
 the Sunton glass, two frame buffers, by setup.
 

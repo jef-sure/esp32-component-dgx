@@ -285,6 +285,70 @@ ESP32-S3R8 с 8 МБ восьмибитной PSRAM в самом чипе. Та
 что включён перезапуск, который не сбрасывает счёт. Бенч пишет и то и
 другое в журнал.
 
+Программа меряет один раз и хранит то, что нашёл бенч. При первом запуске
+она создаёт дисплей на частоте, которую выдерживает любой вариант,
+запускает остальную свою работу, потому что бенч меряет вместе с ней,
+вызывает бенч из той задачи, которая рисует, сохраняет итог в NVS и
+перезапускается: частоту принимает только `dgx_rgb_init()`. Следующие
+запуски находят итог в NVS и создают дисплей на той частоте, которую он
+советует.
+
+```c
+#include "esp_system.h"
+#include "nvs.h"
+#include "nvs_flash.h"
+
+/* what the bench found at an earlier start, when it was for this glass */
+static bool rgb_bench_kept(dgx_rgb_bench_t *bench)
+{
+    nvs_handle_t nvs;
+    size_t       size = sizeof(*bench);
+    if (nvs_open("dgx", NVS_READONLY, &nvs) != ESP_OK) return false;
+    const bool found = nvs_get_blob(nvs, "rgb_bench", bench, &size) == ESP_OK && size == sizeof(*bench);
+    nvs_close(nvs);
+    return found && bench->version == DGX_RGB_BENCH_VERSION && bench->size == sizeof(*bench) &&
+           bench->width == dgx_rgb_panel_jc8048b070n.video.width && bench->height == dgx_rgb_panel_jc8048b070n.video.height;
+}
+
+static void rgb_bench_keep(const dgx_rgb_bench_t *bench)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("dgx", NVS_READWRITE, &nvs) != ESP_OK) return;
+    if (nvs_set_blob(nvs, "rgb_bench", bench, sizeof(*bench)) == ESP_OK) nvs_commit(nvs);
+    nvs_close(nvs);
+}
+
+void app_main(void)
+{
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        nvs_flash_init();
+    }
+    dgx_rgb_bench_t      bench;
+    const bool           kept = rgb_bench_kept(&bench);
+    const uint32_t       hz   = kept ? dgx_rgb_advise(&bench) : 0;
+    dgx_bus_protocols_t *bus  = dgx_rgb_init(&pins, hz ? hz : 16000000);
+    dgx_screen_t        *lcd  = dgx_rgb_panel_init(bus, &dgx_rgb_panel_jc8048b070n, GPIO_NUM_NC, GPIO_NUM_2, 16, DgxScreenRGB, DgxRgbTwoFrames);
+    /* ... the rest of the program started: Wi-Fi, its other tasks ... */
+    if (!kept && dgx_rgb_bench(bus, &bench)) {
+        rgb_bench_keep(&bench);
+        if (dgx_rgb_advise(&bench)) esp_restart();
+    }
+    /* ... drawing on lcd ... */
+}
+```
+
+Выводы — из первого примера. На 16 МГц стекло Sunton работает в демо
+производителя; эта частота выдержала все варианты, что мерили, и она ниже
+того, что просит лист, поэтому журнал один раз об этом скажет. Если бенч не
+нашёл ни одной частоты, которая выдержала, итог тоже сохраняется, и дисплей
+остаётся на 16 МГц: что исправить, сказано в тексте в журнале. Новая сборка,
+которая рядом с дисплеем делает другую работу, меряет заново: стирает ключ
+через `nvs_erase_key()`, или программа хранит рядом версию сборки. Запись в
+NVS — это запись во флеш, и при выключенном `CONFIG_SPIRAM_XIP_FROM_PSRAM`
+картинка на это время прыгнет.
+
 Таблица 6. Что нашёл бенч на Guition JC4827W543 при таймингах стекла
 Sunton, два кадровых буфера, по вариантам.
 

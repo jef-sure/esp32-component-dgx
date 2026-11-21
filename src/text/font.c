@@ -770,12 +770,13 @@ static void fill_cell(const dgx_font_context_t *ctx, int x, int y, const char *s
 }
 
 #ifdef DGX_FONT_VSCREEN_FAST_PATH
-/* a band of rows of the cell of a text, as levels of its font: what a glyph puts there, the greater level where two meet */
+/* a band of rows of the cell of a text, as levels of its font: what a glyph puts there */
 typedef struct {
     uint8_t *band;
     int      width, first, rows; /* the band holds the rows first .. first + rows - 1 of the cell, `width` levels a row */
     int      x0, y0;             /* where the glyph's box lies in the cell */
     int      level;              /* the level of an ink pixel of a font of one bit */
+    bool     later;              /* where two glyphs meet, the later one's level, as when it is drawn over the other; else the greater */
 } cell_band_t;
 
 static void band_put(cell_band_t *b, int x, int y, int level)
@@ -783,7 +784,7 @@ static void band_put(cell_band_t *b, int x, int y, int level)
     const int row = b->y0 + y - b->first, column = b->x0 + x;
     if (row < 0 || row >= b->rows || column < 0 || column >= b->width) return;
     uint8_t *at = b->band + (size_t)row * b->width + column;
-    if (level > *at) *at = (uint8_t)level;
+    if (b->later || level > *at) *at = (uint8_t)level;
 }
 
 static bool band_ink(void *user_data, int x, int y)
@@ -796,13 +797,15 @@ static bool band_ink(void *user_data, int x, int y)
 /*
  * DGX_FONT_FILL on a display behind a bus that cannot be read, 16 bits a
  * pixel: the cell of the text made by bands of its rows, the level of every
- * pixel, 0 the paper, the greater one where two glyphs meet, and every band
- * sent through a table of the colors of the levels, turned and scaled by the
- * transfer of a virtual screen. Every pixel of the cell is written once, in
- * one window a band: the old number does not go before the new one comes, as
- * it does when the cell is filled with the paper first. The text drawn so is
- * the one the paper and the letters drawn after it give, but where two
- * glyphs meet with an edge each. Returns false, with nothing drawn, for
+ * pixel, 0 the paper, and every band sent through a table of the colors of
+ * the levels, turned and scaled by the transfer of a virtual screen. Every
+ * pixel of the cell is written once, in one window a band: the old number
+ * does not go before the new one comes, as it does when the cell is filled
+ * with the paper first. The text drawn so is the one the paper and the
+ * letters drawn after it give, where two glyphs meet too: the later glyph's
+ * level replaces the earlier one, as its color of the table does, and when
+ * the levels are cut the greater one counts, as a pixel is drawn whole when
+ * either glyph reaches the cut there. Returns false, with nothing drawn, for
  * another screen, a font that is not of bitmaps, or no memory for a band.
  * cell: NULL for the cell of the text; or its two ends along the line, in
  * pixels of the font from the start of the text, for a field.
@@ -852,7 +855,7 @@ static bool fill_in_one_pass(const dgx_font_context_t *ctx, int x, int y, const 
         free(memory);
         return false;
     }
-    cell_band_t b = {.band = band, .width = width, .rows = rows};
+    cell_band_t b = {.band = band, .width = width, .rows = rows, .later = !cut};
     for (int first = 0; first < height; first += rows) {
         const int n = height - first < rows ? height - first : rows;
         memset(band, 0, (size_t)width * n);

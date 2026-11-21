@@ -413,24 +413,30 @@ static void test_bus_spans(void)
         CHECK(!dgx_screen_is_readable(lcdp));
         dgx_screen_t *model = dgx_vscreen_init(PW, PH, (uint8_t)bits, DgxScreenRGB);
         CHECK(model);
-        paint(model);
-        for (int y = 0; y < PH; ++y)
-            for (int x = 0; x < PW; ++x) panel[x + y * PW] = pattern(bits, x, y);
         /* in the middle, or half off the left top corner */
         const int x = place == 1 ? 2 : 40, y = place == 1 ? 3 : 40;
         const uint32_t color = pattern(bits, 5, 9), bg = pattern(bits, 31, 2);
-        dgx_font_context_t ctx = {.scr = lcdp, .font = (dgx_font_t *)&ft->font, .color = color, .bg = bg,
+        dgx_font_context_t ctx = {.font = (dgx_font_t *)&ft->font, .color = color, .bg = bg,
                                   .flags = (fill ? DGX_FONT_FILL : DGX_FONT_BG) | extra, .orientation = turn, .scale = s};
-        panel_windows = panel_rects = 0;
-        memset(panel_writes, 0, sizeof(panel_writes));
-        dgx_font_draw(&ctx, x, y, "AB");
-        ctx.scr = model;
-        dgx_font_draw(&ctx, x, y, "AB");
-        int differ = 0;
-        for (int yy = 0; yy < PH; ++yy)
-            for (int xx = 0; xx < PW; ++xx) differ += panel[xx + yy * PW] != dgx_get_pixel(model, xx, yy);
-        if (differ) fprintf(stderr, "bus spans: round %d kind %d fill %d extra %u bits %d: %d pixels differ\n", round, kind, fill, (unsigned)extra, bits, differ);
-        CHECK(differ == 0);
+        /* "ABBA" after "AB": the boxes of B and B overlap by three columns, those of B and A share one */
+        for (int text = 1; text >= 0; --text) {
+            paint(model);
+            for (int yy = 0; yy < PH; ++yy)
+                for (int xx = 0; xx < PW; ++xx) panel[xx + yy * PW] = pattern(bits, xx, yy);
+            panel_windows = panel_rects = 0;
+            memset(panel_writes, 0, sizeof(panel_writes));
+            ctx.scr = lcdp;
+            dgx_font_draw(&ctx, x, y, text ? "ABBA" : "AB");
+            ctx.scr = model;
+            dgx_font_draw(&ctx, x, y, text ? "ABBA" : "AB");
+            int differ = 0;
+            for (int yy = 0; yy < PH; ++yy)
+                for (int xx = 0; xx < PW; ++xx) differ += panel[xx + yy * PW] != dgx_get_pixel(model, xx, yy);
+            if (differ)
+                fprintf(stderr, "bus spans: round %d text %d kind %d fill %d extra %u bits %d: %d pixels differ\n", round, text, kind, fill,
+                        (unsigned)extra, bits, differ);
+            CHECK(differ == 0);
+        }
         if (fill && bits == 16) {
             /* the cell in one pass: one window, no rectangle, every pixel written once, the old number never gone first */
             int most = 0;

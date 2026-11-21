@@ -1,10 +1,26 @@
 # Changes
 
-## 0.11.7 - 2026-11-20
+## 0.11.8 - 2026-11-21
 
-No call of a program is broken. One fix in the build of fonts, checked by
-the host test of the fonts and by builds for ESP32, ESP32-S3 and ESP32-P4
-under IDF 5.5.4 and 6.1.
+Fixed:
+
+- **`DGX_FONT_FILL` on a 16-bit display behind a bus puts the pixels a
+  virtual screen gets** where the boxes of two letters of a soft font
+  meet. The cell sent in one pass kept the greater of the two levels in
+  such a pixel, and everywhere else the later letter's level replaces the
+  earlier one, as its color over the paper does; the two differed there by
+  a level or two. Now the cell takes the later level too. With
+  `DGX_FONT_MONO` and `DGX_FONT_HARD` the greater level still counts, which
+  is what the other ways give for a cut font. test_soft_text compares the
+  bus with a virtual screen on a text whose boxes overlap.
+
+Documentation:
+
+- docs/rgb-display-en.md and docs/rgb-display-ru.md: a recipe for the bench
+  of an RGB display, measured once at the first start, kept in NVS and its
+  advice given to `dgx_rgb_init()` at the next ones.
+
+## 0.11.7 - 2026-11-20
 
 Fixed:
 
@@ -17,11 +33,10 @@ Fixed:
 
 ## 0.11.6 - 2026-11-20
 
-No call of a program is broken. The RGB displays were seen on a Sunton
-ESP32-8048S070 by a contributor with the board and counted on a Guition
-JC4827W543 as well; the gauge was timed on the NV3041A of that board; the
-rest is host tests and builds for the ESP32-S3 and ESP32-P4 under IDF 5.5.4
-and 6.1.
+The RGB displays were seen on a Sunton ESP32-8048S070 by a contributor with
+the board and counted on a Guition JC4827W543 as well; the gauge was timed
+on the NV3041A of that board; the rest is host tests and builds for the
+ESP32-S3 and ESP32-P4 under IDF 5.5.4 and 6.1.
 
 New:
 
@@ -132,10 +147,10 @@ Tests:
 
 ## 0.11.5 - 2026-11-18
 
-No call of a program is broken. A program on a 24-bit DSI display sees its
-virtual screens reach the display faster, the same pixels. Everything here
-was seen on the Guition JC4880P443C; the rest is host tests and builds for
-the ESP32-P4 under IDF 5.5.4 and 6.1.
+A program on a 24-bit DSI display sees its virtual screens reach the
+display faster, the same pixels. Everything here was seen on the Guition
+JC4880P443C; the rest is host tests and builds for the ESP32-P4 under IDF
+5.5.4 and 6.1.
 
 New:
 
@@ -179,9 +194,8 @@ Documentation:
 
 ## 0.11.4 - 2026-11-16
 
-No call of a program is broken: the new members are at the end of their
-structures. Both were seen on the ILI9341 of a CYD; the rest is host tests,
-and builds for ESP32, ESP32-S3 and ESP32-P4 with every driver.
+Both were seen on the ILI9341 of a CYD; the rest is host tests, and builds
+for ESP32, ESP32-S3 and ESP32-P4 with every driver.
 
 New:
 
@@ -213,9 +227,8 @@ New:
 
 ## 0.11.3 - 2026-11-16
 
-No call of a program is broken. The clip was seen on the ILI9341 of a CYD;
-the rest is host tests, and builds for ESP32, ESP32-S3 and ESP32-P4 with
-every driver.
+The clip was seen on the ILI9341 of a CYD; the rest is host tests, and
+builds for ESP32, ESP32-S3 and ESP32-P4 with every driver.
 
 New:
 
@@ -255,10 +268,9 @@ Documentation:
 
 ## 0.11.2 - 2026-11-15
 
-No call of a program is broken. What was seen on a display is said at each
-entry: an SSD1306 of 72x40 on an ESP32-C3 board and an ST7565R of 128x64 on
-an ESP32. The rest is host tests, and builds for ESP32, ESP32-S3 and
-ESP32-P4 with every driver.
+What was seen on a display is said at each entry: an SSD1306 of 72x40 on
+an ESP32-C3 board and an ST7565R of 128x64 on an ESP32. The rest is host
+tests, and builds for ESP32, ESP32-S3 and ESP32-P4 with every driver.
 
 New:
 
@@ -316,12 +328,12 @@ Tests:
 
 ## 0.11.1 - 2026-11-15
 
-No call of a program is broken: every name that changed keeps its earlier
-form, listed in [Deprecated names](docs/api-en.md#deprecated-names). What ran on
-a board is said at each entry: the two MIPI-DSI boards, the 7-inch
-JC1060P470 and the 10.1-inch JC8012P4A1C, checked themselves by reading
-their frame buffers back. The rest is host tests, and builds for ESP32,
-ESP32-S3 and ESP32-P4 with every driver.
+Every name that changed keeps its earlier form, listed in
+[Deprecated names](docs/api-en.md#deprecated-names). What ran on a board is
+said at each entry: the two MIPI-DSI boards, the 7-inch JC1060P470 and the
+10.1-inch JC8012P4A1C, checked themselves by reading their frame buffers
+back. The rest is host tests, and builds for ESP32, ESP32-S3 and ESP32-P4
+with every driver.
 
 New:
 
