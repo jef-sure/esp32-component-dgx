@@ -22,7 +22,7 @@ static void dgx_hw_way_free(dgx_hw_way_t *way)
 }
 
 /* room is how many curves to leave place for */
-static bool dgx_hw_way_of(dgx_hw_way_t *way, dgx_font_t *font, const char *text, bool joined, int room)
+static bool dgx_hw_way_of(dgx_hw_way_t *way, const dgx_font_t *font, const char *text, bool joined, int room)
 {
     dgx_hw_writer_t w;
     dgx_hw_stroke_t s;
@@ -130,7 +130,7 @@ void dgx_hw_morph_shift(dgx_hw_morph_t *m, float from_x, float from_y, float to_
     dgx_hw_morph_done(m);
 }
 
-dgx_hw_morph_t *dgx_hw_morph_create(dgx_font_t *font, const char *from, const char *to, bool joined)
+dgx_hw_morph_t *dgx_hw_morph_create(const dgx_font_t *font, const char *from, const char *to, bool joined)
 {
     dgx_hw_way_t    a = {0}, b = {0}, count;
     dgx_hw_morph_t *m = 0;
@@ -156,13 +156,8 @@ done:
     return m;
 }
 
-void dgx_hw_morph_draw(const dgx_hw_morph_t *m, float t, dgx_screen_t *scr, int x, int y, float scale, int width, uint32_t color)
-{
-    dgx_hw_morph_draw_xy(m, t, scr, x, y, scale, scale, width, color);
-}
-
-void dgx_hw_morph_draw_xy(const dgx_hw_morph_t *m, float t, dgx_screen_t *scr, int x, int y, float scale_x, float scale_y, int width,
-                          uint32_t color)
+static void morph_draw(const dgx_hw_morph_t *m, float t, dgx_screen_t *scr, int x, int y, float scale_x, float scale_y, int width,
+                       uint32_t color)
 {
     if (!m) return;
     if (!(t > 0)) t = 0; /* and what is not a number */
@@ -189,7 +184,7 @@ void dgx_hw_morph_draw_with(const dgx_hw_morph_t *m, float t, const dgx_hw_conte
 {
     float scale_x, scale_y;
     dgx_hw_context_scales(ctx, &scale_x, &scale_y);
-    dgx_hw_morph_draw_xy(m, t, ctx->scr, x, y, scale_x, scale_y, dgx_hw_context_pen(ctx), ctx->color);
+    morph_draw(m, t, ctx->scr, x, y, scale_x, scale_y, dgx_hw_context_pen(ctx), ctx->color);
 }
 
 bool dgx_hw_morph_bounds(const dgx_hw_morph_t *m, const dgx_hw_context_t *ctx, int *left, int *top, int *width, int *height)
@@ -324,7 +319,7 @@ static bool dgx_hw_morph_pairs(int n, const float *way, uint8_t *to)
     return true;
 }
 
-dgx_hw_morph_text_t *dgx_hw_morph_text_create(dgx_font_t *font, const char *from, const char *to, bool joined)
+dgx_hw_morph_text_t *dgx_hw_morph_text_create(const dgx_font_t *font, const char *from, const char *to, bool joined)
 {
     dgx_hw_way_t         a = {0}, b = {0};
     dgx_hw_morph_text_t *text = calloc(1, sizeof(dgx_hw_morph_text_t));
@@ -436,4 +431,17 @@ int64_t dgx_hw_morph_text_duration_us(const dgx_hw_morph_text_t *text, int64_t d
 {
     if (!text || !text->changed) return 0;
     return (int64_t)(text->changed - 1) * stagger_us + duration_us;
+}
+
+/* The calls of before, deprecated until DGX 1.0: a size along each axis and the pen as arguments. */
+
+void dgx_hw_morph_draw_xy(const dgx_hw_morph_t *m, float t, dgx_screen_t *scr, int x, int y, float scale_x, float scale_y, int width,
+                          uint32_t color)
+{
+    morph_draw(m, t, scr, x, y, scale_x, scale_y, width, color);
+}
+
+void dgx_hw_morph_draw(const dgx_hw_morph_t *m, float t, dgx_screen_t *scr, int x, int y, float scale, int width, uint32_t color)
+{
+    morph_draw(m, t, scr, x, y, scale, scale, width, color);
 }

@@ -2134,7 +2134,7 @@ static const uint8_t bitmaps[] = {
 0x7C, 0x08, 0xFF, 0x18, 0xC7, 0xF8, 0x81, 0xE0
 };
 
-static const glyph_t glyphs[] = {
+static const dgx_glyph_t glyphs[] = {
     { {.bitmap = bitmaps +     0 },   0,   0,  17,    0,    1 } /* 0020 */
 ,   { {.bitmap = bitmaps +     0 },   3,  20,  17,    7,  -19 } /* 0021 */
 ,   { {.bitmap = bitmaps +    20 },   9,   8,  17,    4,  -19 } /* 0022 */
@@ -2231,23 +2231,20 @@ static const glyph_t glyphs[] = {
 ,   { {.bitmap = bitmaps +  3194 },  11,  24,  17,    3,  -19 } /* 007D */
 ,   { {.bitmap = bitmaps +  3242 },  13,   4,  17,    2,  -11 } /* 007E */
 };
-static const glyph_array_t glyph_ranges[] = {
+static const dgx_glyph_array_t glyph_ranges[] = {
    {0x20  , 0x5f  , glyphs + 0 }
 , {0x0   , 0x0   , 0 }
 };
 // Bitmap size: 3250
-dgx_font_t* NotoMonoRegular28() {
-	static dgx_font_t rval = { 
-		.glyph_ranges = glyph_ranges,
-		.yAdvance = 33,
-		.yOffsetLowest = -20,
-		.xWidest = 17,
-		.xWidthAverage = 11.884211,
-	.f_type = DGX_FONT_BITMAP_LINES,
-		.yBottomMax = 8,
-		.xOffsetLowest = 0,
-		.xRightMax = 17,
-		.number_of_ranges = 1
-	};
-	return &rval;
-}
+const dgx_font_t NotoMonoRegular28 = {
+    .glyph_ranges = glyph_ranges,
+    .y_advance = 33,
+    .y_offset_lowest = -20,
+    .x_widest = 17,
+    .x_width_average = 11.884211,
+    .f_type = DGX_FONT_BITMAP_LINES,
+    .y_bottom_max = 8,
+    .x_offset_lowest = 0,
+    .x_right_max = 17,
+    .number_of_ranges = 1
+};

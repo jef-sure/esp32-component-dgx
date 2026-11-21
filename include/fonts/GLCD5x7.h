@@ -5,7 +5,8 @@
 extern "C" {
 // @formatter:on
 #endif
-dgx_font_t* GLCD5x7();
+extern const dgx_font_t GLCD5x7;
+#define GLCD5x7() DGX_FONT_CALLED(GLCD5x7)
 #ifdef __cplusplus
 // @formatter:off
 }

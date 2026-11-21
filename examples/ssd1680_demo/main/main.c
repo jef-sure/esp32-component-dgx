@@ -66,7 +66,7 @@ void app_main(void)
         ESP_LOGE(TAG, "SPI bus initialization failed");
         return;
     }
-    dgx_screen_t *scr = dgx_ssd1680_init(bus, DGX_SSD1680_128X296_BWR, PIN_RST, PIN_BUSY);
+    dgx_screen_t *scr = dgx_ssd1680_init(bus, PIN_RST, PIN_BUSY, DGX_SSD1680_128X296_BWR);
     /* the labels of the ways are drawn here first, then put on the glass pixel by pixel */
     dgx_screen_t *aside = dgx_vscreen_init(48, 8, 1, DgxScreenRGB);
     if (!scr || !aside) {

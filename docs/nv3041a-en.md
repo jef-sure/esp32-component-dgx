@@ -333,7 +333,7 @@ shows a frame every 15.6 ms (64 Hz). DGX does not use TE.
 According to [atomic14](https://www.atomic14.com/esp32/boards/guition-jc4827w543/),
 only 0° and 180° work on this panel. DGX has also run it on its side:
 [examples/graphicstest](../examples/graphicstest) draws at 272x480 with
-`dgx_nv3041a_orientation(scr, DgxScreenLeftRight, DgxScreenBottomTop, true)`,
+`dgx_screen_orientation(scr, DgxScreenLeftRight, DgxScreenBottomTop, true)`,
 and the picture came out right. The other positions have not been tried.
 
 ## ESP-IDF 6.0 and 6.1: GPIO0

@@ -97,8 +97,9 @@ static float written(const char *text, int x, int y, int w, int h, int pen, floa
     return scale;
 }
 
-static uint32_t gauge_color(int value)
+static uint32_t gauge_color(int value, void *user_data)
 {
+    (void)user_data;
     return value < 60 ? rgb(40, 170, 90) : value < 85 ? rgb(240, 190, 40) : rgb(220, 60, 40);
 }
 
@@ -114,7 +115,7 @@ static void figures(int x, int y, int r, uint32_t line, uint32_t rest, bool dark
     for (int k = 0; k < 3; ++k) dgx_draw_ellipse(canvas, x, y, r + k, r + k, line);
     /* a gauge */
     static dgx_gauge_t gauge;
-    dgx_gauge_init(&gauge, canvas, x + r * 6, y + r / 6, r * 2 / 3, r / 3, 225.0f, 270, 0, 100, rest, gauge_color);
+    dgx_gauge_init_with(&gauge, canvas, x + r * 6, y + r / 6, r * 2 / 3, r / 3, 225.0f, 270, 0, 100, rest, gauge_color, NULL);
     dgx_gauge_set_value(&gauge, 72);
     /* arcs by pens */
     const int ax = x + r * 9 + r / 2;
@@ -377,7 +378,7 @@ static void recipe(char variant, bool dark)
         for (int i = 0; i < 3; ++i) {
             const int cx = W / 6 + i * W / 3, cy = H / 2 + 16;
             char      label[8];
-            dgx_gauge_init(&gauge[i], canvas, cx, cy, 96, 40, 225.0f, 270, 0, 100, rest, gauge_color);
+            dgx_gauge_init_with(&gauge[i], canvas, cx, cy, 96, 40, 225.0f, 270, 0, 100, rest, gauge_color, NULL);
             dgx_gauge_set_value(&gauge[i], values[i]);
             snprintf(label, sizeof(label), "%d", values[i]);
             int16_t   yc, hh;

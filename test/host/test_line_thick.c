@@ -4,10 +4,10 @@
 
 #include "check.h"
 #include "dgx_draw.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 /*
- * dgx_draw_line_thick(). A slanted line is the rectangle around its way, as
+ * dgx_draw_thick_line(). A slanted line is the rectangle around its way, as
  * wide as asked at every angle and cut square at the end points: a pixel
  * whose centre lies well in it is drawn, one well out of it is not. Its rows
  * and its columns are runs without a gap. An odd width gives the same pixels
@@ -85,8 +85,8 @@ static void rectangles(void)
         if (x1 == x2 && y1 == y2) continue;
         clear(s);
         clear(back);
-        dgx_draw_line_thick(s, x1, y1, x2, y2, width, 1);
-        dgx_draw_line_thick(back, x2, y2, x1, y1, width, 1);
+        dgx_draw_thick_line(s, x1, y1, x2, y2, width, 1);
+        dgx_draw_thick_line(back, x2, y2, x1, y1, width, 1);
         /* the middle of the line across it: to the right of the way by half a pixel for an even width */
         const double dx = x2 - x1, dy = y2 - y1, len = hypot(dx, dy);
         double       middle = 0, middle_back = 0;
@@ -145,7 +145,7 @@ static void widths(void)
                 const double r = 70 + k * 0.37;
                 const int    x1 = 100 - (int)lround(r * c), y1 = 100 + (int)lround(r * sn), x2 = 100 + (int)lround(r * c), y2 = 100 - (int)lround(r * sn);
                 clear(s);
-                dgx_draw_line_thick(s, x1, y1, x2, y2, width, 1);
+                dgx_draw_thick_line(s, x1, y1, x2, y2, width, 1);
                 sum += width_of(s, x1, y1, x2, y2);
             }
             const double got = sum / 8, slack = degrees[d] == 45 ? 0.75 : 0.1;
@@ -166,7 +166,7 @@ static void thin(void)
         const int x1 = rnd(0, W - 1), y1 = rnd(0, H - 1), x2 = rnd(0, W - 1), y2 = rnd(0, H - 1);
         clear(s);
         clear(line);
-        dgx_draw_line_thick(s, x1, y1, x2, y2, 1, 1);
+        dgx_draw_thick_line(s, x1, y1, x2, y2, 1, 1);
         dgx_draw_line(line, x1, y1, x2, y2, 1);
         wrong += differ(s, line, 0, H - 1) != 0;
     }
@@ -185,8 +185,8 @@ static void far_ends(void)
         for (int width = 1; width <= 9; ++width) {
             clear(far);
             clear(near);
-            dgx_draw_line_thick(far, ways[i][0], ways[i][1], ways[i][2], ways[i][3], width, 1);
-            dgx_draw_line_thick(near, nears[i][0], nears[i][1], nears[i][2], nears[i][3], width, 1);
+            dgx_draw_thick_line(far, ways[i][0], ways[i][1], ways[i][2], ways[i][3], width, 1);
+            dgx_draw_thick_line(near, nears[i][0], nears[i][1], nears[i][2], nears[i][3], width, 1);
             CHECK(differ(far, near, 20, nears[i][3] - 20) == 0);
         }
     }
@@ -199,7 +199,7 @@ static void dots(void)
 {
     for (int width = 1; width <= 9; ++width) {
         dgx_screen_t *s = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
-        dgx_draw_line_thick(s, 50, 60, 50, 60, width, 1);
+        dgx_draw_thick_line(s, 50, 60, 50, 60, width, 1);
         int left = W, right = -1, top = H, bottom = -1;
         for (int y = 0; y < H; ++y)
             for (int x = 0; x < W; ++x)

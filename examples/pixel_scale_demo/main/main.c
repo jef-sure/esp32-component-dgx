@@ -57,7 +57,7 @@ enum
     EXAMPLE_LCD_PIN_NUM_BL    = 23,
 };
 #define example_lcd_init        dgx_jd9365_init
-#define example_lcd_orientation dgx_jd9365_orientation
+#define example_lcd_orientation dgx_screen_orientation
 /* lying: x of the screen along the rows of the panel; one of the two axes counted the other way, or the picture is mirrored */
 #define EXAMPLE_LCD_DIR_X   DgxScreenRightLeft
 #define EXAMPLE_LCD_DIR_Y   DgxScreenTopBottom
@@ -75,7 +75,7 @@ enum
     EXAMPLE_LCD_PIN_NUM_BL    = 23,
 };
 #define example_lcd_init        dgx_jd9165_init
-#define example_lcd_orientation dgx_jd9165_orientation
+#define example_lcd_orientation dgx_screen_orientation
 #define EXAMPLE_LCD_DIR_X   DgxScreenLeftRight
 #define EXAMPLE_LCD_DIR_Y   DgxScreenTopBottom
 #define EXAMPLE_LCD_SWAP_XY false
@@ -194,7 +194,7 @@ static void draw_picture(dgx_screen_t *pic, uint32_t paper)
         for (int x = 0; x < 10; ++x) dgx_set_pixel(pic, w - 16 + x, h - 16 + y, (x + y) & 1 ? CHECK : paper);
     /* a solid triangle with slanted edges, and a word */
     dgx_fill_triangle(pic, w / 4, h / 6, w / 4 + h / 6, h / 3, w / 4 - h / 8, h / 3 + 4, SHADE);
-    const dgx_font_context_t word = {.scr = pic, .font = TerminusTTFMedium12(), .color = INK};
+    const dgx_font_context_t word = {.scr = pic, .font = &TerminusTTFMedium12, .color = INK};
     dgx_font_draw(&word, w / 3, h - 6, "DGX");
 }
 
@@ -278,7 +278,7 @@ void app_main(void)
     ESP_LOGI(TAG, "build %d: display %dx%d, picture %dx%d", BUILD, display->width, display->height, pic->width, pic->height);
     dgx_lut_from_rgb(lut, 0, COLORS, palette);
     /* the line of text in the band at the top */
-    const dgx_font_context_t status = {.scr = display, .font = TerminusTTFMedium12(), .color = dgx_rgb_to_16(255, 255, 255)};
+    const dgx_font_context_t status = {.scr = display, .font = &TerminusTTFMedium12, .color = dgx_rgb_to_16(255, 255, 255)};
     if (dgx_screen_is_readable(display)) {
         int        transfers = 0;
         const int  wrong     = check(display, &transfers);

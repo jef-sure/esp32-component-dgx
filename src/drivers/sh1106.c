@@ -148,7 +148,7 @@ void dgx_sh1106_update_screen(dgx_screen_t *scr_, int left, int right, int top, 
     }
 }
 
-void dgx_sh1106_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+static void sh1106_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
     dgx_sh1106_t *scr = (dgx_sh1106_t *)scr_;
     int           pw, ph;
@@ -192,7 +192,7 @@ static esp_err_t dgx_sh1106_brightness(dgx_screen_t *scr_, uint8_t level)
 }
 
 static const dgx_screen_control_t dgx_sh1106_control = {
-    .orientation = dgx_sh1106_orientation,
+    .orientation = sh1106_orientation,
     .display     = dgx_sh1106_display,
     .brightness  = dgx_sh1106_brightness,
 };
@@ -202,8 +202,12 @@ static void dgx_sh1106_destroy_screen(dgx_screen_t **pscr)
     dgx_bw_destroy_screen(pscr);
 }
 
-dgx_screen_t *dgx_sh1106_init(dgx_bus_protocols_t *bus, dgx_sh1106_resolution_t resolution, gpio_num_t rst)
+dgx_screen_t *dgx_sh1106_init(dgx_bus_protocols_t *bus, gpio_num_t rst, dgx_sh1106_resolution_t resolution)
 {
+    if ((int)rst >= DGX_SH1106_128X64) {
+        ESP_LOGE(TAG, "dgx_sh1106_init: rst %d is a resolution: since DGX 0.12 the order is (bus, rst, resolution)", (int)rst);
+        return NULL;
+    }
     int16_t width;
     int16_t height;
     uint8_t col_offset;
@@ -289,4 +293,10 @@ dgx_screen_t *dgx_sh1106_init(dgx_bus_protocols_t *bus, dgx_sh1106_resolution_t 
         }
     }
     return (dgx_screen_t *)scr;
+}
+
+/* deprecated until DGX 1.0: dgx_screen_orientation() */
+void dgx_sh1106_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+{
+    sh1106_orientation(scr, dir_x, dir_y, swap_xy);
 }

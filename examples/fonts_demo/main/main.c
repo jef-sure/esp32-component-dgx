@@ -56,8 +56,8 @@ static void draw_page(dgx_screen_t *scr)
     const uint32_t ink  = DGX_WHITE(dgx_rgb_to_16);
     const uint32_t gold = dgx_rgb_to_16(255, 200, 40);
     /* how each kind of text is drawn: the screen, the font and the color */
-    const dgx_font_context_t head = {.scr = scr, .font = dgx_font_title(), .color = gold};
-    const dgx_font_context_t body = {.scr = scr, .font = dgx_font_body(), .color = ink};
+    const dgx_font_context_t head = {.scr = scr, .font = &dgx_font_title, .color = gold};
+    const dgx_font_context_t body = {.scr = scr, .font = &dgx_font_body, .color = ink};
     dgx_fill_rectangle(scr, 0, 0, scr->width, scr->height, dgx_rgb_to_16(6, 10, 20));
     int y = DGX_FONT_TITLE_PX + 6;
     dgx_font_draw(&head, 8, y, title);
@@ -72,7 +72,7 @@ static void draw_clock(dgx_screen_t *scr, uint32_t seconds)
     char text[8];
     snprintf(text, sizeof text, "%02" PRIu32 ":%02" PRIu32, seconds / 60 % 100, seconds % 60);
     dgx_fill_rectangle(scr, 0, scr->height - 44, scr->width, 44, dgx_rgb_to_16(6, 10, 20));
-    const dgx_font_context_t digits = {.scr = scr, .font = dgx_font_clock(), .color = DGX_WHITE(dgx_rgb_to_16)};
+    const dgx_font_context_t digits = {.scr = scr, .font = &dgx_font_clock, .color = DGX_WHITE(dgx_rgb_to_16)};
     dgx_font_draw(&digits, 8, scr->height - 8, text);
 }
 

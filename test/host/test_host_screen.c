@@ -20,7 +20,7 @@
 #include "dgx_bits.h"
 #include "dgx_draw.h"
 #include "dgx_font.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
 #include "host_screen.c"
 
@@ -40,12 +40,12 @@ static void scene(dgx_screen_t *s, uint8_t bits)
     dgx_fill_rectangle(s, 0, 0, s->width, s->height, rgb(10, 20, 30));
     dgx_fill_rectangle(s, 3, 4, 20, 9, rgb(255, 0, 0));
     dgx_draw_line(s, 0, 0, s->width - 1, s->height - 1, rgb(0, 255, 0));
-    dgx_draw_line_thick(s, 5, 40, 60, 10, 3, rgb(255, 255, 0));
+    dgx_draw_thick_line(s, 5, 40, 60, 10, 3, rgb(255, 255, 0));
     dgx_draw_circle(s, 30, 24, 12, rgb(0, 0, 255));
-    dgx_solid_circle(s, 50, 30, 6, rgb(255, 0, 255));
+    dgx_fill_circle(s, 50, 30, 6, rgb(255, 0, 255));
     const dgx_point_2d_t curve[3] = {{2, 20}, {20, 0}, {40, 30}};
     dgx_draw_bezier3(s, curve, 0, 2, rgb(0, 255, 255));
-    dgx_font_string_utf8_screen(s, 2, 46, "Ab", rgb(255, 255, 255), DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+    dgx_font_string_utf8_screen(s, 2, 46, "Ab", rgb(255, 255, 255), DgxOutputNormal, 1, &TerminusTTFMedium12, NULL, NULL);
     dgx_screen_t *sprite = dgx_vscreen_init(10, 6, bits, DgxScreenRGB);
     CHECK(sprite != NULL);
     if (sprite) {
@@ -91,7 +91,7 @@ static void band(dgx_screen_t *s, uint8_t bits, bool swap)
     }
     dgx_fill_rectangle(s, 3, 3, s->width / 2, s->height / 2, rgb_of(bits, 0, 128, 255));
     dgx_draw_line(s, s->width - 1, 0, 0, s->height - 1, rgb_of(bits, 255, 128, 0));
-    dgx_font_string_utf8_screen(s, 4, 14, "Cut", rgb_of(bits, 255, 255, 255), DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+    dgx_font_string_utf8_screen(s, 4, 14, "Cut", rgb_of(bits, 255, 255, 255), DgxOutputNormal, 1, &TerminusTTFMedium12, NULL, NULL);
 }
 
 /* what the panel shows against a virtual screen as large as the screen on it, the screen lying so on the glass */
@@ -122,7 +122,7 @@ static void check_scene(dgx_screen_t *host, uint8_t bits, dgx_orientation_t dir_
 {
     host_window_t *w  = window_of(host);
     const int      gw = w->width, gh = w->height;
-    dgx_panel_orientation(host, dir_x, dir_y, swap);
+    dgx_screen_orientation(host, dir_x, dir_y, swap);
     const int sw = host->width, sh = host->height;
     CHECK(sw == (swap ? gh : gw) && sh == (swap ? gw : gh));
     dgx_screen_t *v = dgx_vscreen_init(sw, sh, bits, DgxScreenRGB);
@@ -499,7 +499,7 @@ void app_main(void)
     dgx_fill_rectangle(late, 0, 0, 8, 8, dgx_rgb_to_16(0, 255, 255));
     CHECK(three->placed);
     dgx_screen_destroy(&late);
-    three->protocols.dispose(&three->protocols);
+    three->protocols.dispose_bus(&three->protocols);
     CHECK(windows == one && one->next == two && !two->next);
 
     /*
@@ -539,7 +539,7 @@ void app_main(void)
         CHECK((int)five->pieces >= ram_pieces && five->us >= ram_us && ram_us > 0);
         dgx_screen_destroy(&from_flash), dgx_screen_destroy(&from_ram);
         dgx_screen_destroy(&fresh);
-        five->protocols.dispose(&five->protocols);
+        five->protocols.dispose_bus(&five->protocols);
         CHECK(windows == one && one->next == two && !two->next);
     }
 
@@ -555,7 +555,7 @@ void app_main(void)
     tell_title(one);
     CHECK(!strstr(SDL_GetWindowTitle(four->window), "bus") && strstr(SDL_GetWindowTitle(one->window), "bus") && four->passes == 0);
     dgx_screen_destroy(&dsi);
-    four->protocols.dispose(&four->protocols);
+    four->protocols.dispose_bus(&four->protocols);
     CHECK(windows == one && one->next == two && !two->next);
 
     /*
@@ -570,7 +570,7 @@ void app_main(void)
         if (spi) {
             host_window_t *w = window_of(spi);
             dgx_screen_destroy(&spi);
-            w->protocols.dispose(&w->protocols);
+            w->protocols.dispose_bus(&w->protocols);
         }
         static const uint8_t depths[3] = {16, 18, 24};
         uint32_t             seed      = 12345;
@@ -580,7 +580,7 @@ void app_main(void)
             if (!glass) continue;
             host_window_t *w = window_of(glass);
             for (int o = 0; o < 8; ++o) {
-                dgx_panel_orientation(glass, (o & 1) ? DgxScreenRightLeft : DgxScreenLeftRight, (o & 2) ? DgxScreenBottomTop : DgxScreenTopBottom,
+                dgx_screen_orientation(glass, (o & 1) ? DgxScreenRightLeft : DgxScreenLeftRight, (o & 2) ? DgxScreenBottomTop : DgxScreenTopBottom,
                                       (o & 4) != 0);
                 CHECK(glass->width == ((o & 4) ? 7 : 12) && glass->height == ((o & 4) ? 12 : 7));
                 int wrong = 0;
@@ -599,7 +599,7 @@ void app_main(void)
                 CHECK(wrong == 0);
             }
             /* 24 bits reach the glass whole */
-            dgx_panel_orientation(glass, DgxScreenLeftRight, DgxScreenTopBottom, false);
+            dgx_screen_orientation(glass, DgxScreenLeftRight, DgxScreenTopBottom, false);
             if (depths[d] == 24) {
                 dgx_set_pixel(glass, 0, 0, 0x123457u);
                 CHECK((w->glass[0] & 0xFFFFFFu) == 0x123457u);
@@ -614,7 +614,7 @@ void app_main(void)
             CHECK(dgx_screen_backlight(glass, true) == ESP_ERR_NOT_SUPPORTED);
             CHECK(dgx_screen_brightness(glass, 1) == ESP_ERR_NOT_SUPPORTED);
             dgx_screen_destroy(&glass);
-            w->protocols.dispose(&w->protocols);
+            w->protocols.dispose_bus(&w->protocols);
         }
         CHECK(windows == one && one->next == two && !two->next);
     }
@@ -658,9 +658,9 @@ void app_main(void)
     dgx_screen_destroy(&host);
     dgx_screen_destroy(&bar);
     const size_t buffers = heap.now;
-    one->protocols.dispose(&one->protocols);
+    one->protocols.dispose_bus(&one->protocols);
     CHECK(windows == two && heap.now < buffers);
-    two->protocols.dispose(&two->protocols);
+    two->protocols.dispose_bus(&two->protocols);
     CHECK(windows == NULL && heap.now == 0);
 
     if (check_failures) {

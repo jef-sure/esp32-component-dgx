@@ -55,9 +55,11 @@ typedef struct {
     uint16_t width, height; /* the glass: sources, gates */
 } ssd1680_module_t;
 
+/* a module by its resolution, whose values begin at 256 */
+#define SSD1680_MODULE(resolution) [(resolution) - DGX_SSD1680_128X296_BWR]
 static const ssd1680_module_t ssd1680_modules[] = {
-    [DGX_SSD1680_128X296_BWR] = {128, 296},
-    [DGX_SSD1680_122X250_BWR] = {122, 250},
+    SSD1680_MODULE(DGX_SSD1680_128X296_BWR) = {128, 296},
+    SSD1680_MODULE(DGX_SSD1680_122X250_BWR) = {122, 250},
 };
 
 /*
@@ -323,7 +325,7 @@ bool dgx_ssd1680_busy(dgx_screen_t *_scr)
     return false;
 }
 
-void dgx_ssd1680_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+static void ssd1680_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
     dgx_ssd1680_t *scr = (dgx_ssd1680_t *)_scr;
     _scr->dir_x        = dir_x;
@@ -338,7 +340,7 @@ void dgx_ssd1680_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_or
 
 /* e-paper has no backlight, and its picture stays without power: nothing to turn off */
 static const dgx_screen_control_t dgx_ssd1680_control = {
-    .orientation = dgx_ssd1680_orientation,
+    .orientation = ssd1680_orientation,
 };
 
 static void dgx_ssd1680_destroy(dgx_screen_t **_pscr)
@@ -352,9 +354,19 @@ static void dgx_ssd1680_destroy(dgx_screen_t **_pscr)
     *_pscr = NULL;
 }
 
-dgx_screen_t *dgx_ssd1680_init(dgx_bus_protocols_t *bus, dgx_ssd1680_resolution_t resolution, gpio_num_t rst, gpio_num_t busy)
+dgx_screen_t *dgx_ssd1680_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t busy, dgx_ssd1680_resolution_t resolution)
 {
-    if ((unsigned)resolution >= sizeof(ssd1680_modules) / sizeof(ssd1680_modules[0])) {
+    if ((int)rst >= DGX_SSD1680_128X296_BWR) {
+        ESP_LOGE(TAG, "dgx_ssd1680_init: rst %d is a resolution: since DGX 0.12 the order is (bus, rst, busy, resolution)", (int)rst);
+        return NULL;
+    }
+    if ((int)busy >= DGX_SSD1680_128X296_BWR) {
+        ESP_LOGE(TAG, "dgx_ssd1680_init: busy %d is a resolution: since DGX 0.12 the order is (bus, rst, busy, resolution)", (int)busy);
+        return NULL;
+    }
+    /* the modules from the first value of the resolutions on, 256 */
+    const unsigned module = (unsigned)resolution - (unsigned)DGX_SSD1680_128X296_BWR;
+    if (module >= sizeof(ssd1680_modules) / sizeof(ssd1680_modules[0])) {
         ESP_LOGE(TAG, "unsupported resolution %d", (int)resolution);
         return NULL;
     }
@@ -362,7 +374,7 @@ dgx_screen_t *dgx_ssd1680_init(dgx_bus_protocols_t *bus, dgx_ssd1680_resolution_
         ESP_LOGE(TAG, "no bus, or no BUSY line");
         return NULL;
     }
-    const ssd1680_module_t *m   = &ssd1680_modules[resolution];
+    const ssd1680_module_t *m   = &ssd1680_modules[module];
     dgx_ssd1680_t          *scr = (dgx_ssd1680_t *)calloc(1, sizeof(dgx_ssd1680_t));
     if (!scr) {
         ESP_LOGE(TAG, "SSD1680 screen structure memory allocation failed");
@@ -391,14 +403,14 @@ dgx_screen_t *dgx_ssd1680_init(dgx_bus_protocols_t *bus, dgx_ssd1680_resolution_
     dgx_scr_init_slow_bus_optimized_funcs(&scr->base);
     scr->base.set_area       = dgx_ssd1680_set_area;
     scr->base.write_area     = dgx_ssd1680_write_area;
-    scr->base.wait_buffer    = dgx_ssd1680_wait_buffer;
+    scr->base.wait    = dgx_ssd1680_wait_buffer;
     scr->base.set_pixel      = dgx_ssd1680_set_pixel;
     scr->base.get_pixel      = dgx_ssd1680_get_pixel;
     scr->base.fill_rectangle = dgx_ssd1680_fill_rectangle;
     scr->base.update_screen  = dgx_ssd1680_update_screen;
     scr->base.destroy        = dgx_ssd1680_destroy;
     scr->base.control        = &dgx_ssd1680_control;
-    dgx_ssd1680_orientation(&scr->base, DgxScreenLeftRight, DgxScreenTopBottom, false);
+    ssd1680_orientation(&scr->base, DgxScreenLeftRight, DgxScreenTopBottom, false);
     if (rst != GPIO_NUM_NC) {
         dgx_gpio_set_direction(rst, GPIO_MODE_OUTPUT);
         dgx_gpio_set_level(rst, 1);
@@ -407,4 +419,10 @@ dgx_screen_t *dgx_ssd1680_init(dgx_bus_protocols_t *bus, dgx_ssd1680_resolution_
     scr->bus = bus;
     dgx_ssd1680_start(scr);
     return (dgx_screen_t *)scr;
+}
+
+/* deprecated until DGX 1.0: dgx_screen_orientation() */
+void dgx_ssd1680_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+{
+    ssd1680_orientation(scr, dir_x, dir_y, swap_xy);
 }

@@ -32,6 +32,7 @@ dgx_screen_t *dgx_st7565r_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_nu
  * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED when the screen was given no backlight GPIO.
  * @deprecated Use dgx_screen_backlight().
  */
+DGX_DEPRECATED("use dgx_screen_backlight()")
 esp_err_t dgx_st7565r_backlight(dgx_screen_t *scr, bool on);
 
 /**

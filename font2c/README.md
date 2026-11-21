@@ -40,15 +40,18 @@ other; asked for another, `font2c` stops and names the sizes it has.
 ```
 
 It writes a `.c` and a matching `.h` named after the font family, style and
-size, or after `-n name`: the font's function, its files and its static
-arrays (`name_bitmaps` and so on) then take that name, so that several fonts
-made this way can share one C file. To use the generated font:
+size, or after `-n name`: the font, its files and its static arrays
+(`name_bitmaps` and so on) then take that name, so that several fonts made
+this way can share one C file. The font is a constant, `const dgx_font_t
+Name = {...};`, declared in the header as `extern const dgx_font_t Name;`
+with `#define Name() DGX_FONT_CALLED(Name)`, the call fonts were taken by
+before DGX 0.12, kept with a warning until 1.0. To use the generated font:
 
 1. Move the `.c` file into `src/fonts/` and the `.h` file into
    `include/fonts/`. The next build picks the new file up by itself: the
    `file(GLOB ...)` that adds the fonts is a configure dependency.
-2. Include the generated header and pass its accessor to the text API, like
-   a bundled font.
+2. Include the generated header and give the text API the font's address,
+   `&Name`, like a bundled font.
 
 ### Soft edges: -b
 
@@ -118,10 +121,11 @@ takes such a list, as often as needed, and `-o` names the output:
 ./font2c -jo fonts.list -jo more.list -o my_fonts     # my_fonts.c and my_fonts.h
 ```
 
-Every font of the lists goes into the one `.c`, and every function is
-declared in the one `.h`. Two lines that ask for the same face at the same
-size produce one font with the characters of both, and each `-n` name of
-theirs becomes a function of it; a line without `-n` gets a name from the
+Every font of the lists goes into the one `.c`, and every font is declared
+in the one `.h`. Two lines that ask for the same face at the same size
+produce one font with the characters of both, named after the first `-n`
+name, and each other `-n` name of theirs becomes a macro of that name in the
+header; a line without `-n` gets a name from the
 family, style and size, prefixed with the output name
 (`my_fonts_DejaVuSansBook30`). The static arrays are named after the font,
 so nothing collides. `-n`, `-f`, `-b`, `-g` and `-p` belong to the lines of a

@@ -266,14 +266,14 @@ static int rnd(int lo, int hi)
 }
 
 static const struct {
-    ssd1322_resolution_t resolution;
+    dgx_ssd1322_resolution_t resolution;
     int                  width, height, col0, segments, remap_a, remap_b, phase;
 } modules[] = {
-    {SSD1322_256X64, 256, 64, 28, 1, 0x14, 0x11, 0xE2},         //
-    {SSD1322_256X64_ZJY, 256, 64, 24, 1, 0x16, 0x11, 0xE2},     //
-    {SSD1322_240X128, 240, 128, 24, 1, 0x36, 0x11, 0xE2},       //
-    {SSD1322_240X128_TOPWIN, 240, 128, 24, 1, 0x36, 0x01, 0xE2}, //
-    {SSD1322_128X64, 128, 64, 28, 2, 0x16, 0x11, 0xF2},         //
+    {DGX_SSD1322_256X64, 256, 64, 28, 1, 0x14, 0x11, 0xE2},         //
+    {DGX_SSD1322_256X64_ZJY, 256, 64, 24, 1, 0x16, 0x11, 0xE2},     //
+    {DGX_SSD1322_240X128, 240, 128, 24, 1, 0x36, 0x11, 0xE2},       //
+    {DGX_SSD1322_240X128_TOPWIN, 240, 128, 24, 1, 0x36, 0x01, 0xE2}, //
+    {DGX_SSD1322_128X64, 128, 64, 28, 2, 0x16, 0x11, 0xF2},         //
 };
 
 /* one module: what the driver sends at start, then the pictures in all eight orientations */
@@ -283,7 +283,7 @@ static void run(dgx_bus_protocols_t *bus, int m)
     memset(gddram, 0xa5, sizeof(gddram)); /* what the memory of the controller holds at power-up is not known */
     display_on = was_on = false;
     const int     given = line_malloc_given;
-    dgx_screen_t *scr   = dgx_ssd1322_init(bus, modules[m].resolution, rst_pin);
+    dgx_screen_t *scr   = dgx_ssd1322_init(bus, rst_pin, modules[m].resolution);
     CHECK(line_malloc_given == given + 1); /* the picture, its rows sent straight from it, from the bus */
     CHECK(scr && scr->width == pw && scr->height == ph);
     if (!scr) return;
@@ -301,7 +301,7 @@ static void run(dgx_bus_protocols_t *bus, int m)
         dgx_fill_rectangle(scr, 3, 5, 40, 9, 8 << 4);
         dgx_draw_line(scr, 0, 0, scr->width - 1, scr->height - 1, 15 << 4);
         const bool resized = (scr->width == pw) == swap;
-        dgx_ssd1322_orientation(scr, dir_x, dir_y, swap);
+        dgx_screen_orientation(scr, dir_x, dir_y, swap);
         CHECK(scr->width == (swap ? ph : pw) && scr->height == (swap ? pw : ph));
         CHECK(mismatches(scr) == 0);
         int lit = 0;
@@ -334,17 +334,17 @@ static void run(dgx_bus_protocols_t *bus, int m)
                 dgx_draw_line(scr, x, y, rnd(-5, scr->width + 4), rnd(-5, scr->height + 4), (uint32_t)rnd(0, 15) << 4);
                 break;
             case 3:
-                dgx_solid_circle(scr, x, y, rnd(0, 20), (uint32_t)rnd(0, 15) << 4);
+                dgx_fill_circle(scr, x, y, rnd(0, 20), (uint32_t)rnd(0, 15) << 4);
                 break;
             case 4:
-                dgx_font_string_utf8_screen(scr, (int16_t)x, (int16_t)y, "SSD1322", 15 << 4, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+                dgx_font_draw(&(dgx_font_context_t){.scr = scr, .font = &TerminusTTFMedium12, .color = 15 << 4, .scale = 1}, (int16_t)x, (int16_t)y, "SSD1322");
                 break;
             default:
                 /* a batch: one update for all of it */
-                dgx_screen_progress_up(scr);
+                dgx_screen_batch_begin(scr);
                 dgx_draw_circle(scr, x, y, rnd(1, 25), 15 << 4);
                 dgx_fill_rectangle(scr, x, y, 3, 3, 0);
-                dgx_screen_progress_down(scr);
+                dgx_screen_batch_end(scr);
                 break;
             }
             const int wrong = mismatches(scr);
@@ -380,10 +380,12 @@ int main(void)
         .memory_allocator = line_malloc,
     };
     /* a bus whose buffer cannot hold a row is refused, and so is a module there is none of */
-    CHECK(dgx_ssd1322_init(&bus, SSD1322_256X64, rst_pin) == NULL);
+    CHECK(dgx_ssd1322_init(&bus, rst_pin, DGX_SSD1322_256X64) == NULL);
     bus.buffer_len = 4000;
     bus.buffer     = line_malloc((uint32_t)bus.buffer_len);
-    CHECK(dgx_ssd1322_init(&bus, (ssd1322_resolution_t)(sizeof(modules) / sizeof(modules[0])), rst_pin) == NULL);
+    CHECK(dgx_ssd1322_init(&bus, rst_pin, (dgx_ssd1322_resolution_t)(DGX_SSD1322_256X64 + sizeof(modules) / sizeof(modules[0]))) == NULL);
+    /* a call in the order of before 0.12, (bus, resolution, rst): the resolution, 256 and more, is no pin */
+    CHECK(dgx_ssd1322_init(&bus, (gpio_num_t)DGX_SSD1322_256X64, (dgx_ssd1322_resolution_t)rst_pin) == NULL);
     for (int m = 0; m < (int)(sizeof(modules) / sizeof(modules[0])); ++m) run(&bus, m);
 
     /*
@@ -394,7 +396,7 @@ int main(void)
     pw = 256, ph = 64, col0 = 28, seg = 1;
     uint8_t levels[16];
     for (int i = 0; i < 16; ++i) levels[i] = (uint8_t)(i * 11);
-    dgx_screen_t *scr2 = dgx_ssd1322_init(&bus, SSD1322_256X64, rst_pin);
+    dgx_screen_t *scr2 = dgx_ssd1322_init(&bus, rst_pin, DGX_SSD1322_256X64);
     CHECK(scr2 != NULL);
     if (scr2) {
         const long before = data_bytes;
@@ -407,8 +409,8 @@ int main(void)
         CHECK(!dgx_ssd1322_grayscale(scr2, levels));
         dgx_ssd1322_contrast(scr2, 0x80);
         dgx_ssd1322_brightness(scr2, 20);
-        dgx_ssd1322_display_mode(scr2, 3);
-        dgx_ssd1322_display_mode(scr2, 0);
+        dgx_ssd1322_display_mode(scr2, DGX_SSD1322_MODE_INVERSE);
+        dgx_ssd1322_display_mode(scr2, DGX_SSD1322_MODE_NORMAL);
         /* the calls every display has: the brightness is the contrast, the picture goes off and on, there is no backlight */
         CHECK(dgx_screen_brightness(scr2, 0x40) == ESP_OK);
         CHECK(dgx_screen_display(scr2, false) == ESP_OK && !display_on);

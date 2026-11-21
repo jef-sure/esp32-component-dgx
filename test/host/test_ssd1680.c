@@ -48,7 +48,7 @@ static esp_err_t pin_set_direction(gpio_num_t pin, gpio_mode_t mode)
 #include "dgx_colors.h"
 #include "dgx_draw.h"
 #include "dgx_font.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
 
 #define XBYTES 22  /* 176 sources */
@@ -339,11 +339,11 @@ static uint32_t any_ink(void)
 }
 
 static const struct {
-    ssd1680_resolution_t resolution;
+    dgx_ssd1680_resolution_t resolution;
     int                  width, height;
 } modules[] = {
-    {SSD1680_128X296_BWR, 128, 296},
-    {SSD1680_122X250_BWR, 122, 250},
+    {DGX_SSD1680_128X296_BWR, 128, 296},
+    {DGX_SSD1680_122X250_BWR, 122, 250},
 };
 
 static void run(dgx_bus_protocols_t *bus, int m)
@@ -352,7 +352,7 @@ static void run(dgx_bus_protocols_t *bus, int m)
     asleep = false, busy_left = 0;
     const long resets0 = resets, sw0 = sw_resets;
     const long    allocated0 = allocated;
-    dgx_screen_t *scr        = dgx_ssd1680_init(bus, modules[m].resolution, PIN_RST, PIN_BUSY);
+    dgx_screen_t *scr        = dgx_ssd1680_init(bus, PIN_RST, PIN_BUSY, modules[m].resolution);
     CHECK(scr && scr->width == pw && scr->height == ph && scr->color_bits == 8);
     CHECK(allocated == allocated0 + 2); /* both planes from the bus */
     if (!scr) return;
@@ -403,7 +403,7 @@ static void run(dgx_bus_protocols_t *bus, int m)
         dgx_fill_rectangle(scr, 3, 5, 40, 9, DGX_BWR_RED);
         int mx, my;
         on_panel(scr, 3, 5, &mx, &my);
-        dgx_ssd1680_orientation(scr, dir_x, dir_y, swap);
+        dgx_screen_orientation(scr, dir_x, dir_y, swap);
         CHECK(scr->width == (swap ? ph : pw) && scr->height == (swap ? pw : ph));
         const long resets1 = resets;
         show(scr);
@@ -437,11 +437,15 @@ static void run(dgx_bus_protocols_t *bus, int m)
                     dgx_draw_line(scr, x, y, rnd(-5, scr->width + 4), rnd(-5, scr->height + 4), any_ink());
                     break;
                 case 3:
-                    dgx_solid_circle(scr, x, y, rnd(0, 20), any_ink());
+                    dgx_fill_circle(scr, x, y, rnd(0, 20), any_ink());
                     break;
                 case 4:
-                    dgx_font_string_utf8_screen(scr, (int16_t)x, (int16_t)y, "SSD1680", any_ink(), (dgx_output_orientation_t)rnd(0, 7), 1,
-                                                TerminusTTFMedium12(), NULL, NULL);
+                    dgx_font_draw(&(dgx_font_context_t){.scr         = scr,
+                                                        .font        = &TerminusTTFMedium12,
+                                                        .color       = any_ink(),
+                                                        .orientation = (dgx_output_orientation_t)rnd(0, 7),
+                                                        .scale       = 1},
+                                  x, y, "SSD1680");
                     break;
                 case 5: {
                     /* a picture of the same depth through the window of the screen */
@@ -517,9 +521,11 @@ int main(void)
             }
 
     /* refused: no such module, no BUSY line, no bus */
-    CHECK(dgx_ssd1680_init(&bus, (ssd1680_resolution_t)(sizeof(modules) / sizeof(modules[0])), PIN_RST, PIN_BUSY) == NULL);
-    CHECK(dgx_ssd1680_init(&bus, SSD1680_128X296_BWR, PIN_RST, GPIO_NUM_NC) == NULL);
-    CHECK(dgx_ssd1680_init(NULL, SSD1680_128X296_BWR, PIN_RST, PIN_BUSY) == NULL);
+    CHECK(dgx_ssd1680_init(&bus, PIN_RST, PIN_BUSY, (dgx_ssd1680_resolution_t)(DGX_SSD1680_128X296_BWR + sizeof(modules) / sizeof(modules[0]))) == NULL);
+    /* a call in the order of before 0.12, (bus, resolution, rst, busy): the resolution, 256 and more, is no pin */
+    CHECK(dgx_ssd1680_init(&bus, (gpio_num_t)DGX_SSD1680_128X296_BWR, PIN_RST, (dgx_ssd1680_resolution_t)PIN_BUSY) == NULL);
+    CHECK(dgx_ssd1680_init(&bus, PIN_RST, GPIO_NUM_NC, DGX_SSD1680_128X296_BWR) == NULL);
+    CHECK(dgx_ssd1680_init(NULL, PIN_RST, PIN_BUSY, DGX_SSD1680_128X296_BWR) == NULL);
 
     for (int m = 0; m < (int)(sizeof(modules) / sizeof(modules[0])); ++m) run(&bus, m);
 
@@ -527,7 +533,7 @@ int main(void)
     pw = 128, ph = 296;
     asleep = false, busy_left = 0;
     const long resets0 = resets, sleeps0 = sleeps;
-    dgx_screen_t *scr = dgx_ssd1680_init(&bus, SSD1680_128X296_BWR, GPIO_NUM_NC, PIN_BUSY);
+    dgx_screen_t *scr = dgx_ssd1680_init(&bus, GPIO_NUM_NC, PIN_BUSY, DGX_SSD1680_128X296_BWR);
     CHECK(scr != NULL);
     if (scr) {
         dgx_fill_rectangle(scr, 10, 10, 50, 20, DGX_BWR_BLACK);

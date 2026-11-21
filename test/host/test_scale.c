@@ -10,7 +10,7 @@
 
 #include "check.h"
 #include "dgx_draw.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "scale2x_ref.h"
 #include "scale_ref.h"
 #include "vscreen/dgx_scale_priv.h"

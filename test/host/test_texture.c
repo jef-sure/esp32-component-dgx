@@ -8,7 +8,7 @@
 #include "dgx_draw.h"
 #include "dgx_screen_functions.h"
 #include "dgx_screen_with_bus.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 #define TEX_W 8
 #define TEX_H 6
@@ -318,7 +318,7 @@ static void test_panel_12(void)
     dgx_screen_t         *lcd  = &sbus.scr;
     lcd->width = PANEL_W, lcd->height = PANEL_H, lcd->color_bits = 12, lcd->screen_subtype = DgxPhysicalScreenWithBus;
     dgx_scr_init_slow_bus_optimized_funcs(lcd);
-    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait_buffer = panel_wait;
+    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait = panel_wait;
     dgx_screen_t *ref = dgx_vscreen_init(PANEL_W, PANEL_H, 12, DgxScreenRGB);
     /* rectangles of an odd and of an even width, a trapezoid, a diamond and a quad over the edges */
     static const dgx_point_2d_t quads[][4] = {

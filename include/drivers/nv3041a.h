@@ -36,6 +36,7 @@ dgx_screen_t *dgx_nv3041a_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_nu
  * @param swap_xy Swap the X and Y axes (landscape <-> portrait).
  * @deprecated Use dgx_screen_orientation().
  */
+DGX_DEPRECATED("use dgx_screen_orientation()")
 void dgx_nv3041a_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 
 /**
@@ -46,6 +47,7 @@ void dgx_nv3041a_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_ori
  * @return ESP_OK on success, or an error code on failure.
  * @deprecated Use dgx_screen_backlight().
  */
+DGX_DEPRECATED("use dgx_screen_backlight()")
 esp_err_t dgx_nv3041a_backlight(dgx_screen_t *scr, bool on);
 
 /**

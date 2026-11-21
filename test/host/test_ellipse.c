@@ -6,7 +6,7 @@
 #include "check.h"
 #include "dgx_draw.h"
 #include "dgx_screen_functions.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 /*
  * The outline of an ellipse, its arc and its sector. The outline is checked
@@ -254,7 +254,7 @@ static void eighths(dgx_screen_t *scr, int rx, int ry, int from, int to, bool so
             if (solid ? in_ellipse(dx, dy, rx, ry) : on_outline(dx, dy, rx, ry)) dot(CX + dx, CY + dy);
         }
     }
-    if (solid) dgx_solid_sector(scr, CX, CY, rx, ry, from * 45.0f, to * 45.0f, 7);
+    if (solid) dgx_fill_sector(scr, CX, CY, rx, ry, from * 45.0f, to * 45.0f, 7);
     else dgx_draw_arc(scr, CX, CY, rx, ry, from * 45.0f, to * 45.0f, 1, 7);
     same(solid ? "sector" : "arc", rx, ry, from * 45.0, to * 45.0);
     CHECK(written == count(model));
@@ -266,7 +266,7 @@ static void eighths(dgx_screen_t *scr, int rx, int ry, int from, int to, bool so
 static void between(dgx_screen_t *scr, int rx, int ry, double from, double to, bool solid)
 {
     figure(ry);
-    if (solid) dgx_solid_sector(scr, CX, CY, rx, ry, (float)from, (float)to, 7);
+    if (solid) dgx_fill_sector(scr, CX, CY, rx, ry, (float)from, (float)to, 7);
     else dgx_draw_arc(scr, CX, CY, rx, ry, (float)from, (float)to, 1, 7);
     int wrong = 0, near = 0;
     for (int dy = -ry - 2; dy <= ry + 2; ++dy) {
@@ -442,11 +442,11 @@ int main(void)
     /* a whole turn is the ellipse filled, and with equal radii the solid circle of the library */
     for (int r = 0; r <= 150; ++r) {
         figure(r);
-        dgx_solid_sector(scr, CX, CY, r, r, 30, 390, 7);
+        dgx_fill_sector(scr, CX, CY, r, r, 30, 390, 7);
         keep(other, canvas);
         const int pieces = fills + pixels_set;
         clear(canvas);
-        dgx_solid_circle(scr, CX, CY, r, 7);
+        dgx_fill_circle(scr, CX, CY, r, 7);
         CHECK(equal(canvas, other));
         /* rows that are equal go as one rectangle: no more pieces than rows */
         CHECK(pieces <= 2 * r + 1);
@@ -467,10 +467,10 @@ int main(void)
         const int    rx = 1 + (int)(rnd() * 150), ry = 1 + (int)(rnd() * 150);
         const float  from = (float)(rnd() * 360), to = from + (float)(1 + rnd() * 358);
         figure(ry);
-        dgx_solid_sector(scr, CX, CY, rx, ry, from, to, 7);
+        dgx_fill_sector(scr, CX, CY, rx, ry, from, to, 7);
         keep(other, canvas);
         clear(canvas);
-        dgx_solid_sector(scr, CX, CY, rx, ry, to, from + 360, 7);
+        dgx_fill_sector(scr, CX, CY, rx, ry, to, from + 360, 7);
         long common = 0;
         for (int dy = -ry - 1; dy <= ry + 1; ++dy) {
             for (int dx = -rx - 1; dx <= rx + 1; ++dx) {
@@ -483,21 +483,21 @@ int main(void)
     }
     /* nothing between the rays, no pen, no figure: nothing drawn; cut by the edges of the screen and off it: no harm */
     figure(H);
-    dgx_solid_sector(scr, CX, CY, 50, 40, 77, 77, 7);
+    dgx_fill_sector(scr, CX, CY, 50, 40, 77, 77, 7);
     dgx_draw_arc(scr, CX, CY, 50, 40, 77, 77, 1, 7);
     dgx_draw_arc(scr, CX, CY, 50, 40, 10, 77, 0, 7);
     dgx_draw_arc(scr, CX, CY, 50, 40, 10, 77, DGX_PEN_SOFT, 7);
     dgx_draw_arc(scr, CX, CY, 50, 40, 10, NAN, 3, 7);
     dgx_draw_ellipse(scr, CX, CY, -1, 40, 7);
-    dgx_solid_sector(scr, CX, CY, 50, -3, 0, 90, 7);
+    dgx_fill_sector(scr, CX, CY, 50, -3, 0, 90, 7);
     dgx_draw_ellipse(scr, -500, CY, 50, 40, 7);
-    dgx_solid_sector(scr, CX, H + 300, 50, 40, 0, 360, 7);
+    dgx_fill_sector(scr, CX, H + 300, 50, 40, 0, 360, 7);
     CHECK(written == 0 && fills == 0 && pixels_set == 0);
     for (int r = 5; r <= 90; r += 17) {
         dgx_draw_ellipse(scr, 3, 5, r, r / 2 + 1, 7);
         dgx_draw_ellipse(scr, W - 2, H - 4, r / 2 + 1, r, 7);
-        dgx_solid_sector(scr, -r / 2, H / 2, r, r + 9, 20, 300, 7);
-        dgx_solid_sector(scr, W / 2, H + r / 3, r + 9, r, -100, 60, 7);
+        dgx_fill_sector(scr, -r / 2, H / 2, r, r + 9, 20, 300, 7);
+        dgx_fill_sector(scr, W / 2, H + r / 3, r + 9, r, -100, 60, 7);
         dgx_draw_arc(scr, W - 3, 2, r, r, 0, 360, 1, 7);
         dgx_draw_arc(scr, 1, H - 1, r, r, 0, 360, 4, 7);
     }

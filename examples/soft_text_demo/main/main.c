@@ -52,11 +52,11 @@ static const char *const line = "Привет, мир! Quick fox 0123";
 static void draw_band(dgx_screen_t *lcd, int top, uint32_t paper, uint32_t ink, uint32_t note)
 {
     dgx_fill_rectangle(lcd, 0, top, lcd->width, 96, paper);
-    const dgx_font_context_t hard = {.scr = lcd, .font = dgx_font_hard(), .color = ink};
-    const dgx_font_context_t soft = {.scr = lcd, .font = dgx_font_soft(), .color = ink, .bg = paper, .flags = DGX_FONT_BG};
-    const dgx_font_context_t small_hard = {.scr = lcd, .font = dgx_font_small_hard(), .color = ink};
-    const dgx_font_context_t small = {.scr = lcd, .font = dgx_font_small(), .color = ink, .bg = paper, .flags = DGX_FONT_BG};
-    const dgx_font_context_t label = {.scr = lcd, .font = dgx_font_small(), .color = note, .bg = paper, .flags = DGX_FONT_BG};
+    const dgx_font_context_t hard = {.scr = lcd, .font = &dgx_font_hard, .color = ink};
+    const dgx_font_context_t soft = {.scr = lcd, .font = &dgx_font_soft, .color = ink, .bg = paper, .flags = DGX_FONT_BG};
+    const dgx_font_context_t small_hard = {.scr = lcd, .font = &dgx_font_small_hard, .color = ink};
+    const dgx_font_context_t small = {.scr = lcd, .font = &dgx_font_small, .color = ink, .bg = paper, .flags = DGX_FONT_BG};
+    const dgx_font_context_t label = {.scr = lcd, .font = &dgx_font_small, .color = note, .bg = paper, .flags = DGX_FONT_BG};
     dgx_font_draw(&label, 4, top + 18, "1 бит");
     dgx_font_draw(&hard, 52, top + 20, line);
     dgx_font_draw(&label, 4, top + 40, "4 бита");
@@ -77,7 +77,7 @@ static void draw_picture(void)
 
 static void draw_over_picture(void)
 {
-    const dgx_font_context_t over = {.scr = picture, .font = dgx_font_soft(), .color = dgx_rgb_to_16(255, 255, 255)};
+    const dgx_font_context_t over = {.scr = picture, .font = &dgx_font_soft, .color = dgx_rgb_to_16(255, 255, 255)};
     dgx_font_draw(&over, 8, 30, "Над картинкой");
 }
 
@@ -118,10 +118,10 @@ static void log_times(dgx_screen_t *lcd)
 {
     const uint32_t paper = dgx_rgb_to_16(240, 236, 224), ink = dgx_rgb_to_16(20, 20, 20);
     const dgx_font_context_t ways[] = {
-        {.scr = lcd, .font = dgx_font_hard(), .color = ink},
-        {.scr = lcd, .font = dgx_font_soft(), .color = ink},
-        {.scr = lcd, .font = dgx_font_soft(), .color = ink, .bg = paper, .flags = DGX_FONT_BG},
-        {.scr = lcd, .font = dgx_font_soft(), .color = ink, .bg = paper, .flags = DGX_FONT_FILL},
+        {.scr = lcd, .font = &dgx_font_hard, .color = ink},
+        {.scr = lcd, .font = &dgx_font_soft, .color = ink},
+        {.scr = lcd, .font = &dgx_font_soft, .color = ink, .bg = paper, .flags = DGX_FONT_BG},
+        {.scr = lcd, .font = &dgx_font_soft, .color = ink, .bg = paper, .flags = DGX_FONT_FILL},
     };
     static const char *const names[] = {"one bit", "4 bits, cut as one bit (no paper)", "4 bits, DGX_FONT_BG", "4 bits, DGX_FONT_FILL"};
     dgx_fill_rectangle(lcd, 0, 0, lcd->width, lcd->height, paper);
@@ -167,13 +167,13 @@ void app_main(void)
     if (EXAMPLE_BUILD) {
         char label[16];
         snprintf(label, sizeof label, "#%d", EXAMPLE_BUILD);
-        const dgx_font_context_t mark = {.scr = lcd, .font = dgx_font_small(), .color = dgx_rgb_to_16(200, 60, 60), .bg = dgx_rgb_to_16(240, 236, 224),
+        const dgx_font_context_t mark = {.scr = lcd, .font = &dgx_font_small, .color = dgx_rgb_to_16(200, 60, 60), .bg = dgx_rgb_to_16(240, 236, 224),
                                          .flags = DGX_FONT_BG};
         dgx_font_draw(&mark, lcd->width - 4 - dgx_font_bounds(&mark, label, NULL, NULL), 12, label);
     }
 
     /* the counter: its cell filled with the paper each time, the old digits gone, no flicker of an erase */
-    const dgx_font_context_t count = {.scr = lcd, .font = dgx_font_count(), .color = dgx_rgb_to_16(255, 200, 0), .bg = blue, .flags = DGX_FONT_FILL};
+    const dgx_font_context_t count = {.scr = lcd, .font = &dgx_font_count, .color = dgx_rgb_to_16(255, 200, 0), .bg = blue, .flags = DGX_FONT_FILL};
     for (uint32_t tenths = 0;; ++tenths) {
         char text[16];
         snprintf(text, sizeof text, "%" PRIu32 ".%" PRIu32, tenths / 10 % 10000, tenths % 10);

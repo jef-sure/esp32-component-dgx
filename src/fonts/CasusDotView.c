@@ -365,43 +365,43 @@ static const dgx_font_dot_t celsius_dots[] = {
     {0, 2 }  // Left peak
 };
 
-static const glyph_t space_glyph[] = {
+static const dgx_glyph_t space_glyph[] = {
     {{.dots = NULL, .number_of_dots = 0}, 7, 14, 7, 0, -12}, /* ' ' */
 };
 
-static const glyph_t minus_glyph[] = {
+static const dgx_glyph_t minus_glyph[] = {
     {{.dots = minus_dots, .number_of_dots = 5}, 7, 14, 7, 0, -12}, /* '-' */
 };
 
-static const glyph_t degree_glyph[] = {
+static const dgx_glyph_t degree_glyph[] = {
     {{.dots = degree_dots, .number_of_dots = 8}, 7, 14, 7, 0, -12}, /* '°' */
 };
 
-static const glyph_t colon_glyph[] = {
+static const dgx_glyph_t colon_glyph[] = {
     {{.dots = colon_dots, .number_of_dots = 4}, 7, 14, 7, 0, -12}, /* ':' */
 };
 
-static const glyph_t capital_r_glyph[] = {
+static const dgx_glyph_t capital_r_glyph[] = {
     {{.dots = capital_r_dots, .number_of_dots = 26}, 7, 14, 7, 0, -12}, /* 'R' */
 };
 
-static const glyph_t capital_h_glyph[] = {
+static const dgx_glyph_t capital_h_glyph[] = {
     {{.dots = capital_h_dots, .number_of_dots = 25}, 7, 14, 7, 0, -12}, /* 'H' */
 };
 
-static const glyph_t percent_glyph[] = {
+static const dgx_glyph_t percent_glyph[] = {
     {{.dots = percent_dots, .number_of_dots = 17}, 7, 14, 7, 0, -12}, /* '%' */
 };
 
-static const glyph_t dot_glyph[] = {
+static const dgx_glyph_t dot_glyph[] = {
     {{.dots = dot_dots, .number_of_dots = 4}, 4, 14, 4, 0, -12}, /* '.' */
 };
 
-static const glyph_t celsius_glyph[] = {
+static const dgx_glyph_t celsius_glyph[] = {
     {{.dots = celsius_dots, .number_of_dots = 18}, 7, 14, 7, 0, -12}, /* '℃' */
 };
 
-static const glyph_t glyphs[] = {
+static const dgx_glyph_t glyphs[] = {
     {{.dots = dots + 0, .number_of_dots = 27},   7, 14, 7, 0, -12}, /* '0' */
     {{.dots = dots + 27, .number_of_dots = 17},  7, 14, 7, 0, -12}, /* '1' */
     {{.dots = dots + 44, .number_of_dots = 19},  7, 14, 7, 0, -12}, /* '2' */
@@ -414,7 +414,7 @@ static const glyph_t glyphs[] = {
     {{.dots = dots + 190, .number_of_dots = 23}, 7, 14, 7, 0, -12}, /* '9' */
 };
 
-static const glyph_array_t glyph_ranges[] = {
+static const dgx_glyph_array_t glyph_ranges[] = {
     {0x0020, 1,   space_glyph    }, //
     {0x0025, 1,   percent_glyph  }, //
     {0x002D, 1,   minus_glyph    }, //
@@ -428,18 +428,14 @@ static const glyph_array_t glyph_ranges[] = {
     {0x0,    0x0, 0              }  //
 };
 
-dgx_font_t *CasusDotView()
-{
-    static dgx_font_t rval = {
-        .glyph_ranges  = glyph_ranges, //
-        .yAdvance      = 14,           //
-        .yOffsetLowest = -12,          //
-        .xWidest       = 7,            //
-        .xWidthAverage = 7.000000,     //
-        .f_type        = DGX_FONT_DOTS, //
-        .yBottomMax    = 2,             //
-        .xOffsetLowest = 0,             //
-        .xRightMax     = 7              //
-    };
-    return &rval;
-}
+const dgx_font_t CasusDotView = {
+    .glyph_ranges = glyph_ranges,
+    .y_advance = 14,
+    .y_offset_lowest = -12,
+    .x_widest = 7,
+    .x_width_average = 7.000000,
+    .f_type = DGX_FONT_DOTS,
+    .y_bottom_max = 2,
+    .x_offset_lowest = 0,
+    .x_right_max = 7
+};

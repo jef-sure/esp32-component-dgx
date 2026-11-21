@@ -117,7 +117,7 @@ other people's descriptions.
 
 **JD9365 (10").** The factory firmware, `esp_brookesia_demo` 1.0.1 on IDF
 v6.0.2, sends the panel a table of 204 commands and asks for a pixel clock
-of 70 MHz. All eight orientations of `dgx_jd9365_orientation()` look as
+of 70 MHz. All eight orientations of `dgx_screen_orientation()` look as
 expected on the board.
 
 About 70 and 80 MHz. Asked for 70 MHz, IDF 6.0.1 makes 80 MHz of it with a
@@ -314,13 +314,13 @@ What follows.
 /* three batches: the line, the circle and the text are shown one after another */
 dgx_draw_line(scr, 0, 0, 100, 100, color);
 dgx_draw_circle(scr, 200, 200, 50, color);
-dgx_font_string_utf8_screen(scr, 10, 40, "text", color, DgxOutputNormal, 1, font, NULL, NULL);
+dgx_font_draw(&(dgx_font_context_t){.scr = scr, .font = font, .color = color}, 10, 40, "text");
 
 /* one batch: everything is shown at once */
 dgx_screen_batch_begin(scr);
 dgx_draw_line(scr, 0, 0, 100, 100, color);
 dgx_draw_circle(scr, 200, 200, 50, color);
-dgx_font_string_utf8_screen(scr, 10, 40, "text", color, DgxOutputNormal, 1, font, NULL, NULL);
+dgx_font_draw(&(dgx_font_context_t){.scr = scr, .font = font, .color = color}, 10, 40, "text");
 dgx_screen_batch_end(scr);
 ```
 

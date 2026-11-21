@@ -70,7 +70,7 @@ enum
     EXAMPLE_LCD_PIN_NUM_BL    = 23,
 };
 #define example_lcd_init        dgx_jd9365_init
-#define example_lcd_orientation dgx_jd9365_orientation
+#define example_lcd_orientation dgx_screen_orientation
 /* lying: x of the screen along the rows of the panel; one of the two axes counted the other way, or the picture is mirrored */
 #define EXAMPLE_LCD_DIR_X   DgxScreenRightLeft
 #define EXAMPLE_LCD_DIR_Y   DgxScreenTopBottom
@@ -88,7 +88,7 @@ enum
     EXAMPLE_LCD_PIN_NUM_BL    = 23,
 };
 #define example_lcd_init        dgx_jd9165_init
-#define example_lcd_orientation dgx_jd9165_orientation
+#define example_lcd_orientation dgx_screen_orientation
 #define EXAMPLE_LCD_DIR_X   DgxScreenLeftRight
 #define EXAMPLE_LCD_DIR_Y   DgxScreenTopBottom
 #define EXAMPLE_LCD_SWAP_XY false
@@ -180,7 +180,7 @@ static void label(const char *text)
 {
     char line[96];
     snprintf(line, sizeof(line), "#%d  %s", BUILD, text);
-    const dgx_font_context_t ctx = {.scr = display, .font = TerminusTTFMedium12(), .color = c16(0xf0f0f0), .bg = 0, .flags = DGX_FONT_FILL};
+    const dgx_font_context_t ctx = {.scr = display, .font = &TerminusTTFMedium12, .color = c16(0xf0f0f0), .bg = 0, .flags = DGX_FONT_FILL};
     dgx_fill_rectangle(display, 0, 0, display->width, BAND, 0);
     dgx_font_draw(&ctx, 4, 12, line);
 }
@@ -213,7 +213,7 @@ static void draw_shape(dgx_screen_t *m)
 {
     dgx_fill_rectangle(m, 0, 0, m->width, m->height, 0);
     dgx_fill_circle(m, 20, 20, DGX_PEN_SOFT | 17, 255);
-    const dgx_font_context_t word = {.scr = m, .font = dgx_font_word(), .color = 255};
+    const dgx_font_context_t word = {.scr = m, .font = &dgx_font_word, .color = 255};
     dgx_font_draw(&word, 42, 28, "DGX");
 }
 

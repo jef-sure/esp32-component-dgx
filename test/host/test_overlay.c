@@ -8,7 +8,7 @@
 #include "dgx_overlay.h"
 #include "vscreen/dgx_overlay_priv.h"
 #include "dgx_screen_with_bus.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 /*
  * An overlay layer of a screen: its colors mixed into what goes to the
@@ -174,7 +174,7 @@ static void test_transfers(void)
     dgx_screen_with_bus_t sbus = {.bus = &bus};
     dgx_screen_t         *lcd  = &sbus.scr;
     lcd->width = DW, lcd->height = DH, lcd->color_bits = 16, lcd->screen_subtype = DgxPhysicalScreenWithBus;
-    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait_buffer = panel_wait;
+    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait = panel_wait;
     lcd->set_pixel = panel_set_pixel, lcd->update_screen = panel_update;
     int mixed_pixels = 0;
     for (int round = 0; round < 3000; ++round) {
@@ -265,10 +265,10 @@ static void test_changes(void)
     dgx_fill_rectangle(layer, 2, 3, 4, 2, 7);
     CHECK(dgx_overlay_take_dirty(display, &x, &y, &w, &h) && x == 7 && y == 9 && w == 4 && h == 2);
     CHECK(!dgx_overlay_take_dirty(display, &x, &y, &w, &h));
-    dgx_screen_progress_up(layer);
+    dgx_screen_batch_begin(layer);
     dgx_set_pixel(layer, 0, 0, 9);
     dgx_set_pixel(layer, 10, 12, 9);
-    dgx_screen_progress_down(layer);
+    dgx_screen_batch_end(layer);
     CHECK(dgx_overlay_take_dirty(display, &x, &y, &w, &h) && x == 5 && y == 6 && w == 11 && h == 13);
     /* moved: where it has something, before and after */
     CHECK(dgx_overlay_set(display, layer, 20, 6, layer_lut, 128));

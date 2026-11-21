@@ -19,8 +19,11 @@
 #include "dgx_draw.h"
 #include "dgx_overlay.h"
 #include "dgx_screen_with_bus.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "scale_ref.h"
+
+/* the calls of 0.6 are checked here beside those of now; they warn everywhere else, until DGX 1.0 takes them away */
+DGX_DEPRECATED_USE_BEGIN
 
 #define DW 37
 #define DH 29
@@ -221,7 +224,7 @@ static dgx_screen_t *panel_screen(int bits, size_t buffer_len, bool fast, bool r
     sbus.bus          = &bus;
     dgx_screen_t *lcd = &sbus.scr;
     lcd->width = DW, lcd->height = DH, lcd->color_bits = (uint8_t)bits, lcd->screen_subtype = DgxPhysicalScreenWithBus;
-    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait_buffer = panel_wait;
+    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait = panel_wait;
     lcd->set_pixel = panel_set_pixel, lcd->update_screen = panel_update;
     lcd->get_pixel = readable ? panel_get_pixel : NULL;
     return lcd;
@@ -405,8 +408,8 @@ static void test_pages(void)
 /* the calls of release 0.6 the header keeps: the pixels of the calls they stand for, and the names still functions */
 static void test_old_calls(void)
 {
-    void (*const whole)(dgx_screen_t *, int, int, dgx_screen_t *, uint32_t) = dgx_vscreen_to_screen;
-    void (*const region)(dgx_screen_t *, int, int, dgx_screen_t *, int, int, int, int, uint32_t) = dgx_vscreen_region_to_screen;
+    esp_err_t (*const whole)(dgx_screen_t *, int, int, dgx_screen_t *, uint32_t) = dgx_vscreen_to_screen;
+    esp_err_t (*const region)(dgx_screen_t *, int, int, dgx_screen_t *, int, int, int, int, uint32_t) = dgx_vscreen_region_to_screen;
     dgx_screen_t *src = dgx_vscreen_init(SW, SH, 16, DgxScreenRGB);
     dgx_screen_t *old = dgx_vscreen_init(DW, DH, 16, DgxScreenRGB), *now = dgx_vscreen_init(DW, DH, 16, DgxScreenRGB);
     for (int round = 0; round < 200; ++round) {
@@ -583,3 +586,5 @@ int main(void)
     test_onto_itself();
     CHECK_DONE();
 }
+
+DGX_DEPRECATED_USE_END

@@ -12,7 +12,7 @@
 #include "check.h"
 #include "dgx_bits.h"
 #include "dgx_draw.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "vscreen/dgx_vscreen_priv.h"
 
 #define W 23

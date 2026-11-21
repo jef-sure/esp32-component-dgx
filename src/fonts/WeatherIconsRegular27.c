@@ -7273,7 +7273,7 @@ static const uint8_t bitmaps[] = {
 0x3F, 0xFF, 0xC0, 0x1F, 0xFF, 0x80, 0x07, 0xFE, 0x00, 0x01, 0xF8, 0x00
 };
 
-static const glyph_t glyphs[] = {
+static const dgx_glyph_t glyphs[] = {
     { {bitmaps +     0},  41,  34,  41,    0,  -28 } /* F000 */
 ,   { {bitmaps +   204},  41,  33,  41,    0,  -28 } /* F001 */
 ,   { {bitmaps +   402},  37,  29,  38,    0,  -28 } /* F002 */
@@ -7503,7 +7503,7 @@ static const glyph_t glyphs[] = {
 ,   { {bitmaps + 19091},  20,  20,  20,    0,  -19 } /* F0EA */
 ,   { {bitmaps + 19151},  20,  20,  20,    0,  -19 } /* F0EB */
 };
-static const glyph_array_t glyph_ranges[] = {
+static const dgx_glyph_array_t glyph_ranges[] = {
    {0xf000, 0xf   , glyphs + 0 }
 , {0xf010, 0xf   , glyphs + 15 }
 , {0xf021, 0x1e  , glyphs + 30 }
@@ -7515,17 +7515,14 @@ static const glyph_array_t glyph_ranges[] = {
 , {0x0   , 0x0   , 0 }
 };
 // Bitmap size: 19211
-dgx_font_t* WeatherIconsRegular27() {
-	static dgx_font_t rval = {        //
-    .glyph_ranges = glyph_ranges,   //
-    .yAdvance = 39,                 //
-    .yOffsetLowest = -29,           //
-    .xWidest = 41,                  //
-    .xWidthAverage = 23.890351,     //
-    .f_type = DGX_FONT_BITMAP_LINES, //
-    .yBottomMax = 10,               //
-    .xOffsetLowest = -1,            //
-    .xRightMax = 41                 //
-  };
-	return &rval;
-}
+const dgx_font_t WeatherIconsRegular27 = {
+    .glyph_ranges = glyph_ranges,
+    .y_advance = 39,
+    .y_offset_lowest = -29,
+    .x_widest = 41,
+    .x_width_average = 23.890351,
+    .f_type = DGX_FONT_BITMAP_LINES,
+    .y_bottom_max = 10,
+    .x_offset_lowest = -1,
+    .x_right_max = 41
+};

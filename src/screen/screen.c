@@ -87,7 +87,7 @@ DGX_HOT static void dgx_scr_fill_rectangle_sb(dgx_screen_t *scr, int x, int y, i
         dgx_screen_batch_end(scr);
         return;
     }
-    if (scr->wait_buffer) scr->wait_buffer(scr);
+    if (scr->wait) scr->wait(scr);
     /* What is left over after whole buffers goes first: the wire starts once that much is filled, and the rest of
      * the buffer is filled while it is on its way. The pieces are as many, so this is never slower. A leftover that
      * does not end on a whole byte stays last, as the pieces after it start at the beginning of the buffer. */
@@ -130,7 +130,7 @@ DGX_HOT static void dgx_scr_set_pixel_sb(dgx_screen_t *scr, int x, int y, uint32
 {
     if (!dgx_clip_has(scr, x, y) || scr->screen_subtype != DgxPhysicalScreenWithBus) return;
     uint8_t *pixel = ((dgx_screen_with_bus_t *)scr)->pixel;
-    if (scr->wait_buffer) scr->wait_buffer(scr);
+    if (scr->wait) scr->wait(scr);
     memset(pixel, 0, 4);
     dgx_fill_buf_value(scr->color_bits, pixel, 0, color);
     scr->set_area(scr, x, x, y, y);
@@ -231,7 +231,7 @@ void dgx_scr_init_slow_bus_optimized_funcs(dgx_screen_t *scr)
     scr->get_pixel      = dgx_scr_get_pixel_sb;
     scr->set_area       = dgx_scr_set_area_sb;
     scr->write_area     = dgx_scr_write_area_sb;
-    scr->wait_buffer    = dgx_scr_wait_buffer_sb;
+    scr->wait    = dgx_scr_wait_buffer_sb;
     scr->solid_circle   = dgx_draw_solid_circle_rows;
     scr->update_screen  = dgx_scr_update_area_sb;
     scr->dir_x          = DgxScreenLeftRight;

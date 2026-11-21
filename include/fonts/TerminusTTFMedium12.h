@@ -5,10 +5,10 @@
 extern "C" {
 // @formatter:on
 #endif
-dgx_font_t* TerminusTTFMedium12();
+extern const dgx_font_t TerminusTTFMedium12;
+#define TerminusTTFMedium12() DGX_FONT_CALLED(TerminusTTFMedium12)
 #ifdef __cplusplus
 // @formatter:off
 }
 // @formatter:on
 #endif
-

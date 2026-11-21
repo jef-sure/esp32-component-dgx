@@ -80,7 +80,7 @@ static void dgx_ssd1351_write_area_18(dgx_screen_t *_scr, uint8_t *data, uint32_
     while (bytes) {
         const uint32_t n = bytes < DGX_SSD1351_WIRE_BYTES ? bytes : DGX_SSD1351_WIRE_BYTES;
         /* what was sent from the buffer before has gone */
-        _scr->wait_buffer(_scr);
+        _scr->wait(_scr);
         for (uint32_t i = 0; i < n; ++i)
             scr->wire[i] = data[i] >> 2;
         scr->send(_scr, scr->wire, n * 8u);
@@ -94,7 +94,7 @@ static void dgx_ssd1351_destroy(dgx_screen_t **pscr)
     dgx_ssd1351_t *scr = (dgx_ssd1351_t *)*pscr;
     if (!scr) return;
     /* the last bytes may still be on their way */
-    (*pscr)->wait_buffer(*pscr);
+    (*pscr)->wait(*pscr);
     free(scr->wire);
     scr->destroy(pscr);
 }
@@ -152,8 +152,9 @@ static esp_err_t dgx_ssd1351_level(dgx_screen_t *_scr, uint8_t level) {
     return ESP_OK;
 }
 
+static void ssd1351_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 static const dgx_screen_control_t dgx_ssd1351_control = {
-    .orientation = dgx_ssd1351_orientation,
+    .orientation = ssd1351_orientation,
     .display     = dgx_ssd1351_display,
     .brightness  = dgx_ssd1351_level,
 };
@@ -217,7 +218,7 @@ dgx_screen_t *dgx_ssd1351_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t
     return (dgx_screen_t *)scr;
 }
 
-void dgx_ssd1351_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy) {
+static void ssd1351_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy) {
     dgx_ssd1351_t *scr = (dgx_ssd1351_t *)_scr;
     uint8_t cmd = SSD1351_CMD_SETREMAP;
     uint8_t adj_data[1] = {
@@ -276,4 +277,10 @@ void dgx_ssd1351_brightness(dgx_screen_t *_scr, uint8_t brightness) {
     uint8_t adj_data[1] = {brightness >> 4};
     scr->base.bus->write_command(scr->base.bus, cmd);
     scr->base.bus->write_data(scr->base.bus, adj_data, 8);
+}
+
+/* deprecated until DGX 1.0: dgx_screen_orientation() */
+void dgx_ssd1351_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+{
+    ssd1351_orientation(scr, dir_x, dir_y, swap_xy);
 }

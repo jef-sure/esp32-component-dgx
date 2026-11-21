@@ -1,5 +1,5 @@
 /*
- * dgx_draw_polygon4_solid() with convex and concave quadrilaterals: every
+ * dgx_fill_polygon4() with convex and concave quadrilaterals: every
  * pixel whose centre lies inside, more than half a pixel from the outline,
  * is filled, and no pixel further than a pixel from the quadrilateral is.
  * A concave one with two tips side by side is not joined across the gap.
@@ -10,7 +10,7 @@
 
 #include "check.h"
 #include "dgx_draw.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 #define W 64
 #define H 64
@@ -69,7 +69,7 @@ static bool simple(const int vx[4], const int vy[4])
 static int check_quad(dgx_screen_t *scr, const int vx[4], const int vy[4])
 {
     dgx_fill_rectangle(scr, 0, 0, W, H, 0);
-    dgx_draw_polygon4_solid(scr, vx[0], vy[0], vx[1], vy[1], vx[2], vy[2], vx[3], vy[3], 0xffff);
+    dgx_fill_polygon4(scr, vx[0], vy[0], vx[1], vy[1], vx[2], vy[2], vx[3], vy[3], 0xffff);
     int wrong = 0;
     for (int y = 0; y < H; ++y) {
         for (int x = 0; x < W; ++x) {

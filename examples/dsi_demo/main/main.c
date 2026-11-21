@@ -43,7 +43,7 @@ enum
     EXAMPLE_LCD_PANEL_HEIGHT  = 1280,
 };
 #define example_lcd_init        dgx_jd9365_init
-#define example_lcd_orientation dgx_jd9365_orientation
+#define example_lcd_orientation dgx_screen_orientation
 #else
 /* Guition JC1060P470: a 7-inch 1024x600 display with a JD9165 on two DSI lanes */
 enum
@@ -58,7 +58,7 @@ enum
     EXAMPLE_LCD_PANEL_HEIGHT  = 600,
 };
 #define example_lcd_init        dgx_jd9165_init
-#define example_lcd_orientation dgx_jd9165_orientation
+#define example_lcd_orientation dgx_screen_orientation
 #endif
 
 /* How the screen lies on the panel. If "top left" is not at the top left, change these. */
@@ -107,7 +107,7 @@ static void demo_build_label(dgx_screen_t *screen);
 
 static void demo_text(dgx_screen_t *screen, int x, int y, const char *text, uint32_t color)
 {
-    const dgx_font_context_t big = {.scr = screen, .font = DejaVuSansBook32(), .color = color};
+    const dgx_font_context_t big = {.scr = screen, .font = &DejaVuSansBook32, .color = color};
     dgx_font_draw(&big, x, y, text);
 }
 
@@ -137,7 +137,7 @@ static void demo_test_card(dgx_screen_t *screen)
     snprintf(size, sizeof(size), "DGX on MIPI-DSI, %dx%d", w, h);
     demo_text(screen, bar, top - 30, size, demo_rgb(255, 200, 40));
     snprintf(size, sizeof(size), "%s, %d-bit color, build %d", screen->screen_name, EXAMPLE_LCD_COLOR_BITS, BUILD);
-    const dgx_font_context_t small = {.scr = screen, .font = LiberationSansRegular12(), .color = demo_rgb(60, 190, 255)};
+    const dgx_font_context_t small = {.scr = screen, .font = &LiberationSansRegular12, .color = demo_rgb(60, 190, 255)};
     dgx_font_draw(&small, bar, top + 170, size);
 }
 

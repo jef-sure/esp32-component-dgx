@@ -113,8 +113,10 @@ dgx_screen_t *dgx_vscreen_from_array(void *v_array, int width, int height, uint8
  * @param pixels  The pixels.
  * @param width   Width in pixels, also the step from one row to the next.
  * @param height  Height in pixels.
+ * @return ESP_OK; ESP_ERR_INVALID_ARG, with the screen as it was, for a screen not of dgx_vscreen_from_array(), one
+ *         under or over an overlay layer, no pixels or a size of no pixels.
  */
-void dgx_vscreen_array_set(dgx_screen_t *scr, void *pixels, int width, int height);
+esp_err_t dgx_vscreen_array_set(dgx_screen_t *scr, void *pixels, int width, int height);
 
 /**
  * @brief Tell whether a screen keeps its pixels in the linear dgx_vscreen_t layout.
@@ -266,11 +268,14 @@ bool dgx_vscreen_to_argb8888(dgx_screen_t *scr, int x, int y, int width, int hei
  */
 #define DGX_VSCREEN_MASK 0x10u
 
-/* The names of these flags in release 0.6, when only the transfers through a table had them. */
-#define DGX_LUT_TRANSPARENT DGX_VSCREEN_TRANSPARENT
-#define DGX_LUT_EXACT       DGX_VSCREEN_EXACT
-#define DGX_LUT_SCALE(n)    DGX_VSCREEN_SCALE(n)
-#define DGX_LUT_SMOOTH      DGX_VSCREEN_SMOOTH
+/* The names of these flags in release 0.6, when only the transfers through a table had them; deprecated until DGX 1.0. */
+enum {
+    DGX_LUT_TRANSPARENT DGX_DEPRECATED("use DGX_VSCREEN_TRANSPARENT") = DGX_VSCREEN_TRANSPARENT,
+    DGX_LUT_EXACT DGX_DEPRECATED("use DGX_VSCREEN_EXACT")             = DGX_VSCREEN_EXACT,
+    DGX_LUT_SMOOTH DGX_DEPRECATED("use DGX_VSCREEN_SMOOTH")           = DGX_VSCREEN_SMOOTH,
+};
+DGX_DEPRECATED("use DGX_VSCREEN_SCALE(n)")
+static inline uint32_t DGX_LUT_SCALE(int n) { return DGX_VSCREEN_SCALE(n); }
 
 /**
  * @brief Put a virtual screen on a screen of the same depth: a display, or another virtual screen.
@@ -293,8 +298,10 @@ bool dgx_vscreen_to_argb8888(dgx_screen_t *scr, int x, int y, int width, int hei
  * @param _scr_src     Source virtual screen.
  * @param flags        0, or DGX_VSCREEN_TRANSPARENT, DGX_VSCREEN_SCALE(n), DGX_VSCREEN_SMOOTH or DGX_VSCREEN_SMOOTH_SFX and
  *                     DGX_VSCREEN_ORIENTED(o) added together.
+ * @return ESP_OK, also when nothing of it falls on the destination; ESP_ERR_INVALID_ARG when the depths differ or the
+ *         source is not a virtual screen; ESP_ERR_NO_MEM when a transfer that needs lines of its own gets no memory.
  */
-void dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint32_t flags);
+esp_err_t dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint32_t flags);
 
 /**
  * @brief Put a rectangular region of a virtual screen on a screen of the same depth.
@@ -314,9 +321,10 @@ void dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_scr
  * @param x_src,y_src      Top-left corner of the region in the source.
  * @param width,height     Size of the region in the source.
  * @param flags            As for dgx_vscreen_to_screen().
+ * @return As dgx_vscreen_to_screen().
  */
-void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width, int height,
-                                  uint32_t flags);
+esp_err_t dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width,
+                                       int height, uint32_t flags);
 
 /**
  * @brief Expand an 8-bit indexed virtual screen into a 16-bit destination through a LUT.
@@ -353,8 +361,11 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
  * @param lut          256-entry RGB565 lookup table.
  * @param flags        0, or DGX_VSCREEN_TRANSPARENT, DGX_VSCREEN_EXACT, DGX_VSCREEN_SCALE(n), DGX_VSCREEN_SMOOTH or
  *                     DGX_VSCREEN_SMOOTH_SFX and DGX_VSCREEN_ORIENTED(o) added together.
+ * @return ESP_OK, also when nothing of it falls on the destination; ESP_ERR_INVALID_ARG when the source is not an
+ *         8-bit virtual screen of rows of bytes or the destination is not of 16 bits; ESP_ERR_NO_MEM when a transfer
+ *         that needs lines of its own gets no memory.
  */
-void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, const uint16_t *lut, uint32_t flags);
+esp_err_t dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, const uint16_t *lut, uint32_t flags);
 
 /**
  * @brief Expand a rectangular region of an 8-bit indexed virtual screen into a 16-bit destination through a LUT.
@@ -370,9 +381,10 @@ void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_
  * @param width,height     Size of the region in the source.
  * @param lut              256-entry RGB565 lookup table.
  * @param flags            As for dgx_vscreen8_to_screen16().
+ * @return As dgx_vscreen8_to_screen16().
  */
-void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width,
-                                     int height, const uint16_t *lut, uint32_t flags);
+esp_err_t dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width,
+                                          int height, const uint16_t *lut, uint32_t flags);
 
 /**
  * @brief Copy the whole source virtual screen into a same-sized destination.
@@ -382,13 +394,30 @@ bool dgx_vscreen_copy(dgx_screen_t *_scr_dst, dgx_screen_t *_scr_src);
 
 /*
  * The calls of release 0.6 and before, kept for the programs written for
- * them: dgx_vscreen_to_screen() and dgx_vscreen_region_to_screen() without
- * flags get 0, and dgx_vscreen_to_vscreen() is dgx_vscreen_to_screen() with
+ * them and deprecated until DGX 1.0: dgx_vscreen_to_screen() and
+ * dgx_vscreen_region_to_screen() without flags get 0, and
+ * dgx_vscreen_to_vscreen() is dgx_vscreen_to_screen() with
  * DGX_VSCREEN_TRANSPARENT or without it. The call is chosen by the number of
  * its arguments; any other number does not build.
  */
+DGX_DEPRECATED("the call of 0.6: give dgx_vscreen_to_screen() its flags, 0 for none")
+static inline esp_err_t dgx_vscreen_to_screen_without_flags(dgx_screen_t *dst, int x, int y, dgx_screen_t *src)
+{
+    return dgx_vscreen_to_screen(dst, x, y, src, 0u);
+}
+DGX_DEPRECATED("the call of 0.6: give dgx_vscreen_region_to_screen() its flags, 0 for none")
+static inline esp_err_t dgx_vscreen_region_to_screen_without_flags(dgx_screen_t *dst, int x, int y, dgx_screen_t *src, int x_src, int y_src,
+                                                                   int width, int height)
+{
+    return dgx_vscreen_region_to_screen(dst, x, y, src, x_src, y_src, width, height, 0u);
+}
+DGX_DEPRECATED("use dgx_vscreen_to_screen() with DGX_VSCREEN_TRANSPARENT or 0")
+static inline esp_err_t dgx_vscreen_to_vscreen(dgx_screen_t *dst, int x, int y, dgx_screen_t *src, bool has_transparency)
+{
+    return dgx_vscreen_to_screen(dst, x, y, src, has_transparency ? DGX_VSCREEN_TRANSPARENT : 0u);
+}
 #define DGX_VSCREEN_PICK5_(_1, _2, _3, _4, _5, _6, _7, _8, _9, name, ...) name
-#define DGX_VSCREEN_TO_SCREEN_4_(dst, x, y, src)                          dgx_vscreen_to_screen(dst, x, y, src, 0u)
+#define DGX_VSCREEN_TO_SCREEN_4_(dst, x, y, src)                          dgx_vscreen_to_screen_without_flags(dst, x, y, src)
 #define dgx_vscreen_to_screen(...)                                                                                                           \
     DGX_VSCREEN_PICK5_(__VA_ARGS__, dgx_vscreen_to_screen_takes_4_or_5_arguments, dgx_vscreen_to_screen_takes_4_or_5_arguments,              \
                        dgx_vscreen_to_screen_takes_4_or_5_arguments, dgx_vscreen_to_screen_takes_4_or_5_arguments, dgx_vscreen_to_screen,    \
@@ -396,14 +425,12 @@ bool dgx_vscreen_copy(dgx_screen_t *_scr_dst, dgx_screen_t *_scr_src);
                        dgx_vscreen_to_screen_takes_4_or_5_arguments, dgx_vscreen_to_screen_takes_4_or_5_arguments)(__VA_ARGS__)
 #define DGX_VSCREEN_PICK9_(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, name, ...) name
 #define DGX_VSCREEN_REGION_TO_SCREEN_8_(dst, x, y, src, x_src, y_src, width, height) \
-    dgx_vscreen_region_to_screen(dst, x, y, src, x_src, y_src, width, height, 0u)
+    dgx_vscreen_region_to_screen_without_flags(dst, x, y, src, x_src, y_src, width, height)
 #define DGX_VSCREEN_WRONG9_ dgx_vscreen_region_to_screen_takes_8_or_9_arguments
 #define dgx_vscreen_region_to_screen(...)                                                                                                            \
     DGX_VSCREEN_PICK9_(__VA_ARGS__, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_,                              \
                        dgx_vscreen_region_to_screen, DGX_VSCREEN_REGION_TO_SCREEN_8_, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_, \
                        DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_, DGX_VSCREEN_WRONG9_)(__VA_ARGS__)
-#define dgx_vscreen_to_vscreen(dst, x, y, src, has_transparency) \
-    dgx_vscreen_to_screen(dst, x, y, src, (has_transparency) ? DGX_VSCREEN_TRANSPARENT : 0u)
 
 #ifdef __cplusplus
 // @formatter:off

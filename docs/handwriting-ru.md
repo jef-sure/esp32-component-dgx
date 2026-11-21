@@ -38,7 +38,7 @@
 #include "dgx_hw_font.h"
 #include "fonts/font0ss.h"
 
-dgx_hw_context_t hw = {.scr = scr, .font = font0ss(), .scale_x = 0.3f, .width = 3, .color = color, .joined = true};
+dgx_hw_context_t hw = {.scr = scr, .font = &font0ss, .scale_x = 0.3f, .width = 3, .color = color, .joined = true};
 dgx_hw_draw(&hw, 10, 80, "Привет, мир!");
 ```
 
@@ -56,16 +56,17 @@ dgx_hw_draw(&hw, 10, 80, "Привет, мир!");
 | `.joined` | Слитное письмо. Без него каждая буква пишется отдельно. |
 | `10, 80` | Начало строки: её левый край на базовой линии, на которой стоят буквы. Хвосты букв уходят ниже неё. |
 
-`dgx_hw_draw_text(scr, 10, 80, font0ss(), "Привет, мир!", 0.3f, 3, color, true)` —
-прежняя форма того же вызова, где всё задано аргументами. Она устарела
-(deprecated) и работает как раньше, как и `dgx_hw_writing_begin()` с
-`dgx_hw_morph_draw()` рядом с вызовами ниже, которые берут контекст.
+`dgx_hw_draw_text(scr, 10, 80, &font0ss, "Привет, мир!", 0.3f, 3, color, true)` —
+прежняя форма того же вызова, где всё задано аргументами. Она устарела:
+до DGX 1.0 работает как раньше, но компилятор предупреждает о ней, как и о
+`dgx_hw_writing_begin()` с `dgx_hw_morph_draw()` рядом с вызовами ниже,
+которые берут контекст.
 
 `\n` в тексте начинает следующую строку, ниже на `symbol_size_y` клеток.
 Символ, которого нет в шрифте, занимает место целой ячейки и ничего не рисует.
 
 Рукописный шрифт — обычный `dgx_font_t` с типом `DGX_FONT_HW`, и его символы
-ищутся через `dgx_font_find_glyph()`, как любые глифы. Но
+ищутся через `dgx_font_glyph()`, как любые глифы. Но
 `dgx_font_draw()` и остальные функции растровых шрифтов его не
 рисуют: они принимают целый масштаб и рисуют по одному символу, а здесь
 размер любой и буква зависит от соседей.
@@ -113,7 +114,7 @@ if (dgx_hw_bounds(&hw, "Привет", &left, &top, &width, &height))
 
 ```c
 /* цифры в треть сетки по ширине и в две трети по высоте */
-dgx_hw_context_t digits = {.scr = scr, .font = font0ss(), .scale_x = 0.33f, .scale_y = 0.7f, .width = 3, .color = color};
+dgx_hw_context_t digits = {.scr = scr, .font = &font0ss, .scale_x = 0.33f, .scale_y = 0.7f, .width = 3, .color = color};
 dgx_hw_draw(&digits, x, y, "08");
 ```
 

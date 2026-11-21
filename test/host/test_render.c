@@ -7,7 +7,7 @@
 #include "dgx_font.h"
 #include "dgx_morph_render.h"
 #include "dgx_screen_with_bus.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 static int lit_radius_x(int cell)
 {
@@ -272,7 +272,7 @@ static void test_glow_rows(void)
         dgx_screen_with_bus_t sbus = { .bus = &bus };
         dgx_screen_t         *lcd = &sbus.scr;
         lcd->width = PANEL_W, lcd->height = PANEL_H, lcd->color_bits = (uint8_t)bits, lcd->screen_subtype = DgxPhysicalScreenWithBus;
-        lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait_buffer = panel_nothing, lcd->update_screen = panel_update;
+        lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait = panel_nothing, lcd->update_screen = panel_update;
         lcd->draw_buffer = bus.buffer, lcd->draw_buffer_len = bus.buffer_len;
         dgx_screen_t *rows = dgx_vscreen_init(PANEL_W, PANEL_H, (uint8_t)bits, DgxScreenRGB), *copy = dgx_vscreen_init(PANEL_W, PANEL_H, (uint8_t)bits, DgxScreenRGB);
         dgx_morph_glow_t *by_rows = dgx_morph_glow_create(w, h, sizes[size][2], (uint8_t)bits), *by_copy = dgx_morph_glow_create(w, h, sizes[size][2], (uint8_t)bits);

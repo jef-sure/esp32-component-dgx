@@ -19,7 +19,7 @@
 #include "dgx_overlay.h"
 #include "dgx_screen_functions.h"
 #include "dgx_screen_with_bus.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 static uint32_t seed = 4242;
 

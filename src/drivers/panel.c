@@ -165,9 +165,12 @@ static esp_err_t dgx_panel_display(dgx_screen_t *_scr, bool on)
     return ESP_OK;
 }
 
+static void      panel_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
+static esp_err_t panel_backlight(dgx_screen_t *_scr, bool on);
+
 static const dgx_screen_control_t dgx_panel_control = {
-    .orientation = dgx_panel_orientation,
-    .backlight   = dgx_panel_backlight,
+    .orientation = panel_orientation,
+    .backlight   = panel_backlight,
     .display     = dgx_panel_display,
 };
 
@@ -213,7 +216,7 @@ dgx_screen_t *dgx_panel_init(dgx_bus_protocols_t *bus, const dgx_panel_t *panel,
     if (backlight >= 0 && clear_first) {
         /* dark until there is a picture */
         dgx_gpio_set_direction(backlight, GPIO_MODE_OUTPUT);
-        dgx_panel_backlight(s, false);
+        panel_backlight(s, false);
     }
     if (rst >= 0) {
         dgx_gpio_set_direction(rst, GPIO_MODE_OUTPUT);
@@ -229,20 +232,20 @@ dgx_screen_t *dgx_panel_init(dgx_bus_protocols_t *bus, const dgx_panel_t *panel,
     dgx_lcd_init(&scr->base, panel->init);
     if (backlight >= 0 && !clear_first) {
         dgx_gpio_set_direction(backlight, GPIO_MODE_OUTPUT);
-        dgx_panel_backlight(s, true);
+        panel_backlight(s, true);
     }
     dgx_scr_init_slow_bus_optimized_funcs(s);
     if (panel->flags & DGX_PANEL_BOTH_BOUNDS) s->set_area = dgx_panel_set_area_both;
     if (clear_first) {
         dgx_fill_rectangle(s, 0, 0, panel->width, panel->height, 0);
-        s->wait_buffer(s);
+        s->wait(s);
         if (panel->on) dgx_lcd_init(&scr->base, panel->on);
-        if (backlight >= 0) dgx_panel_backlight(s, true);
+        if (backlight >= 0) panel_backlight(s, true);
     }
     return s;
 }
 
-void dgx_panel_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+static void panel_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
     dgx_panel_screen_t *scr   = (dgx_panel_screen_t *)_scr;
     const dgx_panel_t  *panel = scr->panel;
@@ -266,10 +269,18 @@ void dgx_panel_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orie
     if (panel->scroll_lines) dgx_screen_with_bus_scroll_way(&scr->base, (sent & DGX_PANEL_MV) != 0, (sent & DGX_PANEL_MY) != 0);
 }
 
-esp_err_t dgx_panel_backlight(dgx_screen_t *_scr, bool on)
+static esp_err_t panel_backlight(dgx_screen_t *_scr, bool on)
 {
     dgx_panel_screen_t *scr = (dgx_panel_screen_t *)_scr;
     if (scr->backlight < 0) return ESP_ERR_NOT_SUPPORTED;
     dgx_gpio_set_level(scr->backlight, on ? 1 : 0);
     return ESP_OK;
 }
+
+/* deprecated: dgx_screen_orientation() and dgx_screen_backlight() */
+void dgx_panel_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+{
+    panel_orientation(_scr, dir_x, dir_y, swap_xy);
+}
+
+esp_err_t dgx_panel_backlight(dgx_screen_t *_scr, bool on) { return panel_backlight(_scr, on); }

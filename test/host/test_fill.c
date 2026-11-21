@@ -5,7 +5,7 @@
 #include "dgx_bits.h"
 #include "dgx_bw_screen.h"
 #include "dgx_draw.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 /*
  * A rectangle filled by a virtual screen has to be what the same pixels

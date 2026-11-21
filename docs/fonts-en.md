@@ -21,7 +21,7 @@ DGX-DI draws key labels, and a keyboard layout comes with its own
 characters and its own size in millimeters. The game engine DGX-GE shows
 dialogs in a font that must be a different pixel size on each display. If
 every component made its own fonts, you would get two fonts of the same
-face with different character sets, the same function name in two files,
+face with different character sets, the same font name in two files,
 and a build that depends on which component happens to be configured
 first.
 
@@ -33,7 +33,7 @@ So DGX takes the job, in one place:
   rule;
 - when the project is built, one script makes all the fonts at once: one
   font per face and size, with the combined characters of every need that uses it;
-- the program gets a header, `dgx_fonts.h`, with one function per need.
+- the program gets a header, `dgx_fonts.h`, with one font per need, a constant.
 
 Nothing runs outside CMake. A project without needs generates nothing and
 requires nothing extra on the build machine.
@@ -67,15 +67,14 @@ idf_component_register(SRCS "widgets.c" INCLUDE_DIRS "." REQUIRES dgx)
 dgx_font_need(title SIZE 4.5mm TEXTS title.txt)
 ```
 
-In the code, include the header and call the function named after the
-need:
+In the code, include the header and take the font named after the need:
 
 ```c
 #include "dgx_fonts.h"
 
-const dgx_font_context_t text = {.scr = scr, .font = dgx_font_text(), .color = ink};
+const dgx_font_context_t text = {.scr = scr, .font = &dgx_font_text, .color = ink};
 dgx_font_draw(&text, 10, 40, "Привет");
-dgx_di_keyboard_open(&kb, scr, DGX_FONTS_BOARD_WIDTH_MM, DGX_FONTS_BOARD_HEIGHT_MM, keys, keys_size, dgx_font_keys(), &field);
+dgx_di_keyboard_open(&kb, scr, DGX_FONTS_BOARD_WIDTH_MM, DGX_FONTS_BOARD_HEIGHT_MM, keys, keys_size, &dgx_font_keys, &field);
 ```
 
 `idf.py build` prints one line per need:
@@ -91,7 +90,7 @@ keys: DejaVu Sans Book 24 px (4 mm), 148 glyphs
 ## A need
 
 A need is one line, `dgx_font_need(<name> ...)`. The name is a C
-identifier: it names the function, `dgx_font_<name>()`. A name that
+identifier: it names the font, `dgx_font_<name>`. A name that
 collides with a function of DGX itself (`dgx_font_draw`, `dgx_font_bounds`
 and the like) is rejected, and so are two names that differ only in case, since
 their macros would not. The same name declared in two places, a component
@@ -115,7 +114,7 @@ The keywords of a need:
 | `POSTSCRIPT <name>` | Exactly this face, by its PostScript name (`DejaVuSans`, `DejaVuSans-Bold`); no rules needed. |
 | `SOURCE <file>` | A font from this file: any font file `font2c` reads, a TTF, an OTF or a BDF, with a `SIZE` (a font of bitmaps only at a size it has), or the JSON of a handwritten font from the hw-fonts editor, which has no size. |
 | `DGX <name>` | One of DGX's own fonts, used as is: `font0ss`, `TerminusTTFMedium12` and the others in `src/fonts/`. |
-| `FILE <file.c>` | A font the program already has as a `.c` file, used as is; the program compiles it itself, DGX only checks its characters and declares the function. |
+| `FILE <file.c>` | A font the program already has as a `.c` file, used as is; the program compiles it itself, DGX only checks its characters and declares the font. |
 | `PATCH <file>` | The glyphs fixed by hand for this font in the font editor (see [Glyphs fixed by hand](#glyphs-fixed-by-hand)); without it a patch is looked up by the name of the font. |
 
 Exactly one of these says where the font comes from: `SIZE` with
@@ -406,11 +405,11 @@ one was made from and under what license.
 
 The needs are passed to `font2c` as one list, one line per need, and font2c
 itself groups them by (face, pixel size, bits a pixel): one font is made per group, with
-the characters of all its needs merged, and every need gets its own function
-pointing to it. If the game asks for "DejaVu Sans Mono at 48 px with the
-characters of the dialogs" and the keyboard asks for "the same face at
-8.1 mm", which is also 48 px on this board, flash holds one set of glyphs, and
-`dgx_font_text()` and `dgx_font_keys()` return the same font.
+the characters of all its needs merged, and every need gets its own name
+for it. If the game asks for "DejaVu Sans Mono at 48 px with the characters
+of the dialogs" and the keyboard asks for "the same face at 8.1 mm", which
+is also 48 px on this board, flash holds one set of glyphs, and
+`dgx_font_text` and `dgx_font_keys` are the same font.
 
 A handwritten font from a JSON has no size (the size is chosen when text is
 drawn): one font per file.
@@ -568,17 +567,19 @@ the fonts and their licenses (see
 
 ```c
 /* text: DejaVu Sans Mono Book at 48 px (12 pt x 4), made for this board */
-dgx_font_t *dgx_font_text(void);
+extern const dgx_font_t dgx_font_text;
+#define dgx_font_text() DGX_FONT_CALLED(dgx_font_text)
 #define DGX_FONT_TEXT_MADE 1
 #define DGX_FONT_TEXT_PX 48
 
 /* keys: DejaVu Sans Book at 24 px (4 mm), made for this board */
-dgx_font_t *dgx_font_keys(void);
+extern const dgx_font_t dgx_font_keys;
+#define dgx_font_keys() DGX_FONT_CALLED(dgx_font_keys)
 #define DGX_FONT_KEYS_MADE 1
 #define DGX_FONT_KEYS_PX 24
 #define DGX_FONT_KEYS_MM 4
 
-/* hand: font0ss of DGX, used as is: its own function */
+/* hand: font0ss of DGX, used as is */
 #define dgx_font_hand font0ss
 #define DGX_FONT_HAND_MADE 0
 
@@ -593,11 +594,18 @@ dgx_font_t *dgx_font_keys(void);
 #define DGX_FONTS_BOARD_HEIGHT_MM 136
 ```
 
-- `dgx_font_<need>()` returns the need's font, an ordinary `dgx_font_t *`.
-  For an existing font it is not a wrapper function but a macro for the font's
-  own function: `dgx_font_hand()` *is* `font0ss()`. That way the DGX library
-  never references code of the program, and link order does not matter; the
-  header declares a program's own font (`FILE`) itself.
+- `dgx_font_<need>` is the need's font, a constant in flash: a program gives
+  `&dgx_font_<need>` where a font is asked for, and a style that holds it
+  can be a constant too. For an existing font, and for a need whose font is
+  made for another need, it is a macro of that font's name:
+  `dgx_font_hand` *is* `font0ss`. That way the DGX library never references
+  code of the program, and link order does not matter; the header declares
+  a program's own font (`FILE`) itself. A font a program keeps as `FILE`
+  that font2c made before DGX 0.12 is a function, and its need is taken by
+  `dgx_font_<need>()`, as all of them were before; the build says so, and
+  the font made again is a constant like the rest.
+- `dgx_font_<need>()`, the call of before 0.12, still builds until DGX 1.0,
+  with a warning, and gives the font without `const`, as the function did.
 - `DGX_FONT_<NEED>_MADE` is 1 if the font was made for this board (its size
   is already in display pixels; draw text with `scale` 1) and 0 if it is a
   handwritten font, whose size is chosen when text is drawn, or an existing
@@ -621,8 +629,8 @@ static const char *const names[] = {DGX_FONT_NEEDS(NAME)};
   the wrong font:
 
 ```c
-static dgx_font_t *(*const fonts[POP_FONT_COUNT])(void) = {
-    [POP_FONT_TEXT] = dgx_font_text, [POP_FONT_HAND] = dgx_font_hand, [POP_FONT_TIME] = dgx_font_time,
+static const dgx_font_t *const fonts[POP_FONT_COUNT] = {
+    [POP_FONT_TEXT] = &dgx_font_text, [POP_FONT_HAND] = &dgx_font_hand, [POP_FONT_TIME] = &dgx_font_time,
 };
 ```
 
@@ -691,7 +699,7 @@ The wrapper takes the layout's `font` field (`postscript` and `mm`, or
 `dgx`) and the key labels (`label`, or else `char` and `upper`), writes them
 to `build/dgx_di/keys.letters` and calls `dgx_font_need(keys SIZE 4.5mm
 POSTSCRIPT DejaVuSans TEXTS build/dgx_di/keys.letters)`. The program hands
-the keyboard `dgx_font_keys()`, and the display size in millimeters is the
+the keyboard `&dgx_font_keys`, and the display size in millimeters is the
 one from `dgx_fonts_board`: `DGX_FONTS_BOARD_WIDTH_MM`, `_HEIGHT_MM`.
 
 A component that is also built on the host, as a game engine is, keeps its
@@ -715,8 +723,8 @@ DejaVuSans.ttf 30 0x30 0x39
 ```
 
 In the component's CMakeLists, `dgx_font_list(fonts.list)`: the fonts of the
-list go into the same `dgx_fonts.c` and their functions are declared in the
-same `dgx_fonts.h`. A line without `-n` gets a name from the family and the
+list go into the same `dgx_fonts.c` and are declared in the same
+`dgx_fonts.h`. A line without `-n` gets a name from the family and the
 size, prefixed with the name of the output: `dgx_fonts_DejaVuSansBook30`.
 One face at one size is made once, whoever asked for it, a list or a need.
 
@@ -741,7 +749,7 @@ python3 font2c/dgx_fonts.py json build/dgx_fonts/dgx_fonts.c --font dgx_font_key
 `font2c` has these options for it. `-jo <list>` (repeatable) and `-o <name>`
 put every font of the lists into one `<name>.c` with a `<name>.h`, merging
 duplicates and naming the arrays after the fonts so nothing collides. `-n
-<name>` is for a single run: the function and the files take that name, and
+<name>` is for a single run: the font and the files take that name, and
 the static arrays get it as a prefix. `-p <file>` and `-P <dir>` apply a
 patch of the font editor (see [Glyphs fixed by hand](#glyphs-fixed-by-hand)).
 Without these options the output is unchanged.

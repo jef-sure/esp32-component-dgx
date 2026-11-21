@@ -119,7 +119,7 @@ dgx_screen_t *dgx_vscreen_2h_init(dgx_screen_t *left_screen, dgx_screen_t *right
     base->get_pixel = vscr->base.get_pixel;
     base->set_area = vscr->base.set_area;
     base->write_area = vscr->base.write_area;
-    base->wait_buffer = vscr->base.wait_buffer;
+    base->wait = vscr->base.wait;
     base->solid_circle = vscr->base.solid_circle;
     base->update_screen = dgx_vscreen_2h_update_area;
     scr->left_screen = left_screen;

@@ -5,8 +5,11 @@
 #include "dgx_font.h"
 #include "dgx_hw_font.h"
 #include "dgx_morph_sources.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
+
+/* the calls of before, deprecated until DGX 1.0, are checked here beside those of now; they warn everywhere else */
+DGX_DEPRECATED_USE_BEGIN
 
 /* a font as font2c writes it: "1", "7" with a postponed bar, a lowercase letter with both connections */
 static const dgx_hw_element_t elements[] = {
@@ -25,13 +28,13 @@ static const dgx_hw_symbol_t symbols[] = {
     {1, 2, 1, 0, 40, -58, 0, 12, 51, 12, 51, 40, DGX_HW_NONE, DGX_HW_NONE, 56, 0, 16},
 };
 
-static const glyph_t glyphs[] = {
+static const dgx_glyph_t glyphs[] = {
     {{.elements = elements + 0, .hw = symbols + 0}, 1, 121, 17, 0, -120},
     {{.elements = elements + 1, .hw = symbols + 1}, 51, 122, 51, -12, -121},
     {{.elements = elements + 3, .hw = symbols + 2}, 40, 59, 56, 0, -58},
 };
 
-static const glyph_array_t glyph_ranges[] = {
+static const dgx_glyph_array_t glyph_ranges[] = {
     {0x31, 1, glyphs + 0},
     {0x37, 1, glyphs + 1},
     {0x430, 1, glyphs + 2},
@@ -53,14 +56,14 @@ static const dgx_hw_font_t hw = {
 
 static dgx_font_t font = {
     .glyph_ranges = glyph_ranges,
-    .yAdvance = 202,
-    .yOffsetLowest = -121,
-    .xWidest = 51,
-    .xWidthAverage = 31,
+    .y_advance = 202,
+    .y_offset_lowest = -121,
+    .x_widest = 51,
+    .x_width_average = 31,
     .f_type = DGX_FONT_HW,
-    .yBottomMax = 1,
-    .xOffsetLowest = -12,
-    .xRightMax = 40,
+    .y_bottom_max = 1,
+    .x_offset_lowest = -12,
+    .x_right_max = 40,
     .number_of_ranges = 3,
     .hw = &hw,
 };
@@ -69,17 +72,17 @@ int main(void)
 {
     /* a handwritten symbol is found as any glyph and leads to its path and measures */
     int16_t        advance = 0;
-    const glyph_t *g = dgx_font_find_glyph(0x430, &font, &advance);
+    const dgx_glyph_t *g = dgx_font_glyph(&font, 0x430, &advance);
     CHECK(g == glyphs + 2 && advance == 56);
     CHECK(g->hw->begin_connection == 1 && g->hw->main_segments == 2 && g->hw->end_connection == 1 && g->hw->post_segments == 0);
     CHECK(g->elements[0].type == DGX_HW_CURVE3P && g->elements[1].points[3].y == 187 && g->elements[2].type == DGX_HW_DOT);
-    CHECK(g->hw->up_left == DGX_HW_NONE && g->xOffset == g->hw->left - g->hw->line_left && g->yOffset == g->hw->top);
+    CHECK(g->hw->up_left == DGX_HW_NONE && g->x_offset == g->hw->left - g->hw->line_left && g->y_offset == g->hw->top);
     CHECK(g->hw->space_before == 0 && g->hw->space_after == font.hw->symbol_space);
-    CHECK(g->xAdvance == g->hw->line_width + g->hw->space_after);
-    g = dgx_font_find_glyph(0x37, &font, &advance);
+    CHECK(g->x_advance == g->hw->line_width + g->hw->space_after);
+    g = dgx_font_glyph(&font, 0x37, &advance);
     CHECK(g == glyphs + 1 && g->hw->post_segments == 1 && g->height == g->hw->bottom - g->hw->top + 1);
-    CHECK(g->xOffset == g->hw->space_before + g->hw->left - g->hw->line_left);
-    CHECK(g->xAdvance == g->hw->space_before + g->hw->line_width + g->hw->space_after);
+    CHECK(g->x_offset == g->hw->space_before + g->hw->left - g->hw->line_left);
+    CHECK(g->x_advance == g->hw->space_before + g->hw->line_width + g->hw->space_after);
     CHECK(font.hw->base_line == 139 && font.hw->format_version == 1);
 
     /* the effort of an element is length + k * pieces in cells; a dot takes the least one, nothing takes less */
@@ -94,17 +97,17 @@ int main(void)
     in_order.number_of_ranges = 0;
     for (uint32_t cp = 0; cp < 0x500; ++cp) {
         int16_t        a1 = -1, a2 = -1;
-        const glyph_t *g1 = dgx_font_find_glyph(cp, &font, &a1);
-        const glyph_t *g2 = dgx_font_find_glyph(cp, &in_order, &a2);
+        const dgx_glyph_t *g1 = dgx_font_glyph(&font, cp, &a1);
+        const dgx_glyph_t *g2 = dgx_font_glyph(&in_order, cp, &a2);
         CHECK(g1 == g2 && a1 == a2);
         CHECK((g1 != 0) == (cp == 0x31 || cp == 0x37 || cp == 0x430));
     }
-    dgx_font_t *bitmap_font = TerminusTTFMedium12();
+    const dgx_font_t *bitmap_font = &TerminusTTFMedium12;
     dgx_font_t  halved = *bitmap_font;
-    for (const glyph_array_t *r = bitmap_font->glyph_ranges; r->number; ++r) ++halved.number_of_ranges;
+    for (const dgx_glyph_array_t *r = bitmap_font->glyph_ranges; r->number; ++r) ++halved.number_of_ranges;
     for (uint32_t cp = 0; cp < 0x3000; ++cp) {
         int16_t a1 = -1, a2 = -1;
-        CHECK(dgx_font_find_glyph(cp, bitmap_font, &a1) == dgx_font_find_glyph(cp, &halved, &a2) && a1 == a2);
+        CHECK(dgx_font_glyph(bitmap_font, cp, &a1) == dgx_font_glyph(&halved, cp, &a2) && a1 == a2);
     }
 
     /* the functions of bitmap and dot fonts leave it alone */
@@ -116,12 +119,14 @@ int main(void)
         for (int x = 0; x < 64; ++x) set += dgx_get_pixel(s, x, y) != 0;
     }
     CHECK(set == 0);
-    dgx_font_symbol_morph_t *morph = dgx_font_make_morph_struct(&font, 0x31, 0x37, 0, 0, 0, 0, 1);
+    dgx_font_symbol_morph_t *morph = dgx_font_morph_create(&font, 0x31, 0x37, 0, 0, 0, 0, 1);
     CHECK(morph == NULL);
     /* what it gives back is destroyed as any morph is */
-    dgx_font_make_morph_struct_destroy(&morph);
-    dgx_font_make_morph_struct_destroy(NULL);
+    dgx_font_morph_destroy(&morph);
+    dgx_font_morph_destroy(NULL);
     CHECK(dgx_morph_glyph_matrix(&font, 0x31) == NULL);
     dgx_screen_destroy(&s);
     CHECK_DONE();
 }
+
+DGX_DEPRECATED_USE_END

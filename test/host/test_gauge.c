@@ -1,5 +1,5 @@
 /*
- * The arc gauge: its empty ring is there after dgx_gauge_init(), and a change of the value is one update of the
+ * The arc gauge: its empty ring is there after dgx_gauge_init_with(), and a change of the value is one update of the
  * screen. A pixel of the ring is of one step only: a redraw writes each once, and the picture of a value is the same
  * whichever value the gauge came from.
  */
@@ -9,7 +9,7 @@
 #include "check.h"
 #include "dgx_draw.h"
 #include "dgx_gauge.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 #define W 100
 #define H 100
@@ -25,8 +25,9 @@ static void count_update(dgx_screen_t *scr, int left, int right, int top, int bo
     ++updates;
 }
 
-static uint32_t gauge_color(int value)
+static uint32_t gauge_color(int value, void *user_data)
 {
+    (void)user_data;
     return value < 70 ? LOW : HIGH;
 }
 
@@ -42,8 +43,9 @@ static void counting_fill(dgx_screen_t *scr, int x, int y, int w, int h, uint32_
     plain_fill(scr, x, y, w, h, color);
 }
 
-static uint32_t value_color(int value)
+static uint32_t value_color(int value, void *user_data)
 {
+    (void)user_data;
     return 0x0800u + (uint32_t)value;
 }
 
@@ -56,14 +58,45 @@ static int pixels_of(dgx_screen_t *scr, uint32_t color)
     return n;
 }
 
+/* the user_data of dgx_gauge_init_with() reaches its color function with the values; the deprecated
+ * dgx_gauge_init() with a function of the value alone draws the same ring */
+static uint32_t counted_color(int value, void *user_data)
+{
+    ++*(int *)user_data;
+    return gauge_color(value, NULL);
+}
+
+static uint32_t value_alone(int value) { return value < 70 ? LOW : HIGH; }
+
+static void test_user_data(void)
+{
+    dgx_screen_t *a = dgx_vscreen_init(W, H, 16, DgxScreenRGB), *b = dgx_vscreen_init(W, H, 16, DgxScreenRGB);
+    int           calls = 0;
+    dgx_gauge_t   with, before;
+    dgx_gauge_init_with(&with, a, W / 2, H / 2, 30, 10, 225.0f, 270, 0, 100, BACK, counted_color, &calls);
+    CHECK(calls == 0); /* the empty ring needs no color of a value */
+    dgx_gauge_set_value(&with, 80);
+    CHECK(calls > 0);
+    DGX_DEPRECATED_USE_BEGIN
+    dgx_gauge_init(&before, b, W / 2, H / 2, 30, 10, 225.0f, 270, 0, 100, BACK, value_alone);
+    DGX_DEPRECATED_USE_END
+    dgx_gauge_set_value(&before, 80);
+    int differ = 0;
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < W; ++x) differ += dgx_get_pixel(a, x, y) != dgx_get_pixel(b, x, y);
+    CHECK(differ == 0);
+    dgx_screen_destroy(&a), dgx_screen_destroy(&b);
+}
+
 int main(void)
 {
+    test_user_data();
     dgx_screen_t *scr = dgx_vscreen_init(W, H, 16, DgxScreenRGB);
     scr->update_screen = count_update;
     dgx_gauge_t gauge;
 
     /* the ring is drawn by the constructor, in the background color, as one update */
-    dgx_gauge_init(&gauge, scr, W / 2, H / 2, 30, 10, 225.0f, 270, 0, 100, BACK, gauge_color);
+    dgx_gauge_init_with(&gauge, scr, W / 2, H / 2, 30, 10, 225.0f, 270, 0, 100, BACK, gauge_color, NULL);
     const int ring = pixels_of(scr, BACK);
     CHECK(updates == 1);
     CHECK(ring > 1000); /* a ring of 30 to 40 pixels over three quarters of a circle is about 1650 pixels */
@@ -112,7 +145,7 @@ int main(void)
 
     /* a range of millions, as of the bytes of PSRAM: a value times the degrees of the sweep is more than an int holds */
     dgx_fill_rectangle(scr, 0, 0, W, H, 0);
-    dgx_gauge_init(&gauge, scr, W / 2, H / 2, 30, 10, 225.0f, 270, 0, 8388608, BACK, gauge_color);
+    dgx_gauge_init_with(&gauge, scr, W / 2, H / 2, 30, 10, 225.0f, 270, 0, 8388608, BACK, gauge_color, NULL);
     CHECK(pixels_of(scr, BACK) == ring);
     dgx_gauge_set_value(&gauge, 8000000);
     CHECK(gauge.active_steps == 257);
@@ -123,7 +156,7 @@ int main(void)
     /* the steps go with the clock, and against it for a negative sweep: from the top over the right side, or over the left one */
     for (int sweep = -180; sweep <= 180; sweep += 360) {
         dgx_fill_rectangle(scr, 0, 0, W, H, 0);
-        dgx_gauge_init(&gauge, scr, W / 2, H / 2, 30, 10, 90.0f, sweep, 0, 100, BACK, gauge_color);
+        dgx_gauge_init_with(&gauge, scr, W / 2, H / 2, 30, 10, 90.0f, sweep, 0, 100, BACK, gauge_color, NULL);
         const int empty = pixels_of(scr, BACK);
         CHECK(empty > 900);
         dgx_gauge_set_value(&gauge, 100);
@@ -147,7 +180,7 @@ int main(void)
         dgx_screen_t *again = dgx_vscreen_init(W, H, 16, DgxScreenRGB);
         dgx_gauge_t   other;
         dgx_fill_rectangle(scr, 0, 0, W, H, 0);
-        dgx_gauge_init(&gauge, scr, W / 2, H / 2, inner, width, 225.0f, sweep, 0, steps, BACK, value_color);
+        dgx_gauge_init_with(&gauge, scr, W / 2, H / 2, inner, width, 225.0f, sweep, 0, steps, BACK, value_color, NULL);
         dgx_gauge_set_value(&gauge, steps);
         memset(writes, 0, sizeof(writes));
         scr->fill_rectangle = counting_fill;
@@ -164,7 +197,7 @@ int main(void)
             dgx_gauge_set_value(&gauge, 0);
             for (int v = 0; v <= value; ++v) dgx_gauge_set_value(&gauge, v);
             dgx_fill_rectangle(again, 0, 0, W, H, 0);
-            dgx_gauge_init(&other, again, W / 2, H / 2, inner, width, 225.0f, sweep, 0, steps, BACK, value_color);
+            dgx_gauge_init_with(&other, again, W / 2, H / 2, inner, width, 225.0f, sweep, 0, steps, BACK, value_color, NULL);
             dgx_gauge_set_value(&other, value);
             for (int y = 0; y < H; ++y)
                 for (int x = 0; x < W; ++x) differ += dgx_get_pixel(scr, x, y) != dgx_get_pixel(again, x, y);

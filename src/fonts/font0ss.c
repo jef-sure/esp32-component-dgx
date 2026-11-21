@@ -1014,7 +1014,7 @@ static const dgx_hw_symbol_t symbols[] = {
     {0, 2, 0, 0,   1,  -81,  -40,  10,  10,  10,  10,   1,  10,  10,  41, 12, 28}, /* 2236 */
 };
 
-static const glyph_t glyphs[] = {
+static const dgx_glyph_t glyphs[] = {
     {{.elements = elements +    0, .hw = symbols +   0},  30, 117,  42,  12, -119}, /* 0021 */
     {{.elements = elements +    2, .hw = symbols +   1},  19,  19,  35,   0, -121}, /* 0022 */
     {{.elements = elements +    4, .hw = symbols +   2},  75, 121,  91,   0, -120}, /* 0026 */
@@ -1172,7 +1172,7 @@ static const glyph_t glyphs[] = {
     {{.elements = elements +  690, .hw = symbols + 154},   1,  42,  41,  12,  -81}, /* 2236 */
 };
 
-static const glyph_array_t glyph_ranges[] = {
+static const dgx_glyph_array_t glyph_ranges[] = {
     {0x0021,   2, glyphs +   0},
     {0x0026,   4, glyphs +   2},
     {0x002c,   3, glyphs +   6},
@@ -1213,20 +1213,16 @@ static const dgx_hw_font_t hw = {
     .symbol_size_y = 202,
 };
 
-dgx_font_t *font0ss()
-{
-    static dgx_font_t rval = {
-        .glyph_ranges = glyph_ranges,
-        .yAdvance = 202,
-        .yOffsetLowest = -139,
-        .xWidest = 96,
-        .xWidthAverage = 64,
-        .f_type = DGX_FONT_HW,
-        .yBottomMax = 63,
-        .xOffsetLowest = -36,
-        .xRightMax = 102,
-        .number_of_ranges = 24,
-        .hw = &hw,
-    };
-    return &rval;
-}
+const dgx_font_t font0ss = {
+    .glyph_ranges = glyph_ranges,
+    .y_advance = 202,
+    .y_offset_lowest = -139,
+    .x_widest = 96,
+    .x_width_average = 64,
+    .f_type = DGX_FONT_HW,
+    .y_bottom_max = 63,
+    .x_offset_lowest = -36,
+    .x_right_max = 102,
+    .number_of_ranges = 24,
+    .hw = &hw,
+};

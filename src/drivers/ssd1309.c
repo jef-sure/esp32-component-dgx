@@ -155,7 +155,7 @@ void dgx_ssd1309_update_screen(dgx_screen_t *scr_, int left, int right, int top,
     }
 }
 
-void dgx_ssd1309_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+static void ssd1309_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
     dgx_ssd1309_t *scr = (dgx_ssd1309_t *)scr_;
     int            pw, ph;
@@ -199,7 +199,7 @@ static esp_err_t dgx_ssd1309_brightness(dgx_screen_t *scr_, uint8_t level)
 }
 
 static const dgx_screen_control_t dgx_ssd1309_control = {
-    .orientation = dgx_ssd1309_orientation,
+    .orientation = ssd1309_orientation,
     .display     = dgx_ssd1309_display,
     .brightness  = dgx_ssd1309_brightness,
 };
@@ -209,8 +209,12 @@ static void dgx_ssd1309_destroy_screen(dgx_screen_t **pscr)
     dgx_bw_destroy_screen(pscr);
 }
 
-dgx_screen_t *dgx_ssd1309_init(dgx_bus_protocols_t *bus, dgx_ssd1309_resolution_t resolution, gpio_num_t rst)
+dgx_screen_t *dgx_ssd1309_init(dgx_bus_protocols_t *bus, gpio_num_t rst, dgx_ssd1309_resolution_t resolution)
 {
+    if ((int)rst >= DGX_SSD1309_128X64) {
+        ESP_LOGE(TAG, "dgx_ssd1309_init: rst %d is a resolution: since DGX 0.12 the order is (bus, rst, resolution)", (int)rst);
+        return NULL;
+    }
     int16_t width;
     int16_t height;
     switch (resolution) {
@@ -296,4 +300,10 @@ dgx_screen_t *dgx_ssd1309_init(dgx_bus_protocols_t *bus, dgx_ssd1309_resolution_
         }
     }
     return (dgx_screen_t *)scr;
+}
+
+/* deprecated until DGX 1.0: dgx_screen_orientation() */
+void dgx_ssd1309_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+{
+    ssd1309_orientation(scr, dir_x, dir_y, swap_xy);
 }

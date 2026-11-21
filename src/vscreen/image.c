@@ -217,13 +217,13 @@ static bool image_window(dgx_screen_t *dst, const image_walk_t *wk, uint32_t col
     if (bytes > dst->draw_buffer_len) return false;
     const unsigned format = wk->image->format;
     /* the buffer free first: waiting after the window would send its command alone, ahead of the pixels */
-    if (dst->wait_buffer) dst->wait_buffer(dst);
+    if (dst->wait) dst->wait(dst);
     dst->set_area(dst, (uint16_t)left, (uint16_t)(right - 1), (uint16_t)top, (uint16_t)(bottom - 1));
     for (int y = top; y < bottom; ++y) {
         int sx, sy, dx, dy;
         image_row_start(wk, left, y, &sx, &sy, &dx, &dy);
         /* the row before may still be on its way from the buffer */
-        if (dst->wait_buffer) dst->wait_buffer(dst);
+        if (dst->wait) dst->wait(dst);
         uint8_t *lp = dst->draw_buffer;
         for (int i = 0; i < n; ++i, sx += dx, sy += dy)
             lp = dgx_fill_buf_value(dst->color_bits, lp, (uint32_t)i, image_inked(wk->image->data + (size_t)sy * wk->stride, format, sx) ? color : bg);

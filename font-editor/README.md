@@ -57,7 +57,9 @@ alone.
    for `dgx_fonts.c`, with a part for each font. This is the source of the
    fixes. **Save .c** writes the .c as font2c makes it with the patch, byte
    for byte, but the patch is what is kept: font2c makes the .c from it
-   again whenever the font changes. Each part records
+   again whenever the font changes. A .c font2c made before DGX 0.12, where
+   the font is a function and not a constant, is written back in that form,
+   so that it still agrees with its header. Each part records
    which font and size it is for when the .c says so (a .c font2c makes now
    has a comment for it; an older one does not, and the editor tells you
    above the glyphs), and font2c then gives it to that font only.

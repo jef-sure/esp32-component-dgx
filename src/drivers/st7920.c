@@ -223,9 +223,11 @@ static esp_err_t dgx_st7920_display(dgx_screen_t *scr_, bool on)
     return ESP_OK;
 }
 
+static void st7920_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
+static esp_err_t st7920_backlight(dgx_screen_t *scr, bool on);
 static const dgx_screen_control_t dgx_st7920_control = {
-    .orientation = dgx_st7920_orientation,
-    .backlight   = dgx_st7920_backlight,
+    .orientation = st7920_orientation,
+    .backlight   = st7920_backlight,
     .display     = dgx_st7920_display,
 };
 
@@ -292,13 +294,24 @@ dgx_screen_t *dgx_st7920_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
     return (dgx_screen_t *)scr;
 }
 
-void dgx_st7920_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+static void st7920_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
     dgx_soft_turn_set(scr_, ((dgx_st7920_t *)scr_)->base.v_array, ST7920_WIDTH, ST7920_HEIGHT, dir_x, dir_y, swap_xy);
     dgx_st7920_update_screen(scr_, 0, scr_->width - 1, 0, scr_->height - 1);
 }
 
-esp_err_t dgx_st7920_backlight(dgx_screen_t *scr, bool on)
+static esp_err_t st7920_backlight(dgx_screen_t *scr, bool on)
 {
     return dgx_backlight_set(((dgx_st7920_t *)scr)->backlight, on);
+}
+
+/* deprecated until DGX 1.0: dgx_screen_orientation() and dgx_screen_backlight() */
+void dgx_st7920_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+{
+    st7920_orientation(scr, dir_x, dir_y, swap_xy);
+}
+
+esp_err_t dgx_st7920_backlight(dgx_screen_t *scr, bool on)
+{
+    return st7920_backlight(scr, on);
 }

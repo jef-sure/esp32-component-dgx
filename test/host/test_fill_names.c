@@ -1,6 +1,6 @@
 /*
- * The filled figures under one scheme of names, dgx_fill_*, and the names of before, which are the same
- * functions; dgx_draw_thick_line() and dgx_draw_line_thick() likewise. dgx_fill_ellipse() is the whole
+ * The filled figures under one scheme of names, dgx_fill_*, and the names of before, deprecated until DGX 1.0,
+ * which draw the same; dgx_draw_thick_line() and dgx_draw_line_thick() likewise. dgx_fill_ellipse() is the whole
  * turn of dgx_fill_sector() and, with equal radii, the circle of dgx_fill_circle(); it is the outline of
  * dgx_draw_ellipse() and all within it. dgx_draw_triangle() is three lines of dgx_draw_line().
  */
@@ -10,7 +10,10 @@
 
 #include "check.h"
 #include "dgx_draw.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
+
+/* the names of before are what this test calls: they warn everywhere else */
+DGX_DEPRECATED_USE_BEGIN
 
 #define W 96
 #define H 80
@@ -73,8 +76,8 @@ typedef void (*polygon4_func)(dgx_screen_t *scr, int x0, int y0, int x1, int y1,
 typedef void (*line_func)(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int width, uint32_t color);
 
 /*
- * A name of before is its function of now: taken as a pointer it is the same address, and called, it
- * draws the same picture. A program written with the old names compiles as it did.
+ * A name of before takes the arguments of its function of now, taken as a pointer of its type, and
+ * called, it draws the same picture. A program written with the old names compiles as it did.
  */
 static void test_names(dgx_screen_t *a, dgx_screen_t *b)
 {
@@ -83,8 +86,8 @@ static void test_names(dgx_screen_t *a, dgx_screen_t *b)
     const triangle_func triangle_old = dgx_draw_triangle_solid, triangle_new = dgx_fill_triangle;
     const polygon4_func polygon4_old = dgx_draw_polygon4_solid, polygon4_new = dgx_fill_polygon4;
     const line_func     line_old = dgx_draw_line_thick, line_new = dgx_draw_thick_line;
-    CHECK(circle_old == circle_new && sector_old == sector_new && triangle_old == triangle_new && polygon4_old == polygon4_new &&
-          line_old == line_new);
+    CHECK(circle_old && circle_new && sector_old && sector_new && triangle_old && triangle_new && polygon4_old && polygon4_new && line_old &&
+          line_new);
 
     int bad = 0;
     for (int i = 0; i < 300; ++i) {
@@ -339,3 +342,5 @@ int main(void)
     dgx_screen_destroy(&a16), dgx_screen_destroy(&b16), dgx_screen_destroy(&a8), dgx_screen_destroy(&b8);
     CHECK_DONE();
 }
+
+DGX_DEPRECATED_USE_END

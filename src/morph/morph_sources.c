@@ -21,19 +21,19 @@ static bool dgx_morph_glyph_set(void *user_data, int x, int y)
 /* Fonts generated before yBottomMax/xOffsetLowest/xRightMax fall back to a glyph scan. */
 static bool dgx_morph_font_box(const dgx_font_t *font, int *left, int *top, int *right, int *bottom)
 {
-    if (font->xRightMax > font->xOffsetLowest && font->yBottomMax > font->yOffsetLowest) {
-        *left = font->xOffsetLowest;
-        *top = font->yOffsetLowest;
-        *right = font->xRightMax;
-        *bottom = font->yBottomMax;
+    if (font->x_right_max > font->x_offset_lowest && font->y_bottom_max > font->y_offset_lowest) {
+        *left = font->x_offset_lowest;
+        *top = font->y_offset_lowest;
+        *right = font->x_right_max;
+        *bottom = font->y_bottom_max;
         return true;
     }
     bool any = false;
-    for (const glyph_array_t *r = font->glyph_ranges; r && r->number; ++r) {
+    for (const dgx_glyph_array_t *r = font->glyph_ranges; r && r->number; ++r) {
         for (int i = 0; i < r->number; ++i) {
-            const glyph_t *g = &r->glyphs[i];
+            const dgx_glyph_t *g = &r->glyphs[i];
             if (g->width <= 0 || g->height <= 0) continue;
-            int l = g->xOffset, t = g->yOffset;
+            int l = g->x_offset, t = g->y_offset;
             int rr = l + g->width, b = t + g->height;
             if (!any || l < *left) *left = l;
             if (!any || t < *top) *top = t;
@@ -45,7 +45,7 @@ static bool dgx_morph_font_box(const dgx_font_t *font, int *left, int *top, int 
     return any;
 }
 
-dgx_bit_matrix_t *dgx_morph_glyph_matrix(dgx_font_t *font, uint32_t code_point)
+dgx_bit_matrix_t *dgx_morph_glyph_matrix(const dgx_font_t *font, uint32_t code_point)
 {
     if (!font || font->f_type == DGX_FONT_HW) return NULL; /* a handwritten font has pen paths, not pixels */
     int left, top, right, bottom;
@@ -54,12 +54,12 @@ dgx_bit_matrix_t *dgx_morph_glyph_matrix(dgx_font_t *font, uint32_t code_point)
     if (!m) return NULL;
 
     int16_t x_advance;
-    const glyph_t *g = dgx_font_find_glyph(code_point, font, &x_advance);
+    const dgx_glyph_t *g = dgx_font_glyph(font, code_point, &x_advance);
     if (!g) return m;
     dgx_morph_glyph_ctx_t ctx = {
         .matrix = m,
-        .x0 = g->xOffset - left,
-        .y0 = g->yOffset - top,
+        .x0 = g->x_offset - left,
+        .y0 = g->y_offset - top,
     };
     if (font->f_type == DGX_FONT_DOTS) {
         for (size_t i = 0; i < g->number_of_dots; ++i) {
@@ -93,7 +93,7 @@ static uint32_t dgx_morph_text_next(const char *utf8, size_t len, size_t *idx)
 }
 
 dgx_morph_text_t *dgx_morph_text_create(
-    dgx_font_t              *font,
+    const dgx_font_t              *font,
     const char              *from,
     const char              *to,
     size_t                   length,

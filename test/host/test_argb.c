@@ -12,7 +12,7 @@
 #include "dgx_bits.h"
 #include "dgx_bw_screen.h"
 #include "dgx_draw.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 #define W 13
 #define H 5

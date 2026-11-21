@@ -25,7 +25,7 @@ static bool _dgx_dots_collect(void *user_data, int x, int y)
  * of dgx_font_dot_t of a dot font. NULL with no dots for no glyph or one
  * without set pixels; NULL with the dots counted when there is no memory.
  */
-static dgx_point_2d_t *_dgx_dots_from_bitmap(const dgx_font_t *font, const glyph_t *g, int *number_of_dots)
+static dgx_point_2d_t *_dgx_dots_from_bitmap(const dgx_font_t *font, const dgx_glyph_t *g, int *number_of_dots)
 {
     if (!g) {
         *number_of_dots = 0;
@@ -51,7 +51,7 @@ static inline dgx_point_2d_t _dgx_dot_at(const dgx_font_dot_t *dots, const dgx_p
     return (dgx_point_2d_t){ .x = dots[i].x, .y = dots[i].y };
 }
 
-static dgx_point_2d_t _dgx_empty_glyph_anchor(int x, int y, int x_shift, int y_shift, const glyph_t *g, int scale)
+static dgx_point_2d_t _dgx_empty_glyph_anchor(int x, int y, int x_shift, int y_shift, const dgx_glyph_t *g, int scale)
 {
     dgx_point_2d_t anchor = {
         .x = x + x_shift,
@@ -67,7 +67,7 @@ static dgx_point_2d_t _dgx_empty_glyph_anchor(int x, int y, int x_shift, int y_s
 }
 
 dgx_font_symbol_morph_t *dgx_font_morph_create( //
-    dgx_font_t *font,                                //
+    const dgx_font_t *font,                                //
     uint32_t    fromCP,                              //
     uint32_t    toCP,                                //
     int         from_x,                              //
@@ -86,14 +86,14 @@ dgx_font_symbol_morph_t *dgx_font_morph_create( //
         ESP_LOGE(TAG, "Memory allocation for dgx_font_symbol_morph_t failed");
         return NULL;
     }
-    ret->fromCP        = fromCP;
-    ret->toCP          = toCP;
+    ret->from_cp        = fromCP;
+    ret->to_cp          = toCP;
     ret->scale         = scale;
     ret->is_from_empty = true;
     ret->is_to_empty   = true;
     int16_t               xAdvance;
-    const glyph_t        *gFrom = dgx_font_find_glyph(fromCP, font, &xAdvance);
-    const glyph_t        *gTo   = dgx_font_find_glyph(toCP, font, &xAdvance);
+    const dgx_glyph_t        *gFrom = dgx_font_glyph(font, fromCP, &xAdvance);
+    const dgx_glyph_t        *gTo   = dgx_font_glyph(font, toCP, &xAdvance);
     int                   from_number_of_dots;
     int                   to_number_of_dots;
     const dgx_font_dot_t *from_dots     = NULL;
@@ -102,10 +102,10 @@ dgx_font_symbol_morph_t *dgx_font_morph_create( //
     dgx_point_2d_t       *to_dots_tmp   = NULL;
     int                   max_sym_height;
     int                   max_sym_width;
-    int                   x_shift_from = gFrom ? gFrom->xOffset * scale : 0;
-    int                   y_shift_from = gFrom ? gFrom->yOffset * scale : 0;
-    int                   x_shift_to   = gTo ? gTo->xOffset * scale : 0;
-    int                   y_shift_to   = gTo ? gTo->yOffset * scale : 0;
+    int                   x_shift_from = gFrom ? gFrom->x_offset * scale : 0;
+    int                   y_shift_from = gFrom ? gFrom->y_offset * scale : 0;
+    int                   x_shift_to   = gTo ? gTo->x_offset * scale : 0;
+    int                   y_shift_to   = gTo ? gTo->y_offset * scale : 0;
     max_sym_height                     = gFrom ? gFrom->height : 0;
     max_sym_width                      = gFrom ? gFrom->width : 0;
     if (gTo) {

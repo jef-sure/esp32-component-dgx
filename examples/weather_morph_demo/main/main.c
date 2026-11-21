@@ -169,7 +169,7 @@ static bool morph_once(dgx_screen_t *screen, const dgx_bit_matrix_t *from, const
 }
 
 /* one lap: the first symbol gathers from nothing, the last one goes back into it */
-static bool run_lap(dgx_screen_t *screen, dgx_font_t *font, const char *title, const symbol_t *symbols, size_t count)
+static bool run_lap(dgx_screen_t *screen, const dgx_font_t *font, const char *title, const symbol_t *symbols, size_t count)
 {
     dgx_bit_matrix_t *from = NULL;
     bool ok = true;
@@ -210,7 +210,7 @@ void app_main(void)
     dgx_screen_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, DGX_BLACK(dgx_rgb_to_16));
 
-    dgx_font_t *font = WeatherIconsRegular27();
+    const dgx_font_t *font = &WeatherIconsRegular27;
     dgx_bit_matrix_t *box = dgx_morph_glyph_matrix(font, by_weather[0].code);
     if (!box || !create_renderer(screen, box->width, box->height)) {
         ESP_LOGE(TAG, "Unable to fit the font on screen or allocate the renderer");

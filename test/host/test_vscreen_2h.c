@@ -16,7 +16,7 @@
 #include "dgx_screen_functions.h"
 #include "dgx_screen_with_bus.h"
 #include "dgx_overlay.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "drivers/vscreen_2h.h"
 #include "vscreen/vscreen_2h.c"
 
@@ -193,7 +193,7 @@ int main(void)
         int wrong = 0;
         for (int round = 0; round < 300; ++round) {
             /* bands across both panels, every row of a color of its own, and rectangles anywhere */
-            dgx_screen_progress_up(both);
+            dgx_screen_batch_begin(both);
             if (round % 2) {
                 const int top = rnd(0, both->height - 1), bottom = rnd(top, both->height - 1);
                 for (int y = top; y <= bottom; ++y) dgx_fill_rectangle(both, 0, y, both->width, 1, (uint32_t)rnd(0, 0xffff));
@@ -201,7 +201,7 @@ int main(void)
                 const int x = rnd(-5, both->width), y = rnd(-5, both->height);
                 dgx_fill_rectangle(both, x, y, rnd(1, both->width), rnd(1, both->height), (uint32_t)rnd(0, 0xffff));
             }
-            dgx_screen_progress_down(both);
+            dgx_screen_batch_end(both);
             wrong += panel_wrong(&lm, both, 0) + panel_wrong(&rm, both, left->width);
         }
         if (wrong) fprintf(stderr, "two panels of %dx%d and %dx%d: %d pixels wrong\n", sizes[kind][0], sizes[kind][1], sizes[kind][2], sizes[kind][3], wrong);

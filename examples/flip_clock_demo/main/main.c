@@ -85,7 +85,7 @@ static bool draw_digit_texture(dgx_screen_t *tex, uint8_t digit)
     char str[2] = {(char)('0' + digit % 10), '\0'};
 
     /* The digit as large as it is drawn: the measures count the scale. The panel is made by them, so scr comes later. */
-    dgx_font_context_t text = {.font = CasusDotView(), .scale = scale, .dot_func = draw_dot};
+    dgx_font_context_t text = {.font = &CasusDotView, .scale = scale, .dot_func = draw_dot};
     int top, glyph_h;
     int glyph_w = dgx_font_bounds(&text, str, &top, &glyph_h);
     int panel_w = DGX_MAX(glyph_w + 14, 24);

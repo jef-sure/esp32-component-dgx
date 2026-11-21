@@ -12,9 +12,12 @@
 #include "check.h"
 #include "dgx_draw.h"
 #include "dgx_hw_font.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
 #include "fonts/font0ss.h"
+
+/* the calls of before, deprecated until DGX 1.0, are checked here beside those of now; they warn everywhere else */
+DGX_DEPRECATED_USE_BEGIN
 
 #define W 640
 #define H 440
@@ -119,7 +122,7 @@ static const int pens[] = {1, 2, 3, 4, 7, 10, DGX_PEN_SOFT | 1, DGX_PEN_SOFT | 2
 /* dgx_hw_draw() against dgx_hw_draw_text_xy(), on a screen of ink (a soft pen is soft there) and on one of colors */
 static void draws_the_same(void)
 {
-    dgx_font_t *font = font0ss();
+    const dgx_font_t *font = &font0ss;
     for (int bits = 8; bits <= 16; bits += 8) {
         dgx_screen_t  *a = dgx_vscreen_init(W, H, bits, DgxScreenRGB), *b = dgx_vscreen_init(W, H, bits, DgxScreenRGB);
         const uint32_t color   = bits == 8 ? 0xe0 : 0xffff;
@@ -172,7 +175,7 @@ static void draws_the_same(void)
 /* a text written from a context goes as one begun with arguments, step for step; the context may go once it is begun */
 static void writes_the_same(void)
 {
-    dgx_font_t         *font = font0ss();
+    const dgx_font_t         *font = &font0ss;
     dgx_screen_t       *a = dgx_vscreen_init(W, H, 8, DgxScreenRGB), *b = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
     const char         *text     = "Ёжик, 15";
     const dgx_hw_pace_t pace     = dgx_hw_pace(font, 0.5f);
@@ -208,7 +211,7 @@ static void writes_the_same(void)
 /* a frame of a morph from a context is the frame drawn with arguments */
 static void morphs_the_same(void)
 {
-    dgx_font_t     *font = font0ss();
+    const dgx_font_t     *font = &font0ss;
     dgx_screen_t   *a = dgx_vscreen_init(W, H, 8, DgxScreenRGB), *b = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
     dgx_hw_morph_t *m = dgx_hw_morph_create(font, "15", "08", false);
     CHECK(m != NULL);
@@ -251,7 +254,7 @@ static void morphs_the_same(void)
  */
 static void bounds_hold_the_ink(void)
 {
-    dgx_font_t *font = font0ss();
+    const dgx_font_t *font = &font0ss;
     for (int bits = 8; bits <= 16; bits += 8) {
         dgx_screen_t  *s     = dgx_vscreen_init(W, H, bits, DgxScreenRGB);
         const uint32_t color = bits == 8 ? 0xff : 0xffff;
@@ -311,7 +314,7 @@ static void bounds_hold_the_ink(void)
 
 static void bounds_of_nothing_and_defaults(void)
 {
-    dgx_font_t *font = font0ss();
+    const dgx_font_t *font = &font0ss;
     int         l = 7, t = 7, w = 7, h = 7;
 
     /* no symbol of the font: nothing painted, zeros */
@@ -320,7 +323,7 @@ static void bounds_of_nothing_and_defaults(void)
     l = t = w = h = 7;
     CHECK(!dgx_hw_bounds(&ctx, " @\n ", &l, &t, &w, &h) && l == 0 && t == 0 && w == 0 && h == 0);
     /* a font of another kind, no font, a pen below nothing */
-    const dgx_hw_context_t other    = {.font = TerminusTTFMedium12(), .scale_x = 0.4f, .width = 3};
+    const dgx_hw_context_t other    = {.font = &TerminusTTFMedium12, .scale_x = 0.4f, .width = 3};
     const dgx_hw_context_t fontless = {.scale_x = 0.4f, .width = 3};
     const dgx_hw_context_t penless  = {.font = font, .scale_x = 0.4f, .width = -1};
     l                               = 7;
@@ -359,7 +362,7 @@ static void bounds_of_nothing_and_defaults(void)
 /* the box of a morph holds every frame of it, and the frames of the letters of a text morphed letter by letter */
 static void morph_bounds_hold_the_frames(void)
 {
-    dgx_font_t   *font = font0ss();
+    const dgx_font_t   *font = &font0ss;
     dgx_screen_t *s    = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
     static const struct
     {
@@ -464,7 +467,7 @@ static void morph_bounds_hold_the_frames(void)
 /* a text and a frame reach the screen as one update each, and the update lies within the box */
 static void one_update_a_call(void)
 {
-    dgx_font_t   *font         = font0ss();
+    const dgx_font_t   *font         = &font0ss;
     dgx_screen_t *s            = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
     s->update_screen           = record;
     const dgx_hw_context_t ctx = {.scr = s, .font = font, .scale_x = 0.4f, .width = 3, .color = 0xff, .joined = true};
@@ -518,3 +521,5 @@ int main(void)
     one_update_a_call();
     CHECK_DONE();
 }
+
+DGX_DEPRECATED_USE_END

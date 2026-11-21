@@ -8,8 +8,11 @@
 #include "dgx_draw.h"
 #include "dgx_hw_font.h"
 #include "dgx_screen_with_bus.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/font0ss.h"
+
+/* the calls of before, deprecated until DGX 1.0, are checked here beside those of now; they warn everywhere else */
+DGX_DEPRECATED_USE_BEGIN
 
 /*
  * A part of an 8-bit virtual screen sent to a 16-bit one, and the area a
@@ -197,7 +200,7 @@ static void test_region(void)
     dgx_screen_with_bus_t sbus = {.bus = &bus};
     dgx_screen_t         *lcd = &sbus.scr;
     lcd->width = DW, lcd->height = DH, lcd->color_bits = 16, lcd->screen_subtype = DgxPhysicalScreenWithBus;
-    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait_buffer = panel_wait;
+    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait = panel_wait;
     lcd->set_pixel = panel_set_pixel, lcd->update_screen = panel_update;
 
     /* rectangles the buffer takes whole, of rows that fit in a half of it, and of rows cut */
@@ -215,8 +218,8 @@ static void test_region(void)
         const int      n = 1 + (round >> 4) % 4;
         /* every other block of rounds smooths, by Scale2x and Scale3x or by their SFX kin; at 1 that changes nothing */
         const bool     smooth = (round >> 6) & 1, sfx = (round >> 7) & 1;
-        const uint32_t flags = (transparent ? DGX_LUT_TRANSPARENT : 0) | (n > 1 || round % 3 ? DGX_LUT_SCALE(n) : 0) |
-                               (smooth ? (sfx ? DGX_VSCREEN_SMOOTH_SFX : DGX_LUT_SMOOTH) : 0);
+        const uint32_t flags = (transparent ? DGX_VSCREEN_TRANSPARENT : 0) | (n > 1 || round % 3 ? DGX_VSCREEN_SCALE(n) : 0) |
+                               (smooth ? (sfx ? DGX_VSCREEN_SMOOTH_SFX : DGX_VSCREEN_SMOOTH) : 0);
         smoothed = smooth && n > 1 ? (sfx ? REF_SFX : REF_SMOOTH) : REF_BLOCKS;
         smoothed_rounds += smoothed != REF_BLOCKS;
         src = smooth ? few : plain;
@@ -346,7 +349,7 @@ static void test_ink(void)
     dgx_screen_with_bus_t sbus = {.bus = &bus};
     dgx_screen_t         *lcd = &sbus.scr;
     lcd->width = DW, lcd->height = DH, lcd->color_bits = 16, lcd->screen_subtype = DgxPhysicalScreenWithBus;
-    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait_buffer = panel_wait;
+    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait = panel_wait;
     lcd->set_pixel = panel_set_pixel, lcd->update_screen = panel_update;
 
     int asked_wrongly = 0;
@@ -356,7 +359,7 @@ static void test_ink(void)
         /* the table of two colors, the bent one, the stepped one, the two colors with a hole for 0, the two colors asked for to the last bit */
         const int       which = (round / 3) % 5;
         uint16_t       *table = which == 1 ? bent : which == 2 ? stepped : straight;
-        const uint32_t  transparent = which == 3 ? DGX_LUT_TRANSPARENT : which == 4 ? DGX_LUT_EXACT : 0;
+        const uint32_t  transparent = which == 3 ? DGX_VSCREEN_TRANSPARENT : which == 4 ? DGX_VSCREEN_EXACT : 0;
         int             x = rnd(-SW - 3, DW + 3), y = rnd(-SH - 3, DH + 3);
         int             left = rnd(-6, SW + 5), top = rnd(-6, SH + 5), width = rnd(-2, SW + 8), height = rnd(-2, SH + 8);
         if (round % 7 == 0) left = 0, top = 0, width = SW, height = SH;
@@ -403,30 +406,30 @@ static void test_take(void)
     int           l = -1, t = -1, w = -1, h = -1;
     /* a screen of dgx_vscreen_init() has an update_screen that does nothing, so closing a batch costs nothing and loses nothing */
     CHECK(s->update_screen != 0);
-    dgx_screen_progress_up(s);
+    dgx_screen_batch_begin(s);
     dgx_fill_rectangle(s, 3, 4, 5, 6, 1);
     dgx_set_pixel(s, 20, 25, 1);
-    CHECK(dgx_screen_progress_down(s) == 0 && s->dirty_right == 0 && s->in_progress == 0);
+    CHECK(dgx_screen_batch_end(s) == 0 && s->dirty_right == 0 && s->in_progress == 0);
 
     s->update_screen = count_update;
     /* nothing has changed */
-    dgx_screen_progress_up(s);
+    dgx_screen_batch_begin(s);
     CHECK(!dgx_screen_take_dirty(s, &l, &t, &w, &h) && l == 0 && t == 0 && w == 0 && h == 0);
     /* what has changed is taken once, and closing the batch sends nothing after that */
     dgx_fill_rectangle(s, 3, 4, 5, 6, 1);
     dgx_set_pixel(s, 20, 25, 1);
     CHECK(dgx_screen_take_dirty(s, &l, &t, &w, &h) && l == 3 && t == 4 && w == 18 && h == 22);
     CHECK(!dgx_screen_take_dirty(s, &l, &t, &w, &h) && w == 0 && h == 0);
-    CHECK(dgx_screen_progress_down(s) == 0 && updates == 0);
+    CHECK(dgx_screen_batch_end(s) == 0 && updates == 0);
     /* a batch kept open over many takes: each gives what was drawn since the one before */
-    dgx_screen_progress_up(s);
+    dgx_screen_batch_begin(s);
     dgx_set_pixel(s, 1, 2, 1);
     CHECK(dgx_screen_take_dirty(s, &l, &t, &w, &h) && l == 1 && t == 2 && w == 1 && h == 1);
     dgx_fill_rectangle(s, 30, 20, 100, 100, 1);
     CHECK(dgx_screen_take_dirty(s, &l, &t, &w, &h) && l == 30 && t == 20 && w == 10 && h == 10);
     dgx_fill_rectangle(s, 50, 50, 5, 5, 1); /* off the screen */
     CHECK(!dgx_screen_take_dirty(s, &l, &t, &w, &h));
-    dgx_screen_progress_down(s);
+    dgx_screen_batch_end(s);
     CHECK(updates == 0);
     /* outside a batch every change is sent at once and there is nothing to take */
     dgx_set_pixel(s, 5, 5, 1);
@@ -466,9 +469,9 @@ static int changed_outside(dgx_screen_t *s, int *changed)
 static void test_marks(void)
 {
     dgx_screen_t *s = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
-    dgx_font_t   *font = font0ss();
+    const dgx_font_t   *font = &font0ss;
     int           changed, drawn = 0;
-    dgx_screen_progress_up(s); /* kept open: the areas are taken, not sent */
+    dgx_screen_batch_begin(s); /* kept open: the areas are taken, not sent */
 
     for (int round = 0; round < 300; ++round) {
         uint32_t ink = (uint32_t)rnd(1, 255);
@@ -478,7 +481,7 @@ static void test_marks(void)
         drawn += changed;
 
         snapshot(s);
-        dgx_solid_circle(s, rnd(-10, W + 10), rnd(-10, H + 10), rnd(0, 25), ink ^ 0x55);
+        dgx_fill_circle(s, rnd(-10, W + 10), rnd(-10, H + 10), rnd(0, 25), ink ^ 0x55);
         CHECK(changed_outside(s, &changed) == 0);
         drawn += changed;
 
@@ -532,7 +535,7 @@ static void test_marks(void)
     }
     dgx_hw_morph_destroy(&m);
 
-    dgx_screen_progress_down(s);
+    dgx_screen_batch_end(s);
     dgx_screen_destroy(&s);
 }
 
@@ -544,3 +547,5 @@ int main(void)
     test_marks();
     CHECK_DONE();
 }
+
+DGX_DEPRECATED_USE_END

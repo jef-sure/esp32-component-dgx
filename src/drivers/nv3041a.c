@@ -187,10 +187,10 @@ dgx_screen_t *dgx_nv3041a_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_nu
 
 void dgx_nv3041a_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
-    dgx_panel_orientation(scr, dir_x, dir_y, swap_xy);
+    dgx_screen_orientation(scr, dir_x, dir_y, swap_xy);
 }
 
 esp_err_t dgx_nv3041a_backlight(dgx_screen_t *scr, bool on)
 {
-    return dgx_panel_backlight(scr, on);
+    return dgx_screen_backlight(scr, on);
 }

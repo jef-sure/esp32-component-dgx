@@ -16,7 +16,7 @@
 #include "dgx_bw_screen.h"
 #include "dgx_draw.h"
 #include "dgx_overlay.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 #define W 23
 #define H 17
@@ -193,14 +193,14 @@ static void test_nothing_left_dirty(void)
     dgx_screen_t  *s = dgx_vscreen_from_array(a, 20, 10, 8, DgxScreenRGB);
     int            left, top, width, height;
     CHECK(s != NULL);
-    dgx_screen_progress_up(s);
+    dgx_screen_batch_begin(s);
     dgx_fill_rectangle(s, 5, 5, 10, 4, 7);
     dgx_vscreen_array_set(s, b, 3, 2);
     CHECK(!dgx_screen_take_dirty(s, &left, &top, &width, &height));
     dgx_set_pixel(s, 2, 1, 9);
     CHECK(dgx_screen_take_dirty(s, &left, &top, &width, &height));
     CHECK(left == 2 && top == 1 && width == 1 && height == 1);
-    dgx_screen_progress_down(s);
+    dgx_screen_batch_end(s);
     dgx_screen_destroy(&s);
 }
 

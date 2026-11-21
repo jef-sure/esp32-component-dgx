@@ -151,7 +151,7 @@ int main(void)
         dgx_fill_rectangle(scr, 3, 5, 20, 9, 1);
         dgx_draw_line(scr, 0, 0, scr->width - 1, scr->height - 1, 1);
         const bool resized = (scr->width == PW) == swap;
-        dgx_st7920_orientation(scr, dir_x, dir_y, swap);
+        dgx_screen_orientation(scr, dir_x, dir_y, swap);
         CHECK(scr->width == (swap ? PH : PW) && scr->height == (swap ? PW : PH));
         CHECK(mismatches(scr) == 0);
         int lit = 0;
@@ -184,17 +184,17 @@ int main(void)
                 dgx_draw_line(scr, x, y, rnd(-5, scr->width + 4), rnd(-5, scr->height + 4), (uint32_t)rnd(0, 1));
                 break;
             case 3:
-                dgx_solid_circle(scr, x, y, rnd(0, 20), (uint32_t)rnd(0, 1));
+                dgx_fill_circle(scr, x, y, rnd(0, 20), (uint32_t)rnd(0, 1));
                 break;
             case 4:
-                dgx_font_string_utf8_screen(scr, (int16_t)x, (int16_t)y, "ST7920", 1, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+                dgx_font_draw(&(dgx_font_context_t){.scr = scr, .font = &TerminusTTFMedium12, .color = 1, .scale = 1}, (int16_t)x, (int16_t)y, "ST7920");
                 break;
             default:
                 /* a batch: one update for all of it */
-                dgx_screen_progress_up(scr);
+                dgx_screen_batch_begin(scr);
                 dgx_draw_circle(scr, x, y, rnd(1, 25), 1);
                 dgx_fill_rectangle(scr, x, y, 3, 3, 0);
-                dgx_screen_progress_down(scr);
+                dgx_screen_batch_end(scr);
                 break;
             }
             const int wrong = mismatches(scr);
@@ -227,11 +227,11 @@ int main(void)
     CHECK(scr != NULL);
     if (scr) {
         dgx_fill_rectangle(scr, 0, 0, scr->width, scr->height, 0);
-        dgx_font_string_utf8_screen(scr, 3, 20, "ST7920", 1, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
-        dgx_st7920_orientation(scr, DgxScreenRightLeft, DgxScreenBottomTop, false);
+        dgx_font_draw(&(dgx_font_context_t){.scr = scr, .font = &TerminusTTFMedium12, .color = 1, .scale = 1}, 3, 20, "ST7920");
+        dgx_screen_orientation(scr, DgxScreenRightLeft, DgxScreenBottomTop, false);
         CHECK(mismatches(scr) == 0);
         /* no backlight line: nothing to turn */
-        CHECK(dgx_st7920_backlight(scr, false) == ESP_ERR_NOT_SUPPORTED);
+        CHECK(dgx_screen_backlight(scr, false) == ESP_ERR_NOT_SUPPORTED);
         dgx_screen_destroy(&scr);
     }
     CHECK(unwired_calls == 0 && bl_level == -1 && bl_output == -1);
@@ -240,8 +240,8 @@ int main(void)
     scr = dgx_st7920_init(&bus, GPIO_NUM_NC, BL_PIN, cs_pin);
     CHECK(scr && bl_output == 1 && bl_level == 1);
     if (scr) {
-        CHECK(dgx_st7920_backlight(scr, false) == ESP_OK && bl_level == 0);
-        CHECK(dgx_st7920_backlight(scr, true) == ESP_OK && bl_level == 1);
+        CHECK(dgx_screen_backlight(scr, false) == ESP_OK && bl_level == 0);
+        CHECK(dgx_screen_backlight(scr, true) == ESP_OK && bl_level == 1);
         dgx_screen_destroy(&scr);
     }
     CHECK(unwired_calls == 0);

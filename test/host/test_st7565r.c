@@ -133,7 +133,7 @@ static int rnd(int lo, int hi)
 
 static void scribble(dgx_screen_t *scr, int rounds)
 {
-    const dgx_font_context_t text = {.scr = scr, .font = TerminusTTFMedium12(), .color = 1};
+    const dgx_font_context_t text = {.scr = scr, .font = &TerminusTTFMedium12, .color = 1};
     for (int round = 0; round < rounds; ++round) {
         const int x = rnd(-5, scr->width + 4), y = rnd(-5, scr->height + 4);
         switch (rnd(0, 4)) {

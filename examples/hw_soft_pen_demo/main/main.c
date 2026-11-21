@@ -137,7 +137,7 @@ typedef struct {
 static dgx_screen_t *screen;
 static dgx_screen_t *page; /* all is drawn here, 8 bits a pixel: a byte is an amount of ink */
 static uint16_t      lut[256];
-static dgx_font_t   *font;
+static const dgx_font_t   *font;
 static dgx_hw_pace_t pace;
 static int           box_left[LINES], box_top[LINES], box_right[LINES], box_bottom[LINES]; /* of a line, in cells */
 
@@ -319,7 +319,7 @@ void app_main(void)
     }
     /* paper is 0 on the page and all the ink is 255: the table runs from the one to the other, for the soft edge of the pen */
     dgx_lut_gradient(lut, 0, 256, dgx_rgb_to_24(250, 246, 232), dgx_rgb_to_24(24, 36, 120));
-    font = font0ss();
+    font = &font0ss;
     pace = dgx_hw_pace(font, EXAMPLE_BEND_EFFORT);
     for (int i = 0; i < LINES; ++i) {
         if (!dgx_hw_text_box(font, lines[i], &box_left[i], &box_top[i], &box_right[i], &box_bottom[i])) {
@@ -343,7 +343,7 @@ void app_main(void)
         if (EXAMPLE_BUILD) {
             char label[32];
             snprintf(label, sizeof(label), "#%d", EXAMPLE_BUILD);
-            const dgx_font_context_t build = {.scr = screen, .font = TerminusTTFMedium12(), .color = dgx_rgb_to_16(150, 60, 40)};
+            const dgx_font_context_t build = {.scr = screen, .font = &TerminusTTFMedium12, .color = dgx_rgb_to_16(150, 60, 40)};
             dgx_font_draw(&build, 4, 12, label);
             vTaskDelay(pdMS_TO_TICKS(1500));
             dgx_vscreen8_to_screen16(screen, 0, 0, page, lut, false);

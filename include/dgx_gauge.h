@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include "dgx_deprecated.h"
 #include "dgx_screen.h"
 
 #ifdef __cplusplus
@@ -10,7 +11,11 @@ extern "C" {
 // @formatter:on
 #endif
 
-typedef uint32_t (*dgx_gauge_color_fn_t)(int value);
+/** The color of a step of a gauge for its value; `user_data` is the one given to dgx_gauge_init_with(). */
+typedef uint32_t (*dgx_gauge_color_with_fn_t)(int value, void *user_data);
+
+/** The color function of dgx_gauge_init(), without user_data; deprecated with it. */
+typedef uint32_t (*dgx_gauge_color_fn_t)(int value) DGX_DEPRECATED("use dgx_gauge_color_with_fn_t and dgx_gauge_init_with()");
 
 typedef struct {
     dgx_screen_t          *scr;
@@ -25,7 +30,11 @@ typedef struct {
     int                    sweep_degrees;
     float                  start_angle;
     uint32_t               background_color;
-    dgx_gauge_color_fn_t   color_fn;
+    DGX_DEPRECATED_USE_BEGIN
+    dgx_gauge_color_fn_t   color_fn; /* of dgx_gauge_init(), NULL from dgx_gauge_init_with() */
+    DGX_DEPRECATED_USE_END
+    dgx_gauge_color_with_fn_t color_with;
+    void                     *user_data;
 } dgx_gauge_t;
 
 /**
@@ -51,22 +60,35 @@ typedef struct {
  * @param min_value        Value mapped to the first step.
  * @param max_value        Value mapped to the last step.
  * @param background_color Color of inactive steps / background.
- * @param color_fn         Callback returning the color for a given value.
+ * @param color            Callback returning the color of an active step for its value; NULL draws it in
+ *                         @p background_color.
+ * @param user_data        Given to @p color with every value.
  */
+void dgx_gauge_init_with(dgx_gauge_t *gauge, dgx_screen_t *scr, int center_x, int center_y, int inner_radius, int width,
+                         float start_angle, int sweep_degrees, int min_value, int max_value, uint32_t background_color,
+                         dgx_gauge_color_with_fn_t color, void *user_data);
+
+/**
+ * @brief dgx_gauge_init_with() with a color function that takes no user_data.
+ * @deprecated Use dgx_gauge_init_with().
+ */
+DGX_DEPRECATED_USE_BEGIN
+DGX_DEPRECATED("use dgx_gauge_init_with(), whose color function takes user_data")
 void dgx_gauge_init(dgx_gauge_t *gauge, dgx_screen_t *scr, int center_x, int center_y, int inner_radius, int width,
                     float start_angle, int sweep_degrees, int min_value, int max_value, uint32_t background_color,
                     dgx_gauge_color_fn_t color_fn);
+DGX_DEPRECATED_USE_END
 
 /**
  * @brief Set the gauge value and redraw only the steps that changed.
- * @param gauge Gauge initialized with dgx_gauge_init().
+ * @param gauge Gauge initialized with dgx_gauge_init_with().
  * @param value New value (clamped to [min_value, max_value]).
  */
 void dgx_gauge_set_value(dgx_gauge_t *gauge, int value);
 
 /**
  * @brief Redraw the entire gauge (all steps and background).
- * @param gauge Gauge initialized with dgx_gauge_init().
+ * @param gauge Gauge initialized with dgx_gauge_init_with().
  */
 void dgx_gauge_redraw(dgx_gauge_t *gauge);
 #ifdef __cplusplus

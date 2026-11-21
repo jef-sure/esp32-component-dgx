@@ -311,7 +311,7 @@ static dgx_vscreen_t *dgx_vscreen_without_array(int width, int height, uint8_t c
     scr->base.get_pixel       = dgx_vscreen_get_pixel;
     scr->base.set_area        = dgx_vscreen_set_area;
     scr->base.write_area      = dgx_vscreen_write_area;
-    scr->base.wait_buffer     = dgx_vscreen_wait_buffer_dummy;
+    scr->base.wait     = dgx_vscreen_wait_buffer_dummy;
     scr->base.update_screen   = dgx_vscreen_update_area;
     return scr;
 }
@@ -350,7 +350,7 @@ dgx_screen_t *dgx_vscreen_from_array(void *v_array, int width, int height, uint8
     return (dgx_screen_t *)scr;
 }
 
-void dgx_vscreen_array_set(dgx_screen_t *_scr, void *pixels, int width, int height)
+esp_err_t dgx_vscreen_array_set(dgx_screen_t *_scr, void *pixels, int width, int height)
 {
     /*
      * Another screen would lose its own memory. A layer over this screen,
@@ -362,7 +362,7 @@ void dgx_vscreen_array_set(dgx_screen_t *_scr, void *pixels, int width, int heig
     const bool           laid    = overlay && (overlay->display != _scr || overlay->layer);
     if (_scr->destroy != dgx_vscreen_array_destroy || laid || !pixels || !dgx_vscreen_fits(width, height, _scr->color_bits)) {
         ESP_LOGE(TAG, "dgx_vscreen_array_set: not a free screen of dgx_vscreen_from_array(), no memory, or a size of no pixels");
-        return;
+        return ESP_ERR_INVALID_ARG;
     }
     if (overlay) dgx_overlay_forget(_scr);
     dgx_vscreen_t *scr = (dgx_vscreen_t *)_scr;
@@ -373,6 +373,7 @@ void dgx_vscreen_array_set(dgx_screen_t *_scr, void *pixels, int width, int heig
     memset(&scr->area, 0, sizeof(scr->area));
     _scr->dirty_left = _scr->dirty_right = _scr->dirty_top = _scr->dirty_bottom = 0;
     dgx_screen_unclip(_scr);
+    return ESP_OK;
 }
 
 bool dgx_vscreen_copy(dgx_screen_t *_scr_dst, dgx_screen_t *_scr_src)

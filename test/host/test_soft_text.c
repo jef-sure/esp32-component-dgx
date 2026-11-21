@@ -19,8 +19,11 @@
 #include "dgx_matrix_morph.h"
 #include "dgx_morph_sources.h"
 #include "dgx_screen_with_bus.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/CasusDotView.h"
+
+/* the calls of before, deprecated until DGX 1.0, are checked here beside those of now; they warn everywhere else */
+DGX_DEPRECATED_USE_BEGIN
 
 /* ---- the fonts of the test ---- */
 
@@ -51,8 +54,8 @@ static int kind_level(kind_t kind, int level)
 
 typedef struct {
     uint8_t       bits[2][64];
-    glyph_t       glyphs[2];
-    glyph_array_t ranges[2];
+    dgx_glyph_t       glyphs[2];
+    dgx_glyph_array_t ranges[2];
     dgx_font_t    font;
 } test_font_t;
 
@@ -70,20 +73,20 @@ static void make_font(test_font_t *f, kind_t kind)
         f->glyphs[k].bitmap   = f->bits[k];
         f->glyphs[k].width    = (int16_t)w;
         f->glyphs[k].height   = (int16_t)h;
-        f->glyphs[k].xAdvance = k ? 3 : 7;
-        f->glyphs[k].xOffset  = k ? -1 : 1;
-        f->glyphs[k].yOffset  = k ? -3 : -4;
+        f->glyphs[k].x_advance = k ? 3 : 7;
+        f->glyphs[k].x_offset  = k ? -1 : 1;
+        f->glyphs[k].y_offset  = k ? -3 : -4;
     }
-    f->ranges[0] = (glyph_array_t){.first = 'A', .number = 2, .glyphs = f->glyphs};
+    f->ranges[0] = (dgx_glyph_array_t){.first = 'A', .number = 2, .glyphs = f->glyphs};
     f->font      = (dgx_font_t){.glyph_ranges     = f->ranges,
-                                .yAdvance         = 8,
-                                .yOffsetLowest    = -4,
-                                .xWidest          = BW,
-                                .xWidthAverage    = 5,
+                                .y_advance         = 8,
+                                .y_offset_lowest    = -4,
+                                .x_widest          = BW,
+                                .x_width_average    = 5,
                                 .f_type           = depth == 4 ? DGX_FONT_BITMAP_DEPTH4 : depth == 2 ? DGX_FONT_BITMAP_DEPTH2 : DGX_FONT_BITMAP_LINES,
-                                .yBottomMax       = 2,
-                                .xOffsetLowest    = -1,
-                                .xRightMax        = 5,
+                                .y_bottom_max       = 2,
+                                .x_offset_lowest    = -1,
+                                .x_right_max        = 5,
                                 .number_of_ranges = 1};
 }
 
@@ -409,14 +412,14 @@ static void test_bus_spans(void)
         dgx_screen_t         *lcdp = &sbus.scr;
         lcdp->width = PW, lcdp->height = PH, lcdp->color_bits = (uint8_t)bits, lcdp->screen_subtype = DgxPhysicalScreenWithBus;
         lcdp->set_area = bus_set_area, lcdp->write_area = bus_write_area, lcdp->fill_rectangle = bus_fill, lcdp->set_pixel = bus_pixel;
-        lcdp->update_screen = bus_update, lcdp->wait_buffer = bus_wait, lcdp->draw_buffer = buffer, lcdp->draw_buffer_len = tiny ? 4 : sizeof(buffer);
+        lcdp->update_screen = bus_update, lcdp->wait = bus_wait, lcdp->draw_buffer = buffer, lcdp->draw_buffer_len = tiny ? 4 : sizeof(buffer);
         CHECK(!dgx_screen_is_readable(lcdp));
         dgx_screen_t *model = dgx_vscreen_init(PW, PH, (uint8_t)bits, DgxScreenRGB);
         CHECK(model);
         /* in the middle, or half off the left top corner */
         const int x = place == 1 ? 2 : 40, y = place == 1 ? 3 : 40;
         const uint32_t color = pattern(bits, 5, 9), bg = pattern(bits, 31, 2);
-        dgx_font_context_t ctx = {.font = (dgx_font_t *)&ft->font, .color = color, .bg = bg,
+        dgx_font_context_t ctx = {.font = (const dgx_font_t *)&ft->font, .color = color, .bg = bg,
                                   .flags = (fill ? DGX_FONT_FILL : DGX_FONT_BG) | extra, .orientation = turn, .scale = s};
         /* "ABBA" after "AB": the boxes of B and B overlap by three columns, those of B and A share one */
         for (int text = 1; text >= 0; --text) {
@@ -523,14 +526,14 @@ static void test_dots(void)
         const dgx_output_orientation_t turn = (dgx_output_orientation_t)o;
         old_dots.n = new_dots.n = 0;
         dgx_font_sym8_params_t params = {.dot_func = old_dot};
-        dgx_font_string_utf8_screen(scr, 30, 30, "12", 0, turn, 2, CasusDotView(), NULL, &params);
-        const dgx_font_context_t ctx = {.scr = scr, .font = CasusDotView(), .orientation = turn, .scale = 2, .dot_func = new_dot, .user_data = &new_dots};
+        dgx_font_string_utf8_screen(scr, 30, 30, "12", 0, turn, 2, &CasusDotView, NULL, &params);
+        const dgx_font_context_t ctx = {.scr = scr, .font = &CasusDotView, .orientation = turn, .scale = 2, .dot_func = new_dot, .user_data = &new_dots};
         dgx_font_draw(&ctx, 30, 30, "12");
         CHECK(old_dots.n > 0 && old_dots.n == new_dots.n && !memcmp(old_dots.xy, new_dots.xy, sizeof(old_dots.xy[0]) * old_dots.n));
         /* without a dot function: squares of the color, as the old call without parameters */
         dgx_fill_rectangle(scr, 0, 0, 64, 64, 0), dgx_fill_rectangle(a, 0, 0, 64, 64, 0);
-        dgx_font_string_utf8_screen(scr, 30, 30, "12", 0xffff, turn, 2, CasusDotView(), NULL, NULL);
-        const dgx_font_context_t plain = {.scr = a, .font = CasusDotView(), .color = 0xffff, .orientation = turn, .scale = 2};
+        dgx_font_string_utf8_screen(scr, 30, 30, "12", 0xffff, turn, 2, &CasusDotView, NULL, NULL);
+        const dgx_font_context_t plain = {.scr = a, .font = &CasusDotView, .color = 0xffff, .orientation = turn, .scale = 2};
         dgx_font_draw(&plain, 30, 30, "12");
         int differ = 0;
         for (int y = 0; y < 64; ++y)
@@ -550,14 +553,14 @@ static void test_morph_sources(void)
         CHECK(a && b && dgx_matrix_equals(a, b) && a->number_of_set_cells > 0);
         dgx_matrix_destroy(&a), dgx_matrix_destroy(&b);
     }
-    dgx_font_symbol_morph_t *a = dgx_font_make_morph_struct(&f.font, 'A', 'B', 0, 0, 10, 0, 2);
-    dgx_font_symbol_morph_t *b = dgx_font_make_morph_struct(&mono.font, 'A', 'B', 0, 0, 10, 0, 2);
+    dgx_font_symbol_morph_t *a = dgx_font_morph_create(&f.font, 'A', 'B', 0, 0, 10, 0, 2);
+    dgx_font_symbol_morph_t *b = dgx_font_morph_create(&mono.font, 'A', 'B', 0, 0, 10, 0, 2);
     CHECK(a && b && a->number_of_dots == b->number_of_dots && a->number_of_dots > 0);
     if (a && b && a->number_of_dots == b->number_of_dots) {
         CHECK(!memcmp(a->m_start, b->m_start, sizeof(*a->m_start) * a->number_of_dots));
         CHECK(!memcmp(a->m_end, b->m_end, sizeof(*a->m_end) * a->number_of_dots));
     }
-    dgx_font_make_morph_struct_destroy(&a), dgx_font_make_morph_struct_destroy(&b);
+    dgx_font_morph_destroy(&a), dgx_font_morph_destroy(&b);
 }
 
 /* the measures of a text by a context: those of the old call, times the scale */
@@ -589,3 +592,5 @@ int main(void)
     test_morph_sources();
     CHECK_DONE();
 }
+
+DGX_DEPRECATED_USE_END

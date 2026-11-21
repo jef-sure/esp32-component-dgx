@@ -5,10 +5,13 @@
 #include "check.h"
 #include "dgx_draw.h"
 #include "dgx_hw_font.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 /* font0-ss: the numbers below are of the font as it is in src/fonts */
 #include "fonts/font0ss.h"
+
+/* the calls of before, deprecated until DGX 1.0, are checked here beside those of now; they warn everywhere else */
+DGX_DEPRECATED_USE_BEGIN
 
 #define W 330
 #define H 110
@@ -58,7 +61,7 @@ static bool same(dgx_screen_t *a, dgx_screen_t *b)
     return !da && !db && ink(a) > 0;
 }
 
-static int strokes_of(dgx_font_t *font, const char *text, bool joined)
+static int strokes_of(const dgx_font_t *font, const char *text, bool joined)
 {
     dgx_hw_writer_t w;
     dgx_hw_stroke_t s;
@@ -79,7 +82,7 @@ static float way_of(const dgx_hw_morph_t *m)
 }
 
 /* the same for the strokes of two symbols paired in the order of writing, what is left over going into the last point */
-static float way_in_order(dgx_font_t *font, const char *a, const char *b)
+static float way_in_order(const dgx_font_t *font, const char *a, const char *b)
 {
     dgx_hw_writer_t wa, wb;
     dgx_hw_stroke_t sa, sb;
@@ -118,7 +121,7 @@ static bool in_box(const dgx_hw_morph_t *m, dgx_screen_t *s, int width)
 
 int main(void)
 {
-    dgx_font_t  *font = font0ss();
+    const dgx_font_t  *font = &font0ss;
     const char  *from = "привет", *to = "участникам";
     dgx_screen_t *a = screen(), *b = screen();
     dgx_hw_draw_text(a, X, Y, font, from, SCALE, 3, 0xff, true);
@@ -334,3 +337,5 @@ int main(void)
     dgx_screen_destroy(&b);
     CHECK_DONE();
 }
+
+DGX_DEPRECATED_USE_END

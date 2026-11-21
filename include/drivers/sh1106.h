@@ -10,16 +10,20 @@ extern "C" {
 // @formatter:on
 #endif
 
+/*
+ * The values begin at 256, a number no chip has a pin of: a call in the order of
+ * before DGX 0.12, with the resolution second, is refused, not taken for a pin.
+ */
 typedef enum dgx_sh1106_resolution_t {
-    DGX_SH1106_128X64,
+    DGX_SH1106_128X64 = 256,
     DGX_SH1106_64X32,
     /* deprecated: the names of before, the same values */
-    SH1106_128X64 = DGX_SH1106_128X64,
-    SH1106_64X32 = DGX_SH1106_64X32,
+    SH1106_128X64 DGX_DEPRECATED("use DGX_SH1106_128X64") = DGX_SH1106_128X64,
+    SH1106_64X32 DGX_DEPRECATED("use DGX_SH1106_64X32") = DGX_SH1106_64X32,
 } dgx_sh1106_resolution_t;
 
-/** The name the type had before; it stays. */
-typedef dgx_sh1106_resolution_t sh1106_resolution_t;
+/** The name the type had before; deprecated until DGX 1.0. */
+typedef dgx_sh1106_resolution_t sh1106_resolution_t DGX_DEPRECATED("use dgx_sh1106_resolution_t");
 
 /**
  * @brief Set the SH1106 contrast/brightness.
@@ -60,6 +64,7 @@ void dgx_sh1106_column_offset(dgx_screen_t *scr, uint8_t offset);
  * @param swap_xy Swap the X and Y axes.
  * @deprecated Use dgx_screen_orientation().
  */
+DGX_DEPRECATED("use dgx_screen_orientation()")
 void dgx_sh1106_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 
 /**
@@ -73,11 +78,11 @@ void dgx_sh1106_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orie
  * driver of the controller.
  *
  * @param bus        Bus backend returned by dgx_spi_init() or dgx_i2c_init().
- * @param resolution Panel geometry (see dgx_sh1106_resolution_t).
  * @param rst        Reset GPIO (use GPIO_NUM_NC if the panel has no reset line).
+ * @param resolution Panel geometry (see dgx_sh1106_resolution_t).
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */
-dgx_screen_t *dgx_sh1106_init(dgx_bus_protocols_t *bus, dgx_sh1106_resolution_t resolution, gpio_num_t rst);
+dgx_screen_t *dgx_sh1106_init(dgx_bus_protocols_t *bus, gpio_num_t rst, dgx_sh1106_resolution_t resolution);
 
 #ifdef __cplusplus
 // @formatter:off

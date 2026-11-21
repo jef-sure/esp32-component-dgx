@@ -22,6 +22,7 @@
 #include "bus/dgx_bus_protocols.h"
 #include "dgx_screen.h"
 #include "dgx_screen_with_bus.h"
+#include "driver/gpio.h"
 #include "drivers/dgx_lcd_init.h"
 #include "esp_err.h"
 
@@ -90,10 +91,18 @@ typedef struct dgx_panel_t {
 dgx_screen_t *dgx_panel_init(dgx_bus_protocols_t *bus, const dgx_panel_t *panel, gpio_num_t rst, gpio_num_t backlight, uint8_t color_bits,
                              dgx_color_order_t cbo);
 
-/** @brief How the screen lies on the panel, by MADCTL; the window follows the glass in the memory of the controller. */
+/**
+ * @brief How the screen lies on the panel, by MADCTL; the window follows the glass in the memory of the controller.
+ * @deprecated Use dgx_screen_orientation().
+ */
+DGX_DEPRECATED("use dgx_screen_orientation()")
 void dgx_panel_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 
-/** @brief The backlight on or off; ESP_ERR_NOT_SUPPORTED for a screen made without its line. */
+/**
+ * @brief The backlight on or off; ESP_ERR_NOT_SUPPORTED for a screen made without its line.
+ * @deprecated Use dgx_screen_backlight().
+ */
+DGX_DEPRECATED("use dgx_screen_backlight()")
 esp_err_t dgx_panel_backlight(dgx_screen_t *scr, bool on);
 
 /** @brief For MADCTL in the commands of `init`: the upright picture of the panel in the order of colors of the screen. */

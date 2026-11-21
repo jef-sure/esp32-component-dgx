@@ -20,7 +20,7 @@
 #include "drivers/ili9341.c"
 
 #include "dgx_draw.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 #define COLUMNS 240
 #define PAGES   320
@@ -213,7 +213,7 @@ static void run_across(void)
     if (!scr) return;
     for (int turn = 0; turn < 8; ++turn) {
         const bool swap = (turn & 4) != 0;
-        dgx_panel_orientation(scr, turn & 1 ? DgxScreenRightLeft : DgxScreenLeftRight, turn & 2 ? DgxScreenBottomTop : DgxScreenTopBottom, swap);
+        dgx_screen_orientation(scr, turn & 1 ? DgxScreenRightLeft : DgxScreenLeftRight, turn & 2 ? DgxScreenBottomTop : DgxScreenTopBottom, swap);
         dgx_screen_t *ref = dgx_vscreen_init(scr->width, scr->height, 16, DgxScreenRGB);
         /* a corner mark longer along x, and rectangles anywhere */
         for (dgx_screen_t *s = scr; s; s = s == scr ? ref : NULL) {
@@ -252,7 +252,7 @@ static void run(const dgx_panel_t *panel)
     CHECK(scr != NULL);
     if (!scr) return;
     /* there is no backlight pin to switch */
-    CHECK(dgx_ili9341_backlight(scr, true) == ESP_ERR_NOT_SUPPORTED);
+    CHECK(dgx_screen_backlight(scr, true) == ESP_ERR_NOT_SUPPORTED);
     CHECK(!dgx_screen_is_readable(scr));
     dgx_screen_t *picture = dgx_vscreen_init(97, 61, 16, DgxScreenRGB);
     for (int y = 0; y < picture->height; ++y) {
@@ -261,7 +261,7 @@ static void run(const dgx_panel_t *panel)
     long by_panel = 0, refused = 0, cut_windows = 0;
     for (int turn = 0; turn < 8; ++turn) {
         const bool swap = (turn & 4) != 0;
-        dgx_ili9341_orientation(scr, turn & 1 ? DgxScreenRightLeft : DgxScreenLeftRight, turn & 2 ? DgxScreenBottomTop : DgxScreenTopBottom, swap);
+        dgx_screen_orientation(scr, turn & 1 ? DgxScreenRightLeft : DgxScreenLeftRight, turn & 2 ? DgxScreenBottomTop : DgxScreenTopBottom, swap);
         CHECK(scr->width == (swap ? PAGES : COLUMNS) && scr->height == (swap ? COLUMNS : PAGES));
         dgx_screen_t *ref = dgx_vscreen_init(scr->width, scr->height, 16, DgxScreenRGB);
         dgx_fill_rectangle(scr, 0, 0, scr->width, scr->height, 0x1234);
@@ -344,8 +344,8 @@ static void run(const dgx_panel_t *panel)
                 dgx_draw_line(ref, x, y, x2, y2, color);
             } else if (what == 7) {
                 const int r = rnd(0, 60);
-                dgx_solid_circle(scr, x, y, r, color);
-                dgx_solid_circle(ref, x, y, r, color);
+                dgx_fill_circle(scr, x, y, r, color);
+                dgx_fill_circle(ref, x, y, r, color);
                 dgx_draw_ellipse(scr, x, y, r + 5, r / 2 + 3, ~color & 0xffff);
                 dgx_draw_ellipse(ref, x, y, r + 5, r / 2 + 3, ~color & 0xffff);
             } else if (what == 8) {

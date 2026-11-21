@@ -5,8 +5,11 @@
 #include "check.h"
 #include "dgx_draw.h"
 #include "dgx_hw_font.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/font0ss.h"
+
+/* the calls of before, deprecated until DGX 1.0, are checked here beside those of now; they warn everywhere else */
+DGX_DEPRECATED_USE_BEGIN
 
 #define W 140
 #define H 140
@@ -423,7 +426,7 @@ int main(void)
     dgx_screen_destroy(&s);
 
     /* a text written in any number of steps is the text drawn at once; written with color 0 over itself it is gone */
-    dgx_font_t   *font = font0ss();
+    const dgx_font_t   *font = &font0ss;
     dgx_screen_t *whole = soft_screen(), *stepped = soft_screen();
     for (int pen = 1; pen <= 3; ++pen) {
         dgx_hw_writing_t w;
@@ -444,3 +447,5 @@ int main(void)
     dgx_screen_destroy(&stepped);
     CHECK_DONE();
 }
+
+DGX_DEPRECATED_USE_END

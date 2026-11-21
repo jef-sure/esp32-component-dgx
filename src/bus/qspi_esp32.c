@@ -237,7 +237,7 @@ static dgx_bus_protocols_t *dgx_qspi_attach(spi_host_device_t host_id, bool owns
     protocols->write_data_async    = dgx_qspi_send_data_async;
     protocols->sync_write          = dgx_qspi_sync_write;
     protocols->sends_from          = dgx_spi_dev_sends_from;
-    protocols->dispose             = dgx_qspi_dispose_bus_func;
+    protocols->dispose_bus             = dgx_qspi_dispose_bus_func;
     protocols->memory_allocator    = dgx_spi_dev_memory;
     protocols->hold                = dgx_spi_dev_hold;
     protocols->release             = dgx_spi_dev_release;

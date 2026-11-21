@@ -14872,7 +14872,7 @@ static const uint8_t bitmaps[] = {
 0xF7, 0xF7, 0xFF, 0xFF
 };
 
-static const glyph_t glyphs[] = {
+static const dgx_glyph_t glyphs[] = {
     { {bitmaps +     0},   8,  16,   8,    0,  -13 } /* 0000 */
 ,   { {bitmaps +    16},   8,  16,   8,    0,  -13 } /* 0001 */
 ,   { {bitmaps +    32},   8,  16,   8,    0,  -13 } /* 0002 */
@@ -15656,7 +15656,7 @@ static const glyph_t glyphs[] = {
 ,   { {bitmaps + 12480},   8,  16,   8,    0,  -13 } /* FFFD */
 ,   { {bitmaps + 12496},   8,  16,   8,    0,  -13 } /* FFFF */
 };
-static const glyph_array_t glyph_ranges[] = {
+static const dgx_glyph_array_t glyph_ranges[] = {
    {0x0   , 0x80  , glyphs + 0 }
 , {0xa0  , 0xe0  , glyphs + 128 }
 , {0x192 , 0x1   , glyphs + 352 }
@@ -15775,17 +15775,14 @@ static const glyph_array_t glyph_ranges[] = {
 , {0x0   , 0x0   , 0 }
 };
 // Bitmap size: 12512
-dgx_font_t* IBMCGALight8x16Light8x1616() {
-	static dgx_font_t rval = { 
-    .glyph_ranges = glyph_ranges, 
-    .yAdvance = 16, 
-    .yOffsetLowest = -13, 
-    .xWidest = 8, 
-    .xWidthAverage = 8.000000, 
+const dgx_font_t IBMCGALight8x16Light8x1616 = {
+    .glyph_ranges = glyph_ranges,
+    .y_advance = 16,
+    .y_offset_lowest = -13,
+    .x_widest = 8,
+    .x_width_average = 8.000000,
     .f_type = DGX_FONT_BITMAP_LINES,
-    .yBottomMax = 3,
-    .xOffsetLowest = 0,
-    .xRightMax = 8
-  };
-	return &rval;
-}
+    .y_bottom_max = 3,
+    .x_offset_lowest = 0,
+    .x_right_max = 8
+};

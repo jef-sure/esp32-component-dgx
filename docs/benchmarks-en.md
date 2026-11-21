@@ -68,7 +68,7 @@ of a triangle is three `dgx_draw_line()`, the logo goes by `set_area()` and
 `write_area()` of the screen, and the text is drawn in `GLCD5x7`, the font
 of the other libraries, at the same sizes. A time ends when the display has
 the last pixel: DGX may still be sending when a call returns, so the clock
-is read after `scr->wait_buffer()`. The other libraries return from these
+is read after `dgx_screen_wait()`. The other libraries return from these
 calls when the bus is done.
 
 ## The boards

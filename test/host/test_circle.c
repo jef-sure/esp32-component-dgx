@@ -5,7 +5,7 @@
 #include "check.h"
 #include "dgx_draw.h"
 #include "dgx_screen_functions.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 /*
  * Lines and circles are the same code for every screen, made of the pixels
@@ -154,7 +154,7 @@ static void circles(dgx_screen_t *scr, int x, int y, int r, bool whole)
 {
     start();
     midpoint_disc(x, y, r);
-    dgx_solid_circle(scr, x, y, r, 7);
+    dgx_fill_circle(scr, x, y, r, 7);
     same("solid circle", x, y, r);
     /* by rows, no more pieces than rows, and only the rows at the diagonal sent twice */
     CHECK(tall_fills == 0);
@@ -222,7 +222,7 @@ int main(void)
         for (int solid = 0; solid < 2; ++solid) {
             memset(model, 0, sizeof(model));
             dgx_fill_rectangle(v, 0, 0, W, H, 0);
-            if (solid) midpoint_disc(300, 310, r), dgx_solid_circle(v, 300, 310, r, 7);
+            if (solid) midpoint_disc(300, 310, r), dgx_fill_circle(v, 300, 310, r, 7);
             else midpoint_circle(300, 310, r), dgx_draw_circle(v, 300, 310, r, 7);
             int differ = 0;
             for (int y = 0; y < H; ++y) {

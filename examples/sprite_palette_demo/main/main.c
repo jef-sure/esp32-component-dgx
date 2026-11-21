@@ -214,7 +214,7 @@ static const char *const turn_names[8] = {"Normal", "MirrorX", "MirrorY", "Rotat
 
 static void text(dgx_screen_t *frame, int x, int y, const char *s)
 {
-    const dgx_font_context_t how = {.scr = frame, .font = TerminusTTFMedium12(), .color = TEXT};
+    const dgx_font_context_t how = {.scr = frame, .font = &TerminusTTFMedium12, .color = TEXT};
     dgx_font_draw(&how, x, y, s);
 }
 

@@ -8,8 +8,11 @@
 #include "vscreen/dgx_bw_screen_priv.h"
 #include "dgx_draw.h"
 #include "dgx_font.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
+
+/* the calls of before, deprecated until DGX 1.0, are checked here beside those of now; they warn everywhere else */
+DGX_DEPRECATED_USE_BEGIN
 
 static int count_set(dgx_screen_t *s)
 {
@@ -81,7 +84,7 @@ static void test_bw_screen(void)
 
     /* shapes crossing the border go through the same primitives */
     dgx_draw_line(s, -10, -10, 50, 30, 1);
-    dgx_solid_circle(s, 31, 15, 9, 1);
+    dgx_fill_circle(s, 31, 15, 9, 1);
     dgx_draw_circle(s, 0, 0, 12, 1);
 
     /* writing more than the area holds wraps inside the area */
@@ -114,8 +117,8 @@ static void test_bw_thick_lines(void)
             for (int dy = -12; dy <= 12; dy += 3) {
                 dgx_screen_t *bw  = dgx_bw_init(32, 32);
                 dgx_screen_t *ref = dgx_vscreen_init(32, 32, 8, DgxScreenRGB);
-                dgx_draw_line_thick(bw, 2, 2, 2 + dx, 2 + dy, width, 1);
-                dgx_draw_line_thick(ref, 2, 2, 2 + dx, 2 + dy, width, 1);
+                dgx_draw_thick_line(bw, 2, 2, 2 + dx, 2 + dy, width, 1);
+                dgx_draw_thick_line(ref, 2, 2, 2 + dx, 2 + dy, width, 1);
                 CHECK(same_pixels(ref, bw));
                 dgx_screen_destroy(&bw);
                 dgx_screen_destroy(&ref);
@@ -133,9 +136,9 @@ static void test_bw_text(void)
         dgx_screen_t *ref = dgx_vscreen_init(width, 24, 8, DgxScreenRGB);
         CHECK(dgx_vscreen_is_linear(lin));
         for (int x = -6; x <= width - 6; x += 9) {
-            dgx_font_string_utf8_screen(bw, x, 14, "Ag", 1, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
-            dgx_font_string_utf8_screen(lin, x, 14, "Ag", 1, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
-            dgx_font_string_utf8_screen(ref, x, 14, "Ag", 1, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+            dgx_font_string_utf8_screen(bw, x, 14, "Ag", 1, DgxOutputNormal, 1, &TerminusTTFMedium12, NULL, NULL);
+            dgx_font_string_utf8_screen(lin, x, 14, "Ag", 1, DgxOutputNormal, 1, &TerminusTTFMedium12, NULL, NULL);
+            dgx_font_string_utf8_screen(ref, x, 14, "Ag", 1, DgxOutputNormal, 1, &TerminusTTFMedium12, NULL, NULL);
         }
         CHECK(count_set(ref) > 20);
         CHECK(same_pixels(ref, bw));
@@ -182,17 +185,17 @@ static void test_fills(void)
 }
 
 /* One pixel at a time, the way glyphs were drawn before runs were merged. */
-static int reference_char(dgx_screen_t *scr, int x, int y, uint32_t cp, dgx_output_orientation_t o, int scale, dgx_font_t *font)
+static int reference_char(dgx_screen_t *scr, int x, int y, uint32_t cp, dgx_output_orientation_t o, int scale, const dgx_font_t *font)
 {
     dgx_orientation_t xdir = dgx_output_orientation_xdir(o);
     dgx_orientation_t ydir = dgx_output_orientation_ydir(o);
     bool              swap = dgx_output_orientation_swap_xy(o);
     int16_t           advance;
-    const glyph_t    *g = dgx_font_find_glyph(cp, font, &advance);
+    const dgx_glyph_t    *g = dgx_font_glyph(font, cp, &advance);
     if (!g) return advance;
     dgx_bw_bitmap_t bmap   = dgx_bw_bitmap_make_of((uint8_t *)g->bitmap, g->width, g->height, font->f_type == DGX_FONT_BITMAP_STREAM);
     int             right  = g->width - 1, bottom = g->height - 1;
-    int             x_shift = g->xOffset * scale, y_shift = g->yOffset * scale;
+    int             x_shift = g->x_offset * scale, y_shift = g->y_offset * scale;
     if (swap) {
         int t   = x_shift;
         x_shift = y_shift;
@@ -219,7 +222,7 @@ static int reference_char(dgx_screen_t *scr, int x, int y, uint32_t cp, dgx_outp
 
 static void test_text_orientations(void)
 {
-    dgx_font_t *font = TerminusTTFMedium12();
+    const dgx_font_t *font = &TerminusTTFMedium12;
     for (int o = DgxOutputNormal; o <= DgxOutputTransverse; ++o) {
         for (int scale = 1; scale <= 3; ++scale) {
             dgx_screen_t *got = dgx_vscreen_init(90, 90, 8, DgxScreenRGB);
@@ -254,24 +257,24 @@ static void test_utf8(void)
         size_t idx = 0;
         int    n   = 0;
         while (str[idx] && n < 10) {
-            decodeUTF8next(str, &idx);
+            dgx_utf8_next(str, &idx);
             ++n;
         }
         CHECK(idx == len);
-        dgx_font_string_bounds(str, TerminusTTFMedium12(), NULL, NULL);
+        dgx_font_string_bounds(str, &TerminusTTFMedium12, NULL, NULL);
         free(str);
     }
     /* a character after a broken sequence is not swallowed */
     size_t idx = 0;
-    decodeUTF8next("\xd0Z", &idx);
+    dgx_utf8_next("\xd0Z", &idx);
     CHECK(idx == 1);
-    CHECK(decodeUTF8next("\xd0Z", &idx) == 'Z');
+    CHECK(dgx_utf8_next("\xd0Z", &idx) == 'Z');
     idx = 0;
-    CHECK(decodeUTF8next("\xd0\x96", &idx) == 0x416 && idx == 2);
+    CHECK(dgx_utf8_next("\xd0\x96", &idx) == 0x416 && idx == 2);
     idx = 0;
-    CHECK(decodeUTF8next("\xe2\x82\xac", &idx) == 0x20ac && idx == 3);
+    CHECK(dgx_utf8_next("\xe2\x82\xac", &idx) == 0x20ac && idx == 3);
     idx = 0;
-    CHECK(decodeUTF8next("\xf0\x9f\x98\x80", &idx) == 0x1f600 && idx == 4);
+    CHECK(dgx_utf8_next("\xf0\x9f\x98\x80", &idx) == 0x1f600 && idx == 4);
 }
 
 static void test_packed_depths(void)
@@ -313,22 +316,22 @@ static void test_packed_depths(void)
 
 static void test_font_morph(void)
 {
-    dgx_font_t *font = TerminusTTFMedium12();
+    const dgx_font_t *font = &TerminusTTFMedium12;
     int16_t     adv;
-    CHECK(dgx_font_find_glyph('A', font, &adv) != NULL);
-    CHECK(dgx_font_find_glyph(0x10ffff, font, &adv) == NULL);
+    CHECK(dgx_font_glyph(font, 'A', &adv) != NULL);
+    CHECK(dgx_font_glyph(font, 0x10ffff, &adv) == NULL);
 
-    dgx_font_symbol_morph_t *m = dgx_font_make_morph_struct(font, 'A', 0x10ffff, 0, 12, 20, 12, 1);
+    dgx_font_symbol_morph_t *m = dgx_font_morph_create(font, 'A', 0x10ffff, 0, 12, 20, 12, 1);
     CHECK(m && m->number_of_dots > 0 && !m->is_from_empty && m->is_to_empty);
-    if (m) dgx_font_make_morph_struct_destroy(&m);
+    if (m) dgx_font_morph_destroy(&m);
 
-    m = dgx_font_make_morph_struct(font, 0x10ffff, 'A', 0, 12, 20, 12, 1);
+    m = dgx_font_morph_create(font, 0x10ffff, 'A', 0, 12, 20, 12, 1);
     CHECK(m && m->number_of_dots > 0 && m->is_from_empty && !m->is_to_empty);
-    if (m) dgx_font_make_morph_struct_destroy(&m);
+    if (m) dgx_font_morph_destroy(&m);
 
-    m = dgx_font_make_morph_struct(font, 0x10ffff, 0x10fffe, 0, 12, 20, 12, 1);
+    m = dgx_font_morph_create(font, 0x10ffff, 0x10fffe, 0, 12, 20, 12, 1);
     CHECK(m && m->number_of_dots == 0 && m->is_from_empty && m->is_to_empty);
-    if (m) dgx_font_make_morph_struct_destroy(&m);
+    if (m) dgx_font_morph_destroy(&m);
 }
 
 /* src pixel (x, y) holds x + 16 * y + 1; dst starts at zero */
@@ -448,3 +451,5 @@ int main(void)
     test_tall_pages();
     CHECK_DONE();
 }
+
+DGX_DEPRECATED_USE_END

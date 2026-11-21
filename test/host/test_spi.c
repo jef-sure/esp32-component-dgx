@@ -59,7 +59,7 @@
 #include "dgx_font.h"
 #include "dgx_screen_functions.h"
 #include "dgx_screen_with_bus.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
 
 #define PW 64
@@ -630,10 +630,10 @@ static void draw_and_compare(dgx_screen_t *lcd, int bits, int rounds)
                 dgx_draw_line(scr, x, y, x + w - 20, y + h - 20, color);
                 break;
             case 4:
-                dgx_solid_circle(scr, x, y, r, color);
+                dgx_fill_circle(scr, x, y, r, color);
                 break;
             case 5:
-                dgx_font_string_utf8_screen(scr, (int16_t)x, (int16_t)y, "SPI bus", color, DgxOutputNormal, 1 + (round & 1), TerminusTTFMedium12(), NULL, NULL);
+                dgx_font_draw(&(dgx_font_context_t){.scr = scr, .font = &TerminusTTFMedium12, .color = color, .scale = 1 + (round & 1)}, (int16_t)x, (int16_t)y, "SPI bus");
                 break;
             case 6:
                 dgx_vscreen_to_screen(scr, x, y, picture, 0);
@@ -650,7 +650,7 @@ static void draw_and_compare(dgx_screen_t *lcd, int bits, int rounds)
             }
         }
         if (round % 16 == 15 || round == rounds - 1) {
-            lcd->wait_buffer(lcd);
+            lcd->wait(lcd);
             const int wrong = panel_wrong(model);
             CHECK(wrong == 0);
             if (wrong) break;
@@ -677,7 +677,7 @@ static void test_spi(int bits, size_t buffer_max, int dc)
     CHECK(stray_bytes == 0 && unknown_commands == 0);
     CHECK(longest_transfer <= (long)bus->buffer_len);
     CHECK(queued_short == 0);
-    bus->dispose(bus);
+    bus->dispose_bus(bus);
     CHECK(!model_hosts[SPI2_HOST].initialized); /* the host DGX set up goes with its last display */
 }
 
@@ -696,7 +696,7 @@ static void test_qspi(int bits, size_t buffer_max)
     CHECK(stray_bytes == 0 && unknown_commands == 0);
     CHECK(longest_transfer <= (long)bus->buffer_len);
     CHECK(queued_short == 0);
-    bus->dispose(bus);
+    bus->dispose_bus(bus);
     CHECK(!model_hosts[SPI2_HOST].initialized);
 }
 
@@ -721,17 +721,17 @@ static void test_whole_frame(bool qspi)
         uint8_t *frame = from_psram ? psram : memory;
         for (int i = 0; i < PW * PH * 2; ++i) frame[i] = (uint8_t)rnd(0, 255);
         longest_transfer = 0;
-        lcd->wait_buffer(lcd);
+        lcd->wait(lcd);
         lcd->set_area(lcd, 0, PW - 1, 0, PH - 1);
         lcd->write_area(lcd, frame, PW * PH * 16u);
-        lcd->wait_buffer(lcd);
+        lcd->wait(lcd);
         int wrong = 0;
         for (int i = 0; i < PW * PH; ++i) wrong += panel[i] != (uint32_t)(frame[2 * i] << 8 | frame[2 * i + 1]);
         CHECK(wrong == 0);
         CHECK(longest_transfer <= (long)bus->buffer_len);
     }
     free(memory);
-    bus->dispose(bus);
+    bus->dispose_bus(bus);
 }
 
 /* the window of w by h pixels at the top left of the display holds the pixels of frame, 16 bits each */
@@ -747,10 +747,10 @@ static int window_wrong(const uint8_t *frame, int w, int h)
 /* w by h pixels of frame sent into the window at the top left of the display, in one write_area() */
 static void send_window(dgx_screen_t *lcd, const uint8_t *frame, int w, int h)
 {
-    lcd->wait_buffer(lcd);
+    lcd->wait(lcd);
     lcd->set_area(lcd, 0, (uint16_t)(w - 1), 0, (uint16_t)(h - 1));
     lcd->write_area(lcd, (uint8_t *)frame, (uint32_t)(w * h) * 16u);
-    lcd->wait_buffer(lcd);
+    lcd->wait(lcd);
 }
 
 /*
@@ -780,7 +780,7 @@ static void test_short_buffer(bool qspi)
         dgx_fill_rectangle(&s.scr, 0, 0, PW, PH, 0); /* as the virtual screen it is compared with starts */
         draw_and_compare(&s.scr, 16, 64);
         free(frame);
-        bus->dispose(bus);
+        bus->dispose_bus(bus);
     }
     CHECK(spi_bus_free(SPI3_HOST) == ESP_OK);
 }
@@ -807,7 +807,7 @@ static void test_small_host_max(bool qspi)
         send_window(&s.scr, frame, PW, PH);
         CHECK(window_wrong(frame, PW, PH) == 0);
         free(frame);
-        bus->dispose(bus);
+        bus->dispose_bus(bus);
     }
     CHECK(spi_bus_free(SPI3_HOST) == ESP_OK);
 }
@@ -829,20 +829,20 @@ static void test_wait_after_window(void)
     dgx_screen_t *lcd = &s.scr;
     uint8_t       frame[10 * 7 * 2];
     for (size_t i = 0; i < sizeof(frame); ++i) frame[i] = (uint8_t)rnd(0, 255);
-    lcd->wait_buffer(lcd);
+    lcd->wait(lcd);
     lcd->set_area(lcd, 0, 9, 0, 6);
-    lcd->wait_buffer(lcd);
+    lcd->wait(lcd);
     lcd->write_area(lcd, frame, sizeof(frame) * 8u);
-    lcd->wait_buffer(lcd);
+    lcd->wait(lcd);
     CHECK(bare_memory_writes == 0);
     CHECK(window_wrong(frame, 10, 7) == 0);
     /* a window with no pixels, then another one with them */
     lcd->set_area(lcd, 20, 29, 20, 26);
-    lcd->wait_buffer(lcd);
+    lcd->wait(lcd);
     send_window(lcd, frame, 10, 7);
     CHECK(bare_memory_writes == 1);
     CHECK(window_wrong(frame, 10, 7) == 0);
-    bus->dispose(bus);
+    bus->dispose_bus(bus);
 }
 
 #ifndef TEST_SPI_IDF54
@@ -882,7 +882,7 @@ static void test_psram_pieces(bool qspi)
         CHECK(psram_copied == 0);
         CHECK(asks && sends[k].offset ? psram_in_place == 0 : psram_in_place >= 6);
     }
-    bus->dispose(bus);
+    bus->dispose_bus(bus);
 }
 
 /*
@@ -917,7 +917,7 @@ static void test_psram_late(bool qspi)
         psram_in_place = psram_dma_calls = 0;
         late_dma_call                    = round ? 0 : 2; /* the second piece from PSRAM of the first rectangle */
         dgx_vscreen_to_screen(&s.scr, 0, 0, picture, 0);
-        s.scr.wait_buffer(&s.scr);
+        s.scr.wait(&s.scr);
         CHECK(round ? psram_in_place == 0 : psram_dma_calls >= 2);
         CHECK(panel_wrong(picture) == 0);
         CHECK(!bus->sends_from(bus, psram));
@@ -925,7 +925,7 @@ static void test_psram_late(bool qspi)
     late_dma_call = 0;
     v->v_array    = own;
     dgx_screen_destroy(&picture);
-    bus->dispose(bus);
+    bus->dispose_bus(bus);
 }
 #endif
 
@@ -970,16 +970,16 @@ static void test_refused(bool qspi)
     for (long refused = 2; refused <= 4; ++refused) {
         queue_calls = 0, refused_call = refused;
         dgx_vscreen_to_screen(&s.scr, 0, 0, picture, turned);
-        s.scr.wait_buffer(&s.scr);
+        s.scr.wait(&s.scr);
         CHECK(queue_calls > refused);
         refused_call = 0;
         dgx_vscreen_to_screen(&s.scr, 0, 0, picture, turned);
-        s.scr.wait_buffer(&s.scr);
+        s.scr.wait(&s.scr);
         CHECK(panel_wrong(model) == 0);
     }
     dgx_screen_destroy(&picture);
     dgx_screen_destroy(&model);
-    bus->dispose(bus);
+    bus->dispose_bus(bus);
 }
 #endif
 
@@ -1001,7 +1001,7 @@ static void test_sends_from(void)
 #else
     CHECK(bus->sends_from(bus, psram));
 #endif
-    bus->dispose(bus);
+    bus->dispose_bus(bus);
 }
 
 /* an SPI display and a QSPI one on a host DGX sets up: one host, freed with the second */
@@ -1042,18 +1042,18 @@ static void test_hold(void)
     CHECK(spi_device_polling_transmit(model_other, &ping) == ESP_OK);
 
     /* a batch holds the bus once, and lets go of it at its end */
-    dgx_screen_progress_up(lcd);
+    dgx_screen_batch_begin(lcd);
     for (int i = 0; i < 40; ++i) dgx_set_pixel(lcd, i, 40, (uint32_t)i * 1000u), dgx_set_pixel(model, i, 40, (uint32_t)i * 1000u);
     dgx_draw_circle(lcd, 40, 20, 7, 0xffff), dgx_draw_circle(model, 40, 20, 7, 0xffff);
     CHECK(model_hosts[SPI3_HOST].holder != NULL && acquires == a0 + 4);
-    dgx_screen_progress_down(lcd);
+    dgx_screen_batch_end(lcd);
     CHECK(model_hosts[SPI3_HOST].holder == NULL && acquires == a0 + 4);
     CHECK(spi_device_polling_transmit(model_other, &ping) == ESP_OK);
 
     /* a long rectangle: its window by the registers, its pixels by DMA with the bus let go of */
     const long t1 = transfers;
     dgx_fill_rectangle(lcd, 0, 0, PW, PH / 2, 0x0f0f), dgx_fill_rectangle(model, 0, 0, PW, PH / 2, 0x0f0f);
-    lcd->wait_buffer(lcd);
+    lcd->wait(lcd);
     CHECK(transfers > t1 && queued_while_held == q0 && model_hosts[SPI3_HOST].holder == NULL);
     CHECK(spi_device_polling_transmit(model_other, &ping) == ESP_OK);
     CHECK(other_transfers == o0 + 4);
@@ -1063,7 +1063,7 @@ static void test_hold(void)
     CHECK(spi_bus_remove_device(model_other) == ESP_OK);
     model_other = NULL;
     dgx_screen_destroy(&model);
-    bus->dispose(bus);
+    bus->dispose_bus(bus);
     CHECK(spi_bus_free(SPI3_HOST) == ESP_OK);
 }
 
@@ -1090,7 +1090,7 @@ static void test_keep(void)
     dgx_draw_line(lcd, 0, 0, 30, 20, 0x2222), dgx_draw_line(model, 0, 0, 30, 20, 0x2222);
     dgx_fill_rectangle(lcd, 0, 24, PW, PH - 24, 0x3333), dgx_fill_rectangle(model, 0, 24, PW, PH - 24, 0x3333);
     dgx_draw_circle(lcd, 30, 30, 9, 0x4444), dgx_draw_circle(model, 30, 30, 9, 0x4444);
-    lcd->wait_buffer(lcd);
+    lcd->wait(lcd);
     CHECK(acquires == a0 + 1 && model_hosts[SPI2_HOST].holder != NULL && queued_while_held > q0);
     CHECK(panel_wrong(model) == 0);
 
@@ -1101,14 +1101,14 @@ static void test_keep(void)
     dgx_set_pixel(lcd, 50, 40, 0x5555), dgx_set_pixel(model, 50, 40, 0x5555);
     dgx_set_pixel(lcd, 51, 40, 0x5555), dgx_set_pixel(model, 51, 40, 0x5555);
     CHECK(acquires == a1 + 2 && model_hosts[SPI2_HOST].holder == NULL);
-    if (second) second->dispose(second);
+    if (second) second->dispose_bus(second);
     dgx_set_pixel(lcd, 52, 40, 0x6666), dgx_set_pixel(model, 52, 40, 0x6666);
     dgx_set_pixel(lcd, 53, 40, 0x6666), dgx_set_pixel(model, 53, 40, 0x6666);
     CHECK(acquires == a1 + 3 && model_hosts[SPI2_HOST].holder != NULL);
     CHECK(panel_wrong(model) == 0);
     CHECK(stray_bytes == 0 && unknown_commands == 0);
     dgx_screen_destroy(&model);
-    bus->dispose(bus);
+    bus->dispose_bus(bus);
     CHECK(model_hosts[SPI2_HOST].holder == NULL && !model_hosts[SPI2_HOST].initialized);
 }
 
@@ -1119,9 +1119,9 @@ static void test_shared_host(void)
     CHECK(q && s && model_hosts[SPI2_HOST].devices == 2);
     /* a QSPI display does not go on a host of one data line, nor on other lines */
     CHECK(dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, 21, 48, 40, 38, 47, 11, 40 * 1000 * 1000, 0) == NULL);
-    if (q) q->dispose(q);
+    if (q) q->dispose_bus(q);
     CHECK(model_hosts[SPI2_HOST].initialized);
-    if (s) s->dispose(s);
+    if (s) s->dispose_bus(s);
     CHECK(!model_hosts[SPI2_HOST].initialized && model_hosts[SPI2_HOST].devices == 0);
 }
 
@@ -1157,7 +1157,7 @@ static void test_no_dma_host(bool qspi)
         CHECK(wrong == 0);
         CHECK(longest_transfer <= SOC_SPI_MAXIMUM_BUFFER_SIZE);
     }
-    bus->dispose(bus);
+    bus->dispose_bus(bus);
     CHECK(!model_hosts[SPI2_HOST].initialized);
 }
 
@@ -1177,7 +1177,7 @@ static void test_on_bus_on_dgx_host(bool qspi)
     static dgx_screen_with_bus_t s1, s2;
     screen_on(&s1, first, 16);
     dgx_fill_rectangle(&s1.scr, 0, 0, 10, 10, 0x1234);
-    s1.scr.wait_buffer(&s1.scr);
+    s1.scr.wait(&s1.scr);
     CHECK(model_hosts[SPI2_HOST].holder != NULL); /* kept, alone on the host */
     dgx_bus_protocols_t *second = qspi ? dgx_qspi_init_on_bus(SPI2_HOST, 46, 40 * 1000 * 1000, 0) : dgx_spi_init_on_bus(SPI2_HOST, 16, 2, 40 * 1000 * 1000, 0);
     CHECK(second != NULL && model_hosts[SPI2_HOST].holder == NULL);
@@ -1188,11 +1188,11 @@ static void test_on_bus_on_dgx_host(bool qspi)
         dgx_fill_rectangle(&s2.scr, i, i, 20, 5, 0x5678);
         dgx_set_pixel(&s1.scr, i, 30, 0x9abc);
     }
-    s2.scr.wait_buffer(&s2.scr);
+    s2.scr.wait(&s2.scr);
     CHECK(model_hosts[SPI2_HOST].holder == NULL);
-    first->dispose(first);
+    first->dispose_bus(first);
     CHECK(model_hosts[SPI2_HOST].initialized);
-    second->dispose(second);
+    second->dispose_bus(second);
     CHECK(!model_hosts[SPI2_HOST].initialized && model_hosts[SPI2_HOST].devices == 0);
 }
 
@@ -1211,7 +1211,7 @@ static void test_qspi_bare_command(void)
     bus->sync_write(bus);
     CHECK(direct_transfers == d0 + 1);
     CHECK(!model_spi_hw[SPI2_HOST].running);
-    bus->dispose(bus);
+    bus->dispose_bus(bus);
 }
 
 /*
@@ -1224,7 +1224,7 @@ static void test_quad_host_flags(void)
 {
     dgx_bus_protocols_t *bus = dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, 11, 13, 14, 9, 12, 10, 40 * 1000 * 1000, 0);
     CHECK(bus && !(model_hosts[SPI2_HOST].flags & SPICOMMON_BUSFLAG_OCTAL));
-    if (bus) bus->dispose(bus);
+    if (bus) bus->dispose_bus(bus);
     /* so the driver does not check D0 and D1, DGX does */
     CHECK(dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_NC, 13, 14, 9, 12, 10, 40 * 1000 * 1000, 0) == NULL);
     CHECK(dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, 11, GPIO_NUM_NC, 14, 9, 12, 10, 40 * 1000 * 1000, 0) == NULL);

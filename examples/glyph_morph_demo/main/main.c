@@ -139,7 +139,7 @@ static bool morph_once(dgx_screen_t *screen, const dgx_bit_matrix_t *from, const
 }
 
 /* the symbols of one font one after another, from nothing and back into it */
-static void run_sequence(dgx_screen_t *screen, dgx_font_t *font, const uint32_t *codes, size_t count)
+static void run_sequence(dgx_screen_t *screen, const dgx_font_t *font, const uint32_t *codes, size_t count)
 {
     dgx_bit_matrix_t *from = dgx_morph_glyph_matrix(font, codes[0]);
     if (!from || !create_renderer(screen, from->width, from->height)) {
@@ -188,8 +188,8 @@ void app_main(void)
 
     /* digits of a bitmap font, the weather symbols a clock shows, the letters, and again */
     while (true) {
-        run_sequence(screen, TerminusTTFMedium12(), digits, sizeof(digits) / sizeof(digits[0]));
-        run_sequence(screen, WeatherIconsRegular27(), weather, sizeof(weather) / sizeof(weather[0]));
-        run_sequence(screen, TerminusTTFMedium12(), letters, sizeof(letters) / sizeof(letters[0]));
+        run_sequence(screen, &TerminusTTFMedium12, digits, sizeof(digits) / sizeof(digits[0]));
+        run_sequence(screen, &WeatherIconsRegular27, weather, sizeof(weather) / sizeof(weather[0]));
+        run_sequence(screen, &TerminusTTFMedium12, letters, sizeof(letters) / sizeof(letters[0]));
     }
 }

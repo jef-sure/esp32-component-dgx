@@ -108,7 +108,7 @@ static const uint8_t bitmaps[] = {
     0x40, 0xA8, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00,  /* 007E .#... #.#.# ...#. ..... ..... ..... ..... ..... */
 };
 
-static const glyph_t glyphs[] = {
+static const dgx_glyph_t glyphs[] = {
     { {.bitmap = bitmaps +   0 }, 5, 8, 6, 0, -7 }, /* 0020 */
     { {.bitmap = bitmaps +   8 }, 5, 8, 6, 0, -7 }, /* 0021 */
     { {.bitmap = bitmaps +  16 }, 5, 8, 6, 0, -7 }, /* 0022 */
@@ -206,24 +206,20 @@ static const glyph_t glyphs[] = {
     { {.bitmap = bitmaps + 752 }, 5, 8, 6, 0, -7 }, /* 007E */
 };
 
-static const glyph_array_t glyph_ranges[] = {
+static const dgx_glyph_array_t glyph_ranges[] = {
     {0x20, 0x5f, glyphs + 0},
     {0x0, 0x0, 0},
 };
 
-dgx_font_t *GLCD5x7()
-{
-    static dgx_font_t rval = {
-        .glyph_ranges     = glyph_ranges,
-        .yAdvance         = 8,
-        .yOffsetLowest    = -7,
-        .xWidest          = 5,
-        .xWidthAverage    = 5,
-        .f_type           = DGX_FONT_BITMAP_LINES,
-        .yBottomMax       = 1,
-        .xOffsetLowest    = 0,
-        .xRightMax        = 5,
-        .number_of_ranges = 1,
-    };
-    return &rval;
-}
+const dgx_font_t GLCD5x7 = {
+    .glyph_ranges = glyph_ranges,
+    .y_advance = 8,
+    .y_offset_lowest = -7,
+    .x_widest = 5,
+    .x_width_average = 5,
+    .f_type = DGX_FONT_BITMAP_LINES,
+    .y_bottom_max = 1,
+    .x_offset_lowest = 0,
+    .x_right_max = 5,
+    .number_of_ranges = 1
+};

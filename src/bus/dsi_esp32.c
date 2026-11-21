@@ -2122,7 +2122,7 @@ dgx_bus_protocols_t *dgx_dsi_init(int bus_id, uint8_t data_lanes, uint32_t lane_
     bus->protocols.write_data       = dgx_dsi_send_data;
     bus->protocols.write_data_async = dgx_dsi_send_data; /* a copy into the frame buffer: done when it returns */
     bus->protocols.sync_write       = dgx_dsi_sync_write;
-    bus->protocols.dispose          = dgx_dsi_dispose_bus_func;
+    bus->protocols.dispose_bus          = dgx_dsi_dispose_bus_func;
     bus->protocols.memory_allocator = dgx_dsi_memory_allocator;
     bus->protocols.buffer_len       = DGX_DSI_BUFFER_LEN;
     bus->protocols.buffer           = bus->protocols.memory_allocator(bus->protocols.buffer_len);

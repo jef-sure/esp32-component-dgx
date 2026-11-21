@@ -518,9 +518,13 @@ def strip_comments(c_text):
     return re.sub(r"/\*.*?\*/|//[^\n]*", "", c_text, flags=re.S)
 
 
+# a font in its C file: a constant since DGX 0.12, a function that gave a static one before
+FONT_START = re.compile(r"\bconst\s+dgx_font_t\s+(\w+)\s*=\s*\{|\bdgx_font_t\s*\*\s*(\w+)\s*\(\s*(?:void)?\s*\)\s*\{")
+
+
 def font_blocks(c_text):
-    """The fonts of a C file, by the function of each: [(name, text of its part)]."""
-    ends = [(m.group(1), m.end()) for m in re.finditer(r"dgx_font_t\s*\*\s*(\w+)\s*\(\s*(?:void)?\s*\)\s*\{", c_text)]
+    """The fonts of a C file, by the name of each, its constant or its function: [(name, text of its part)]."""
+    ends = [(m.group(1) or m.group(2), m.end()) for m in FONT_START.finditer(c_text)]
     blocks, start = [], 0
     for name, end in ends:
         close = c_text.find("\n}", end)
@@ -543,11 +547,27 @@ def glyph_ranges(c_text, where):
 
 
 def accessor(c_text, where):
-    """The function a font's C file gives it by: dgx_font_t *Name()."""
+    """The name a font's C file gives it by: const dgx_font_t Name, or before DGX 0.12 dgx_font_t *Name()."""
     names = [name for name, _ in font_blocks(c_text)]
     if not names:
-        raise FontsError(f"{where}: no dgx_font_t *<name>() in it: not a DGX font")
+        raise FontsError(f"{where}: no const dgx_font_t <name> in it: not a DGX font")
     return names[0]
+
+
+def is_constant(c_text, name):
+    """Whether a font's C file gives it as a constant, as font2c writes it since DGX 0.12, not by a function."""
+    return re.search(r"\bconst\s+dgx_font_t\s+" + re.escape(name) + r"\s*=", c_text) is not None
+
+
+def header_names(h_text):
+    """The fonts a header of font2c declares, and the names it gives one of them by: (constants, {alias: name})."""
+    return re.findall(r"^extern const dgx_font_t (\w+);$", h_text, re.M), dict(re.findall(r"^#define (\w+) (\w+)$", h_text, re.M))
+
+
+def declare(h, name):
+    """The constant of a font in a header, and the call it was taken by before DGX 0.12."""
+    h.append(f"extern const dgx_font_t {name};")
+    h.append(f"#define {name}() DGX_FONT_CALLED({name})")
 
 
 def hw_code_points(path, where):
@@ -1200,6 +1220,9 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
         c_text = open(os.path.join(work, "dgx_fonts.c"), encoding="utf-8", errors="replace").read()
         h_text = open(os.path.join(work, "dgx_fonts.h"), encoding="utf-8", errors="replace").read()
         points = font_points(c_text)
+        for alias, of in header_names(h_text)[1].items():  # another name of a font made once
+            if of in points:
+                points.setdefault(alias, points[of])
         for w in made:
             name = f"dgx_font_{w.need.name}"
             if name not in points:
@@ -1208,7 +1231,8 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
             counts.setdefault(name, len(points[name]))
         for name, pts in points.items():  # a function of a list that shares a font is counted by that font
             counts.setdefault(name, len(pts))
-    functions = re.findall(r"^dgx_font_t \*(\w+)\(void\);$", h_text, re.M)
+    constants, aliases = header_names(h_text)
+    functions = constants + list(aliases)
     own_names = {f"dgx_font_{w.need.name}" for w in made}
     told = []
     # the two files: the C as font2c wrote it, the header with the needs, the fonts as they are and the board
@@ -1228,7 +1252,10 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
         name = f"dgx_font_{w.need.name}"
         if isinstance(w, Made):
             h.append(f"/* {w.need.name}: {w.face.family} {w.face.style} at {w.px} px ({w.how}){depth_words(w)}, made for this board */")
-            h.append(f"dgx_font_t *{name}(void);")
+            if name in aliases:
+                h.append(f"#define {name} {aliases[name]}")
+            else:
+                declare(h, name)
             h.append(f"#define DGX_FONT_{upper}_MADE 1")
             h.append(f"#define DGX_FONT_{upper}_PX {w.px}")
             if w.mm is not None:
@@ -1237,23 +1264,37 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
                         + (f", patched by {patched[name]}" if name in patched else ""))
         elif isinstance(w, Hand):
             h.append(f"/* {w.need.name}: the handwritten font {os.path.basename(w.source)}; its size is chosen when text is drawn */")
-            h.append(f"dgx_font_t *{name}(void);")
+            if name in aliases:
+                h.append(f"#define {name} {aliases[name]}")
+            else:
+                declare(h, name)
             h.append(f"#define DGX_FONT_{upper}_MADE 0")
             told.append(f"{w.need.name}: handwritten {w.source}, {counts.get(name, 0)} glyphs")
         else:
             what = f"{w.function} of DGX" if w.how == "dgx" else f"{os.path.basename(w.path)} of the program"
-            h.append(f"/* {w.need.name}: {what}, used as is: its own function */")
-            if w.how == "file":
-                h.append(f"dgx_font_t *{w.function}(void); /* compiled by the program */")
-            h.append(f"#define {name} {w.function}")
+            h.append(f"/* {w.need.name}: {what}, used as is */")
+            old = w.how == "file" and not is_constant(open(w.path, encoding="utf-8", errors="replace").read(), w.function)
+            if old:
+                # a font made by font2c before DGX 0.12 is a function: the need is taken by the call of then
+                h.append(f"dgx_font_t *{w.function}(void); /* compiled by the program, made by font2c before DGX 0.12 */")
+                h.append(f"#define {name}() {w.function}()")
+            else:
+                if w.how == "file":
+                    h.append("/* compiled by the program */")
+                    declare(h, w.function)
+                h.append(f"#define {name} {w.function}")
             h.append(f"#define DGX_FONT_{upper}_MADE 0")
-            told.append(f"{w.need.name}: {what}, used as is")
+            told.append(f"{w.need.name}: {what}, used as is"
+                        + (f"; made by font2c before DGX 0.12, it is {name}() until it is made again, then &{name}" if old else ""))
         h.append("")
     others = [f for f in functions if f not in own_names]
     if others:
         h.append("/* the fonts of the lists, named as the lists name them */")
         for f in others:
-            h.append(f"dgx_font_t *{f}(void);")
+            if f in aliases:
+                h.append(f"#define {f} {aliases[f]}")
+            else:
+                declare(h, f)
             told.append(f"{f}: from a list, {counts.get(f, 0)} glyphs")
         h.append("")
     h.append("/* every need, in declaration order: X(name) for each */")
@@ -1301,6 +1342,12 @@ def read_font(path, name=None):
         raise FontsError(f"{path}: no dgx_font_t *<name>() in it")
     if name:
         found = [b for b in blocks if b[0] == name]
+        header = os.path.splitext(path)[0] + ".h"
+        if not found and os.path.exists(header):
+            # another name of a font made once, which font2c gives in the header since DGX 0.12
+            of = header_names(open(header, encoding="utf-8", errors="replace").read())[1].get(name)
+            if of and of != name:
+                return read_font(path, of)
         if not found:
             raise FontsError(f"{path}: no font {name} in it; it has {', '.join(n for n, _ in blocks)}")
         name, text = found[0]
@@ -1330,8 +1377,10 @@ def read_font(path, name=None):
     if f_type in ("DGX_FONT_BITMAP_DEPTH2", "DGX_FONT_BITMAP_DEPTH4"):
         raise FontsError(f"{path}: {name} is a font of {f_type[-1]} bits a pixel; the editor takes fonts of one bit")
     stream = f_type == "DGX_FONT_BITMAP_STREAM"
-    font = {"name": name, "f_type": f_type, "yAdvance": int(fields["yAdvance"]), "yOffsetLowest": int(fields["yOffsetLowest"]),
-            "xWidest": int(float(fields.get("xWidest", 0))), "glyphs": {}, "first_advance": glyphs[ranges[0][2]][3] if ranges else 0}
+    # the names of the measures since DGX 0.12, and before it
+    measure = lambda new, old, default=None: fields.get(new, fields.get(old, default))
+    font = {"name": name, "f_type": f_type, "yAdvance": int(measure("y_advance", "yAdvance")),
+            "yOffsetLowest": int(measure("y_offset_lowest", "yOffsetLowest")), "xWidest": int(float(measure("x_widest", "xWidest", 0))), "glyphs": {}, "first_advance": glyphs[ranges[0][2]][3] if ranges else 0}
     for first, number, k in ranges:
         for i in range(number):
             at, w, h, adv, xo, yo = glyphs[k + i]

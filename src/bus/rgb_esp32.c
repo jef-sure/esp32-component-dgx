@@ -388,7 +388,7 @@ dgx_bus_protocols_t *dgx_rgb_init(const dgx_rgb_pins_t *pins, uint32_t pclk_hz)
     bus->protocols.write_data       = dgx_rgb_send_data;
     bus->protocols.write_data_async = dgx_rgb_send_data; /* a copy into the frame buffer: done when it returns */
     bus->protocols.sync_write       = dgx_rgb_sync_write;
-    bus->protocols.dispose          = dgx_rgb_dispose_bus_func;
+    bus->protocols.dispose_bus          = dgx_rgb_dispose_bus_func;
     bus->protocols.memory_allocator = dgx_rgb_memory_allocator;
     bus->protocols.buffer_len       = DGX_RGB_BUFFER_LEN;
     bus->protocols.buffer           = bus->protocols.memory_allocator(bus->protocols.buffer_len);

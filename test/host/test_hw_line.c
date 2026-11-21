@@ -7,7 +7,7 @@
 #include "fonts/font0ss.h"
 
 typedef struct {
-    const glyph_t *g;
+    const dgx_glyph_t *g;
     int            shift;  /* of the points of the symbol */
     int            origin; /* where the left edge of its active area stands in the line */
     int            left, right;       /* of its drawing in the line */
@@ -25,7 +25,7 @@ static int place(const char *text, placed_t *out, dgx_hw_line_t *line)
     dgx_hw_line_begin(line, &font);
     while (text[idx]) {
         placed_t p = {0};
-        p.g = dgx_hw_line_place(line, decodeUTF8next(text, &idx), &p.shift);
+        p.g = dgx_hw_line_place(line, dgx_utf8_next(text, &idx), &p.shift);
         if (p.g) {
             const dgx_hw_symbol_t *s = p.g->hw;
             p.origin = p.shift + fhw->symbol_offset_x;
@@ -45,16 +45,16 @@ int main(void)
     placed_t      p[16];
     dgx_hw_line_t line;
 
-    font = *font0ss();
+    font = *&font0ss;
     fhw = font.hw;
 
     /* no symbol keeps the mark of an absent space: the converter puts the space of the font there */
-    for (const glyph_array_t *r = font.glyph_ranges; r->number; ++r) {
+    for (const dgx_glyph_array_t *r = font.glyph_ranges; r->number; ++r) {
         for (int i = 0; i < r->number; ++i) {
             const dgx_hw_symbol_t *s = r->glyphs[i].hw;
             CHECK(s->space_after >= 0 && s->space_before >= 0);
-            CHECK(r->glyphs[i].xAdvance == s->space_before + s->line_width + s->space_after);
-            CHECK(r->glyphs[i].xOffset == s->space_before + s->left - s->line_left);
+            CHECK(r->glyphs[i].x_advance == s->space_before + s->line_width + s->space_after);
+            CHECK(r->glyphs[i].x_offset == s->space_before + s->left - s->line_left);
         }
     }
 
@@ -62,11 +62,11 @@ int main(void)
     CHECK(place("Го", p, &line) == 2 && p[0].g && p[1].g);
     CHECK(p[0].left == 0 && p[0].origin == -11);
     /* the line goes on by xAdvance - xOffset: line_left - left + line_width + space_after */
-    CHECK(p[1].line_left == p[0].g->xAdvance - p[0].g->xOffset && p[1].line_left == 53);
+    CHECK(p[1].line_left == p[0].g->x_advance - p[0].g->x_offset && p[1].line_left == 53);
     /* "о" has nothing above the band and stands under the bar of "Г" */
     CHECK(p[1].g->hw->up_left == DGX_HW_NONE && p[1].origin == 39);
     CHECK(p[1].left < p[0].up_right && p[0].up_right == 79);
-    CHECK(line.pen == 53 + p[1].g->xAdvance && line.has_up && line.up == 96);
+    CHECK(line.pen == 53 + p[1].g->x_advance && line.has_up && line.up == 96);
 
     /* "ГЧ": by the band "Ч" would stand at 9 and run into the bar; it is moved behind it */
     CHECK(place("ГЧ", p, &line) == 2);

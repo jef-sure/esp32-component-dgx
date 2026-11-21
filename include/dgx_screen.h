@@ -11,6 +11,7 @@ extern "C"
 
 #include "bus/dgx_bus_protocols.h"
 #include "dgx_bits.h"
+#include "dgx_deprecated.h"
 #include "esp_err.h"
 
 struct _dgx_screen_t;
@@ -168,7 +169,10 @@ typedef struct _dgx_screen_t
     /* basic functions */
     dgx_scr_set_area_func           set_area;
     dgx_scr_write_area_func         write_area;
-    dgx_scr_screen_wait_buffer_func wait_buffer;
+    union {
+        dgx_scr_screen_wait_buffer_func wait; /* called by dgx_screen_wait() */
+        dgx_scr_screen_wait_buffer_func wait_buffer DGX_DEPRECATED("use dgx_screen_wait(scr)");
+    };
     dgx_scr_draw_pixel_func         set_pixel;
     dgx_scr_read_pixel_func         get_pixel;
     /*
@@ -316,7 +320,7 @@ static inline esp_err_t dgx_screen_brightness(dgx_screen_t *_scr, uint8_t level)
  */
 static inline void dgx_screen_wait(dgx_screen_t *_scr)
 {
-    if (_scr->wait_buffer) _scr->wait_buffer(_scr);
+    if (_scr->wait) _scr->wait(_scr);
 }
 
 /**
@@ -517,6 +521,7 @@ static inline uint32_t dgx_screen_rgb(const dgx_screen_t *_scr, uint8_t r, uint8
 /**
  * @deprecated The name dgx_screen_batch_begin() had before.
  */
+DGX_DEPRECATED("use dgx_screen_batch_begin()")
 static inline int dgx_screen_progress_up(dgx_screen_t *_scr)
 {
     return dgx_screen_batch_begin(_scr);
@@ -525,6 +530,7 @@ static inline int dgx_screen_progress_up(dgx_screen_t *_scr)
 /**
  * @deprecated The name dgx_screen_batch_end() had before.
  */
+DGX_DEPRECATED("use dgx_screen_batch_end()")
 static inline int dgx_screen_progress_down(dgx_screen_t *_scr)
 {
     return dgx_screen_batch_end(_scr);

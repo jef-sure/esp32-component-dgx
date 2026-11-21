@@ -3,7 +3,7 @@
 #include "check.h"
 #include "dgx_draw.h"
 #include "dgx_font.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
 
 static int calls;
@@ -44,10 +44,10 @@ static void test_user_data(void)
     dgx_fill_rectangle(a, 3, 4, 5, 2, 9);
     CHECK(sa.calls == 1 && sa.left == 3 && sa.right == 7 && sa.top == 4 && sa.bottom == 5 && sb.calls == 0);
     /* a batch of its own, as code that draws makes one, sends by itself at its end */
-    dgx_screen_progress_up(b);
+    dgx_screen_batch_begin(b);
     dgx_set_pixel(b, 1, 2, 0xffff);
     dgx_set_pixel(b, 20, 15, 0xffff);
-    dgx_screen_progress_down(b);
+    dgx_screen_batch_end(b);
     CHECK(sb.calls == 1 && sb.left == 1 && sb.right == 20 && sb.top == 2 && sb.bottom == 15 && sa.calls == 1);
     CHECK(a->user_data == &sa && b->user_data == &sb);
     dgx_screen_destroy(&a), dgx_screen_destroy(&b);
@@ -70,14 +70,14 @@ int main(void)
 
     /* changes at opposite corners are merged into one update */
     calls = 0;
-    dgx_screen_progress_up(s);
+    dgx_screen_batch_begin(s);
     dgx_set_pixel(s, 1, 1, 0xffff);
     dgx_fill_rectangle(s, 15, 8, 3, 2, 0xffff);
-    dgx_screen_progress_up(s);
+    dgx_screen_batch_begin(s);
     dgx_draw_line(s, 4, 6, 9, 6, 0xffff);
-    CHECK(dgx_screen_progress_down(s) == 1);
+    CHECK(dgx_screen_batch_end(s) == 1);
     CHECK(calls == 0);
-    CHECK(dgx_screen_progress_down(s) == 0);
+    CHECK(dgx_screen_batch_end(s) == 0);
     CHECK(calls == 1 && last_is(1, 17, 1, 9));
 
     /* the same under the names of a batch */
@@ -117,7 +117,7 @@ int main(void)
 
     /* a bus given up by its call: dispose() once, the pointer cleared, a cleared one left alone */
     {
-        dgx_bus_protocols_t wire = {.dispose = bus_gone}, *bus = &wire;
+        dgx_bus_protocols_t wire = {.dispose_bus = bus_gone}, *bus = &wire;
         dgx_bus_dispose(&bus);
         CHECK(disposed == 1 && bus == NULL);
         dgx_bus_dispose(&bus);
@@ -126,12 +126,12 @@ int main(void)
 
     /* empty batch does not flush */
     calls = 0;
-    dgx_screen_progress_up(s);
-    dgx_screen_progress_down(s);
+    dgx_screen_batch_begin(s);
+    dgx_screen_batch_end(s);
     CHECK(calls == 0);
 
     /* an extra down does not leave the screen deferred forever */
-    CHECK(dgx_screen_progress_down(s) == 0 && s->in_progress == 0);
+    CHECK(dgx_screen_batch_end(s) == 0 && s->in_progress == 0);
     dgx_set_pixel(s, 3, 3, 0xffff);
     CHECK(calls == 1 && last_is(3, 3, 3, 3));
     calls = 0;
@@ -145,13 +145,13 @@ int main(void)
 
     /* composite primitives and text flush once */
     calls = 0;
-    dgx_draw_line_thick(s, 2, 2, 15, 7, 3, 0xffff);
+    dgx_draw_thick_line(s, 2, 2, 15, 7, 3, 0xffff);
     CHECK(calls == 1);
     calls = 0;
-    dgx_draw_triangle_solid(s, 1, 1, 18, 2, 9, 8, 0xffff);
+    dgx_fill_triangle(s, 1, 1, 18, 2, 9, 8, 0xffff);
     CHECK(calls == 1 && last_t == 1 && last_b == 8);
     calls = 0;
-    dgx_font_string_utf8_screen(s, 0, 9, "ab", 0xffff, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+    dgx_font_draw(&(dgx_font_context_t){.scr = s, .font = &TerminusTTFMedium12, .color = 0xffff, .scale = 1}, 0, 9, "ab");
     CHECK(calls == 1);
 
     /* a dashed line: the pattern is the lowest bits of the mask, what lies above them never comes into it */

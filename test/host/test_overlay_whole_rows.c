@@ -14,7 +14,7 @@
 #include "dgx_draw.h"
 #include "dgx_overlay.h"
 #include "dgx_screen_with_bus.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 static uint32_t seed = 1234;
 
@@ -111,7 +111,7 @@ int main(void)
         sbus.bus   = &bus;
         dgx_screen_t *lcd = &sbus.scr;
         lcd->width = DW, lcd->height = DH, lcd->color_bits = 16, lcd->screen_subtype = DgxPhysicalScreenWithBus;
-        lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait_buffer = panel_wait;
+        lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait = panel_wait;
 
         for (int y = 0; y < DH; ++y)
             for (int x = 0; x < DW; ++x) dgx_set_pixel(src, x, y, (uint32_t)rnd(0, 3));

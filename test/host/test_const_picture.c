@@ -302,7 +302,7 @@ static dgx_screen_t *panel_screen(panel_t *p, int kind, uint8_t bits, const uint
     dgx_screen_t *lcd = &p->sbus.scr;
     lcd->width = DW, lcd->height = DH, lcd->color_bits = bits, lcd->screen_subtype = DgxPhysicalScreenWithBus;
     dgx_scr_init_slow_bus_optimized_funcs(lcd);
-    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait_buffer = panel_wait;
+    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait = panel_wait;
     lcd->update_screen = quiet;
     if (kind == BUS_MEMORY) lcd->get_pixel = panel_get_pixel;
     return lcd;

@@ -5,7 +5,8 @@
 extern "C" {
 // @formatter:on
 #endif
-dgx_font_t* LiberationSansRegular12();
+extern const dgx_font_t LiberationSansRegular12;
+#define LiberationSansRegular12() DGX_FONT_CALLED(LiberationSansRegular12)
 #ifdef __cplusplus
 // @formatter:off
 }

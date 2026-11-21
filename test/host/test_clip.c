@@ -72,7 +72,7 @@ static dgx_screen_t *panel_make(void)
     dgx_screen_t *scr = &p->sbus.scr;
     scr->width = W, scr->height = H, scr->color_bits = 16, scr->screen_subtype = DgxPhysicalScreenWithBus;
     dgx_scr_init_slow_bus_optimized_funcs(scr);
-    scr->set_area = panel_set_area, scr->write_area = panel_write_area, scr->wait_buffer = panel_wait, scr->update_screen = quiet;
+    scr->set_area = panel_set_area, scr->write_area = panel_write_area, scr->wait = panel_wait, scr->update_screen = quiet;
     scr->destroy = NULL;
     return scr;
 }
@@ -227,7 +227,7 @@ static void op_text(dgx_screen_t *s)
 {
     static const dgx_output_orientation_t turns[] = {DgxOutputNormal, DgxOutputRotate90CW, DgxOutputRotate180, DgxOutputMirrorX};
     for (int k = 0; k < 4; ++k) {
-        const dgx_font_context_t ctx = {.scr = s, .font = TerminusTTFMedium12(), .color = ink(s, k), .bg = ink(s, k + 4),
+        const dgx_font_context_t ctx = {.scr = s, .font = &TerminusTTFMedium12, .color = ink(s, k), .bg = ink(s, k + 4),
                                         .orientation = turns[k], .scale = k == 1 ? 2 : 1, .flags = k == 2 ? DGX_FONT_FILL : 0};
         dgx_font_draw(&ctx, 6 + 10 * k, 14 + 9 * k, "Clip Hg 12");
         /* a field, longer and shorter than its text */
@@ -239,8 +239,8 @@ static void op_text(dgx_screen_t *s)
 
 /* a font of 4 bits a pixel, made here: two glyphs of every level */
 static uint8_t       soft_bits[2][32];
-static glyph_t       soft_glyphs[2];
-static glyph_array_t soft_ranges[1];
+static dgx_glyph_t       soft_glyphs[2];
+static dgx_glyph_array_t soft_ranges[1];
 static dgx_font_t    soft_font;
 
 static void make_soft_font(void)
@@ -249,11 +249,11 @@ static void make_soft_font(void)
         const int w = 6 + k, h = 7, pitch = (w * 4 + 7) / 8;
         for (int y = 0; y < h; ++y)
             for (int x = 0; x < w; ++x) soft_bits[k][y * pitch + x / 2] |= (uint8_t)(((x * 5 + y * 3 + k) % 16) << (x & 1 ? 0 : 4));
-        soft_glyphs[k] = (glyph_t){.bitmap = soft_bits[k], .width = (int16_t)w, .height = (int16_t)h, .xAdvance = 8, .xOffset = 0, .yOffset = -7};
+        soft_glyphs[k] = (dgx_glyph_t){.bitmap = soft_bits[k], .width = (int16_t)w, .height = (int16_t)h, .x_advance = 8, .x_offset = 0, .y_offset = -7};
     }
-    soft_ranges[0] = (glyph_array_t){.first = 'A', .number = 2, .glyphs = soft_glyphs};
-    soft_font      = (dgx_font_t){.glyph_ranges = soft_ranges, .yAdvance = 9, .yOffsetLowest = -7, .xWidest = 7, .xWidthAverage = 7,
-                                  .f_type = DGX_FONT_BITMAP_DEPTH4, .xRightMax = 7, .number_of_ranges = 1};
+    soft_ranges[0] = (dgx_glyph_array_t){.first = 'A', .number = 2, .glyphs = soft_glyphs};
+    soft_font      = (dgx_font_t){.glyph_ranges = soft_ranges, .y_advance = 9, .y_offset_lowest = -7, .x_widest = 7, .x_width_average = 7,
+                                  .f_type = DGX_FONT_BITMAP_DEPTH4, .x_right_max = 7, .number_of_ranges = 1};
 }
 
 static void op_soft_text(dgx_screen_t *s)
@@ -271,7 +271,7 @@ static void op_handwriting(dgx_screen_t *s)
     static const int widths[] = {1, 3, 2 | DGX_PEN_SOFT};
     for (int k = 0; k < 3; ++k) {
         const uint32_t         color = (widths[k] & DGX_PEN_SOFT) && s->color_bits == 8 ? 230 : ink(s, k);
-        const dgx_hw_context_t ctx   = {.scr = s, .font = font0ss(), .scale_x = 1.3f, .width = widths[k], .color = color, .joined = k == 1};
+        const dgx_hw_context_t ctx   = {.scr = s, .font = &font0ss, .scale_x = 1.3f, .width = widths[k], .color = color, .joined = k == 1};
         dgx_hw_draw(&ctx, -4 + 6 * k, 20 + 12 * k, "clip me");
     }
 }
@@ -359,12 +359,12 @@ static void op_scroll(dgx_screen_t *s)
     if (w > 0 && h > 0) dgx_scroll_no_fill(s, x, y, w, h, -6, 2);
 }
 
-static uint32_t gauge_color(int value) { return (uint32_t)value * 977u; }
+static uint32_t gauge_color(int value, void *user_data) { return (void)user_data, (uint32_t)value * 977u; }
 
 static void op_gauge(dgx_screen_t *s)
 {
     dgx_gauge_t gauge;
-    dgx_gauge_init(&gauge, s, 32, 24, 12, 6, 225.0f, 270, 0, 100, 0, gauge_color);
+    dgx_gauge_init_with(&gauge, s, 32, 24, 12, 6, 225.0f, 270, 0, 100, 0, gauge_color, NULL);
     dgx_gauge_set_value(&gauge, 70);
 }
 

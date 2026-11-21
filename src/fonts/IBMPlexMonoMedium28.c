@@ -2159,7 +2159,7 @@ static const uint8_t bitmaps[] = {
 0x1C, 0x0E, 0x3F, 0x0C, 0x73, 0x0C, 0x63, 0x9C, 0x61, 0xF8, 0xE0, 0xF0
 };
 
-static const glyph_t glyphs[] = {
+static const dgx_glyph_t glyphs[] = {
     { {.bitmap = bitmaps +     0 },   1,   1,  17,    0,    0 } /* 0020 */
 ,   { {.bitmap = bitmaps +     1 },   5,  20,  17,    6,  -19 } /* 0021 */
 ,   { {.bitmap = bitmaps +    21 },   9,   8,  17,    4,  -20 } /* 0022 */
@@ -2256,22 +2256,19 @@ static const glyph_t glyphs[] = {
 ,   { {.bitmap = bitmaps +  3277 },  11,  25,  17,    3,  -20 } /* 007D */
 ,   { {.bitmap = bitmaps +  3327 },  15,   6,  17,    1,  -11 } /* 007E */
 };
-static const glyph_array_t glyph_ranges[] = {
+static const dgx_glyph_array_t glyph_ranges[] = {
    {0x20  , 0x5f  , glyphs + 0 }
 , {0x0   , 0x0   , 0 }
 };
 // Bitmap size: 3339
-dgx_font_t* IBMPlexMonoMedium28() {
-	static dgx_font_t rval = { 
-		.glyph_ranges = glyph_ranges,
-		.yAdvance = 36,
-		.yOffsetLowest = -22,
-		.xWidest = 17,
-		.xWidthAverage = 12.526316,
-	.f_type = DGX_FONT_BITMAP_LINES,
-		.yBottomMax = 7,
-		.xOffsetLowest = 0,
-		.xRightMax = 17
-	};
-	return &rval;
-}
+const dgx_font_t IBMPlexMonoMedium28 = {
+    .glyph_ranges = glyph_ranges,
+    .y_advance = 36,
+    .y_offset_lowest = -22,
+    .x_widest = 17,
+    .x_width_average = 12.526316,
+    .f_type = DGX_FONT_BITMAP_LINES,
+    .y_bottom_max = 7,
+    .x_offset_lowest = 0,
+    .x_right_max = 17
+};

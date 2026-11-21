@@ -1052,7 +1052,7 @@ static void hw_function_name(const char *given, const char *jsonName, char out[2
         memmove(out + 2, out, strlen(out) + 1);
         memcpy(out, "hw", 2);
     }
-    static const char *const taken[] = {"hw", "elements", "symbols", "glyphs", "glyph_ranges", "rval", 0};
+    static const char *const taken[] = {"hw", "elements", "symbols", "glyphs", "glyph_ranges", 0};
     for (int i = 0; taken[i]; ++i) {
         if (!strcmp(out, taken[i])) strcat(out, "_font");
     }
@@ -1098,12 +1098,19 @@ static void cpr_free(cp_ranges_t **head)
     }
 }
 
-/* more functions that give the same font */
-static void write_aliases(FILE *out, const char *funcname, const char *const *aliases, int nAliases)
+/*
+ * The declaration of a font in a header: the constant, and the call a program took it by before DGX 0.12, kept with a
+ * warning until 1.0; an alias is the same font by another name.
+ */
+static void write_declaration(FILE *out, const char *name)
 {
-    for (int i = 0; i < nAliases; ++i) {
-        fprintf(out, "dgx_font_t *%s(void)\n{\n    return %s();\n}\n", aliases[i], funcname);
-    }
+    fprintf(out, "extern const dgx_font_t %s;\n", name);
+    fprintf(out, "#define %s() DGX_FONT_CALLED(%s)\n", name, name);
+}
+
+static void write_alias(FILE *out, const char *alias, const char *name)
+{
+    fprintf(out, "#define %s %s\n", alias, name);
 }
 
 /*
@@ -1232,7 +1239,7 @@ static int hw_font_write(FILE *out, const char *fontFile, json_t *font, json_t *
     int    yOffsetLowest = gl[0].yOffset, yBottomMax = gl[0].yOffset + gl[0].height, xWidest = gl[0].width;
     int    xOffsetLowest = gl[0].xOffset, xRightMax = gl[0].xOffset + gl[0].width;
     double xWidthAverage = 0;
-    fprintf(out, "static const glyph_t %sglyphs[] = {\n", prefix);
+    fprintf(out, "static const dgx_glyph_t %sglyphs[] = {\n", prefix);
     for (int i = 0; i < count; ++i) {
         fprintf(out, "    {{.elements = %selements + %4d, .hw = %ssymbols + %3d}, %3d, %3d, %3d, %3d, %4d}, /* %04X */\n", prefix, first[i],
                 prefix, i,
@@ -1246,7 +1253,7 @@ static int hw_font_write(FILE *out, const char *fontFile, json_t *font, json_t *
     }
     fprintf(out, "};\n\n");
 
-    fprintf(out, "static const glyph_array_t %sglyph_ranges[] = {\n", prefix);
+    fprintf(out, "static const dgx_glyph_array_t %sglyph_ranges[] = {\n", prefix);
     int numberOfRanges = 0, sidx = 0;
     for (cp_ranges_t *r = SortedCharMap; r; r = r->next, ++numberOfRanges) {
         fprintf(out, "    {0x%04x, %3d, %sglyphs + %3d},\n", r->first, r->number, prefix, sidx);
@@ -1270,24 +1277,22 @@ static int hw_font_write(FILE *out, const char *fontFile, json_t *font, json_t *
             prefix, cname, HW_FORMAT_VERSION, baseLine, xHeight, symbolSpace, spaceWidth, symbolOffsetX, symbolOffsetY, symbolSizeX,
             symbolSizeY);
     fprintf(out,
-            "dgx_font_t *%s()\n{\n"
-            "    static dgx_font_t rval = {\n"
-            "        .glyph_ranges = %sglyph_ranges,\n"
-            "        .yAdvance = %d,\n"
-            "        .yOffsetLowest = %d,\n"
-            "        .xWidest = %d,\n"
-            "        .xWidthAverage = %d,\n"
-            "        .f_type = DGX_FONT_HW,\n"
-            "        .yBottomMax = %d,\n"
-            "        .xOffsetLowest = %d,\n"
-            "        .xRightMax = %d,\n"
-            "        .number_of_ranges = %d,\n"
-            "        .hw = &%shw,\n"
-            "    };\n"
-            "    return &rval;\n}\n",
+            "const dgx_font_t %s = {\n"
+            "    .glyph_ranges = %sglyph_ranges,\n"
+            "    .y_advance = %d,\n"
+            "    .y_offset_lowest = %d,\n"
+            "    .x_widest = %d,\n"
+            "    .x_width_average = %d,\n"
+            "    .f_type = DGX_FONT_HW,\n"
+            "    .y_bottom_max = %d,\n"
+            "    .x_offset_lowest = %d,\n"
+            "    .x_right_max = %d,\n"
+            "    .number_of_ranges = %d,\n"
+            "    .hw = &%shw,\n"
+            "};\n",
             funcname, prefix, symbolSizeY, yOffsetLowest, xWidest, (int)(xWidthAverage / count + 0.5), yBottomMax, xOffsetLowest, xRightMax,
             numberOfRanges, prefix);
-    write_aliases(out, funcname, aliases, nAliases);
+    (void)aliases, (void)nAliases; /* named in the header */
     if (!quiet) {
         printf("%s: %d symbols in %d ranges, %d elements, about %zu bytes on a 32-bit target\n", funcname, count, numberOfRanges, total,
                total * (size_t)14 + count * (size_t)(30 + 20) + (numberOfRanges + 1) * (size_t)12);
@@ -1296,7 +1301,7 @@ static int hw_font_write(FILE *out, const char *fontFile, json_t *font, json_t *
     return count;
 }
 
-/* the header of a font written on its own: its one function */
+/* the header of a font written on its own: its one constant */
 static int write_single_header(const char *funcname, int hw)
 {
     char fontname[260];
@@ -1311,7 +1316,7 @@ static int write_single_header(const char *funcname, int hw)
     fprintf(out, "#pragma once\n");
     fprintf(out, hw ? "#include \"dgx_hw_font.h\"\n" : "#include \"dgx_font.h\"\n");
     fprintf(out, "#ifdef __cplusplus\n// @formatter:off\nextern \"C\" {\n// @formatter:on\n#endif\n");
-    fprintf(out, hw ? "dgx_font_t *%s();\n" : "dgx_font_t* %s();\n", funcname);
+    write_declaration(out, funcname);
     fprintf(out, "#ifdef __cplusplus\n// @formatter:off\n}\n// @formatter:on\n#endif\n");
     if (ferror(out) | fclose(out) || rename(hwUnfinished, fontname)) {
         fprintf(stderr, "Error writing font header file %s: %s\n", fontname, strerror(errno));
@@ -1846,7 +1851,7 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
     xWidthAverage /= j;
     fprintf(fontOut, "};\n\n"); // End bitmap array
     if (!quiet) fprintf(stderr, "Total encoded length: %d\n", bitmapOffset);
-    fprintf(fontOut, "static const glyph_t %sglyphs[] = {\n  ", prefix);
+    fprintf(fontOut, "static const dgx_glyph_t %sglyphs[] = {\n  ", prefix);
     int gidx = 0;
     for (cp_ranges_t *r = SortedCharMap; r; r = r->next) {
         r->gOffset = gidx;
@@ -1865,7 +1870,7 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
         }
     }
     fprintf(fontOut, "};\n");
-    fprintf(fontOut, "static const glyph_array_t %sglyph_ranges[] = {\n  ", prefix);
+    fprintf(fontOut, "static const dgx_glyph_array_t %sglyph_ranges[] = {\n  ", prefix);
     int numberOfRanges = 0;
     for (cp_ranges_t *r = SortedCharMap; r; r = r->next, ++numberOfRanges) {
         if (r != SortedCharMap) fprintf(fontOut, ",");
@@ -1876,20 +1881,18 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
     fprintf(fontOut, "// Bitmap size: %d\n", bitmapOffset);
 
     fprintf(fontOut,
-            "dgx_font_t* %s() {\n\t"
-            "static dgx_font_t rval = { \n\t\t"
-            ".glyph_ranges = %sglyph_ranges,\n\t\t"
-            ".yAdvance = %ld,\n\t\t"
-            ".yOffsetLowest = %d,\n\t\t"
-            ".xWidest = %d,\n\t\t"
-            ".xWidthAverage = %f,\n\t"
-            ".f_type = %s,\n\t\t"
-            ".yBottomMax = %d,\n\t\t"
-            ".xOffsetLowest = %d,\n\t\t"
-            ".xRightMax = %d,\n\t\t"
-            ".number_of_ranges = %d\n\t"
-            "};\n\t"
-            "return &rval;\n}\n",
+            "const dgx_font_t %s = {\n"
+            "    .glyph_ranges = %sglyph_ranges,\n"
+            "    .y_advance = %ld,\n"
+            "    .y_offset_lowest = %d,\n"
+            "    .x_widest = %d,\n"
+            "    .x_width_average = %f,\n"
+            "    .f_type = %s,\n"
+            "    .y_bottom_max = %d,\n"
+            "    .x_offset_lowest = %d,\n"
+            "    .x_right_max = %d,\n"
+            "    .number_of_ranges = %d\n"
+            "};\n",
             funcname, prefix,                                                                                   //
             (face->size->metrics.height == 0 ? (long)glyphs[0].ginfo.height : face->size->metrics.height >> 6), //
             yOffsetLowest,                                                                                      //
@@ -1901,7 +1904,7 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
             xRightMax,                                                                                          //
             numberOfRanges                                                                                      //
     );
-    write_aliases(fontOut, funcname, aliases, nAliases);
+    (void)aliases, (void)nAliases; /* named in the header */
     free(glyphs);
     FT_Done_Face(face);
     return j;
@@ -2203,7 +2206,7 @@ static int jo_read(const char *listPath, FT_Library library)
     return 0;
 }
 
-/* every font of the lists into <outName>.c, and their functions declared in <outName>.h */
+/* every font of the lists into <outName>.c, and their constants declared in <outName>.h */
 static int jo_write(const char *outName, FT_Library library)
 {
     if (!joCount) return fprintf(stderr, "the lists name no font\n"), 1;
@@ -2284,9 +2287,12 @@ static int jo_write(const char *outName, FT_Library library)
     for (int i = 0; i < joCount; ++i) {
         jo_font_t *f = &joFonts[i];
         if (f->nNames) {
-            for (int k = 0; k < f->nNames; ++k) fprintf(h, "dgx_font_t *%s(void);\n", f->names[k]);
+            write_declaration(h, f->names[0]);
+            for (int k = 1; k < f->nNames; ++k) write_alias(h, f->names[k], f->names[0]);
         } else {
-            fprintf(h, "dgx_font_t *%s_%s(void);\n", base, f->generated);
+            char plain[600];
+            snprintf(plain, sizeof(plain), "%s_%s", base, f->generated);
+            write_declaration(h, plain);
         }
     }
     fprintf(h, "#ifdef __cplusplus\n// @formatter:off\n}\n// @formatter:on\n#endif\n");

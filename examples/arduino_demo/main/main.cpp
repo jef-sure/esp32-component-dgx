@@ -51,10 +51,10 @@ void setup()
     Serial.printf("screen %d x %d\n", screen->width, screen->height);
 
     small_text.scr   = screen;
-    small_text.font  = LiberationSansRegular12();
+    small_text.font  = &LiberationSansRegular12;
     small_text.color = DGX_WHITE(dgx_rgb_to_16);
     big_text         = small_text; // the same in another font
-    big_text.font    = DejaVuSansBook32();
+    big_text.font    = &DejaVuSansBook32;
 
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, rgb(6, 10, 20));
     dgx_font_draw(&small_text, 10, 24, "DGX in an Arduino sketch");

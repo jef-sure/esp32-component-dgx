@@ -217,7 +217,7 @@ static const uint8_t bitmaps[] =
 //  Data size: 2511
 
 // glyphs in bitmaps
-static const glyph_t glyphs[] =
+static const dgx_glyph_t glyphs[] =
 {
     { {bitmaps + 0}, 25, 27, 25, 0, -20 }, // U+f002   '' , [0]
     { {bitmaps + 108}, 25, 27, 25, 0, -20 }, // U+f003   '' , [1]
@@ -249,7 +249,7 @@ static const glyph_t glyphs[] =
 };
 
 // glyphs ranges
-static const glyph_array_t glyph_ranges[] =
+static const dgx_glyph_array_t glyph_ranges[] =
 {
     { 0xf002, 2, glyphs + 0 },
     { 0xf008, 6, glyphs + 2 },
@@ -269,21 +269,17 @@ static const glyph_array_t glyph_ranges[] =
     { 0x0, 0, 0 }
 };
 
-dgx_font_t* WeatherDotView25()
-{
-    static dgx_font_t rval = {
-        .glyph_ranges = glyph_ranges,
-        .yAdvance = 25,
-        .yOffsetLowest = -20,
-        .xWidest = 25,
-        .xWidthAverage = 25,
-        .f_type = DGX_FONT_BITMAP_LINES,
-        .yBottomMax = 7,
-        .xOffsetLowest = -1,
-        .xRightMax = 25
-    };
-    return &rval;
-}
+const dgx_font_t WeatherDotView25 = {
+    .glyph_ranges = glyph_ranges,
+    .y_advance = 25,
+    .y_offset_lowest = -20,
+    .x_widest = 25,
+    .x_width_average = 25,
+    .f_type = DGX_FONT_BITMAP_LINES,
+    .y_bottom_max = 7,
+    .x_offset_lowest = -1,
+    .x_right_max = 25
+};
 
 
 

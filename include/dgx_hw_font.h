@@ -126,7 +126,7 @@ float dgx_hw_element_effort(const dgx_hw_element_t *element, const dgx_hw_pace_t
  * grid, from 0 at the start of the line.
  */
 typedef struct {
-    dgx_font_t *font;
+    const dgx_font_t *font;
     int32_t     pen;    /* where the line has come to */
     int32_t     up;     /* how far it is taken above the lowercase band, if has_up */
     bool        has_up;
@@ -138,7 +138,7 @@ typedef struct {
  * @param line The line.
  * @param font A font of type DGX_FONT_HW.
  */
-void dgx_hw_line_begin(dgx_hw_line_t *line, dgx_font_t *font);
+void dgx_hw_line_begin(dgx_hw_line_t *line, const dgx_font_t *font);
 
 /**
  * @brief Gives the next symbol of a line its place and moves the line on.
@@ -157,7 +157,7 @@ void dgx_hw_line_begin(dgx_hw_line_t *line, dgx_font_t *font);
  *                   their place in the line. Not touched without a glyph.
  * @return The glyph, or NULL for a space and for a code point not in the font.
  */
-const glyph_t *dgx_hw_line_place(dgx_hw_line_t *line, uint32_t code_point, int *shift);
+const dgx_glyph_t *dgx_hw_line_place(dgx_hw_line_t *line, uint32_t code_point, int *shift);
 
 /*
  * A place on a screen: a point of a curve is a whole pixel within the range
@@ -185,7 +185,7 @@ static inline int16_t dgx_hw_pixel(float v)
  * @param left,top,right,bottom Out: the first and the last column and row of the drawing.
  * @return false when the text has no symbol of the font; nothing is set then.
  */
-bool dgx_hw_text_box(dgx_font_t *font, const char *text, int *left, int *top, int *right, int *bottom);
+bool dgx_hw_text_box(const dgx_font_t *font, const char *text, int *left, int *top, int *right, int *bottom);
 
 /**
  * @brief The pace of a font: the least effort is that of its hyphen.
@@ -197,7 +197,7 @@ bool dgx_hw_text_box(dgx_font_t *font, const char *text, int *left, int *top, in
  * @param k    What every straight piece adds, in cells; 0 for an even speed.
  * @return The pace.
  */
-dgx_hw_pace_t dgx_hw_pace(dgx_font_t *font, float k);
+dgx_hw_pace_t dgx_hw_pace(const dgx_font_t *font, float k);
 
 /*
  * A stroke: what the pen writes next. It is an element of a symbol put in
@@ -224,7 +224,7 @@ float dgx_hw_stroke_effort(const dgx_hw_stroke_t *stroke, const dgx_hw_pace_t *p
  * dgx_hw_writer_begin(); the fields are not for the caller.
  */
 typedef struct {
-    dgx_font_t   *font;
+    const dgx_font_t   *font;
     const char   *text;
     size_t        idx;    /* of the next symbol */
     uint16_t      number; /* of code points passed */
@@ -232,12 +232,12 @@ typedef struct {
     dgx_hw_line_t line;
     int32_t       line_y; /* of the base line of the line being written */
     /* the symbol being written */
-    const glyph_t *g;
+    const dgx_glyph_t *g;
     uint16_t       g_number;
     int            shift;
     uint8_t        phase, k;
     bool           joined_next;
-    const glyph_t *prev;         /* the symbol right before it in the line */
+    const dgx_glyph_t *prev;         /* the symbol right before it in the line */
     float          jx[4], jy[4]; /* the last element of the end connection of prev, waiting to be joined */
     /* the run of joined symbols whose postponed strokes wait */
     bool          run;
@@ -248,7 +248,7 @@ typedef struct {
     bool           posting;
     size_t         post_idx;
     dgx_hw_line_t  post_line;
-    const glyph_t *post_g;
+    const dgx_glyph_t *post_g;
     uint16_t       post_number; /* of the symbol after post_g */
     int            post_shift;
     uint8_t        post_k;
@@ -272,7 +272,7 @@ typedef struct {
  * @param text   UTF-8 text; it must live as long as the writer is used.
  * @param joined Joined writing.
  */
-void dgx_hw_writer_begin(dgx_hw_writer_t *writer, dgx_font_t *font, const char *text, bool joined);
+void dgx_hw_writer_begin(dgx_hw_writer_t *writer, const dgx_font_t *font, const char *text, bool joined);
 
 /**
  * @brief Gives the next stroke of the text.
@@ -285,7 +285,7 @@ bool dgx_hw_writer_next(dgx_hw_writer_t *writer, dgx_hw_stroke_t *stroke);
 /**
  * @brief The whole effort of writing a text: its strokes and the moves of the pen between them.
  */
-float dgx_hw_text_effort(dgx_font_t *font, const char *text, bool joined, const dgx_hw_pace_t *pace);
+float dgx_hw_text_effort(const dgx_font_t *font, const char *text, bool joined, const dgx_hw_pace_t *pace);
 
 /*
  * Drawing on a screen.
@@ -313,7 +313,7 @@ float dgx_hw_text_effort(dgx_font_t *font, const char *text, bool joined, const 
  */
 typedef struct dgx_hw_context_t {
     dgx_screen_t *scr;     ///< Where the text goes. The two bounds calls do not read it.
-    dgx_font_t   *font;    ///< A font of type DGX_FONT_HW. The morph calls do not read it: a morph keeps the font it was planned with.
+    const dgx_font_t   *font;    ///< A font of type DGX_FONT_HW. The morph calls do not read it: a morph keeps the font it was planned with.
     float         scale_x; ///< Pixels in a cell of the grid across; 0 is the same as 1. A line of text is symbol_size_y cells high.
     float         scale_y; ///< Pixels in a cell down; 0 is the same as scale_x.
     int           width;   ///< Thickness of the pen in pixels; 0 is the same as 1. With DGX_PEN_SOFT added its edge is soft, see dgx_draw.h.
@@ -441,7 +441,8 @@ bool dgx_hw_writing_draw_to(dgx_hw_writing_t *writing, float effort);
  * @param pace    How the effort is counted, see dgx_hw_pace(); NULL: by the length alone.
  * @deprecated Use dgx_hw_writing_begin_with() with a dgx_hw_context_t.
  */
-void dgx_hw_writing_begin(dgx_hw_writing_t *writing, dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text, float scale,
+DGX_DEPRECATED("use dgx_hw_writing_begin_with() with a dgx_hw_context_t")
+void dgx_hw_writing_begin(dgx_hw_writing_t *writing, dgx_screen_t *scr, int x, int y, const dgx_font_t *font, const char *text, float scale,
                           int width, uint32_t color, bool joined, const dgx_hw_pace_t *pace);
 
 /**
@@ -450,7 +451,8 @@ void dgx_hw_writing_begin(dgx_hw_writing_t *writing, dgx_screen_t *scr, int x, i
  * The parameters are those of dgx_hw_writing_begin().
  * @deprecated Use dgx_hw_draw() with a dgx_hw_context_t.
  */
-void dgx_hw_draw_text(dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text, float scale, int width, uint32_t color,
+DGX_DEPRECATED("use dgx_hw_draw() with a dgx_hw_context_t")
+void dgx_hw_draw_text(dgx_screen_t *scr, int x, int y, const dgx_font_t *font, const char *text, float scale, int width, uint32_t color,
                       bool joined);
 
 /**
@@ -464,14 +466,16 @@ void dgx_hw_draw_text(dgx_screen_t *scr, int x, int y, dgx_font_t *font, const c
  * does not depend on the sizes.
  * @deprecated Use dgx_hw_draw() with a dgx_hw_context_t.
  */
-void dgx_hw_draw_text_xy(dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text, float scale_x, float scale_y, int width,
+DGX_DEPRECATED("use dgx_hw_draw() with a dgx_hw_context_t")
+void dgx_hw_draw_text_xy(dgx_screen_t *scr, int x, int y, const dgx_font_t *font, const char *text, float scale_x, float scale_y, int width,
                          uint32_t color, bool joined);
 
 /**
  * @brief dgx_hw_writing_begin() with a size of its own along each axis, see dgx_hw_draw_text_xy().
  * @deprecated Use dgx_hw_writing_begin_with() with a dgx_hw_context_t.
  */
-void dgx_hw_writing_begin_xy(dgx_hw_writing_t *writing, dgx_screen_t *scr, int x, int y, dgx_font_t *font, const char *text,
+DGX_DEPRECATED("use dgx_hw_writing_begin_with() with a dgx_hw_context_t")
+void dgx_hw_writing_begin_xy(dgx_hw_writing_t *writing, dgx_screen_t *scr, int x, int y, const dgx_font_t *font, const char *text,
                              float scale_x, float scale_y, int width, uint32_t color, bool joined, const dgx_hw_pace_t *pace);
 
 /*
@@ -513,7 +517,7 @@ typedef struct {
  * @return The morph, or NULL when both texts are empty or there is no memory.
  *         Release with dgx_hw_morph_destroy().
  */
-dgx_hw_morph_t *dgx_hw_morph_create(dgx_font_t *font, const char *from, const char *to, bool joined);
+dgx_hw_morph_t *dgx_hw_morph_create(const dgx_font_t *font, const char *from, const char *to, bool joined);
 
 void dgx_hw_morph_destroy(dgx_hw_morph_t **morph);
 
@@ -575,12 +579,14 @@ bool dgx_hw_morph_bounds(const dgx_hw_morph_t *morph, const dgx_hw_context_t *ct
  * @param scr,x,y,scale,width,color As for dgx_hw_draw_text().
  * @deprecated Use dgx_hw_morph_draw_with() with a dgx_hw_context_t.
  */
+DGX_DEPRECATED("use dgx_hw_morph_draw_with() with a dgx_hw_context_t")
 void dgx_hw_morph_draw(const dgx_hw_morph_t *morph, float t, dgx_screen_t *scr, int x, int y, float scale, int width, uint32_t color);
 
 /**
  * @brief dgx_hw_morph_draw() with a size of its own along each axis, see dgx_hw_draw_text_xy().
  * @deprecated Use dgx_hw_morph_draw_with() with a dgx_hw_context_t.
  */
+DGX_DEPRECATED("use dgx_hw_morph_draw_with() with a dgx_hw_context_t")
 void dgx_hw_morph_draw_xy(const dgx_hw_morph_t *morph, float t, dgx_screen_t *scr, int x, int y, float scale_x, float scale_y,
                           int width, uint32_t color);
 
@@ -625,7 +631,7 @@ typedef struct {
  * @return The text, or NULL when there is no memory. Release with
  *         dgx_hw_morph_text_destroy().
  */
-dgx_hw_morph_text_t *dgx_hw_morph_text_create(dgx_font_t *font, const char *from, const char *to, bool joined);
+dgx_hw_morph_text_t *dgx_hw_morph_text_create(const dgx_font_t *font, const char *from, const char *to, bool joined);
 
 void dgx_hw_morph_text_destroy(dgx_hw_morph_text_t **text);
 

@@ -112,7 +112,7 @@ int main(void)
         dgx_screen_t         *lcd  = &sbus.scr;
         lcd->width = W, lcd->height = H, lcd->color_bits = bits, lcd->screen_subtype = DgxPhysicalScreenWithBus;
         dgx_scr_init_slow_bus_optimized_funcs(lcd);
-        lcd->set_area = model_set_area, lcd->write_area = model_write_area, lcd->wait_buffer = model_wait;
+        lcd->set_area = model_set_area, lcd->write_area = model_write_area, lcd->wait = model_wait;
         lcd->update_screen = quiet;
 
         const int      x = rnd(-10, W), y = rnd(-10, H), w = rnd(0, W + 10), h = rnd(0, H + 10);

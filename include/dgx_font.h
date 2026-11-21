@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "dgx_bitmap.h"
+#include "dgx_deprecated.h"
 #include "dgx_screen.h"
 
 #ifdef __cplusplus
@@ -32,15 +33,19 @@ static inline dgx_font_dot_t dgx_font_dot_new(int8_t x, int8_t y) {
     return ret;
 }
 
+DGX_DEPRECATED_USE_BEGIN
 struct dgx_font_sym8_params_;
 
-typedef void (*dgx_font_dot_func_t)(dgx_screen_t *_scr_dst, int x_dst, int y_dst, struct dgx_font_sym8_params_ *vParam);
+/* The dot function and its parameters of the calls before dgx_font_context_t; deprecated with them. */
+typedef void (*dgx_font_dot_func_t)(dgx_screen_t *_scr_dst, int x_dst, int y_dst, struct dgx_font_sym8_params_ *params)
+    DGX_DEPRECATED("use dgx_font_context_t.dot");
 
 typedef struct dgx_font_sym8_params_ {
     dgx_screen_t *vpoint;
     uint16_t *lut;
     dgx_font_dot_func_t dot_func;
-} dgx_font_sym8_params_t;
+} dgx_font_sym8_params_t DGX_DEPRECATED("use dgx_font_context_t.dot");
+DGX_DEPRECATED_USE_END
 
 typedef enum {                   //
     DGX_FONT_BITMAP_LINES = 1,   //
@@ -60,7 +65,11 @@ struct dgx_hw_element_;
 struct dgx_hw_symbol_;
 struct dgx_hw_font_;
 
-typedef struct {
+/**
+ * A glyph of a font. A font made by font2c gives its glyphs in this order,
+ * the members after the first by place, not by name.
+ */
+typedef struct dgx_glyph_t {
     union {
         const uint8_t *bitmap;  ///< Pointer into GFXfont->bitmap
         struct {
@@ -72,21 +81,32 @@ typedef struct {
             const struct dgx_hw_symbol_ *hw;        ///< Its segments and the rest of its measures
         };
     };
-    int16_t width;     ///< Bitmap dimensions in pixels; DGX_FONT_HW: of the drawing in cells of its grid, as all below
-    int16_t height;    ///< Bitmap dimensions in pixels
-    int16_t xAdvance;  ///< Distance to advance cursor (x axis)
-    int16_t xOffset;
-    int16_t yOffset;
-} glyph_t;
+    int16_t width;      ///< Bitmap dimensions in pixels; DGX_FONT_HW: of the drawing in cells of its grid, as all below
+    int16_t height;     ///< Bitmap dimensions in pixels
+    int16_t x_advance;  ///< Distance to advance cursor (x axis); xAdvance before 0.12
+    int16_t x_offset;   ///< xOffset before 0.12
+    int16_t y_offset;   ///< yOffset before 0.12
+} dgx_glyph_t;
 
-typedef struct {
+/** A run of glyphs of consecutive code points, from `first`. */
+typedef struct dgx_glyph_array_t {
     int first, number;
-    const glyph_t *glyphs;
-} glyph_array_t;
+    const dgx_glyph_t *glyphs;
+} dgx_glyph_array_t;
+
+/** The names the two types had before 0.12, which a font made by an older font2c uses. */
+typedef dgx_glyph_t       glyph_t DGX_DEPRECATED("use dgx_glyph_t");
+typedef dgx_glyph_array_t glyph_array_t DGX_DEPRECATED("use dgx_glyph_array_t");
 
 typedef struct {
-    uint32_t fromCP;
-    uint32_t toCP;
+    union {
+        uint32_t from_cp;
+        uint32_t fromCP DGX_DEPRECATED("use from_cp");
+    };
+    union {
+        uint32_t to_cp;
+        uint32_t toCP DGX_DEPRECATED("use to_cp");
+    };
     int number_of_dots;
     dgx_point_2d_t *m_start;
     dgx_point_2d_t *m_end;
@@ -96,26 +116,70 @@ typedef struct {
 } dgx_font_symbol_morph_t;
 
 struct dgx_font_;
+/* The glyph function of the calls before dgx_font_context_t; deprecated with them. */
 typedef int (*dgx_font_draw_sym_func_t)(  //
     dgx_screen_t *scr,                    //
     int16_t x,                            //
     int16_t y,                            //
-    uint32_t codePoint,                   //
+    uint32_t code_point,                  //
     uint32_t color,                       //
     dgx_output_orientation_t orientation, //
     int scale,                            //
     struct dgx_font_ *font,               //
     void *param                           //
-);
+) DGX_DEPRECATED("use dgx_font_context_t");
 
+/*
+ * The measures of a font have the names of before 0.12 beside their own, for
+ * the fonts an older font2c made, which give them by name: a program that
+ * reads one by its old name is warned.
+ */
 typedef struct dgx_font_ {
-    const glyph_array_t *glyph_ranges;
-    int16_t yAdvance, yOffsetLowest, xWidest, xWidthAverage;
+    const dgx_glyph_array_t *glyph_ranges;
+    union {
+        int16_t y_advance; ///< From one base line to the next
+        int16_t yAdvance DGX_DEPRECATED("use y_advance");
+    };
+    union {
+        int16_t y_offset_lowest; ///< The highest top of a glyph, from the base line
+        int16_t yOffsetLowest DGX_DEPRECATED("use y_offset_lowest");
+    };
+    union {
+        int16_t x_widest;
+        int16_t xWidest DGX_DEPRECATED("use x_widest");
+    };
+    union {
+        int16_t x_width_average;
+        int16_t xWidthAverage DGX_DEPRECATED("use x_width_average");
+    };
     dgx_font_model_t f_type;
-    int16_t yBottomMax, xOffsetLowest, xRightMax;
+    union {
+        int16_t y_bottom_max; ///< The lowest bottom of a glyph, from the base line
+        int16_t yBottomMax DGX_DEPRECATED("use y_bottom_max");
+    };
+    union {
+        int16_t x_offset_lowest;
+        int16_t xOffsetLowest DGX_DEPRECATED("use x_offset_lowest");
+    };
+    union {
+        int16_t x_right_max;
+        int16_t xRightMax DGX_DEPRECATED("use x_right_max");
+    };
     int16_t number_of_ranges;       ///< Ranges in glyph_ranges, ascending, for a search by halving; 0: not told, they are tried in order
     const struct dgx_hw_font_ *hw;  ///< DGX_FONT_HW: what the font has besides its glyphs
 } dgx_font_t;
+
+/*
+ * A font is a constant since DGX 0.12: `extern const dgx_font_t Name;` in
+ * its header, and a program gives &Name where a font is asked for. The call
+ * a font was taken by before, Name(), is kept until DGX 1.0: the header of a
+ * font defines it as DGX_FONT_CALLED(Name), which the compiler warns at and
+ * which gives the font without const, as the function did. DGX writes into
+ * no font.
+ */
+DGX_DEPRECATED("a font is a constant since DGX 0.12: write &Name where Name() was")
+static inline void dgx_font_called(void) {}
+#define DGX_FONT_CALLED(name) ((dgx_font_t *)(dgx_font_called(), &(name)))
 
 /**
  * @brief Decode the next UTF-8 code point from a string.
@@ -135,16 +199,24 @@ uint32_t dgx_utf8_next(const char *str, size_t *idx);
 size_t dgx_utf8_length(const char *str);
 
 /** @deprecated The name dgx_utf8_next() had before. */
-#define decodeUTF8next dgx_utf8_next
+DGX_DEPRECATED("use dgx_utf8_next()")
+static inline uint32_t decodeUTF8next(const char *str, size_t *idx) { return dgx_utf8_next(str, idx); }
 
 /**
  * @brief Look up the glyph for a code point in a font.
- * @param codePoint Unicode code point.
- * @param font      Font to search.
- * @param xAdvance  Out: cursor advance for this glyph (may be NULL).
+ * @param font       Font to search.
+ * @param code_point Unicode code point.
+ * @param advance    Out: cursor advance for this glyph (may be NULL).
  * @return Pointer to the glyph, or NULL if not present in the font.
  */
-const glyph_t *dgx_font_find_glyph(uint32_t codePoint, dgx_font_t *font, int16_t *xAdvance);
+const dgx_glyph_t *dgx_font_glyph(const dgx_font_t *font, uint32_t code_point, int16_t *advance);
+
+/** @deprecated The call dgx_font_glyph() was before 0.12, with the font second. */
+DGX_DEPRECATED("use dgx_font_glyph(font, code_point, &advance)")
+static inline const dgx_glyph_t *dgx_font_find_glyph(uint32_t code_point, const dgx_font_t *font, int16_t *advance)
+{
+    return dgx_font_glyph(font, code_point, advance);
+}
 
 /**
  * @brief Render a single code point onto a screen.
@@ -165,6 +237,8 @@ const glyph_t *dgx_font_find_glyph(uint32_t codePoint, dgx_font_t *font, int16_t
  * @return Cursor advance in pixels.
  * @deprecated Use dgx_font_draw_char() with a dgx_font_context_t.
  */
+DGX_DEPRECATED_USE_BEGIN
+DGX_DEPRECATED("use dgx_font_draw_char() with a dgx_font_context_t")
 int dgx_font_char_to_screen(             //
     dgx_screen_t *scr,                   //
     int16_t x,                           //
@@ -173,7 +247,7 @@ int dgx_font_char_to_screen(             //
     uint32_t color,                      //
     dgx_output_orientation_t orientation,//
     int scale,                           //
-    struct dgx_font_ *font,              //
+    const struct dgx_font_ *font,              //
     dgx_font_draw_sym_func_t draw_func,  //
     void *param                          //
 );
@@ -187,7 +261,8 @@ int dgx_font_char_to_screen(             //
  * @return Total width in pixels, counted in 16 bits: up to 32767.
  * @deprecated Use dgx_font_bounds() with a dgx_font_context_t.
  */
-int dgx_font_string_bounds(const char *str, dgx_font_t *font, int16_t *ycorner, int16_t *height);
+DGX_DEPRECATED("use dgx_font_bounds() with a dgx_font_context_t")
+int dgx_font_string_bounds(const char *str, const dgx_font_t *font, int16_t *ycorner, int16_t *height);
 
 /**
  * @brief Render a UTF-8 string onto a screen.
@@ -204,6 +279,7 @@ int dgx_font_string_bounds(const char *str, dgx_font_t *font, int16_t *ycorner, 
  * @param param       Optional callback parameter.
  * @deprecated Use dgx_font_draw() with a dgx_font_context_t.
  */
+DGX_DEPRECATED("use dgx_font_draw() with a dgx_font_context_t")
 void dgx_font_string_utf8_screen(        //
     dgx_screen_t *scr,                   //
     int16_t x,                           //
@@ -212,10 +288,11 @@ void dgx_font_string_utf8_screen(        //
     uint32_t color,                      //
     dgx_output_orientation_t orientation,//
     int scale,                           //
-    struct dgx_font_ *font,              //
+    const struct dgx_font_ *font,              //
     dgx_font_draw_sym_func_t draw_func,  //
     void *param                          //
 );
+DGX_DEPRECATED_USE_END
 
 /*
  * Flags of a dgx_font_context_t.
@@ -303,7 +380,7 @@ typedef enum {
  */
 typedef struct dgx_font_context_t {
     dgx_screen_t            *scr;         ///< Where the text goes.
-    dgx_font_t              *font;        ///< The font; a handwritten one is drawn by dgx_hw_font.h, here only measured.
+    const dgx_font_t              *font;        ///< The font; a handwritten one is drawn by dgx_hw_font.h, here only measured.
     uint32_t                 color;       ///< The color of the letters, in the format of the screen.
     uint32_t                 bg;          ///< The paper, with DGX_FONT_BG or DGX_FONT_FILL.
     uint32_t                 flags;       ///< DGX_FONT_BG, DGX_FONT_FILL, DGX_FONT_MONO, DGX_FONT_HARD.
@@ -391,7 +468,7 @@ void dgx_font_make_point8(dgx_screen_t *vpoint);
  * @return Newly allocated morph descriptor, or NULL on failure.
  */
 dgx_font_symbol_morph_t *dgx_font_morph_create(  //
-    dgx_font_t *font,                            //
+    const dgx_font_t *font,                            //
     uint32_t fromCP,                             //
     uint32_t toCP,                               //
     int from_x,                                  //
@@ -410,8 +487,14 @@ dgx_font_symbol_morph_t *dgx_font_morph_create(  //
 void dgx_font_morph_destroy(dgx_font_symbol_morph_t **ms);
 
 /** @deprecated The names dgx_font_morph_create() and dgx_font_morph_destroy() had before. */
-#define dgx_font_make_morph_struct         dgx_font_morph_create
-#define dgx_font_make_morph_struct_destroy dgx_font_morph_destroy
+DGX_DEPRECATED("use dgx_font_morph_create()")
+static inline dgx_font_symbol_morph_t *dgx_font_make_morph_struct(const dgx_font_t *font, uint32_t from_cp, uint32_t to_cp, int from_x, int from_y,
+                                                                  int to_x, int to_y, int scale)
+{
+    return dgx_font_morph_create(font, from_cp, to_cp, from_x, from_y, to_x, to_y, scale);
+}
+DGX_DEPRECATED("use dgx_font_morph_destroy()")
+static inline void dgx_font_make_morph_struct_destroy(dgx_font_symbol_morph_t **ms) { dgx_font_morph_destroy(ms); }
 
 #ifdef __cplusplus
 // @formatter:off

@@ -81,7 +81,7 @@ static void test_curves(dgx_screen_t *a, dgx_screen_t *b, uint32_t color)
 /* the handwriting of a strip: rows of 8, the line at its place less the strip's top */
 static void test_handwriting(dgx_screen_t *a, dgx_screen_t *b, uint32_t color)
 {
-    dgx_font_t *font  = font0ss();
+    const dgx_font_t *font  = &font0ss;
     const float scale = 16.0f / font->hw->symbol_size_y;
     int         wrong = 0;
     for (int base = 10; base <= 30; ++base)

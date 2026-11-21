@@ -10,7 +10,7 @@
 #include "check.h"
 #include "dgx_draw.h"
 #include "dgx_screen_with_bus.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 #define DW 40
 #define DH 30
@@ -125,7 +125,7 @@ int main(void)
         dgx_screen_with_bus_t sbus = {.bus = &bus};
         dgx_screen_t         *lcd = &sbus.scr;
         lcd->width = DW, lcd->height = DH, lcd->color_bits = (uint8_t)bits, lcd->screen_subtype = DgxPhysicalScreenWithBus;
-        lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait_buffer = panel_wait;
+        lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait = panel_wait;
         lcd->set_pixel = panel_set_pixel, lcd->update_screen = panel_update;
         dgx_screen_t *src = dgx_vscreen_init(SW, SH, (uint8_t)bits, DgxScreenRGB), *model = dgx_vscreen_init(DW, DH, (uint8_t)bits, DgxScreenRGB);
         CHECK(src && model);

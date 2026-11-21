@@ -22,16 +22,20 @@ extern "C" {
  * GxEPD2_290_C90c. The glass of the 2.13" module is Yingruida E0213A179;
  * GxEPD2 drives it as GxEPD2_213_Z98c.
  */
+/*
+ * The values begin at 256, a number no chip has a pin of: a call in the order of
+ * before DGX 0.12, with the resolution second, is refused, not taken for a pin.
+ */
 typedef enum dgx_ssd1680_resolution_t {
-    DGX_SSD1680_128X296_BWR, ///< 2.9": WeAct Studio 2.9" Epaper Module with red
+    DGX_SSD1680_128X296_BWR = 256, ///< 2.9": WeAct Studio 2.9" Epaper Module with red
     DGX_SSD1680_122X250_BWR, ///< 2.13": WeAct Studio 2.13" Epaper Module with red; not checked on a module
     /* deprecated: the names of before, the same values */
-    SSD1680_128X296_BWR = DGX_SSD1680_128X296_BWR,
-    SSD1680_122X250_BWR = DGX_SSD1680_122X250_BWR,
+    SSD1680_128X296_BWR DGX_DEPRECATED("use DGX_SSD1680_128X296_BWR") = DGX_SSD1680_128X296_BWR,
+    SSD1680_122X250_BWR DGX_DEPRECATED("use DGX_SSD1680_122X250_BWR") = DGX_SSD1680_122X250_BWR,
 } dgx_ssd1680_resolution_t;
 
-/** The name the type had before; it stays. */
-typedef dgx_ssd1680_resolution_t ssd1680_resolution_t;
+/** The name the type had before; deprecated until DGX 1.0. */
+typedef dgx_ssd1680_resolution_t ssd1680_resolution_t DGX_DEPRECATED("use dgx_ssd1680_resolution_t");
 
 /**
  * @brief Send the picture to the panel and start showing it.
@@ -82,6 +86,7 @@ bool dgx_ssd1680_busy(dgx_screen_t *scr);
  * @param swap_xy Swap the X and Y axes.
  * @deprecated Use dgx_screen_orientation().
  */
+DGX_DEPRECATED("use dgx_screen_orientation()")
 void dgx_ssd1680_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 
 /**
@@ -103,14 +108,14 @@ void dgx_ssd1680_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_ori
  * high keeps it waiting, with an error in the log every minute.
  *
  * @param bus        Bus backend returned by dgx_spi_init().
- * @param resolution The module (see dgx_ssd1680_resolution_t).
  * @param rst        Reset GPIO; GPIO_NUM_NC if the line is not wired: the controller then never sleeps, for only a
  *                   reset wakes it.
  * @param busy       BUSY GPIO, an input; it has to be wired.
+ * @param resolution The module (see dgx_ssd1680_resolution_t).
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy(), which waits for a refresh
  *         under way to end.
  */
-dgx_screen_t *dgx_ssd1680_init(dgx_bus_protocols_t *bus, dgx_ssd1680_resolution_t resolution, gpio_num_t rst, gpio_num_t busy);
+dgx_screen_t *dgx_ssd1680_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num_t busy, dgx_ssd1680_resolution_t resolution);
 
 #ifdef __cplusplus
 // @formatter:off

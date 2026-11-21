@@ -32,7 +32,7 @@
 #include "dgx_font.h"
 #include "dgx_screen_functions.h"
 #include "dgx_screen_with_bus.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
 
 #define PW 120
@@ -265,10 +265,10 @@ static void run(int bits, int rounds)
                 dgx_draw_line(scr, x, y, x + w - 20, y + h - 20, color);
                 break;
             case 4:
-                dgx_solid_circle(scr, x, y, r, color);
+                dgx_fill_circle(scr, x, y, r, color);
                 break;
             case 5:
-                dgx_font_string_utf8_screen(scr, (int16_t)x, (int16_t)y, "P8 bus", color, DgxOutputNormal, 1 + (round & 1), TerminusTTFMedium12(), NULL, NULL);
+                dgx_font_draw(&(dgx_font_context_t){.scr = scr, .font = &TerminusTTFMedium12, .color = color, .scale = 1 + (round & 1)}, (int16_t)x, (int16_t)y, "P8 bus");
                 break;
             case 6:
                 dgx_vscreen_to_screen(scr, x, y, picture, 0);
@@ -285,7 +285,7 @@ static void run(int bits, int rounds)
             }
         }
         if (round % 16 == 15 || round == rounds - 1) {
-            lcd->wait_buffer(lcd);
+            lcd->wait(lcd);
             int wrong = 0;
             for (int py = 0; py < PH; ++py) {
                 for (int px = 0; px < PW; ++px) wrong += panel[px + py * PW] != dgx_get_pixel(model, px, py);
@@ -305,7 +305,7 @@ static void run(int bits, int rounds)
 
     dgx_screen_destroy(&model);
     dgx_screen_destroy(&picture);
-    bus->dispose(bus);
+    bus->dispose_bus(bus);
 }
 
 /* a screen whose window lies off it takes no pixels, and does not put them into the window before */
@@ -321,20 +321,20 @@ static void test_window_off_screen(void)
     dgx_screen_with_bus_init_area(&sbus, 0x2A, 0x2B, 0x2C, DGX_SCREEN_AREA_PROTO_STD16);
     dgx_scr_init_slow_bus_optimized_funcs(lcd);
     dgx_fill_rectangle(lcd, 0, 0, PW, PH, 0x1111);
-    lcd->wait_buffer(lcd);
+    lcd->wait(lcd);
     uint8_t pixels[8] = {0xab, 0xcd, 0xab, 0xcd, 0xab, 0xcd, 0xab, 0xcd};
     lcd->set_area(lcd, 3, 6, 2, 2);
     lcd->set_area(lcd, PW, PW + 3, 2, 2);
     lcd->write_area(lcd, pixels, 64);
-    lcd->wait_buffer(lcd);
+    lcd->wait(lcd);
     int changed = 0;
     for (int i = 0; i < PW * PH; ++i) changed += panel[i] != 0x1111;
     CHECK(changed == 0);
     lcd->set_area(lcd, 3, 6, 2, 2);
     lcd->write_area(lcd, pixels, 64);
-    lcd->wait_buffer(lcd);
+    lcd->wait(lcd);
     for (int x = 3; x <= 6; ++x) CHECK(panel[x + 2 * PW] == 0xabcd);
-    bus->dispose(bus);
+    bus->dispose_bus(bus);
 }
 
 int main(void)

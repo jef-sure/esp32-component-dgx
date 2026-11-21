@@ -40,7 +40,7 @@ a symbol and the rules of placing and joining letters are described there,
 #include "dgx_hw_font.h"
 #include "fonts/font0ss.h"
 
-dgx_hw_context_t hw = {.scr = scr, .font = font0ss(), .scale_x = 0.3f, .width = 3, .color = color, .joined = true};
+dgx_hw_context_t hw = {.scr = scr, .font = &font0ss, .scale_x = 0.3f, .width = 3, .color = color, .joined = true};
 dgx_hw_draw(&hw, 10, 80, "Hello, World");
 ```
 
@@ -58,17 +58,18 @@ and one context serves every text written the same way.
 | `.joined` | Joined writing. Left out, every letter is written apart. |
 | `10, 80` | Where the line starts: its left end, on the base line the letters stand on. Tails of letters go below it. |
 
-`dgx_hw_draw_text(scr, 10, 80, font0ss(), "Hello, World", 0.3f, 3, color, true)`
+`dgx_hw_draw_text(scr, 10, 80, &font0ss, "Hello, World", 0.3f, 3, color, true)`
 is the earlier form of the same call, with every setting as an argument. It
-is deprecated and works as it did, and so do `dgx_hw_writing_begin()` and
-`dgx_hw_morph_draw()` beside the calls below that take a context.
+is deprecated: until DGX 1.0 it works as it did, with a warning of the
+compiler, and so do `dgx_hw_writing_begin()` and `dgx_hw_morph_draw()`
+beside the calls below that take a context.
 
 `\n` in the text starts the next line, `symbol_size_y` cells lower. A symbol
 the font does not have takes the room of a whole symbol (`symbol_size_x` cells)
 and draws nothing.
 
 A handwritten font is an ordinary `dgx_font_t`, of type `DGX_FONT_HW`, and
-its symbols are found with `dgx_font_find_glyph()` like any glyphs. But
+its symbols are found with `dgx_font_glyph()` like any glyphs. But
 `dgx_font_draw()` and the other functions of bitmap fonts do not
 draw it: they take a whole-number scale and one symbol at a time, while here
 the size is free and a letter depends on its neighbours.
@@ -115,7 +116,7 @@ Left out, `scale_y` is the same as `scale_x`.
 
 ```c
 /* digits a third of the grid across and two thirds down */
-dgx_hw_context_t digits = {.scr = scr, .font = font0ss(), .scale_x = 0.33f, .scale_y = 0.7f, .width = 3, .color = color};
+dgx_hw_context_t digits = {.scr = scr, .font = &font0ss, .scale_x = 0.33f, .scale_y = 0.7f, .width = 3, .color = color};
 dgx_hw_draw(&digits, x, y, "08");
 ```
 

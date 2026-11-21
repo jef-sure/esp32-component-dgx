@@ -350,7 +350,7 @@ static dgx_bus_protocols_t *dgx_p8_attach(esp_lcd_i80_bus_handle_t i80_bus, bool
     bus->protocols.write_data = dgx_p8_send_data;
     bus->protocols.write_data_async = dgx_p8_send_data_async;
     bus->protocols.sync_write = dgx_p8_sync_write_func;
-    bus->protocols.dispose = dgx_p8_dispose_bus_func;
+    bus->protocols.dispose_bus = dgx_p8_dispose_bus_func;
     bus->protocols.memory_allocator = dgx_p8_memory_allocator;
     bus->protocols.buffer_len = 4000;
     bus->protocols.buffer = bus->protocols.memory_allocator(bus->protocols.buffer_len);

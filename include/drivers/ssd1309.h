@@ -10,16 +10,20 @@ extern "C" {
 // @formatter:on
 #endif
 
+/*
+ * The values begin at 256, a number no chip has a pin of: a call in the order of
+ * before DGX 0.12, with the resolution second, is refused, not taken for a pin.
+ */
 typedef enum dgx_ssd1309_resolution_t {
-    DGX_SSD1309_128X64,
+    DGX_SSD1309_128X64 = 256,
     DGX_SSD1309_128X32,
     /* deprecated: the names of before, the same values */
-    SSD1309_128X64 = DGX_SSD1309_128X64,
-    SSD1309_128X32 = DGX_SSD1309_128X32,
+    SSD1309_128X64 DGX_DEPRECATED("use DGX_SSD1309_128X64") = DGX_SSD1309_128X64,
+    SSD1309_128X32 DGX_DEPRECATED("use DGX_SSD1309_128X32") = DGX_SSD1309_128X32,
 } dgx_ssd1309_resolution_t;
 
-/** The name the type had before; it stays. */
-typedef dgx_ssd1309_resolution_t ssd1309_resolution_t;
+/** The name the type had before; deprecated until DGX 1.0. */
+typedef dgx_ssd1309_resolution_t ssd1309_resolution_t DGX_DEPRECATED("use dgx_ssd1309_resolution_t");
 
 /**
  * @brief Set the SSD1309 contrast/brightness.
@@ -61,6 +65,7 @@ void dgx_ssd1309_column_offset(dgx_screen_t *scr, uint8_t offset);
  * @param swap_xy Swap the X and Y axes.
  * @deprecated Use dgx_screen_orientation().
  */
+DGX_DEPRECATED("use dgx_screen_orientation()")
 void dgx_ssd1309_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 
 /**
@@ -73,11 +78,11 @@ void dgx_ssd1309_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_ori
  * u8g2 driver of the controller.
  *
  * @param bus        Bus backend returned by dgx_spi_init() or dgx_i2c_init().
- * @param resolution Panel geometry (see dgx_ssd1309_resolution_t).
  * @param rst        Reset GPIO (use GPIO_NUM_NC if the panel has no reset line).
+ * @param resolution Panel geometry (see dgx_ssd1309_resolution_t).
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */
-dgx_screen_t *dgx_ssd1309_init(dgx_bus_protocols_t *bus, dgx_ssd1309_resolution_t resolution, gpio_num_t rst);
+dgx_screen_t *dgx_ssd1309_init(dgx_bus_protocols_t *bus, gpio_num_t rst, dgx_ssd1309_resolution_t resolution);
 
 #ifdef __cplusplus
 // @formatter:off

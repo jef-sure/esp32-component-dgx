@@ -47,7 +47,7 @@ static void demo_draw_footer(dgx_screen_t *screen, const char *title)
 
     dgx_fill_rectangle(screen, 0, screen->height - 28, screen->width, 28, footer_bg);
     dgx_draw_line(screen, 0, screen->height - 28, screen->width - 1, screen->height - 28, demo_rgb(48, 140, 255));
-    const dgx_font_context_t text = {.scr = screen, .font = LiberationSansRegular12(), .color = footer_fg};
+    const dgx_font_context_t text = {.scr = screen, .font = &LiberationSansRegular12, .color = footer_fg};
     dgx_font_draw(&text, 8, screen->height - 10, title);
 }
 
@@ -62,8 +62,8 @@ static void demo_splash(dgx_screen_t *screen)
     dgx_fill_rectangle(screen, 0, 0, screen->width, 48, demo_rgb(10, 28, 60));
     dgx_fill_rectangle(screen, 0, 48, screen->width, 4, cyan);
 
-    const dgx_font_context_t big  = {.scr = screen, .font = DejaVuSansBook32(), .color = ink};
-    dgx_font_context_t       text = {.scr = screen, .font = LiberationSansRegular12(), .color = gold};
+    const dgx_font_context_t big  = {.scr = screen, .font = &DejaVuSansBook32, .color = ink};
+    dgx_font_context_t       text = {.scr = screen, .font = &LiberationSansRegular12, .color = gold};
     dgx_font_draw(&big, 14, 42, "DGX");
     dgx_font_draw(&text, 138, 40, "ILI9341");
     text.color = ink;
@@ -85,7 +85,7 @@ static void demo_text(dgx_screen_t *screen)
 {
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, DGX_BLACK(dgx_rgb_to_16));
     /* one context for all the texts: the color and the turn are changed from one text to the next */
-    dgx_font_context_t text = {.scr = screen, .font = LiberationSansRegular12(), .color = demo_rgb(255, 214, 10)};
+    dgx_font_context_t text = {.scr = screen, .font = &LiberationSansRegular12, .color = demo_rgb(255, 214, 10)};
     dgx_font_draw(&text, 12, 26, "Adafruit-style graphics test");
     text.color = demo_rgb(60, 190, 255);
     dgx_font_draw(&text, 12, 56, "DGX draw + font primitives");
@@ -132,7 +132,7 @@ static void demo_rectangles(dgx_screen_t *screen)
     }
 
     dgx_fill_rectangle(screen, 54, 46, 212, 116, demo_rgb(12, 12, 12));
-    const dgx_font_context_t text = {.scr = screen, .font = LiberationSansRegular12(), .color = DGX_WHITE(dgx_rgb_to_16)};
+    const dgx_font_context_t text = {.scr = screen, .font = &LiberationSansRegular12, .color = DGX_WHITE(dgx_rgb_to_16)};
     dgx_font_draw(&text, 84, 112, "filled rectangles");
     demo_draw_footer(screen, "Nested fill test");
 }
@@ -169,7 +169,7 @@ static void demo_triangles(dgx_screen_t *screen)
     }
 
     dgx_fill_rectangle(screen, 102, 90, 116, 46, demo_rgb(8, 8, 14));
-    const dgx_font_context_t text = {.scr = screen, .font = LiberationSansRegular12(), .color = DGX_WHITE(dgx_rgb_to_16)};
+    const dgx_font_context_t text = {.scr = screen, .font = &LiberationSansRegular12, .color = DGX_WHITE(dgx_rgb_to_16)};
     dgx_font_draw(&text, 116, 118, "triangles");
     demo_draw_footer(screen, "Filled triangle fan");
 }
@@ -187,7 +187,7 @@ static void demo_color_bars(dgx_screen_t *screen)
     }
 
     dgx_fill_rectangle(screen, 48, 72, 224, 84, demo_rgb(8, 8, 8));
-    const dgx_font_context_t text = {.scr = screen, .font = LiberationSansRegular12(), .color = DGX_WHITE(dgx_rgb_to_16)};
+    const dgx_font_context_t text = {.scr = screen, .font = &LiberationSansRegular12, .color = DGX_WHITE(dgx_rgb_to_16)};
     dgx_font_draw(&text, 74, 102, "RGB565 color bars");
     demo_draw_footer(screen, "Panel sanity check");
 }

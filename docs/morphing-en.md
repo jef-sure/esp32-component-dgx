@@ -175,8 +175,8 @@ font gets a matrix with the same font-wide bounds and baseline, so a narrow
 `1` and a wider `8` line up correctly. A space or missing character is simply
 an empty matrix. This works with both dotted and bitmap fonts.
 
-The shared bounds come from font metrics: `xOffsetLowest`..`xRightMax`
-horizontally and `yOffsetLowest`..`yBottomMax` vertically. For fonts generated
+The shared bounds come from font metrics: `x_offset_lowest`..`x_right_max`
+horizontally and `y_offset_lowest`..`y_bottom_max` vertically. For fonts generated
 before these metrics existed, the bounds are calculated by scanning all
 glyphs.
 
@@ -743,11 +743,11 @@ version had a player object with trail settings. A compound literal such as
 `(config_t){ .duration_us = ... }` zeroed the trail coefficients and left the
 tail stuck at the start forever. The config structs were removed from the API.
 
-**Font metrics.** The bundled fonts did not have `yBottomMax`, so the bottom
+**Font metrics.** The bundled fonts did not have `y_bottom_max`, so the bottom
 rows of `0` in `CasusDotView` were lost: the box was 12 cells high instead of
-14. Also, `xWidest` is the maximum glyph width, not the right edge. In
-`VerdanaRegular32` (a font DGX shipped then), the right edge is 32, while `xWidest - xOffsetLowest` is
-31. That is why `xRightMax` was added and all bundled fonts now have the
+14. Also, `x_widest` is the maximum glyph width, not the right edge. In
+`VerdanaRegular32` (a font DGX shipped then), the right edge is 32, while `x_widest - x_offset_lowest` is
+31. That is why `x_right_max` was added and all bundled fonts now have the
 metrics.
 
 **A dot outside the screen.** In the first glow implementation, the center

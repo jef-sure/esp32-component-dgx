@@ -61,7 +61,7 @@ typedef struct {
  * of the screen, all of them, a line height of the font apart, into its
  * height. The pen takes room too, and its thickness follows the size.
  */
-static bool fit_lines(const dgx_screen_t *screen, dgx_font_t *font, const char *const *lines, placed_line_t *placed, float *scale,
+static bool fit_lines(const dgx_screen_t *screen, const dgx_font_t *font, const char *const *lines, placed_line_t *placed, float *scale,
                       int *pen)
 {
     int widest = 0;
@@ -114,7 +114,7 @@ void app_main(void)
     uint32_t paper = dgx_rgb_to_16(250, 246, 232);
     uint32_t ink = dgx_rgb_to_16(24, 36, 120);
 
-    dgx_font_t   *font = font0ss();
+    const dgx_font_t   *font = &font0ss;
     dgx_hw_pace_t pace = dgx_hw_pace(font, EXAMPLE_BEND_EFFORT);
 
     for (int round = 0;; ++round) {

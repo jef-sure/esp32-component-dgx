@@ -120,7 +120,7 @@ static struct {
 static void print(const char *s)
 {
     /* the baseline of the font is 7 rows below the top of its cell */
-    const dgx_font_context_t text = {.scr = tft, .font = GLCD5x7(), .color = cursor.color, .scale = cursor.size};
+    const dgx_font_context_t text = {.scr = tft, .font = &GLCD5x7, .color = cursor.color, .scale = cursor.size};
     dgx_font_draw(&text, cursor.x, cursor.y + 7 * cursor.size, s);
     cursor.x += 6 * cursor.size * (int)strlen(s);
 }

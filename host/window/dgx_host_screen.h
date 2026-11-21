@@ -70,9 +70,9 @@ typedef struct {
  * along the rows of the glass upright, as the ILI9341 does. Each window
  * counts what its own bus sends: two displays on one SPI host of the board
  * share its wire, and their times add up there. A closed window ends the
- * program. bus->dispose() of the screen's bus closes the window.
+ * program. bus->dispose_bus() of the screen's bus closes the window.
  *
- * @param width,height The glass, upright; dgx_panel_orientation() turns the screen on it as on a board.
+ * @param width,height The glass, upright; dgx_screen_orientation() turns the screen on it as on a board.
  * @param color_bits   16 or 18, as a panel on SPI takes them; with no_bus 24 too.
  * @param options      NULL for the CYD: SPI at 40 MHz.
  * @return The screen, or NULL when there is no window.
@@ -81,7 +81,7 @@ dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, co
 
 /** @brief A finger on the glass of a window. */
 typedef struct dgx_host_finger_t {
-    int16_t x, y; /**< In pixels of the glass upright: before the turn of the window and before dgx_panel_orientation(). */
+    int16_t x, y; /**< In pixels of the glass upright: before the turn of the window and before dgx_screen_orientation(). */
     uint8_t id;   /**< 0: the mouse. */
 } dgx_host_finger_t;
 

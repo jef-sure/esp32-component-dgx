@@ -59,7 +59,7 @@ static int           pen;
 static float         shift[WORDS]; /* what puts each word in the middle, in cells */
 
 /* The size at which the widest word fits the width of the screen, and a band as high as the tallest one. */
-static bool prepare(dgx_font_t *font)
+static bool prepare(const dgx_font_t *font)
 {
     int left[WORDS], right[WORDS], top = 0, bottom = 0, widest = 0;
     for (int i = 0; i < WORDS; ++i) {
@@ -121,7 +121,7 @@ void app_main(void)
     dgx_lut_gradient(lut, 0, 256, dgx_rgb_to_24(250, 246, 232), dgx_rgb_to_24(24, 36, 120));
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, lut[0]);
 
-    dgx_font_t *font = font0ss();
+    const dgx_font_t *font = &font0ss;
     if (!prepare(font)) {
         ESP_LOGE(TAG, "The font has no symbols of the words, or no memory for the band");
         return;

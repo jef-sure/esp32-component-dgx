@@ -27,17 +27,17 @@ typedef enum dgx_st7789_resolution_t {
     DGX_ST7789_135X240 = 6, /**< the 1.14" glass, upright */
     DGX_ST7789_240X135 = 7, /**< the 1.14" glass turned as 320x240 is */
     /* deprecated: the names of before, the same values */
-    ST7789_RESOLUTION_240x240 = DGX_ST7789_240X240,
-    ST7789_RESOLUTION_240x320 = DGX_ST7789_240X320,
-    ST7789_RESOLUTION_320x240 = DGX_ST7789_320X240,
-    ST7789_RESOLUTION_76x284 = DGX_ST7789_76X284,
-    ST7789_RESOLUTION_284x76 = DGX_ST7789_284X76,
-    ST7789_RESOLUTION_135x240 = DGX_ST7789_135X240,
-    ST7789_RESOLUTION_240x135 = DGX_ST7789_240X135,
+    ST7789_RESOLUTION_240x240 DGX_DEPRECATED("use DGX_ST7789_240X240") = DGX_ST7789_240X240,
+    ST7789_RESOLUTION_240x320 DGX_DEPRECATED("use DGX_ST7789_240X320") = DGX_ST7789_240X320,
+    ST7789_RESOLUTION_320x240 DGX_DEPRECATED("use DGX_ST7789_320X240") = DGX_ST7789_320X240,
+    ST7789_RESOLUTION_76x284 DGX_DEPRECATED("use DGX_ST7789_76X284") = DGX_ST7789_76X284,
+    ST7789_RESOLUTION_284x76 DGX_DEPRECATED("use DGX_ST7789_284X76") = DGX_ST7789_284X76,
+    ST7789_RESOLUTION_135x240 DGX_DEPRECATED("use DGX_ST7789_135X240") = DGX_ST7789_135X240,
+    ST7789_RESOLUTION_240x135 DGX_DEPRECATED("use DGX_ST7789_240X135") = DGX_ST7789_240X135,
 } dgx_st7789_resolution_t;
 
-/** The name the type had before; it stays. */
-typedef dgx_st7789_resolution_t st7789_resolution_t;
+/** The name the type had before; deprecated until DGX 1.0. */
+typedef dgx_st7789_resolution_t st7789_resolution_t DGX_DEPRECATED("use dgx_st7789_resolution_t");
 
 /**
  * @brief Create an ST7789 panel screen on top of a bus (SPI or P8).
@@ -64,6 +64,7 @@ dgx_screen_t* dgx_st7789_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
  *                240x320 panel the screen becomes 320x240 and back.
  * @deprecated Use dgx_screen_orientation().
  */
+DGX_DEPRECATED("use dgx_screen_orientation()")
 void dgx_st7789_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 
 /**
@@ -74,6 +75,7 @@ void dgx_st7789_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orie
  * @return ESP_OK, or ESP_ERR_NOT_SUPPORTED when the screen was given no backlight GPIO.
  * @deprecated Use dgx_screen_backlight().
  */
+DGX_DEPRECATED("use dgx_screen_backlight()")
 esp_err_t dgx_st7789_backlight(dgx_screen_t *scr, bool on);
 
 /**

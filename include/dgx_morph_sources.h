@@ -27,7 +27,7 @@ dgx_bit_matrix_t *dgx_matrix_from_bw_bitmap(dgx_bw_bitmap_t *bmap);
  *
  * @return Owned matrix, or NULL on failure. Release with dgx_matrix_destroy().
  */
-dgx_bit_matrix_t *dgx_morph_glyph_matrix(dgx_font_t *font, uint32_t code_point);
+dgx_bit_matrix_t *dgx_morph_glyph_matrix(const dgx_font_t *font, uint32_t code_point);
 
 /**
  * @brief Letter-by-letter morph of one string into another.
@@ -44,7 +44,8 @@ typedef struct {
 } dgx_morph_text_t;
 
 /** @deprecated The name dgx_utf8_length() of dgx_font.h had here before. */
-#define dgx_morph_text_length dgx_utf8_length
+DGX_DEPRECATED("use dgx_utf8_length()")
+static inline size_t dgx_morph_text_length(const char *str) { return dgx_utf8_length(str); }
 
 /**
  * @brief Plan a per-letter morph between two UTF-8 strings.
@@ -54,7 +55,7 @@ typedef struct {
  * @return Owned text, or NULL on failure. Release with dgx_morph_text_destroy().
  */
 dgx_morph_text_t *dgx_morph_text_create(
-    dgx_font_t              *font,
+    const dgx_font_t              *font,
     const char              *from,
     const char              *to,
     size_t                   length,

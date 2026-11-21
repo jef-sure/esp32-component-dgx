@@ -19,13 +19,13 @@ board does not wire.
 | ST77916 | round color TFT, 360x360 | QSPI, SPI | `dgx_st77916_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_ST77916` |
 | GC9A01 | round color TFT | SPI, P8 | `dgx_gc9a01_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_GC9A01` |
 | SSD1351 | color OLED | SPI, P8 | `dgx_ssd1351_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SSD1351` |
-| SSD1322 | 16-gray OLED, 256x64, 240x128, 128x64 | P8, SPI | `dgx_ssd1322_init(bus, resolution, rst)` | `CONFIG_DGX_ENABLE_SSD1322` |
-| SSD1306 | mono OLED | SPI, I2C | `dgx_ssd1306_init(bus, resolution, is_ext_vcc, rst)` | `CONFIG_DGX_ENABLE_SSD1306` |
-| SSD1309 | mono OLED | SPI, I2C | `dgx_ssd1309_init(bus, resolution, rst)` | `CONFIG_DGX_ENABLE_SSD1309` |
-| SH1106 | mono OLED | SPI, I2C | `dgx_sh1106_init(bus, resolution, rst)` | `CONFIG_DGX_ENABLE_SH1106` |
+| SSD1322 | 16-gray OLED, 256x64, 240x128, 128x64 | P8, SPI | `dgx_ssd1322_init(bus, rst, resolution)` | `CONFIG_DGX_ENABLE_SSD1322` |
+| SSD1306 | mono OLED | SPI, I2C | `dgx_ssd1306_init(bus, rst, resolution, ext_vcc)` | `CONFIG_DGX_ENABLE_SSD1306` |
+| SSD1309 | mono OLED | SPI, I2C | `dgx_ssd1309_init(bus, rst, resolution)` | `CONFIG_DGX_ENABLE_SSD1309` |
+| SH1106 | mono OLED | SPI, I2C | `dgx_sh1106_init(bus, rst, resolution)` | `CONFIG_DGX_ENABLE_SH1106` |
 | ST7565R | mono LCD | SPI | `dgx_st7565r_init(bus, rst, backlight)` | `CONFIG_DGX_ENABLE_ST7565R` |
 | ST7920 | mono LCD | SPI | `dgx_st7920_init(bus, rst, backlight, cs)` | `CONFIG_DGX_ENABLE_ST7920` |
-| SSD1680 | e-paper of black, white and red, 128x296 and 122x250 | SPI | `dgx_ssd1680_init(bus, resolution, rst, busy)` | `CONFIG_DGX_ENABLE_SSD1680` |
+| SSD1680 | e-paper of black, white and red, 128x296 and 122x250 | SPI | `dgx_ssd1680_init(bus, rst, busy, resolution)` | `CONFIG_DGX_ENABLE_SSD1680` |
 | JD9165 | color TFT, 1024x600 | DSI | `dgx_jd9165_init(bus, rst, backlight, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9165` |
 | JD9365 | color TFT, 800x1280 | DSI | `dgx_jd9365_init(bus, rst, backlight, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_JD9365` |
 | ST7701S | color TFT, 480x800 | DSI | `dgx_st7701_init(bus, rst, backlight, color_bits, cbo, frames)` | `CONFIG_DGX_ENABLE_ST7701` |
@@ -62,7 +62,7 @@ Common parameters:
   order, not yet tried on a module); `DGX_ST7789_135X240` or
   `DGX_ST7789_240X135` for the 1.14" glass, which lies 52 columns and
   40 rows into the memory of the controller. Swapping the axes in
-  `dgx_st7789_orientation()` turns the screen between the two shapes.
+  `dgx_screen_orientation()` turns the screen between the two shapes.
 - `resolution` (ST7735) — the panel: `DGX_ST7735_128X160`, or
   `DGX_ST7735_160X128` for it in landscape;
   `DGX_ST7735_80X160` or `DGX_ST7735_160X80` for the 0.96" IPS
@@ -87,9 +87,8 @@ command for that, and the OLED controllers mirror by their segments and rows
 only as a module wires its glass: these drivers turn the picture where they
 send it to the panel, and with `swap_xy` the screen of a 128x64 panel is
 64x128. SSD1680 puts each pixel into the picture turned as it is drawn. A few
-drivers add extras: those with a backlight have `dgx_<driver>_backlight()`,
-GC9A01 has `dgx_gc9a01_display_off()` /
-`dgx_gc9a01_display_on()`, SSD1351 has `dgx_ssd1351_brightness()`, SSD1306
+drivers add extras beside `dgx_screen_backlight()` and `dgx_screen_display()`:
+SSD1351 has `dgx_ssd1351_brightness()`, SSD1306
 has `dgx_ssd1306_contrast()`, SSD1309 has `dgx_ssd1309_contrast()` and
 `dgx_ssd1309_column_offset()`, and SH1106 the same two under its own name.
 ST7565R has `dgx_st7565r_contrast(scr, resistor_ratio, volume)` for the
@@ -253,8 +252,8 @@ panel.on            = invert;
 dgx_screen_t *scr = dgx_panel_init(bus, &panel, rst, GPIO_NUM_NC, 16, DgxScreenBGR);
 ```
 
-No module of this kind has been tried. `dgx_panel_orientation()` and
-`dgx_panel_backlight()` work for every such screen. A table of the maker
+No module of this kind has been tried. `dgx_screen_orientation()` and
+`dgx_screen_backlight()` work for every such screen. A table of the maker
 gives MADCTL and COLMOD `dgx_panel_adj_madctl` and `dgx_panel_adj_colmod`
 as their adjust functions, so that they follow the order of colors and the
 depth of the screen. A depth is set up where its COLMOD in `colmod` is not 0.
@@ -271,7 +270,7 @@ contrast changes nothing.
 
 SSD1309 is the controller of the larger modules, 2.42 inches as a rule. It
 takes the commands of the SSD1306 but has no charge pump, so its constructor
-has no supply argument: `dgx_ssd1309_init(bus, DGX_SSD1309_128X64, rst)`, or
+has no supply argument: `dgx_ssd1309_init(bus, rst, DGX_SSD1309_128X64)`, or
 `DGX_SSD1309_128X32`. The init commands are those of the u8g2 driver. Some
 modules wire the first column of the glass to segment 2 of the controller
 and show the picture shifted right by two pixels: tell the driver with
@@ -287,12 +286,13 @@ groups of four pixels, so the driver keeps the picture in a 4-bit virtual
 screen (8 KB for 256x64) and sends what has changed. A color is a gray level, 0 (dark) to 15 (bright), in the high
 nibble: `15 << 4`. On the 8-bit parallel bus the controller needs a write
 cycle of 300 ns or longer, a clock of 3.3 MHz at most. The picture is turned
-by `dgx_ssd1322_orientation()` in software, as on the ST7920; brightness is
+by `dgx_screen_orientation()` in software, as on the ST7920; brightness is
 set by `dgx_ssd1322_contrast()` (0..255) and `dgx_ssd1322_brightness()`
 (0..15), the gray levels by `dgx_ssd1322_grayscale(scr, levels)` (16 values,
 each above the one before and none above 180), and
 `dgx_ssd1322_display_mode()` turns the whole glass off, fully on, or inverts
-it.
+it: `DGX_SSD1322_MODE_ALL_OFF`, `DGX_SSD1322_MODE_ALL_ON`,
+`DGX_SSD1322_MODE_INVERSE`, and `DGX_SSD1322_MODE_NORMAL` back.
 
 SH1106 is what most 1.3-inch 128x64 modules have, and they are often sold
 as SSD1306. The two are easy to confuse and easy to tell apart: an SH1106
@@ -300,7 +300,7 @@ under the SSD1306 driver shows garbage in the top eight rows and nothing
 below, because it does not know the addressing commands of the SSD1306 and
 takes the whole picture into one page. It has 132 segments and the page
 addressing mode only, so the driver sends a changed rectangle page by page,
-each with its own address. `dgx_sh1106_init(bus, DGX_SH1106_128X64, rst)` or
+each with its own address. `dgx_sh1106_init(bus, rst, DGX_SH1106_128X64)` or
 `DGX_SH1106_64X32`, the 0.42-inch glass. The glass takes a run of the segments:
 from segment 2 for 128 columns and from 32 for 64, as u8g2 has it; if a
 module of yours shows a blank stripe at an edge, pass the segment of its
@@ -308,7 +308,7 @@ first column to `dgx_sh1106_column_offset()`. The init commands are those
 of the u8g2 driver written for the controller after its datasheet.
 
 SSD1680 is the controller of the e-paper modules of black, white and red:
-`dgx_ssd1680_init(bus, DGX_SSD1680_128X296_BWR, rst, busy)` for the 2.9" module
+`dgx_ssd1680_init(bus, rst, busy, DGX_SSD1680_128X296_BWR)` for the 2.9" module
 of WeAct Studio, seen right on a module, or `DGX_SSD1680_122X250_BWR` for its
 2.13" one, not tried. The driver keeps the picture as the controller takes
 it, two planes of a bit a pixel, 9.5 KB for the 2.9", and drawing changes

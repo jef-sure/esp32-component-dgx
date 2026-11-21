@@ -5,7 +5,8 @@
 extern "C" {
 // @formatter:on
 #endif
-dgx_font_t *font0ss();
+extern const dgx_font_t font0ss;
+#define font0ss() DGX_FONT_CALLED(font0ss)
 #ifdef __cplusplus
 // @formatter:off
 }

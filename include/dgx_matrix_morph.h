@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "dgx_deprecated.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,7 +36,8 @@ dgx_bit_matrix_t *dgx_matrix_create(
 );
 
 /** @deprecated The name dgx_matrix_create() had before. */
-#define dgx_matrix_init dgx_matrix_create
+DGX_DEPRECATED("use dgx_matrix_create()")
+static inline dgx_bit_matrix_t *dgx_matrix_init(uint16_t width, uint16_t height) { return dgx_matrix_create(width, height); }
 
 /**
  * @brief Release a matrix and set its pointer to NULL.

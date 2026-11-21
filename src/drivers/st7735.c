@@ -142,14 +142,14 @@ dgx_screen_t* dgx_st7735_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
     dgx_screen_t *scr = dgx_panel_init(bus, panel, rst, backlight, color_bits, cbo);
     /* landscape is a turn, MV with MX, as on the ST7789; after the functions of the screen, which take it as not turned */
     if (scr && (resolution == DGX_ST7735_160X128 || resolution == DGX_ST7735_160X80))
-        dgx_panel_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
+        dgx_screen_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true);
     return scr;
 }
 
 void dgx_st7735_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy) {
-    dgx_panel_orientation(scr, dir_x, dir_y, swap_xy);
+    dgx_screen_orientation(scr, dir_x, dir_y, swap_xy);
 }
 
 esp_err_t dgx_st7735_backlight(dgx_screen_t *scr, bool on) {
-    return dgx_panel_backlight(scr, on);
+    return dgx_screen_backlight(scr, on);
 }

@@ -322,7 +322,7 @@ esp_err_t dgx_screen_with_bus_scroll(dgx_screen_with_bus_t *sbus, int x, int y, 
         const int strip = move < 0 ? -move : move, at = move > 0 ? from + count - strip : from;
         if (columns) scr->fill_rectangle(scr, at, y, strip, h, color);
         else scr->fill_rectangle(scr, x, at, w, strip, color);
-        if (scr->wait_buffer) scr->wait_buffer(scr);
+        if (scr->wait) scr->wait(scr);
     }
     sbus->scroll.shift = (uint16_t)((sbus->scroll.shift + count - move) % count);
     dgx_screen_with_bus_scroll_tell(sbus, false);

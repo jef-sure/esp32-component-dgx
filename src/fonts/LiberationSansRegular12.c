@@ -6531,7 +6531,7 @@ static const uint8_t bitmaps[] = {
 0x58, 0x50, 0x50, 0x90
 };
 
-static const glyph_t glyphs[] = {
+static const dgx_glyph_t glyphs[] = {
     { {.bitmap = bitmaps +     0 },   1,   1,   3,    0,    0 } /* 0020 */
 ,   { {.bitmap = bitmaps +     1 },   1,   9,   3,    1,   -8 } /* 0021 */
 ,   { {.bitmap = bitmaps +    10 },   4,   3,   4,    0,   -8 } /* 0022 */
@@ -7137,7 +7137,7 @@ static const glyph_t glyphs[] = {
 ,   { {.bitmap = bitmaps +  5613 },   2,   4,   5,    2,   -9 } /* 05F3 */
 ,   { {.bitmap = bitmaps +  5617 },   5,   4,   7,    1,   -9 } /* 05F4 */
 };
-static const glyph_array_t glyph_ranges[] = {
+static const dgx_glyph_array_t glyph_ranges[] = {
    {0x20  , 0x5f  , glyphs + 0 }
 , {0xa0  , 0xe0  , glyphs + 95 }
 , {0x18f , 0x1   , glyphs + 319 }
@@ -7178,18 +7178,15 @@ static const glyph_array_t glyph_ranges[] = {
 , {0x0   , 0x0   , 0 }
 };
 // Bitmap size: 5621
-dgx_font_t* LiberationSansRegular12() {
-	static dgx_font_t rval = { 
-		.glyph_ranges = glyph_ranges,
-		.yAdvance = 14,
-		.yOffsetLowest = -12,
-		.xWidest = 12,
-		.xWidthAverage = 5.554636,
-	.f_type = DGX_FONT_BITMAP_LINES,
-		.yBottomMax = 4,
-		.xOffsetLowest = -4,
-		.xRightMax = 12,
-		.number_of_ranges = 37
-	};
-	return &rval;
-}
+const dgx_font_t LiberationSansRegular12 = {
+    .glyph_ranges = glyph_ranges,
+    .y_advance = 14,
+    .y_offset_lowest = -12,
+    .x_widest = 12,
+    .x_width_average = 5.554636,
+    .f_type = DGX_FONT_BITMAP_LINES,
+    .y_bottom_max = 4,
+    .x_offset_lowest = -4,
+    .x_right_max = 12,
+    .number_of_ranges = 37
+};

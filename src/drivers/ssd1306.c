@@ -149,7 +149,7 @@ void dgx_ssd1306_update_screen(dgx_screen_t *scr_, int left, int right, int top,
     }
 }
 
-void dgx_ssd1306_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+static void ssd1306_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
     dgx_ssd1306_t *scr = (dgx_ssd1306_t *)scr_;
     int            pw, ph;
@@ -185,7 +185,7 @@ static esp_err_t dgx_ssd1306_brightness(dgx_screen_t *scr_, uint8_t level)
 }
 
 static const dgx_screen_control_t dgx_ssd1306_control = {
-    .orientation = dgx_ssd1306_orientation,
+    .orientation = ssd1306_orientation,
     .display     = dgx_ssd1306_display,
     .brightness  = dgx_ssd1306_brightness,
 };
@@ -195,8 +195,12 @@ static void dgx_ssd1306_destroy_screen(dgx_screen_t **pscr)
     dgx_bw_destroy_screen(pscr);
 }
 
-dgx_screen_t *dgx_ssd1306_init(dgx_bus_protocols_t *bus, dgx_ssd1306_resolution_t resolution, uint8_t is_ext_vcc, gpio_num_t rst)
+dgx_screen_t *dgx_ssd1306_init(dgx_bus_protocols_t *bus, gpio_num_t rst, dgx_ssd1306_resolution_t resolution, bool ext_vcc)
 {
+    if ((int)rst >= DGX_SSD1306_128X32) {
+        ESP_LOGE(TAG, "dgx_ssd1306_init: rst %d is a resolution: since DGX 0.12 the order is (bus, rst, resolution, ext_vcc)", (int)rst);
+        return NULL;
+    }
     int16_t width;
     int16_t height;
     switch (resolution) {
@@ -290,7 +294,7 @@ dgx_screen_t *dgx_ssd1306_init(dgx_bus_protocols_t *bus, dgx_ssd1306_resolution_
         uint8_t const *data = lcd_init_cmds[cidx].data;
         if (cmd == SSD1306_CMD_SET_CHARGE_PUMP) {
             data = adj_data;
-            if (is_ext_vcc) {
+            if (ext_vcc) {
                 *adj_data = 0x10;
             } else {
                 *adj_data = 0x14;
@@ -307,14 +311,14 @@ dgx_screen_t *dgx_ssd1306_init(dgx_bus_protocols_t *bus, dgx_ssd1306_resolution_
         } else if (cmd == SSD1306_CMD_SET_CONTRAST) {
             if (height == 64 || height == 48) {
                 data = adj_data;
-                if (is_ext_vcc) {
+                if (ext_vcc) {
                     *adj_data = 0x9f;
                 } else {
                     *adj_data = 0xcf;
                 }
             } else if (height != 32) {
                 data = adj_data;
-                if (is_ext_vcc) {
+                if (ext_vcc) {
                     *adj_data = 0x10;
                 } else {
                     *adj_data = 0xaf;
@@ -322,7 +326,7 @@ dgx_screen_t *dgx_ssd1306_init(dgx_bus_protocols_t *bus, dgx_ssd1306_resolution_
             }
         } else if (cmd == SSD1306_CMD_SET_PRECHARGE) {
             data = adj_data;
-            if (is_ext_vcc) {
+            if (ext_vcc) {
                 *adj_data = 0x22;
             } else {
                 *adj_data = 0xF1;
@@ -337,4 +341,10 @@ dgx_screen_t *dgx_ssd1306_init(dgx_bus_protocols_t *bus, dgx_ssd1306_resolution_
         }
     }
     return (dgx_screen_t *)scr;
+}
+
+/* deprecated until DGX 1.0: dgx_screen_orientation() */
+void dgx_ssd1306_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+{
+    ssd1306_orientation(scr, dir_x, dir_y, swap_xy);
 }

@@ -112,7 +112,7 @@ IDF сообщает о конце кадра, см. «Луч». Шина име
 
 **JD9365 (10").** Заводская прошивка `esp_brookesia_demo` 1.0.1 на IDF
 v6.0.2 шлёт панели таблицу из 204 команд и просит частоту пикселей 70 МГц.
-Все восемь ориентаций `dgx_jd9365_orientation()` на плате выглядят как
+Все восемь ориентаций `dgx_screen_orientation()` на плате выглядят как
 ожидается.
 
 Про 70 и 80 МГц. Когда запрошено 70 МГц, IDF 6.0.1 делает из них 80 МГц с
@@ -306,13 +306,13 @@ scr->write_area(scr, more_pixels, more_bits);  /* продолжение с то
 /* три пакета: линия, круг и текст показываются по очереди */
 dgx_draw_line(scr, 0, 0, 100, 100, color);
 dgx_draw_circle(scr, 200, 200, 50, color);
-dgx_font_string_utf8_screen(scr, 10, 40, "text", color, DgxOutputNormal, 1, font, NULL, NULL);
+dgx_font_draw(&(dgx_font_context_t){.scr = scr, .font = font, .color = color}, 10, 40, "text");
 
 /* один пакет: всё показывается разом */
 dgx_screen_batch_begin(scr);
 dgx_draw_line(scr, 0, 0, 100, 100, color);
 dgx_draw_circle(scr, 200, 200, 50, color);
-dgx_font_string_utf8_screen(scr, 10, 40, "text", color, DgxOutputNormal, 1, font, NULL, NULL);
+dgx_font_draw(&(dgx_font_context_t){.scr = scr, .font = font, .color = color}, 10, 40, "text");
 dgx_screen_batch_end(scr);
 ```
 

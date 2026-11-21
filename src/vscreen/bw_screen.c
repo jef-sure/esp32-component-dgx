@@ -334,7 +334,7 @@ dgx_screen_t *dgx_bw_init_with(int width, int height, dgx_bus_malloc_func alloc)
     scr->base.set_pixel      = dgx_bw_set_pixel;
     scr->base.get_pixel      = dgx_bw_get_pixel;
     scr->base.write_area     = dgx_bw_write_data;
-    scr->base.wait_buffer    = dgx_bw_wait_data;
+    scr->base.wait    = dgx_bw_wait_data;
     scr->base.fill_rectangle = dgx_bw_fill_rectangle;
     scr->base.update_screen  = dgx_bw_update_screen;
     scr->base.destroy        = dgx_bw_destroy_screen;

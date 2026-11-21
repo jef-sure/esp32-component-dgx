@@ -4,10 +4,15 @@
  * The editor edits pixels; everything else in the file is kept as it was
  * found, and written the way font2c writes it, byte for byte: bitmaps[] with
  * a comment of the glyph, its name kept, and its rows as '#' and ' ', the
- * glyph_t table, glyph_ranges[] and the dgx_font_t at the end. The text
+ * table of glyphs, glyph_ranges[] and the dgx_font_t at the end. The text
  * before the arrays of a font (the #include, font2c's comments, the aliases
  * of the font before it) is kept as it was. Only the rows of a glyph are
  * re-encoded when its pixels change; its width and height are the pixels'.
+ *
+ * A font is a constant since DGX 0.12, `const dgx_font_t Name = {...};`, and
+ * was a function before, `dgx_font_t* Name() { static dgx_font_t rval ...`.
+ * Both are read, and a font is written back in the form it was read in, so
+ * that it still agrees with its header.
  */
 
 var FontC = (() => {
@@ -16,15 +21,18 @@ var FontC = (() => {
         return text.replace(/\/\*.*?\*\//gs, '').replace(/\/\/[^\n]*/g, '');
     }
 
-    /* the blocks of the fonts of a file: [{name, from, to}] around every dgx_font_t *name() */
+    /* the blocks of the fonts of a file: [{name, form, from, to}] around every const dgx_font_t name = {...};
+     * or, before DGX 0.12, dgx_font_t *name() {...} */
     function fontBlocks(text) {
-        const ends = [...text.matchAll(/dgx_font_t\s*\*\s*(\w+)\s*\(\s*(?:void)?\s*\)\s*\{/g)].map(m => ({ name: m[1], end: m.index + m[0].length }));
+        const ends = [...text.matchAll(/\bconst\s+dgx_font_t\s+(\w+)\s*=\s*\{|\bdgx_font_t\s*\*\s*(\w+)\s*\(\s*(?:void)?\s*\)\s*\{/g)]
+            .map(m => ({ name: m[1] || m[2], form: m[1] ? 'constant' : 'function', end: m.index + m[0].length }));
         const blocks = [];
         let start = 0;
-        for (const { name, end } of ends) {
+        for (const { name, form, end } of ends) {
             let close = text.indexOf('\n}', end);
             if (close < 0) close = text.length; else close += 2;
-            blocks.push({ name, from: start, to: close });
+            if (form === 'constant' && text[close] === ';') ++close;
+            blocks.push({ name, form, from: start, to: close });
             start = close;
         }
         return blocks;
@@ -109,11 +117,11 @@ var FontC = (() => {
         if (/\.f_type\s*=\s*DGX_FONT_BITMAP_DEPTH[24]\b/.test(body.slice(body.lastIndexOf('dgx_font_t')))) return null;
         const prefix = m[1];
         if (body.indexOf('};', m.index + m[0].length) < 0) return null;
-        const glyphRe = /static\s+const\s+glyph_t\s+\w*glyphs\s*\[\s*\]\s*=\s*\{/g;
+        const glyphRe = /static\s+const\s+(?:dgx_)?glyph_t\s+\w*glyphs\s*\[\s*\]\s*=\s*\{/g;
         const gm = glyphRe.exec(body);
         if (!gm) return null;
         if (body.indexOf('};', gm.index) < 0) return null;
-        const rm = /static\s+const\s+glyph_array_t\s+\w*glyph_ranges\s*\[\s*\]\s*=\s*\{/g.exec(body);
+        const rm = /static\s+const\s+(?:dgx_)?glyph_array_t\s+\w*glyph_ranges\s*\[\s*\]\s*=\s*\{/g.exec(body);
         if (!rm) return null;
         if (body.indexOf('};', rm.index) < 0) return null;
 
@@ -138,18 +146,21 @@ var FontC = (() => {
         for (const f of head.matchAll(/\.(\w+)\s*=\s*([-\w.]+)/g)) fields[f[1]] = f[2];
         const stream = (fields.f_type || 'DGX_FONT_BITMAP_LINES') === 'DGX_FONT_BITMAP_STREAM';
 
+        /* a measure by its name since DGX 0.12, or before it */
+        const measure = (now, before) => fields[now] !== undefined ? fields[now] : fields[before];
         const font = {
             name: block.name,
+            form: block.form,
             prefix,
             identity: identityOf(body.slice(0, m.index + m[0].length), prefix),
             f_type: fields.f_type || 'DGX_FONT_BITMAP_LINES',
-            yAdvance: +fields.yAdvance || 0,
-            yOffsetLowest: +fields.yOffsetLowest || 0,
-            xWidest: +fields.xWidest || 0,
-            xWidthAverage: fields.xWidthAverage || '0',
-            yBottomMax: +fields.yBottomMax || 0,
-            xOffsetLowest: +fields.xOffsetLowest || 0,
-            xRightMax: +fields.xRightMax || 0,
+            yAdvance: +measure('y_advance', 'yAdvance') || 0,
+            yOffsetLowest: +measure('y_offset_lowest', 'yOffsetLowest') || 0,
+            xWidest: +measure('x_widest', 'xWidest') || 0,
+            xWidthAverage: measure('x_width_average', 'xWidthAverage') || '0',
+            yBottomMax: +measure('y_bottom_max', 'yBottomMax') || 0,
+            xOffsetLowest: +measure('x_offset_lowest', 'xOffsetLowest') || 0,
+            xRightMax: +measure('x_right_max', 'xRightMax') || 0,
             number_of_ranges: ranges.length,
             glyphs: {},
             names,
@@ -182,7 +193,7 @@ var FontC = (() => {
      * an alias) as its text, kept as it was found */
     function parse(text) {
         const spans = fontBlocks(text);
-        if (!spans.length) return { fonts: [], blocks: [], error: 'no dgx_font_t *<name>() in it: not a font of font2c' };
+        if (!spans.length) return { fonts: [], blocks: [], error: 'no const dgx_font_t <name> in it: not a font of font2c' };
         const fonts = [];
         const blocks = [];
         let tail = text; // the text after the last dgx_font_t block
@@ -221,8 +232,9 @@ var FontC = (() => {
     /*
      * One font as the .c font2c writes, the same bytes for the same glyphs:
      * `pre`, the text of the block before the arrays, then bitmaps[] with the
-     * art comment of every glyph, the tables and the dgx_font_t. The block
-     * ends at the brace of the function; what follows it is the next block's.
+     * art comment of every glyph, the tables and the dgx_font_t, in the form
+     * the font was read in. The block ends at the brace of the constant or of
+     * the function; what follows it is the next block's.
      */
     function generate(font, pre) {
         const out = [pre];
@@ -249,7 +261,8 @@ var FontC = (() => {
             at += bytes.length;
         }
         out.push('};\n\n');
-        out.push(`static const glyph_t ${p}glyphs[] = {\n  `);
+        const constant = font.form !== 'function';
+        out.push(`static const ${constant ? 'dgx_glyph_t' : 'glyph_t'} ${p}glyphs[] = {\n  `);
         let gi = 0;
         for (const r of ranges) {
             for (let i = 0; i < r.number; ++i) {
@@ -259,7 +272,7 @@ var FontC = (() => {
             }
         }
         out.push('};\n');
-        out.push(`static const glyph_array_t ${p}glyph_ranges[] = {\n  `);
+        out.push(`static const ${constant ? 'dgx_glyph_array_t' : 'glyph_array_t'} ${p}glyph_ranges[] = {\n  `);
         let k = 0;
         ranges.forEach((r, ri) => {
             out.push(`${ri ? ',' : ''} {0x${r.first.toString(16).padEnd(4)}, 0x${r.number.toString(16).padEnd(4)}, ${p}glyphs + ${k} }\n`);
@@ -268,6 +281,21 @@ var FontC = (() => {
         out.push(', {0x0   , 0x0   , 0 }\n');
         out.push('};\n');
         out.push(`// Bitmap size: ${at}\n`);
+        if (constant) {
+            out.push(`const dgx_font_t ${font.name} = {\n`);
+            out.push(`    .glyph_ranges = ${p}glyph_ranges,\n`);
+            out.push(`    .y_advance = ${font.yAdvance},\n`);
+            out.push(`    .y_offset_lowest = ${m.yOffsetLowest},\n`);
+            out.push(`    .x_widest = ${m.xWidest},\n`);
+            out.push(`    .x_width_average = ${m.xWidthAverage},\n`);
+            out.push(`    .f_type = ${font.f_type},\n`);
+            out.push(`    .y_bottom_max = ${m.yBottomMax},\n`);
+            out.push(`    .x_offset_lowest = ${m.xOffsetLowest},\n`);
+            out.push(`    .x_right_max = ${m.xRightMax},\n`);
+            out.push(`    .number_of_ranges = ${ranges.length}\n`);
+            out.push(`};`);
+            return out.join('');
+        }
         out.push(`dgx_font_t* ${font.name}() {\n\t`);
         out.push(`static dgx_font_t rval = { \n\t\t`);
         out.push(`.glyph_ranges = ${p}glyph_ranges,\n\t\t`);

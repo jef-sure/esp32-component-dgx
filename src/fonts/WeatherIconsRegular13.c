@@ -928,7 +928,7 @@ static const dgx_font_dot_t pointsOf_f0c8[] /**/ = {
 #define COUNT_OF(x) ((sizeof(x) / sizeof(0 [x])) / ((size_t)(!(sizeof(x) % sizeof(0 [x])))))
 
 // glyphs in bitmaps
-static const glyph_t glyphs[] =
+static const dgx_glyph_t glyphs[] =
 {
     { {.dots = pointsOf_f002, .number_of_dots = COUNT_OF(pointsOf_f002)}, 37, 39, 36, 0, -29 }, // U+f002   '' , [0]
     { {.dots = pointsOf_f003, .number_of_dots = COUNT_OF(pointsOf_f003)}, 40, 39, 40, 0, -29 }, // U+f003   '' , [1]
@@ -960,7 +960,7 @@ static const glyph_t glyphs[] =
 };
 
 // glyphs ranges
-static const glyph_array_t glyph_ranges[] =
+static const dgx_glyph_array_t glyph_ranges[] =
 {
     { 0xf002, 2, glyphs + 0 },
     { 0xf008, 6, glyphs + 2 },
@@ -980,21 +980,17 @@ static const glyph_array_t glyph_ranges[] =
     { 0x0, 0, 0 }
 };
 
-dgx_font_t* WeatherIconsRegular13()
-{
-    static dgx_font_t rval = {
-        .glyph_ranges = glyph_ranges,    //
-        .yAdvance = 38,                  //
-        .yOffsetLowest = -29,            //
-        .xWidest = 40,                   //
-        .xWidthAverage = 30,             //
-        .f_type = DGX_FONT_DOTS,         //
-        .yBottomMax = 10,                //
-        .xOffsetLowest = 0,              //
-        .xRightMax = 40                  //
-    };
-    return &rval;
-}
+const dgx_font_t WeatherIconsRegular13 = {
+    .glyph_ranges = glyph_ranges,
+    .y_advance = 38,
+    .y_offset_lowest = -29,
+    .x_widest = 40,
+    .x_width_average = 30,
+    .f_type = DGX_FONT_DOTS,
+    .y_bottom_max = 10,
+    .x_offset_lowest = 0,
+    .x_right_max = 40
+};
 
 
 

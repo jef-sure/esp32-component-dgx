@@ -142,9 +142,11 @@ static esp_err_t dgx_jd9165_display(dgx_screen_t *_scr, bool on)
 }
 
 /* the picture of a DSI display is turned by the bus, in its frame buffer */
+static void jd9165_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
+static esp_err_t jd9165_backlight(dgx_screen_t *scr, bool on);
 static const dgx_screen_control_t dgx_jd9165_control = {
-    .orientation = dgx_jd9165_orientation,
-    .backlight   = dgx_jd9165_backlight,
+    .orientation = jd9165_orientation,
+    .backlight   = jd9165_backlight,
     .display     = dgx_jd9165_display,
 };
 
@@ -203,7 +205,7 @@ dgx_screen_t *dgx_jd9165_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_num
     return (dgx_screen_t *)scr;
 }
 
-void dgx_jd9165_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+static void jd9165_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
     dgx_jd9165_t *scr = (dgx_jd9165_t *)_scr;
     _scr->dir_x       = dir_x;
@@ -218,7 +220,18 @@ void dgx_jd9165_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_ori
     scr->base.cached_area.top = scr->base.cached_area.bottom = 0xffff;
 }
 
-esp_err_t dgx_jd9165_backlight(dgx_screen_t *scr, bool on)
+static esp_err_t jd9165_backlight(dgx_screen_t *scr, bool on)
 {
     return dgx_backlight_set(((dgx_jd9165_t *)scr)->backlight, on);
+}
+
+/* deprecated until DGX 1.0: dgx_screen_orientation() and dgx_screen_backlight() */
+void dgx_jd9165_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+{
+    jd9165_orientation(scr, dir_x, dir_y, swap_xy);
+}
+
+esp_err_t dgx_jd9165_backlight(dgx_screen_t *scr, bool on)
+{
+    return jd9165_backlight(scr, on);
 }

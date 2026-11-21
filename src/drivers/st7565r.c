@@ -126,7 +126,7 @@ void dgx_st7565r_update_screen(dgx_screen_t *scr_, int left, int right, int top,
  * mirror depends on how a module wires its glass. With the axes swapped the
  * picture is cleared; the whole screen is sent.
  */
-static void dgx_st7565r_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+static void st7565r_orientation(dgx_screen_t *scr_, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
     dgx_st7565r_t *scr = (dgx_st7565r_t *)scr_;
     int            pw, ph;
@@ -149,9 +149,10 @@ static esp_err_t dgx_st7565r_display(dgx_screen_t *scr_, bool on)
     return ESP_OK;
 }
 
+static esp_err_t st7565r_backlight(dgx_screen_t *scr, bool on);
 static const dgx_screen_control_t dgx_st7565r_control = {
-    .orientation = dgx_st7565r_orientation,
-    .backlight   = dgx_st7565r_backlight,
+    .orientation = st7565r_orientation,
+    .backlight   = st7565r_backlight,
     .display     = dgx_st7565r_display,
 };
 
@@ -212,7 +213,7 @@ dgx_screen_t *dgx_st7565r_init(dgx_bus_protocols_t *bus, gpio_num_t rst, gpio_nu
     return (dgx_screen_t *)scr;
 }
 
-esp_err_t dgx_st7565r_backlight(dgx_screen_t *scr, bool on)
+static esp_err_t st7565r_backlight(dgx_screen_t *scr, bool on)
 {
     return dgx_backlight_set(((dgx_st7565r_t *)scr)->backlight, on);
 }
@@ -225,4 +226,10 @@ esp_err_t dgx_st7565r_contrast(dgx_screen_t *scr_, uint8_t resistor_ratio, uint8
     const uint8_t  set[3] = {ST7565R_SET_VOLTAGE_RESISTOR_RATIO | resistor_ratio, ST7565R_CONTRAST, volume};
     scr->bus->write_commands(scr->bus, set, 3 * 8u);
     return ESP_OK;
+}
+
+/* deprecated until DGX 1.0: dgx_screen_backlight() */
+esp_err_t dgx_st7565r_backlight(dgx_screen_t *scr, bool on)
+{
+    return st7565r_backlight(scr, on);
 }

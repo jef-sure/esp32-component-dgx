@@ -110,7 +110,7 @@ static void stage(bool upright, bool turned)
     do {                                                                                                               \
         char text_[96];                                                                                                \
         snprintf(text_, sizeof(text_), __VA_ARGS__);                                                                   \
-        const dgx_font_context_t how_ = {.scr = screen, .font = TerminusTTFMedium12(), .color = ink_, .scale = scale}; \
+        const dgx_font_context_t how_ = {.scr = screen, .font = &TerminusTTFMedium12, .color = ink_, .scale = scale}; \
         dgx_font_draw(&how_, x, y, text_);                                                                             \
     } while (0)
 

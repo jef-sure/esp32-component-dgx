@@ -21,7 +21,7 @@
 
 #include "dgx_draw.h"
 #include "dgx_font.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
 
 #define SIDE 128
@@ -122,7 +122,7 @@ static void figure(dgx_screen_t *a, dgx_screen_t *b, dgx_screen_t *sprite)
     }
     case 3: {
         const int r = rnd(0, 20);
-        dgx_solid_circle(a, x, y, r, color), dgx_solid_circle(b, x, y, r, color);
+        dgx_fill_circle(a, x, y, r, color), dgx_fill_circle(b, x, y, r, color);
         break;
     }
     case 4: {
@@ -131,8 +131,8 @@ static void figure(dgx_screen_t *a, dgx_screen_t *b, dgx_screen_t *sprite)
         break;
     }
     default:
-        dgx_font_string_utf8_screen(a, (int16_t)x, (int16_t)y, "SSD1351", color, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
-        dgx_font_string_utf8_screen(b, (int16_t)x, (int16_t)y, "SSD1351", color, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+        dgx_font_draw(&(dgx_font_context_t){.scr = a, .font = &TerminusTTFMedium12, .color = color, .scale = 1}, (int16_t)x, (int16_t)y, "SSD1351");
+        dgx_font_draw(&(dgx_font_context_t){.scr = b, .font = &TerminusTTFMedium12, .color = color, .scale = 1}, (int16_t)x, (int16_t)y, "SSD1351");
         break;
     }
 }
@@ -171,7 +171,7 @@ static void run(enum dgx_bus_type type, uint8_t bits, bool swap_xy, size_t buffe
     const int     given = bus_memory_given;
     dgx_screen_t *scr   = dgx_ssd1351_init(&bus, GPIO_NUM_NC, bits, DgxScreenRGB);
     CHECK(bus_memory_given == given + (bits == 18)); /* the bytes of 18-bit pixels from the bus */
-    dgx_ssd1351_orientation(scr, DgxScreenLeftRight, DgxScreenTopBottom, swap_xy);
+    dgx_screen_orientation(scr, DgxScreenLeftRight, DgxScreenTopBottom, swap_xy);
     CHECK(((remap & 1) != 0) == swap_xy && (remap >> 6) == (bits == 18 ? 2 : 1));
     dgx_screen_t *ref    = dgx_vscreen_init(SIDE, SIDE, bits, DgxScreenRGB);
     dgx_screen_t *sprite = dgx_vscreen_init(23, 17, bits, DgxScreenRGB);
@@ -228,7 +228,7 @@ static void adafruit_turns(void)
     CHECK(remap == rotations[0].remap && start_line == rotations[0].start_line);
     for (size_t i = 0; i < sizeof(rotations) / sizeof(rotations[0]); ++i) {
         const dgx_output_orientation_t turn = rotations[i].turn;
-        dgx_ssd1351_orientation(scr, dgx_output_orientation_xdir(turn), dgx_output_orientation_ydir(turn), dgx_output_orientation_swap_xy(turn));
+        dgx_screen_orientation(scr, dgx_output_orientation_xdir(turn), dgx_output_orientation_ydir(turn), dgx_output_orientation_swap_xy(turn));
         CHECK(remap == rotations[i].remap && start_line == rotations[i].start_line);
     }
     dgx_screen_destroy(&scr);

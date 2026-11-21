@@ -1345,7 +1345,7 @@ static host_window_t *window_of_screen(const dgx_screen_t *scr)
 {
     if (!scr || scr->screen_subtype != DgxPhysicalScreenWithBus) return NULL;
     dgx_bus_protocols_t *bus = ((const dgx_screen_with_bus_t *)scr)->bus;
-    return bus && bus->dispose == bus_dispose ? (host_window_t *)bus : NULL;
+    return bus && bus->dispose_bus == bus_dispose ? (host_window_t *)bus : NULL;
 }
 
 /*
@@ -1471,7 +1471,7 @@ dgx_screen_t *dgx_host_screen_init(int width, int height, uint8_t color_bits, co
     bus->sync_write          = bus_sync;
     bus->sends_from          = bus_sends_from;
     bus->memory_allocator    = bus_memory;
-    bus->dispose             = bus_dispose;
+    bus->dispose_bus             = bus_dispose;
     bus->buffer_len          = bus_buffer_len(w, options->buffer_max);
     bus->buffer              = bus->memory_allocator((uint32_t)bus->buffer_len);
     /*

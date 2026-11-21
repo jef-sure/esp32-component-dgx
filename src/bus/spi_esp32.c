@@ -749,7 +749,7 @@ static dgx_bus_protocols_t *dgx_spi_attach(spi_host_device_t host_id, bool owns_
     protocols->write_data_async    = dgx_spi_send_data_async;
     protocols->sync_write          = dgx_spi_sync_write;
     protocols->sends_from          = dgx_spi_dev_sends_from;
-    protocols->dispose             = dgx_spi_dev_dispose;
+    protocols->dispose_bus             = dgx_spi_dev_dispose;
     protocols->memory_allocator    = dgx_spi_dev_memory;
     protocols->hold                = dgx_spi_dev_hold;
     protocols->release             = dgx_spi_dev_release;

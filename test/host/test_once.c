@@ -83,7 +83,7 @@ static panel_t *panel_make(size_t buffer_len)
     dgx_screen_t *scr = &p->sbus.scr;
     scr->width = W, scr->height = H, scr->color_bits = 16, scr->screen_subtype = DgxPhysicalScreenWithBus;
     dgx_scr_init_slow_bus_optimized_funcs(scr);
-    scr->set_area = panel_set_area, scr->write_area = panel_write_area, scr->wait_buffer = panel_wait, scr->update_screen = quiet;
+    scr->set_area = panel_set_area, scr->write_area = panel_write_area, scr->wait = panel_wait, scr->update_screen = quiet;
     return p;
 }
 
@@ -218,8 +218,8 @@ static void test_opaque_pictures(void)
 
 /* a font of 4 bits a pixel, made here: glyphs inside their advances, so that one pass and two give the same pixels */
 static uint8_t       soft_bits[3][40];
-static glyph_t       soft_glyphs[3];
-static glyph_array_t soft_ranges[1];
+static dgx_glyph_t       soft_glyphs[3];
+static dgx_glyph_array_t soft_ranges[1];
 static dgx_font_t    soft_font;
 
 static void make_soft_font(void)
@@ -228,11 +228,11 @@ static void make_soft_font(void)
         const int w = 5 + k, h = 8, pitch = (w * 4 + 7) / 8;
         for (int y = 0; y < h; ++y)
             for (int x = 0; x < w; ++x) soft_bits[k][y * pitch + x / 2] |= (uint8_t)(((x * 7 + y * 5 + k * 3) % 16) << (x & 1 ? 0 : 4));
-        soft_glyphs[k] = (glyph_t){.bitmap = soft_bits[k], .width = (int16_t)w, .height = (int16_t)h, .xAdvance = 8, .xOffset = 0, .yOffset = -8};
+        soft_glyphs[k] = (dgx_glyph_t){.bitmap = soft_bits[k], .width = (int16_t)w, .height = (int16_t)h, .x_advance = 8, .x_offset = 0, .y_offset = -8};
     }
-    soft_ranges[0] = (glyph_array_t){.first = '0', .number = 3, .glyphs = soft_glyphs};
-    soft_font      = (dgx_font_t){.glyph_ranges = soft_ranges, .yAdvance = 10, .yOffsetLowest = -8, .yBottomMax = 2, .xWidest = 7,
-                                  .xWidthAverage = 7, .f_type = DGX_FONT_BITMAP_DEPTH4, .xRightMax = 7, .number_of_ranges = 1};
+    soft_ranges[0] = (dgx_glyph_array_t){.first = '0', .number = 3, .glyphs = soft_glyphs};
+    soft_font      = (dgx_font_t){.glyph_ranges = soft_ranges, .y_advance = 10, .y_offset_lowest = -8, .y_bottom_max = 2, .x_widest = 7,
+                                  .x_width_average = 7, .f_type = DGX_FONT_BITMAP_DEPTH4, .x_right_max = 7, .number_of_ranges = 1};
 }
 
 /* the rectangle of the upright text, from the start of its base line, as it lies on the screen when the text is turned */
@@ -257,7 +257,7 @@ static void test_fields(void)
     panel_t      *panel = panel_make(sizeof(((panel_t *)0)->buffer));
     for (int round = 0; round < 4000; ++round) {
         const bool        soft  = round % 2;
-        dgx_font_t       *font  = soft ? &soft_font : TerminusTTFMedium12();
+        const dgx_font_t       *font  = soft ? &soft_font : &TerminusTTFMedium12;
         const char       *text  = soft ? texts[rnd(0, 4)] : words[rnd(0, 4)];
         const int         scale = rnd(1, 3), field = rnd(1, 70);
         const dgx_output_orientation_t turn  = (dgx_output_orientation_t)rnd(0, 7);
@@ -271,12 +271,12 @@ static void test_fields(void)
         paint(a, 0x0f0f);
         CHECK(dgx_font_draw(&ctx, x, y, text) == field);
         int fx, fy, fw, fh;
-        turned_rect(turn, 0, font->yOffsetLowest * scale, field, (font->yBottomMax - font->yOffsetLowest) * scale, &fx, &fy, &fw, &fh);
+        turned_rect(turn, 0, font->y_offset_lowest * scale, field, (font->y_bottom_max - font->y_offset_lowest) * scale, &fx, &fy, &fw, &fh);
         fx += x, fy += y;
         int advance = 0;
         for (const char *c = text; *c; ++c) {
             int16_t step;
-            dgx_font_find_glyph((uint32_t)(unsigned char)*c, font, &step);
+            dgx_font_glyph(font, (uint32_t)(unsigned char)*c, &step);
             advance += step * scale;
         }
         const int room  = field - advance;
@@ -321,7 +321,7 @@ static void test_fields(void)
         }
     }
     /* a number drawn over a longer one in the same field: nothing of the longer one is left */
-    const dgx_font_context_t counter = {.scr = a, .font = TerminusTTFMedium12(), .color = 0xffff, .bg = 0x0010, .field = 60, .align = DGX_FONT_ALIGN_RIGHT};
+    const dgx_font_context_t counter = {.scr = a, .font = &TerminusTTFMedium12, .color = 0xffff, .bg = 0x0010, .field = 60, .align = DGX_FONT_ALIGN_RIGHT};
     dgx_font_context_t       fresh   = counter;
     fresh.scr                        = b;
     paint(a, 0), paint(b, 0);

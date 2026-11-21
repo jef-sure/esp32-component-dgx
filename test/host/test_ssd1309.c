@@ -184,17 +184,17 @@ static void scribble(dgx_screen_t *scr, int offset, int rounds)
             dgx_draw_line(scr, x, y, rnd(-5, scr->width + 4), rnd(-5, scr->height + 4), (uint32_t)rnd(0, 1));
             break;
         case 3:
-            dgx_solid_circle(scr, x, y, rnd(0, 20), (uint32_t)rnd(0, 1));
+            dgx_fill_circle(scr, x, y, rnd(0, 20), (uint32_t)rnd(0, 1));
             break;
         case 4:
-            dgx_font_string_utf8_screen(scr, (int16_t)x, (int16_t)y, "SSD1309", 1, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+            dgx_font_draw(&(dgx_font_context_t){.scr = scr, .font = &TerminusTTFMedium12, .color = 1, .scale = 1}, (int16_t)x, (int16_t)y, "SSD1309");
             break;
         default:
             /* a batch: one update for all of it */
-            dgx_screen_progress_up(scr);
+            dgx_screen_batch_begin(scr);
             dgx_draw_circle(scr, x, y, rnd(1, 25), 1);
             dgx_fill_rectangle(scr, x, y, 3, 3, 0);
-            dgx_screen_progress_down(scr);
+            dgx_screen_batch_end(scr);
             break;
         }
         const int wrong = mismatches(scr, offset);
@@ -219,7 +219,7 @@ static void turns(dgx_screen_t *scr, int pw, int ph, int offset)
         dgx_fill_rectangle(scr, 3, 5, 20, 9, 1);
         dgx_draw_line(scr, 0, 0, scr->width - 1, scr->height - 1, 1);
         const bool resized = (scr->width == pw) == swap;
-        dgx_ssd1309_orientation(scr, dir_x, dir_y, swap);
+        dgx_screen_orientation(scr, dir_x, dir_y, swap);
         CHECK(scr->width == (swap ? ph : pw) && scr->height == (swap ? pw : ph));
         CHECK(mismatches(scr, offset) == 0);
         int lit = 0;
@@ -242,11 +242,11 @@ static void turns(dgx_screen_t *scr, int pw, int ph, int offset)
         dgx_set_pixel(scr, scr->width / 2, scr->height / 2, 1);
         CHECK(data_bytes - before == 1 && mismatches(scr, offset) == 0);
     }
-    dgx_ssd1309_orientation(scr, DgxScreenLeftRight, DgxScreenTopBottom, false);
+    dgx_screen_orientation(scr, DgxScreenLeftRight, DgxScreenTopBottom, false);
     CHECK(scr->width == pw && scr->height == ph && mismatches(scr, offset) == 0);
 }
 
-static void run(ssd1309_resolution_t resolution, int width, int height)
+static void run(dgx_ssd1309_resolution_t resolution, int width, int height)
 {
     dgx_bus_protocols_t bus = {.bus_type = DGX_BUS_SPI, .write_command = bus_write_command, .write_commands = bus_write_commands, .write_data = bus_write_data, .memory_allocator = bus_memory};
     memset(gddram, 0x55, sizeof(gddram)); /* what the memory holds at power-up is not known */
@@ -254,7 +254,7 @@ static void run(ssd1309_resolution_t resolution, int width, int height)
     command_bytes = data_bytes = transfers = 0;
 
     const int given = bus_memory_given;
-    dgx_screen_t *scr = dgx_ssd1309_init(&bus, resolution, GPIO_NUM_NC);
+    dgx_screen_t *scr = dgx_ssd1309_init(&bus, GPIO_NUM_NC, resolution);
     CHECK(bus_memory_given == given + 1); /* the pages from the bus */
     CHECK(scr && scr->width == width && scr->height == height);
     if (!scr) return;
@@ -310,13 +310,13 @@ static void run(ssd1309_resolution_t resolution, int width, int height)
 
     turns(scr, width, height, 0);
     /* turned, on a glass wired from segment 2: the turned picture is sent again there, cut at the last segment */
-    dgx_ssd1309_orientation(scr, DgxScreenRightLeft, DgxScreenBottomTop, true);
-    dgx_font_string_utf8_screen(scr, 2, 30, "SSD", 1, DgxOutputNormal, 1, TerminusTTFMedium12(), NULL, NULL);
+    dgx_screen_orientation(scr, DgxScreenRightLeft, DgxScreenBottomTop, true);
+    dgx_font_draw(&(dgx_font_context_t){.scr = scr, .font = &TerminusTTFMedium12, .color = 1, .scale = 1}, 2, 30, "SSD");
     dgx_ssd1309_column_offset(scr, 2);
     CHECK(mismatches(scr, 2) == 0);
     scribble(scr, 2, 100);
     dgx_ssd1309_column_offset(scr, 0);
-    dgx_ssd1309_orientation(scr, DgxScreenLeftRight, DgxScreenTopBottom, false);
+    dgx_screen_orientation(scr, DgxScreenLeftRight, DgxScreenTopBottom, false);
     CHECK(mismatches(scr, 0) == 0);
 
     /* the contrast is two command bytes and no data */
@@ -338,7 +338,7 @@ static void run(ssd1309_resolution_t resolution, int width, int height)
 
 int main(void)
 {
-    run(SSD1309_128X64, 128, 64);
-    run(SSD1309_128X32, 128, 32);
+    run(DGX_SSD1309_128X64, 128, 64);
+    run(DGX_SSD1309_128X32, 128, 32);
     CHECK_DONE();
 }

@@ -1,5 +1,5 @@
 /*
- * dgx_solid_circle() with DGX_PEN_SOFT: on a virtual screen of a byte a pixel it covers what is under it
+ * dgx_fill_circle() with DGX_PEN_SOFT: on a virtual screen of a byte a pixel it covers what is under it
  * by the share of each pixel it covers; with DGX_PEN_MAX it is the dot of a soft pen of the width 2r + 1
  * byte for byte, drawn by rows; on other screens it is the hard circle; the pens take no notice of
  * DGX_PEN_MAX.
@@ -11,7 +11,7 @@
 
 #include "check.h"
 #include "dgx_draw.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 #define W 120
 #define H 100
@@ -67,7 +67,7 @@ static void test_dot(dgx_screen_t *a, dgx_screen_t *b)
             for (int kind = -2; kind <= -1; ++kind) {
                 for (size_t ii = 0; ii < sizeof inks / sizeof inks[0]; ++ii) {
                     paper(a, b, kind);
-                    dgx_solid_circle(a, cs[ci][0], cs[ci][1], DGX_PEN_SOFT | DGX_PEN_MAX | r, inks[ii]);
+                    dgx_fill_circle(a, cs[ci][0], cs[ci][1], DGX_PEN_SOFT | DGX_PEN_MAX | r, inks[ii]);
                     pen_dot(b, cs[ci][0], cs[ci][1], r, inks[ii]);
                     const int d = differ(a, b);
                     if (d) printf("r %d at %d,%d ink %u: %d pixels differ from the dot of the pen\n", r, cs[ci][0], cs[ci][1], (unsigned)inks[ii], d);
@@ -78,7 +78,7 @@ static void test_dot(dgx_screen_t *a, dgx_screen_t *b)
         /* the edge right through the screen: the centre far off, the radius large */
         if (r > H) {
             paper(a, b, -1);
-            dgx_solid_circle(a, W / 2, H / 2 + r - 20, DGX_PEN_SOFT | DGX_PEN_MAX | r, 200);
+            dgx_fill_circle(a, W / 2, H / 2 + r - 20, DGX_PEN_SOFT | DGX_PEN_MAX | r, 200);
             pen_dot(b, W / 2, H / 2 + r - 20, r, 200);
             CHECK(differ(a, b) == 0);
         }
@@ -102,7 +102,7 @@ static void test_large(dgx_screen_t *a)
             for (size_t ii = 0; ii < sizeof inks / sizeof inks[0]; ++ii) {
                 const int full = inks[ii];
                 memset(memory(a), 0, size_of(a));
-                dgx_solid_circle(a, cs[ci][0], cs[ci][1], DGX_PEN_SOFT | DGX_PEN_MAX | r, (uint32_t)full);
+                dgx_fill_circle(a, cs[ci][0], cs[ci][1], DGX_PEN_SOFT | DGX_PEN_MAX | r, (uint32_t)full);
                 int wrong = 0;
                 for (int y = 0; y < H; ++y) {
                     for (int x = 0; x < W; ++x) {
@@ -132,44 +132,44 @@ static void test_dirty(dgx_screen_t *a)
     for (size_t i = 0; i < sizeof c / sizeof c[0]; ++i) {
         const int x = c[i][0], y = c[i][1], r = c[i][2];
         int       left, top, width, height;
-        dgx_screen_progress_up(a);
-        dgx_solid_circle(a, x, y, DGX_PEN_SOFT | r, 255);
+        dgx_screen_batch_begin(a);
+        dgx_fill_circle(a, x, y, DGX_PEN_SOFT | r, 255);
         CHECK(dgx_screen_take_dirty(a, &left, &top, &width, &height));
-        dgx_screen_progress_down(a);
+        dgx_screen_batch_end(a);
         const int l = x - r < 0 ? 0 : x - r, t = y - r < 0 ? 0 : y - r;
         const int rr = x + r >= W ? W - 1 : x + r, bb = y + r >= H ? H - 1 : y + r;
         CHECK(left == l && top == t && width == rr - l + 1 && height == bb - t + 1);
     }
     /* wholly off the screen: nothing */
     int left, top, width, height;
-    dgx_screen_progress_up(a);
-    dgx_solid_circle(a, -20, 10, DGX_PEN_SOFT | 5, 255);
+    dgx_screen_batch_begin(a);
+    dgx_fill_circle(a, -20, 10, DGX_PEN_SOFT | 5, 255);
     CHECK(!dgx_screen_take_dirty(a, &left, &top, &width, &height));
-    dgx_screen_progress_down(a);
+    dgx_screen_batch_end(a);
 }
 
 /* the larger ink stays: a lighter circle leaves a darker paper as it is, and makes no pixel lighter */
 static void test_keep_larger(dgx_screen_t *a, dgx_screen_t *b)
 {
     paper(a, b, 200);
-    dgx_solid_circle(a, 60, 50, DGX_PEN_SOFT | DGX_PEN_MAX | 20, 100);
+    dgx_fill_circle(a, 60, 50, DGX_PEN_SOFT | DGX_PEN_MAX | 20, 100);
     CHECK(differ(a, b) == 0);
     paper(a, b, -1);
-    dgx_solid_circle(a, 60, 50, DGX_PEN_SOFT | DGX_PEN_MAX | 30, 120);
+    dgx_fill_circle(a, 60, 50, DGX_PEN_SOFT | DGX_PEN_MAX | 30, 120);
     int lighter = 0;
     for (size_t i = 0; i < size_of(a); ++i) lighter += memory(a)[i] < memory(b)[i];
     CHECK(lighter == 0);
     /* a dot of one pixel is the pixel */
     paper(a, b, 0);
-    dgx_solid_circle(a, 7, 9, DGX_PEN_SOFT | DGX_PEN_MAX | 0, 77);
+    dgx_fill_circle(a, 7, 9, DGX_PEN_SOFT | DGX_PEN_MAX | 0, 77);
     CHECK(memory(a)[9 * W + 7] == 77 && differ(a, b) == 1);
-    dgx_solid_circle(a, 17, 9, DGX_PEN_SOFT | 0, 77);
+    dgx_fill_circle(a, 17, 9, DGX_PEN_SOFT | 0, 77);
     CHECK(memory(a)[9 * W + 17] == 77 && differ(a, b) == 2);
     /* no radius, no circle, whatever bits it has */
     paper(a, b, 0);
-    dgx_solid_circle(a, 7, 9, -1, 77);
-    dgx_solid_circle(a, 7, 9, DGX_PEN_SOFT | DGX_PEN_MAX | -3, 77);
-    dgx_solid_circle(a, 7, 9, DGX_PEN_SOFT | -3, 77);
+    dgx_fill_circle(a, 7, 9, -1, 77);
+    dgx_fill_circle(a, 7, 9, DGX_PEN_SOFT | DGX_PEN_MAX | -3, 77);
+    dgx_fill_circle(a, 7, 9, DGX_PEN_SOFT | -3, 77);
     CHECK(differ(a, b) == 0);
 }
 
@@ -188,11 +188,11 @@ static void test_cover(dgx_screen_t *a, dgx_screen_t *b, dgx_screen_t *share)
         centres(r, cs, &n);
         for (int ci = 0; ci < n; ++ci) {
             memset(memory(share), 0, size_of(share));
-            dgx_solid_circle(share, cs[ci][0], cs[ci][1], DGX_PEN_SOFT | DGX_PEN_MAX | r, 255);
+            dgx_fill_circle(share, cs[ci][0], cs[ci][1], DGX_PEN_SOFT | DGX_PEN_MAX | r, 255);
             for (size_t ii = 0; ii < sizeof inks / sizeof inks[0]; ++ii) {
                 const int ink = (int)inks[ii];
                 paper(a, b, -1);
-                dgx_solid_circle(a, cs[ci][0], cs[ci][1], DGX_PEN_SOFT | r, (uint32_t)ink);
+                dgx_fill_circle(a, cs[ci][0], cs[ci][1], DGX_PEN_SOFT | r, (uint32_t)ink);
                 int wrong = 0;
                 for (size_t i = 0; i < size_of(a); ++i) {
                     const int s = memory(share)[i], was = memory(b)[i];
@@ -206,7 +206,7 @@ static void test_cover(dgx_screen_t *a, dgx_screen_t *b, dgx_screen_t *share)
     }
     /* inside it is the ink, darker or lighter than the paper */
     paper(a, b, 200);
-    dgx_solid_circle(a, 60, 50, DGX_PEN_SOFT | 20, 30);
+    dgx_fill_circle(a, 60, 50, DGX_PEN_SOFT | 20, 30);
     CHECK(memory(a)[50 * W + 60] == 30 && memory(a)[50 * W + 79] == 30 && memory(a)[50 * W + 82] == 200);
 }
 
@@ -217,20 +217,20 @@ static void test_hard_elsewhere(dgx_screen_t *a8, dgx_screen_t *b8, dgx_screen_t
     for (size_t i = 0; i < sizeof bits / sizeof bits[0]; ++i) {
         for (int r = 0; r < 40; r += 7) {
             paper(a16, b16, -1);
-            dgx_solid_circle(a16, 50, 40, bits[i] | r, 0xa5c3);
-            dgx_solid_circle(b16, 50, 40, r, 0xa5c3);
+            dgx_fill_circle(a16, 50, 40, bits[i] | r, 0xa5c3);
+            dgx_fill_circle(b16, 50, 40, r, 0xa5c3);
             CHECK(differ(a16, b16) == 0);
         }
     }
     /* on a screen of bytes the bits that are not DGX_PEN_SOFT change nothing of a hard circle */
     paper(a8, b8, -1);
-    dgx_solid_circle(a8, 50, 40, DGX_PEN_MAX | DGX_PEN_START_DISC | 17, 99);
-    dgx_solid_circle(b8, 50, 40, 17, 99);
+    dgx_fill_circle(a8, 50, 40, DGX_PEN_MAX | DGX_PEN_START_DISC | 17, 99);
+    dgx_fill_circle(b8, 50, 40, 17, 99);
     CHECK(differ(a8, b8) == 0);
     /* larger than the widest pen */
     paper(a8, b8, -1);
-    dgx_solid_circle(a8, W / 2, H / 2 + 16384 - 20, DGX_PEN_SOFT | DGX_PEN_MAX | 16384, 99);
-    dgx_solid_circle(b8, W / 2, H / 2 + 16384 - 20, 16384, 99);
+    dgx_fill_circle(a8, W / 2, H / 2 + 16384 - 20, DGX_PEN_SOFT | DGX_PEN_MAX | 16384, 99);
+    dgx_fill_circle(b8, W / 2, H / 2 + 16384 - 20, 16384, 99);
     CHECK(differ(a8, b8) == 0);
 }
 

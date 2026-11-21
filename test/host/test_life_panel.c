@@ -20,7 +20,7 @@
 #include "dgx_morph_render.h"
 #include "dgx_screen_functions.h"
 #include "dgx_screen_with_bus.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 #define DW 480
 #define DH 272
@@ -71,7 +71,7 @@ typedef dgx_bit_matrix_t *(*seed_func_t)(void);
 
 static dgx_bit_matrix_t *seed_from_cells(int width, int height, const int8_t cells[][2], size_t count)
 {
-    dgx_bit_matrix_t *life = dgx_matrix_init((uint16_t)width, (uint16_t)height);
+    dgx_bit_matrix_t *life = dgx_matrix_create((uint16_t)width, (uint16_t)height);
     if (!life) return NULL;
     for (size_t i = 0; i < count; ++i) {
         dgx_matrix_set_point(life, cells[i][0], cells[i][1], true);
@@ -121,7 +121,7 @@ static dgx_bit_matrix_t *seed_pulsar(void)
     };
     const int side = 15;
     const int center = side / 2;
-    dgx_bit_matrix_t *life = dgx_matrix_init(side, side);
+    dgx_bit_matrix_t *life = dgx_matrix_create(side, side);
     if (!life) return NULL;
     for (int arm = 0; arm < 2; ++arm) {
         for (int i = 0; i < 3; ++i) {
@@ -161,7 +161,7 @@ static const struct {
 #define PATTERN_COUNT (sizeof(patterns) / sizeof(patterns[0]))
 static dgx_bit_matrix_t *next_generation(const dgx_bit_matrix_t *now)
 {
-    dgx_bit_matrix_t *next = dgx_matrix_init(now->width, now->height);
+    dgx_bit_matrix_t *next = dgx_matrix_create(now->width, now->height);
     if (!next) return NULL;
     for (int y = 0; y < now->height; ++y) {
         for (int x = 0; x < now->width; ++x) {

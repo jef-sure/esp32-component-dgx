@@ -5,10 +5,10 @@
 extern "C" {
 // @formatter:on
 #endif
-dgx_font_t* CasusDotView();
+extern const dgx_font_t CasusDotView;
+#define CasusDotView() DGX_FONT_CALLED(CasusDotView)
 #ifdef __cplusplus
 // @formatter:off
 }
 // @formatter:on
 #endif
-

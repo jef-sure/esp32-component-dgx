@@ -6,7 +6,7 @@
 #include "dgx_bw_screen.h"
 #include "dgx_draw.h"
 #include "dgx_screen_functions.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 /*
  * What a rectangle shows is moved within it: every pixel of the screen is
@@ -57,10 +57,10 @@ static void scrolls(dgx_screen_t *scr, const char *name)
         const bool keep = n % 4 == 3;
         /* a whole picture and a batch around it: one piece is shown, and it has all that has changed */
         int left, top, width, height;
-        dgx_screen_progress_up(scr);
+        dgx_screen_batch_begin(scr);
         CHECK((keep ? dgx_scroll_no_fill(scr, x, y, w, h, dx, dy) : dgx_scroll(scr, x, y, w, h, dx, dy, color)) == ESP_OK);
         const bool dirty = dgx_screen_take_dirty(scr, &left, &top, &width, &height);
-        dgx_screen_progress_down(scr);
+        dgx_screen_batch_end(scr);
         /* the rectangle as the screen has it */
         int x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y, x1 = x + w - 1, y1 = y + h - 1;
         if (x1 >= W) x1 = W - 1;

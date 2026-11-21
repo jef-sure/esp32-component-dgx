@@ -15,8 +15,8 @@ static bool count_cell(void *user_data, int x, int y)
 
 static void test_basics(void)
 {
-    CHECK(dgx_matrix_init(0, 3) == NULL);
-    dgx_bit_matrix_t *m = dgx_matrix_init(13, 5);
+    CHECK(dgx_matrix_create(0, 3) == NULL);
+    dgx_bit_matrix_t *m = dgx_matrix_create(13, 5);
     CHECK(m && m->number_of_set_cells == 0);
     CHECK(dgx_matrix_set_point(m, 12, 4, true));
     CHECK(dgx_matrix_set_point(m, 0, 0, true));
@@ -36,7 +36,7 @@ static void test_basics(void)
 
 static void test_helpers(void)
 {
-    dgx_bit_matrix_t *a = dgx_matrix_init(9, 3);
+    dgx_bit_matrix_t *a = dgx_matrix_create(9, 3);
     dgx_matrix_set_point(a, 8, 2, true);
     dgx_matrix_set_point(a, 4, 1, true);
 
@@ -48,7 +48,7 @@ static void test_helpers(void)
     CHECK(!dgx_matrix_equals(a, b));
     CHECK(dgx_matrix_copy(b, a) && dgx_matrix_equals(a, b));
 
-    dgx_bit_matrix_t *other = dgx_matrix_init(3, 9);
+    dgx_bit_matrix_t *other = dgx_matrix_create(3, 9);
     CHECK(!dgx_matrix_copy(other, a));
     CHECK(!dgx_matrix_equals(other, a));
     CHECK(other->number_of_set_cells == 0);
@@ -84,13 +84,17 @@ static void test_from_bw_bitmap(void)
     CHECK(dgx_matrix_from_bw_bitmap(NULL) == NULL);
 }
 
-/* the name a matrix is made by now, beside the one of before, which the tests above use */
+/* the name a matrix is made by now, and the one of before, deprecated until DGX 1.0, which makes the same */
 static void test_names(void)
 {
     dgx_bit_matrix_t *m = dgx_matrix_create(5, 3);
     CHECK(m && m->width == 5 && m->height == 3 && m->number_of_set_cells == 0);
+    DGX_DEPRECATED_USE_BEGIN
     dgx_bit_matrix_t *(*make)(uint16_t, uint16_t) = dgx_matrix_init;
-    CHECK(make == dgx_matrix_create);
+    DGX_DEPRECATED_USE_END
+    dgx_bit_matrix_t *old = make(5, 3);
+    CHECK(old && old->width == 5 && old->height == 3 && old->number_of_set_cells == 0);
+    dgx_matrix_destroy(&old);
     dgx_matrix_destroy(&m);
     CHECK(m == NULL);
 }

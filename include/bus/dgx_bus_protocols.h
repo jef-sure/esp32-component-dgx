@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "dgx_arch.h"
+#include "dgx_deprecated.h"
 
 #ifdef __cplusplus
 // @formatter:off
@@ -213,7 +214,10 @@ typedef struct _dgx_bus_protocols_t {
     dgx_bus_write_data_async_func write_data_async;
     dgx_bus_sync_write_func sync_write;
     dgx_bus_malloc_func memory_allocator;
-    dgx_bus_dispose_bus_func dispose;
+    union {
+        dgx_bus_dispose_bus_func dispose_bus; /*!< called by dgx_bus_dispose() */
+        dgx_bus_dispose_bus_func dispose DGX_DEPRECATED("use dgx_bus_dispose(&bus)");
+    };
     size_t buffer_len;
     uint8_t *buffer;
     dgx_bus_write_rows_func write_rows; /*!< NULL for a bus that has only its window */
@@ -249,14 +253,13 @@ typedef struct _dgx_bus_protocols_t {
 /**
  * @brief Give up a bus made by dgx_spi_init(), dgx_i2c_init() and the like, once its screens are destroyed.
  *
- * The same as `bus->dispose(bus)`, with the pointer cleared as
- * dgx_screen_destroy() clears that of a screen.
+ * The pointer is cleared as dgx_screen_destroy() clears that of a screen.
  *
  * @param pbus In/out pointer to the bus pointer; set to NULL on return. A pointer to NULL is valid.
  */
 static inline void dgx_bus_dispose(dgx_bus_protocols_t **pbus)
 {
-    if (*pbus && (*pbus)->dispose) (*pbus)->dispose(*pbus);
+    if (*pbus && (*pbus)->dispose_bus) (*pbus)->dispose_bus(*pbus);
     *pbus = NULL;
 }
 

@@ -26,7 +26,7 @@ static void collect(void *user_data, const dgx_point_2d_t *p, uint8_t intensity)
 
 static dgx_bit_matrix_t *row(const char *cells)
 {
-    dgx_bit_matrix_t *m = dgx_matrix_init((uint16_t)strlen(cells), 1);
+    dgx_bit_matrix_t *m = dgx_matrix_create((uint16_t)strlen(cells), 1);
     for (int i = 0; cells[i]; ++i) dgx_matrix_set_point(m, i, 0, cells[i] == '#');
     return m;
 }
@@ -116,7 +116,7 @@ static void test_draw(void)
 
 static void test_int16_guard(void)
 {
-    dgx_bit_matrix_t *wide = dgx_matrix_init(INT16_MAX + 1, 1);
+    dgx_bit_matrix_t *wide = dgx_matrix_create(INT16_MAX + 1, 1);
     CHECK(wide != NULL);
     CHECK(dgx_morph_create(wide, NULL, NULL, NULL) == NULL);
     dgx_matrix_destroy(&wide);
@@ -124,7 +124,7 @@ static void test_int16_guard(void)
 
 static dgx_bit_matrix_t *grid(int w, int h, const int (*cells)[2], int n)
 {
-    dgx_bit_matrix_t *m = dgx_matrix_init((uint16_t)w, (uint16_t)h);
+    dgx_bit_matrix_t *m = dgx_matrix_create((uint16_t)w, (uint16_t)h);
     for (int i = 0; i < n; ++i) dgx_matrix_set_point(m, cells[i][0], cells[i][1], true);
     return m;
 }
@@ -193,7 +193,7 @@ static int flights_from(const dgx_morph_t *m, int x, int y, int *to_x)
  */
 static void test_cells_by_radius(void)
 {
-    dgx_bit_matrix_t *from = dgx_matrix_init(12, 1), *to = dgx_matrix_init(12, 1);
+    dgx_bit_matrix_t *from = dgx_matrix_create(12, 1), *to = dgx_matrix_create(12, 1);
     dgx_matrix_set_point(from, 5, 0, true);
     dgx_matrix_set_point(to, 1, 0, true); /* four cells from the source, first in the scan */
     dgx_matrix_set_point(to, 8, 0, true); /* three cells from it */
@@ -218,7 +218,7 @@ static void test_cells_by_radius(void)
     dgx_matrix_destroy(&to);
 
     /* a source farther than eight rings is still found: a grid 40 cells across */
-    from = dgx_matrix_init(40, 3), to = dgx_matrix_init(40, 3);
+    from = dgx_matrix_create(40, 3), to = dgx_matrix_create(40, 3);
     dgx_matrix_set_point(from, 0, 1, true);
     dgx_matrix_set_point(to, 39, 1, true);
     m = dgx_morph_create(from, to, dgx_morph_sources_cells, NULL);
@@ -328,7 +328,7 @@ static void test_cells_by_vector(void)
         int move_x, move_y; /* how it is moved */
     } lines[] = {{1, 0, 0, 2}, {1, 0, 0, -3}, {0, 1, 3, 0}, {0, 1, -2, 0}, {1, 1, 4, -4}, {1, -1, 2, 2}};
     for (unsigned k = 0; k < sizeof(lines) / sizeof(lines[0]); ++k) {
-        dgx_bit_matrix_t *from = dgx_matrix_init(28, 28), *to = dgx_matrix_init(28, 28);
+        dgx_bit_matrix_t *from = dgx_matrix_create(28, 28), *to = dgx_matrix_create(28, 28);
         for (int i = 0; i < 9; ++i) {
             int x = 10 + i * lines[k].step_x, y = 14 + i * lines[k].step_y;
             dgx_matrix_set_point(from, x, y, true);
@@ -351,7 +351,7 @@ static void test_cells_by_vector(void)
     unsigned seed = 7;
     for (int round = 0; round < 60; ++round) {
         int               w = round % 3 == 0 ? 37 : 9 + round % 7, h = 5 + round % 6;
-        dgx_bit_matrix_t *a = dgx_matrix_init((uint16_t)w, (uint16_t)h), *b = dgx_matrix_init((uint16_t)w, (uint16_t)h);
+        dgx_bit_matrix_t *a = dgx_matrix_create((uint16_t)w, (uint16_t)h), *b = dgx_matrix_create((uint16_t)w, (uint16_t)h);
         for (int y = 0; y < h; ++y) {
             for (int x = 0; x < w; ++x) {
                 seed = seed * 1103515245u + 12345u;
@@ -365,7 +365,7 @@ static void test_cells_by_vector(void)
         dgx_matrix_destroy(&b);
     }
     /* and on glyphs */
-    dgx_font_t *font = TerminusTTFMedium12();
+    const dgx_font_t *font = &TerminusTTFMedium12;
     static const uint32_t pairs[][2] = {{'1', '8'}, {'A', 'W'}, {'.', 'M'}, {'i', ' '}, {' ', '%'}, {0x416, 0x449}};
     for (unsigned k = 0; k < sizeof(pairs) / sizeof(pairs[0]); ++k) {
         dgx_bit_matrix_t *a = dgx_morph_glyph_matrix(font, pairs[k][0]), *b = dgx_morph_glyph_matrix(font, pairs[k][1]);
@@ -422,7 +422,7 @@ static int off_grid_probe(const dgx_morph_ctx_t *ctx, int x, int y, int pass, dg
 
 static void test_ring_off_grid(void)
 {
-    dgx_bit_matrix_t *from = dgx_matrix_init(11, 11), *to = dgx_matrix_init(11, 11);
+    dgx_bit_matrix_t *from = dgx_matrix_create(11, 11), *to = dgx_matrix_create(11, 11);
     dgx_matrix_set_point(to, 5, 5, true);
     dgx_matrix_set_point(from, 6, 5, true);
     dgx_morph_t *m = dgx_morph_create(from, to, off_grid_probe, NULL);
@@ -434,7 +434,7 @@ static void test_ring_off_grid(void)
 
 static void test_ring_at(void)
 {
-    dgx_bit_matrix_t *from = dgx_matrix_init(11, 11), *to = dgx_matrix_init(11, 11);
+    dgx_bit_matrix_t *from = dgx_matrix_create(11, 11), *to = dgx_matrix_create(11, 11);
     dgx_matrix_set_point(to, 5, 5, true);
     dgx_matrix_set_point(from, 6, 5, true); /* radius 1 */
     dgx_matrix_set_point(from, 8, 8, true); /* radius 3, a corner */
@@ -478,8 +478,8 @@ static void test_edge_cases(void)
     dgx_matrix_destroy(&b);
 
     /* different sizes: the morph grid is their union */
-    a = dgx_matrix_init(3, 3);
-    b = dgx_matrix_init(5, 2);
+    a = dgx_matrix_create(3, 3);
+    b = dgx_matrix_create(5, 2);
     m = dgx_morph_create(a, b, NULL, NULL);
     CHECK(m && m->width == 5 && m->height == 3);
     dgx_morph_destroy(&m);
@@ -487,8 +487,8 @@ static void test_edge_cases(void)
     dgx_matrix_destroy(&b);
 
     /* dense checkerboard: more flights than new cells */
-    a = dgx_matrix_init(16, 16);
-    b = dgx_matrix_init(16, 16);
+    a = dgx_matrix_create(16, 16);
+    b = dgx_matrix_create(16, 16);
     size_t n_new = 0;
     for (int y = 0; y < 16; ++y) {
         for (int x = 0; x < 16; ++x) {
@@ -524,13 +524,13 @@ static void test_trail_end(void)
 
 static void test_glyphs(void)
 {
-    dgx_font_t *font = CasusDotView();
+    const dgx_font_t *font = &CasusDotView;
     dgx_bit_matrix_t *a = dgx_morph_glyph_matrix(font, '0');
     dgx_bit_matrix_t *b = dgx_morph_glyph_matrix(font, '1');
     CHECK(a && b && a->width == b->width && a->height == b->height);
-    CHECK(a->height == font->yBottomMax - font->yOffsetLowest);
+    CHECK(a->height == font->y_bottom_max - font->y_offset_lowest);
 
-    for (const glyph_array_t *r = font->glyph_ranges; r && r->number; ++r) {
+    for (const dgx_glyph_array_t *r = font->glyph_ranges; r && r->number; ++r) {
         for (int i = 0; i < r->number; ++i) {
             dgx_bit_matrix_t *g = dgx_morph_glyph_matrix(font, r->first + (uint32_t)i);
             CHECK(g && g->number_of_set_cells == r->glyphs[i].number_of_dots);
@@ -562,14 +562,14 @@ static void test_timing(void)
 
 static void test_text(void)
 {
-    dgx_font_t *font = TerminusTTFMedium12();
-    CHECK(dgx_morph_text_length("привет") == 6);
-    CHECK(dgx_morph_text_length("") == 0 && dgx_morph_text_length(NULL) == 0);
+    const dgx_font_t *font = &TerminusTTFMedium12;
+    CHECK(dgx_utf8_length("привет") == 6);
+    CHECK(dgx_utf8_length("") == 0 && dgx_utf8_length(NULL) == 0);
 
     dgx_morph_text_t *t = dgx_morph_text_create(font, "кот", "кит", 0, dgx_morph_sources_cells, NULL);
     CHECK(t && t->length == 3 && t->changed == 2);
-    CHECK(t->width == font->xRightMax - font->xOffsetLowest);
-    CHECK(t->height == font->yBottomMax - font->yOffsetLowest);
+    CHECK(t->width == font->x_right_max - font->x_offset_lowest);
+    CHECK(t->height == font->y_bottom_max - font->y_offset_lowest);
     CHECK(dgx_morph_text_duration_us(t, 500, 250) == 250 + 500);
     for (size_t i = 0; t && i < t->length; ++i) CHECK(t->letters[i] != NULL);
     CHECK(t->letters[0]->number_of_segments == 0 && t->letters[0]->number_of_fading_points == 0);
@@ -594,7 +594,7 @@ static void test_text(void)
 /* a matrix from rows of text, '#' a set cell */
 static dgx_bit_matrix_t *picture(const char *const *rows, int height)
 {
-    dgx_bit_matrix_t *m = dgx_matrix_init((uint16_t)strlen(rows[0]), (uint16_t)height);
+    dgx_bit_matrix_t *m = dgx_matrix_create((uint16_t)strlen(rows[0]), (uint16_t)height);
     for (int y = 0; y < height; ++y) {
         for (int x = 0; rows[y][x]; ++x) dgx_matrix_set_point(m, x, y, rows[y][x] == '#');
     }
@@ -734,12 +734,12 @@ static void check_plans_equal(const dgx_morph_t *a, const dgx_morph_t *b)
 /* by default, and with the fade option, the plan is what it was */
 static void test_merge_default_unchanged(void)
 {
-    static const struct { dgx_font_t *(*font)(void); uint32_t a, b; } pairs[] = {
-        { WeatherIconsRegular13, 0xf002, 0xf008 }, { WeatherIconsRegular13, 0xf00d, 0xf02e }, { WeatherIconsRegular13, 0xf0c8, 0xf021 },
-        { CasusDotView, '0', '1' }, { CasusDotView, '8', '3' }, { CasusDotView, 'E', 'F' },
+    static const struct { const dgx_font_t *font; uint32_t a, b; } pairs[] = {
+        { &WeatherIconsRegular13, 0xf002, 0xf008 }, { &WeatherIconsRegular13, 0xf00d, 0xf02e }, { &WeatherIconsRegular13, 0xf0c8, 0xf021 },
+        { &CasusDotView, '0', '1' }, { &CasusDotView, '8', '3' }, { &CasusDotView, 'E', 'F' },
     };
     for (unsigned k = 0; k < sizeof(pairs) / sizeof(pairs[0]); ++k) {
-        dgx_font_t *font = pairs[k].font();
+        const dgx_font_t *font = pairs[k].font;
         dgx_bit_matrix_t *a = dgx_morph_glyph_matrix(font, pairs[k].a), *b = dgx_morph_glyph_matrix(font, pairs[k].b);
         CHECK(a && b);
         dgx_morph_t *plain = dgx_morph_create(a, b, dgx_morph_sources_cells, NULL);
@@ -754,7 +754,7 @@ static void test_merge_default_unchanged(void)
 }
 
 /* on every pair of symbols: merging takes exactly the orphans, the rest of the plan stays, every flight ends in `to` */
-static void check_merge_invariant(dgx_font_t *font, const uint32_t *codes, int n)
+static void check_merge_invariant(const dgx_font_t *font, const uint32_t *codes, int n)
 {
     dgx_morph_options_t within = { DGX_MORPH_ORPHANS_MERGE, 4 };
     long orphans = 0, merged = 0, merged_within = 0;
@@ -805,17 +805,17 @@ static void check_merge_invariant(dgx_font_t *font, const uint32_t *codes, int n
 static void test_merge_invariant(void)
 {
     /* every weather symbol into every other */
-    dgx_font_t *font = WeatherIconsRegular13();
+    const dgx_font_t *font = &WeatherIconsRegular13;
     uint32_t codes[40];
     int n = 0;
-    for (const glyph_array_t *r = font->glyph_ranges; r && r->number; ++r) {
+    for (const dgx_glyph_array_t *r = font->glyph_ranges; r && r->number; ++r) {
         for (int i = 0; i < r->number && n < 40; ++i) codes[n++] = r->first + (uint32_t)i;
     }
     CHECK(n == 27);
     check_merge_invariant(font, codes, n);
 
     /* the digits, the Latin capitals and the Russian capitals of a bitmap font, each set into itself */
-    font = TerminusTTFMedium12();
+    font = &TerminusTTFMedium12;
     for (n = 0; n < 10; ++n) codes[n] = (uint32_t)('0' + n);
     check_merge_invariant(font, codes, 10);
     for (n = 0; n < 26; ++n) codes[n] = (uint32_t)('A' + n);
@@ -824,13 +824,13 @@ static void test_merge_invariant(void)
     check_merge_invariant(font, codes, 32);
     /* and the digits of a dot font */
     for (n = 0; n < 10; ++n) codes[n] = (uint32_t)('0' + n);
-    check_merge_invariant(CasusDotView(), codes, 10);
+    check_merge_invariant(&CasusDotView, codes, 10);
 }
 
 /* the letters the demo starts with: the bar of a bitmap E sweeps whole into the foot of the stem of the F */
 static void test_merge_letters(void)
 {
-    dgx_font_t *font = TerminusTTFMedium12();
+    const dgx_font_t *font = &TerminusTTFMedium12;
     dgx_bit_matrix_t *e = dgx_morph_glyph_matrix(font, 'E'), *f = dgx_morph_glyph_matrix(font, 'F');
     dgx_morph_t *m = dgx_morph_create_with(e, f, dgx_morph_sources_cells, NULL, &merge_all);
     CHECK(m && e && f && m->number_of_segments == 0 && m->number_of_fading_points == 0 && m->number_of_merging > 0);
@@ -879,7 +879,7 @@ static void test_merge_letters(void)
  */
 static void test_dots_over_letter(void)
 {
-    dgx_font_t *font = TerminusTTFMedium12();
+    const dgx_font_t *font = &TerminusTTFMedium12;
     static const uint32_t pairs[][2] = { { 'u', 0xfc }, { 'a', 0xe4 }, { 'o', 0xf6 }, { 'U', 0xdc }, { 0x435, 0x451 } }; /* the last is е -> ё */
     for (unsigned k = 0; k < sizeof(pairs) / sizeof(pairs[0]); ++k) {
         dgx_bit_matrix_t *a = dgx_morph_glyph_matrix(font, pairs[k][0]), *b = dgx_morph_glyph_matrix(font, pairs[k][1]);
@@ -977,7 +977,7 @@ static void test_merge_to_empty(void)
         CHECK(m->segments[i].end.x == 2 && m->segments[i].start_intensity == 255 && m->segments[i].end_intensity == 0);
     }
     dgx_morph_destroy(&m);
-    dgx_bit_matrix_t *empty = dgx_matrix_init(5, 1);
+    dgx_bit_matrix_t *empty = dgx_matrix_create(5, 1);
     m = dgx_morph_create_with(from, empty, dgx_morph_sources_cells, NULL, &merge_all);
     CHECK(m && m->number_of_segments == 3 && m->number_of_merging == 0);
     dgx_morph_destroy(&m);
@@ -1019,13 +1019,13 @@ static void symbol_dot(void *user_data, const dgx_point_2d_t *p, uint8_t intensi
 }
 
 /* whether the dots emitted are the middles of the dots of a glyph at (x, y), each once */
-static bool symbol_is_glyph(const symbol_dots_t *d, dgx_font_t *font, uint32_t cp, int x, int y, int scale)
+static bool symbol_is_glyph(const symbol_dots_t *d, const dgx_font_t *font, uint32_t cp, int x, int y, int scale)
 {
     int16_t        advance;
-    const glyph_t *g = dgx_font_find_glyph(cp, font, &advance);
+    const dgx_glyph_t *g = dgx_font_glyph(font, cp, &advance);
     if (!g || d->count != (int)g->number_of_dots) return false;
     for (size_t i = 0; i < g->number_of_dots; ++i) {
-        int px = x + (g->xOffset + g->dots[i].x) * scale + scale / 2, py = y + (g->yOffset + g->dots[i].y) * scale + scale / 2;
+        int px = x + (g->x_offset + g->dots[i].x) * scale + scale / 2, py = y + (g->y_offset + g->dots[i].y) * scale + scale / 2;
         int found = 0;
         for (int k = 0; k < d->count; ++k) found += d->x[k] == px && d->y[k] == py;
         if (found != 1) return false;
@@ -1036,8 +1036,8 @@ static bool symbol_is_glyph(const symbol_dots_t *d, dgx_font_t *font, uint32_t c
 /* a morph by the order of the dots: the dots "0" has more than "2" end in the last dot of "2" as one dot */
 static void test_symbol_draw(void)
 {
-    dgx_font_t              *font = CasusDotView();
-    dgx_font_symbol_morph_t *m = dgx_font_make_morph_struct(font, '0', '2', 10, 50, 10, 50, 3);
+    const dgx_font_t              *font = &CasusDotView;
+    dgx_font_symbol_morph_t *m = dgx_font_morph_create(font, '0', '2', 10, 50, 10, 50, 3);
     CHECK(m && m->scale == 3 && m->number_of_dots == 27);
     symbol_dots_t d = { 0 };
     dgx_morph_symbol_draw(m, 1.0f, symbol_dot, &d);
@@ -1045,17 +1045,17 @@ static void test_symbol_draw(void)
     d = (symbol_dots_t){ 0 };
     dgx_morph_symbol_draw(m, 0.0f, symbol_dot, &d);
     CHECK(symbol_is_glyph(&d, font, '0', 10, 50, 3));
-    dgx_font_make_morph_struct_destroy(&m);
+    dgx_font_morph_destroy(&m);
 
     /* and the other way: they come out of it */
-    m = dgx_font_make_morph_struct(font, '2', '0', 10, 50, 10, 50, 3);
+    m = dgx_font_morph_create(font, '2', '0', 10, 50, 10, 50, 3);
     d = (symbol_dots_t){ 0 };
     dgx_morph_symbol_draw(m, 0.0f, symbol_dot, &d);
     CHECK(symbol_is_glyph(&d, font, '2', 10, 50, 3));
-    dgx_font_make_morph_struct_destroy(&m);
+    dgx_font_morph_destroy(&m);
 
     /* out of nothing: nothing at the start, half lit from the middle half way */
-    m = dgx_font_make_morph_struct(font, ' ', '2', 10, 50, 10, 50, 3);
+    m = dgx_font_morph_create(font, ' ', '2', 10, 50, 10, 50, 3);
     CHECK(m && m->is_from_empty && !m->is_to_empty);
     d = (symbol_dots_t){ 0 };
     dgx_morph_symbol_draw(m, 0.0f, symbol_dot, &d);
@@ -1065,23 +1065,23 @@ static void test_symbol_draw(void)
     d = (symbol_dots_t){ 0 };
     dgx_morph_symbol_draw(m, 1.0f, symbol_dot, &d);
     CHECK(symbol_is_glyph(&d, font, '2', 10, 50, 3));
-    dgx_font_make_morph_struct_destroy(&m);
+    dgx_font_morph_destroy(&m);
 
     /* into nothing: gone at the end */
-    m = dgx_font_make_morph_struct(font, '2', ' ', 10, 50, 10, 50, 3);
+    m = dgx_font_morph_create(font, '2', ' ', 10, 50, 10, 50, 3);
     d = (symbol_dots_t){ 0 };
     dgx_morph_symbol_draw(m, 1.0f, symbol_dot, &d);
     CHECK(d.count == 0);
-    dgx_font_make_morph_struct_destroy(&m);
+    dgx_font_morph_destroy(&m);
 
     /* nothing to draw and nothing to draw with */
     dgx_morph_symbol_draw(NULL, 0.5f, symbol_dot, &d);
-    m = dgx_font_make_morph_struct(font, ' ', ' ', 0, 0, 0, 0, 1);
+    m = dgx_font_morph_create(font, ' ', ' ', 0, 0, 0, 0, 1);
     d = (symbol_dots_t){ 0 };
     dgx_morph_symbol_draw(m, 0.5f, symbol_dot, &d);
     dgx_morph_symbol_draw(m, 0.5f, NULL, NULL);
     CHECK(d.count == 0);
-    dgx_font_make_morph_struct_destroy(&m);
+    dgx_font_morph_destroy(&m);
 }
 
 /* a bitmap glyph larger than the 8 bits a dot of a dot font has: its dots keep their places */
@@ -1090,17 +1090,17 @@ static void test_symbol_large(void)
     enum { SIDE = 150, PITCH = (SIDE + 7) / 8 };
     static uint8_t diagonal[SIDE * PITCH];
     for (int i = 0; i < SIDE; ++i) diagonal[i * PITCH + i / 8] |= (uint8_t)(0x80u >> (i % 8));
-    const glyph_t            glyph[] = { { { .bitmap = diagonal }, SIDE, SIDE, SIDE + 2, 1, 1 - SIDE } };
-    const glyph_array_t      ranges[] = { { '\\', 1, glyph }, { 0, 0, 0 } };
-    dgx_font_t               font = { .glyph_ranges = ranges, .yAdvance = SIDE + 4, .f_type = DGX_FONT_BITMAP_LINES };
-    dgx_font_symbol_morph_t *m = dgx_font_make_morph_struct(&font, '\\', '\\', 20, 400, 30, 410, 2);
+    const dgx_glyph_t            glyph[] = { { { .bitmap = diagonal }, SIDE, SIDE, SIDE + 2, 1, 1 - SIDE } };
+    const dgx_glyph_array_t      ranges[] = { { '\\', 1, glyph }, { 0, 0, 0 } };
+    dgx_font_t               font = { .glyph_ranges = ranges, .y_advance = SIDE + 4, .f_type = DGX_FONT_BITMAP_LINES };
+    dgx_font_symbol_morph_t *m = dgx_font_morph_create(&font, '\\', '\\', 20, 400, 30, 410, 2);
     bool                     placed = m && m->number_of_dots == SIDE;
     for (int i = 0; placed && i < SIDE; ++i) {
         placed = m->m_start[i].x == 20 + (1 + i) * 2 && m->m_start[i].y == 400 + (1 - SIDE + i) * 2 &&
                  m->m_end[i].x == 30 + (1 + i) * 2 && m->m_end[i].y == 410 + (1 - SIDE + i) * 2;
     }
     CHECK(placed);
-    dgx_font_make_morph_struct_destroy(&m);
+    dgx_font_morph_destroy(&m);
 }
 
 int main(void)
@@ -1142,6 +1142,6 @@ int main(void)
         if (e != DGX_MORPH_LINEAR) CHECK(dgx_morph_ease((dgx_morph_easing_t)e, 0.25f) < 0.25f);
     }
     /* a text counted by the name of before */
-    CHECK(dgx_morph_text_length("12:\xC3\xA4") == 4 && dgx_morph_text_length(NULL) == 0);
+    CHECK(dgx_utf8_length("12:\xC3\xA4") == 4 && dgx_utf8_length(NULL) == 0);
     CHECK_DONE();
 }

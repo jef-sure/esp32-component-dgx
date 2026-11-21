@@ -39,7 +39,7 @@
 загрузить в текущий редактор и сохранить заново.
 
 На выходе пара файлов `.c` и `.h`, названных по полю `name` (из `font0-ss`
-получается `font0ss.c` и функция `font0ss()`), как у остальных шрифтов DGX.
+получается `font0ss.c` и константа `font0ss`), как у остальных шрифтов DGX.
 Файл `.c` кладут в `src/fonts/`, файл `.h` — в `include/fonts/`. Сам `font0-ss`
 уже лежит там и подключается как `fonts/font0ss.h`.
 
@@ -145,7 +145,7 @@ font0ss: 8 symbols with parts of their own closer than 16 cells:
 ## Таблицы
 
 Рукописный шрифт — обычный `dgx_font_t` с типом `DGX_FONT_HW`. Символ ищется
-так же, как глиф любого шрифта, через `dgx_font_find_glyph()`. Всё, чего нет
+так же, как глиф любого шрифта, через `dgx_font_glyph()`. Всё, чего нет
 в общем глифе, лежит в записях из `dgx_hw_font.h`; они повторяют файл: те же
 данные под теми же именами, в клетках сетки.
 
@@ -175,9 +175,9 @@ font0ss: 8 symbols with parts of their own closer than 16 cells:
 | --- | --- |
 | `width` | `width` |
 | `height` | `bottom − top + 1` |
-| `xAdvance` | `advance` |
-| `xOffset` | `spaceBefore + left − lineLeft` |
-| `yOffset` | `top` |
+| `x_advance` | `advance` |
+| `x_offset` | `spaceBefore + left − lineLeft` |
+| `y_offset` | `top` |
 
 То есть курсор строки стоит на базовой линии, а символ встаёт началом своей
 строчной полосы на `spaceBefore` правее курсора.
@@ -194,12 +194,12 @@ font0ss: 8 symbols with parts of their own closer than 16 cells:
 же правила, что в разделе [«Расстановка символов в строке»][hw-format-placing]
 описания формата, записанные через поля глифа.
 
-Для расстановки хватает `xOffset` и `xAdvance`:
+Для расстановки хватает `x_offset` и `x_advance`:
 
-- левый край рисунка символа встаёт на `xOffset` от места, до которого дошла
-  строка, после чего строка сдвигается на `xAdvance`;
-- первый символ строки рисуется прямо от её начала, без `xOffset`, а строка
-  после него сдвигается на `xAdvance − xOffset`. Это равно
+- левый край рисунка символа встаёт на `x_offset` от места, до которого дошла
+  строка, после чего строка сдвигается на `x_advance`;
+- первый символ строки рисуется прямо от её начала, без `x_offset`, а строка
+  после него сдвигается на `x_advance − x_offset`. Это равно
   `lineLeft − left + lineWidth + spaceAfter` из описания формата.
 
 `space_before` и `space_after` нужны только правилу верхней полосы:
@@ -225,7 +225,7 @@ font0ss: 8 symbols with parts of their own closer than 16 cells:
 ## Рисование, письмо и морфинг
 
 Рисуется рукописный шрифт своими функциями из `dgx_hw_font.h`, а не
-`dgx_font_char_to_screen()` и `dgx_font_string_utf8_screen()`: буквы
+`dgx_font_draw()`: буквы
 соединяются между собой, размер и толщина пера выбираются при выводе. Общие
 функции для такого шрифта ничего не рисуют, морфинг по точкам его не берёт.
 
@@ -233,8 +233,10 @@ font0ss: 8 symbols with parts of their own closer than 16 cells:
 #include "dgx_hw_font.h"
 #include "fonts/font0ss.h"
 
-/* начало строки на базовой линии; 0.3 пикселя на клетку — строка высотой 60 пикселей; перо 3 пикселя; слитно */
-dgx_hw_draw_text(scr, 10, 80, font0ss(), "Привет, мир!", 0.3f, 3, color, true);
+/* 0.3 пикселя на клетку — строка высотой 60 пикселей; перо 3 пикселя; слитно */
+dgx_hw_context_t hw = {.scr = scr, .font = &font0ss, .scale_x = 0.3f, .width = 3, .color = color, .joined = true};
+/* начало строки на базовой линии */
+dgx_hw_draw(&hw, 10, 80, "Привет, мир!");
 ```
 
 Как выбрать размер, как писать текст в темпе пера, как устроена трудоёмкость

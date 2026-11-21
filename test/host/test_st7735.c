@@ -69,7 +69,7 @@ static void turns(dgx_screen_t *scr, int gw, int gh, int mw, int mh, int x_offse
 {
     for (int turn = 0; turn < 8; ++turn) {
         const bool swap = (turn & 4) != 0, up = (turn & 2) != 0;
-        dgx_st7735_orientation(scr, turn & 1 ? DgxScreenRightLeft : DgxScreenLeftRight, up ? DgxScreenBottomTop : DgxScreenTopBottom, swap);
+        dgx_screen_orientation(scr, turn & 1 ? DgxScreenRightLeft : DgxScreenLeftRight, up ? DgxScreenBottomTop : DgxScreenTopBottom, swap);
         CHECK(agrees(scr, swap ? gh : gw, swap ? gw : gh));
         /* the first pixel of the screen, and where its window begins: a mirrored axis counts the memory from its other end */
         dgx_set_pixel(scr, 0, 0, 0xffff);
@@ -96,18 +96,18 @@ int main(void)
                                .buffer_len       = sizeof(buffer)};
     /* the screen it starts as; the glass upright, the memory and where the glass lies in it */
     static const struct {
-        st7735_resolution_t resolution;
+        dgx_st7735_resolution_t resolution;
         int                 width, height, glass_w, glass_h, memory_w, memory_h, x_offset, y_offset;
     } panels[] = {
-        {ST7735_RESOLUTION_128x160, 128, 160, 128, 160, 128, 160, 0, 0},
-        {ST7735_RESOLUTION_160x128, 160, 128, 128, 160, 128, 160, 0, 0},
-        {ST7735_RESOLUTION_80x160, 80, 160, 80, 160, 128, 160, 24, 0},
-        {ST7735_RESOLUTION_160x80, 160, 80, 80, 160, 128, 160, 24, 0},
+        {DGX_ST7735_128X160, 128, 160, 128, 160, 128, 160, 0, 0},
+        {DGX_ST7735_160X128, 160, 128, 128, 160, 128, 160, 0, 0},
+        {DGX_ST7735_80X160, 80, 160, 80, 160, 128, 160, 24, 0},
+        {DGX_ST7735_160X80, 160, 80, 80, 160, 128, 160, 24, 0},
     };
     /* a depth the controller is not set up for gives no screen, and nothing is sent; nor does a panel there is none of */
-    CHECK(dgx_st7735_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 24, DgxScreenRGB, ST7735_RESOLUTION_128x160) == NULL && command == 0);
-    CHECK(dgx_st7735_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 16, DgxScreenRGB, (st7735_resolution_t)0) == NULL && command == 0);
-    CHECK(dgx_st7735_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 16, DgxScreenRGB, (st7735_resolution_t)5) == NULL && command == 0);
+    CHECK(dgx_st7735_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 24, DgxScreenRGB, DGX_ST7735_128X160) == NULL && command == 0);
+    CHECK(dgx_st7735_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 16, DgxScreenRGB, (dgx_st7735_resolution_t)0) == NULL && command == 0);
+    CHECK(dgx_st7735_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 16, DgxScreenRGB, (dgx_st7735_resolution_t)5) == NULL && command == 0);
     for (size_t p = 0; p < sizeof(panels) / sizeof(panels[0]); ++p) {
         madctl = 0xff, inverted = false;
         dgx_screen_t *scr = dgx_st7735_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 16, DgxScreenRGB, panels[p].resolution);

@@ -121,7 +121,7 @@ dgx_screen_t *scr = dgx_st7789_init(bus, GPIO_NUM_33, GPIO_NUM_NC, 16, DgxScreen
 // 3. draw something
 dgx_fill_rectangle(scr, 0, 0, scr->width, scr->height,
                    DGX_BLACK(dgx_rgb_to_16));
-const dgx_font_context_t text = {.scr = scr, .font = LiberationSansRegular12(),
+const dgx_font_context_t text = {.scr = scr, .font = &LiberationSansRegular12,
                                  .color = DGX_WHITE(dgx_rgb_to_16)};
 dgx_font_draw(&text, 10, 18, "Hello world");
 ```
@@ -182,10 +182,10 @@ driver sends its RAM buffer to the panel for you.
 #include "fonts/TerminusTTFMedium12.h"
 
 dgx_bus_protocols_t *bus = dgx_i2c_init(I2C_NUM_0, 0x3C, GPIO_NUM_21, GPIO_NUM_22, 400000);
-dgx_screen_t *oled = dgx_ssd1306_init(bus, DGX_SSD1306_128X64, 0, GPIO_NUM_NC);
+dgx_screen_t *oled = dgx_ssd1306_init(bus, GPIO_NUM_NC, DGX_SSD1306_128X64, false);
 
 dgx_fill_rectangle(oled, 0, 0, oled->width, oled->height, 0);
-const dgx_font_context_t text = {.scr = oled, .font = TerminusTTFMedium12(), .color = 1};
+const dgx_font_context_t text = {.scr = oled, .font = &TerminusTTFMedium12, .color = 1};
 dgx_font_draw(&text, 0, 12, "Hello OLED");
 ```
 
@@ -222,11 +222,11 @@ in `DGX_ORANGE(dgx_rgb_to_bwr)`. A new screen is white.
 
 dgx_bus_protocols_t *bus = dgx_spi_init(SPI3_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_23, GPIO_NUM_NC, GPIO_NUM_18,
                                         GPIO_NUM_5, GPIO_NUM_17, 10 * 1000 * 1000, 0); // MOSI, MISO, SCK, CS, D/C
-dgx_screen_t *paper = dgx_ssd1680_init(bus, DGX_SSD1680_128X296_BWR, GPIO_NUM_16, GPIO_NUM_4); // RES, BUSY
+dgx_screen_t *paper = dgx_ssd1680_init(bus, GPIO_NUM_16, GPIO_NUM_4, DGX_SSD1680_128X296_BWR); // RES, BUSY
 // 296x128, the module lying with its pins on the right
 dgx_screen_orientation(paper, DgxScreenLeftRight, DgxScreenBottomTop, true);
 
-dgx_font_context_t text = {.scr = paper, .font = DejaVuSansBook32(), .color = DGX_BWR_BLACK};
+dgx_font_context_t text = {.scr = paper, .font = &DejaVuSansBook32, .color = DGX_BWR_BLACK};
 dgx_font_draw(&text, 8, 34, "Hello");
 dgx_fill_rectangle(paper, 8, 44, 280, 6, DGX_BWR_RED);
 dgx_ssd1680_refresh(paper); // returns once the picture is sent
@@ -293,7 +293,7 @@ dgx_font_need(clock DGX DejaVuSansBook32 LETTERS "0123456789:")             # on
 ```c
 #include "dgx_fonts.h"
 
-const dgx_font_context_t body = {.scr = scr, .font = dgx_font_body(), .color = ink};
+const dgx_font_context_t body = {.scr = scr, .font = &dgx_font_body, .color = ink};
 dgx_font_draw(&body, 10, 40, "Привет");
 ```
 
@@ -337,7 +337,7 @@ out is zero, which is upright, at the size of the font, with no flags.
 ```c
 #include "dgx_fonts.h"
 
-const dgx_font_context_t label = {.scr = lcd, .font = dgx_font_label(), .color = ink, .bg = paper, .flags = DGX_FONT_BG};
+const dgx_font_context_t label = {.scr = lcd, .font = &dgx_font_label, .color = ink, .bg = paper, .flags = DGX_FONT_BG};
 int x = 10;
 x += dgx_font_draw(&label, x, 40, "Привет, ");       // returns how far the text goes along its line
 dgx_font_draw(&label, x, 40, "мир");
@@ -389,18 +389,18 @@ its limits: [Soft edges](https://github.com/jef-sure/esp32-component-dgx/blob/ma
 ```c
 #include "dgx_gauge.h"
 
-static uint32_t gauge_color(int value) {
+static uint32_t gauge_color(int value, void *user_data) {
     return value < 70 ? DGX_GREEN(dgx_rgb_to_16) : DGX_RED(dgx_rgb_to_16);
 }
 
 dgx_gauge_t gauge;
-dgx_gauge_init(&gauge, scr,
-               scr->width / 2, scr->height / 2, // center
-               40, 12,                          // inner radius, ring width
-               135.0f, 270,                     // start angle in degrees, sweep clockwise
-               0, 100,                          // value range
-               DGX_DARKGREY(dgx_rgb_to_16),     // color of the inactive steps
-               gauge_color);                    // draws the empty ring
+dgx_gauge_init_with(&gauge, scr,
+                    scr->width / 2, scr->height / 2, // center
+                    40, 12,                          // inner radius, ring width
+                    135.0f, 270,                     // start angle in degrees, sweep clockwise
+                    0, 100,                          // value range
+                    DGX_DARKGREY(dgx_rgb_to_16),     // color of the inactive steps
+                    gauge_color, NULL);              // draws the empty ring
 
 dgx_gauge_set_value(&gauge, 42);                // redraws only the steps that changed
 ```
@@ -525,7 +525,7 @@ any size and onto any four corners.
 // the texture: the same color depth as the screen it goes to
 dgx_screen_t *tex = dgx_vscreen_init(64, 24, 16, DgxScreenRGB);
 dgx_fill_rectangle(tex, 0, 0, tex->width, tex->height, DGX_NAVY(dgx_rgb_to_16));
-const dgx_font_context_t label = {.scr = tex, .font = LiberationSansRegular12(), .color = DGX_WHITE(dgx_rgb_to_16)};
+const dgx_font_context_t label = {.scr = tex, .font = &LiberationSansRegular12, .color = DGX_WHITE(dgx_rgb_to_16)};
 dgx_font_draw(&label, 6, 17, "DGX");
 
 // three times larger
@@ -778,7 +778,7 @@ none and 255 for all, its edges soft by the soft pen or a font of 4 bits.
 dgx_screen_t *badge = dgx_vscreen_init(72, 36, 8, DgxScreenRGB);
 dgx_fill_rectangle(badge, 0, 0, 72, 36, 0);
 dgx_fill_circle(badge, 17, 18, DGX_PEN_SOFT | 15, 255);
-const dgx_font_context_t word = {.scr = badge, .font = dgx_font_label(), .color = 255};
+const dgx_font_context_t word = {.scr = badge, .font = &dgx_font_label, .color = 255};
 dgx_font_draw(&word, 37, 24, "DGX");
 
 // its color: only lut[255] counts
@@ -903,7 +903,7 @@ same renderers:
 
 ```c
 // both glyphs at (x, y) of the glow's frame, a dot of cell x cell pixels
-dgx_font_symbol_morph_t *digit = dgx_font_morph_create(CasusDotView(), '0', '2', x, y, x, y, cell);
+dgx_font_symbol_morph_t *digit = dgx_font_morph_create(&CasusDotView, '0', '2', x, y, x, y, cell);
 
 dgx_morph_symbol_draw(digit, dgx_morph_ease(DGX_MORPH_SMOOTHSTEP, t), dgx_morph_glow_dot, glow);
 dgx_morph_glow_present(glow, t, scr, left, top);
@@ -938,7 +938,7 @@ number of pixels per grid cell: a line of `font0ss` is 202 cells high, so
 #include "fonts/font0ss.h"
 
 // a pen 3 pixels wide, letters joined
-dgx_hw_context_t hw = {.scr = scr, .font = font0ss(), .scale_x = 0.25f, .width = 3, .color = color, .joined = true};
+dgx_hw_context_t hw = {.scr = scr, .font = &font0ss, .scale_x = 0.25f, .width = 3, .color = color, .joined = true};
 
 // x is the left end of the line, y its base line
 dgx_hw_draw(&hw, 10, 80, "Hello, World");
@@ -1000,7 +1000,7 @@ is a new picture: draw it into a virtual screen and send that to the display.
 static uint16_t lut[256];
 dgx_lut_gradient(lut, 0, 256, 0xffffff, 0x182478);
 dgx_screen_t *band = dgx_vscreen_init(scr->width, 100, 8, DgxScreenRGB);
-dgx_hw_morph_t *morph = dgx_hw_morph_create(font0ss(), "hello", "world", true);
+dgx_hw_morph_t *morph = dgx_hw_morph_create(&font0ss, "hello", "world", true);
 const dgx_hw_context_t hw = {.scr = band, .scale_x = 0.4f, .width = 4, .color = 255};
 
 const int64_t start = esp_timer_get_time();
@@ -1133,7 +1133,7 @@ void setup()
     screen = dgx_ili9341_init(bus, GPIO_NUM_NC, GPIO_NUM_21, 16, DgxScreenRGB);
     dgx_fill_rectangle(screen, 0, 0, screen->width, screen->height, DGX_BLACK(dgx_rgb_to_16));
     text.scr   = screen;
-    text.font  = DejaVuSansBook32();
+    text.font  = &DejaVuSansBook32;
     text.color = DGX_WHITE(dgx_rgb_to_16);
 }
 

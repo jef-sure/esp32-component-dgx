@@ -63,7 +63,7 @@ static const char *const words[WORD_COUNT] = {
 static dgx_morph_glow_t *glows[DEMO_MAX_LETTERS];
 static dgx_morph_text_t *text;
 static size_t letter_count;
-static dgx_font_t *font;
+static const dgx_font_t *font;
 static int glyph_width;
 static int glyph_height;
 static int cell_width;
@@ -90,8 +90,8 @@ static bool count_letters(void)
 
 static bool choose_cell_width(const dgx_screen_t *screen)
 {
-    glyph_width = font->xRightMax - font->xOffsetLowest;
-    glyph_height = font->yBottomMax - font->yOffsetLowest;
+    glyph_width = font->x_right_max - font->x_offset_lowest;
+    glyph_height = font->y_bottom_max - font->y_offset_lowest;
     if (glyph_width <= 0 || glyph_height <= 0) return false;
 
     for (int candidate = screen->width; candidate > 0; --candidate) {
@@ -195,7 +195,7 @@ void app_main(void)
     dgx_screen_orientation(screen, DgxScreenRightLeft, DgxScreenTopBottom, true);
 #endif
 
-    font = TerminusTTFMedium12();
+    font = &TerminusTTFMedium12;
     if (!count_letters() || !choose_cell_width(screen)) {
         ESP_LOGE(TAG, "Unable to fit demo words and font on screen");
         return;

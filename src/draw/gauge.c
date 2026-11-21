@@ -166,8 +166,19 @@ static void dgx_gauge_step_draw(const dgx_gauge_t *gauge, int step, uint32_t col
     }
 }
 
-void dgx_gauge_init(dgx_gauge_t *gauge, dgx_screen_t *scr, int center_x, int center_y, int inner_radius, int width, float start_angle,
-                    int sweep_degrees, int min_value, int max_value, uint32_t background_color, dgx_gauge_color_fn_t color_fn)
+/* the color of an active step for its value: by the function of either init, or the background without one */
+static uint32_t dgx_gauge_color(const dgx_gauge_t *gauge, int value)
+{
+    if (gauge->color_with) return gauge->color_with(value, gauge->user_data);
+    DGX_DEPRECATED_USE_BEGIN
+    if (gauge->color_fn) return gauge->color_fn(value);
+    DGX_DEPRECATED_USE_END
+    return gauge->background_color;
+}
+
+void dgx_gauge_init_with(dgx_gauge_t *gauge, dgx_screen_t *scr, int center_x, int center_y, int inner_radius, int width, float start_angle,
+                         int sweep_degrees, int min_value, int max_value, uint32_t background_color, dgx_gauge_color_with_fn_t color,
+                         void *user_data)
 {
     gauge->scr              = scr;
     gauge->center_x         = center_x;
@@ -178,13 +189,29 @@ void dgx_gauge_init(dgx_gauge_t *gauge, dgx_screen_t *scr, int center_x, int cen
     gauge->max_value        = max_value;
     gauge->value            = min_value;
     gauge->active_steps     = 0;
-    gauge->color_fn         = color_fn;
+    DGX_DEPRECATED_USE_BEGIN
+    gauge->color_fn = NULL;
+    DGX_DEPRECATED_USE_END
+    gauge->color_with       = color;
+    gauge->user_data        = user_data;
     gauge->sweep_degrees    = sweep_degrees;
     gauge->start_angle      = start_angle;
     gauge->background_color = background_color;
     /* the empty ring: no step is active yet, so every one of them is drawn in the background color */
     dgx_gauge_redraw(gauge);
 }
+
+/* deprecated until DGX 1.0: dgx_gauge_init_with() */
+DGX_DEPRECATED_USE_BEGIN
+void dgx_gauge_init(dgx_gauge_t *gauge, dgx_screen_t *scr, int center_x, int center_y, int inner_radius, int width, float start_angle,
+                    int sweep_degrees, int min_value, int max_value, uint32_t background_color, dgx_gauge_color_fn_t color_fn)
+{
+    dgx_gauge_init_with(gauge, scr, center_x, center_y, inner_radius, width, start_angle, sweep_degrees, min_value, max_value, background_color, NULL,
+                        NULL);
+    /* the ring is drawn empty, so the function is only needed from the first value on */
+    gauge->color_fn = color_fn;
+}
+DGX_DEPRECATED_USE_END
 
 static int dgx_gauge_value_for_step(const dgx_gauge_t *gauge, int step)
 {
@@ -225,8 +252,7 @@ void dgx_gauge_set_value(dgx_gauge_t *gauge, int value)
     if (next_active_steps > gauge->active_steps) {
         for (int step = gauge->active_steps + 1; step <= next_active_steps; ++step) {
             int step_value = dgx_gauge_value_for_step(gauge, step);
-            // If a color function is provided, use it to determine the color for this step based on the step's value.
-            uint32_t color = gauge->color_fn ? gauge->color_fn(step_value) : gauge->background_color;
+            uint32_t color = dgx_gauge_color(gauge, step_value);
             dgx_gauge_step_draw(gauge, step, color, &from, &to);
         }
     } else if (next_active_steps < gauge->active_steps) {
@@ -245,7 +271,7 @@ void dgx_gauge_redraw(dgx_gauge_t *gauge)
     dgx_screen_batch_begin(gauge->scr);
     for (int step = 1; step <= gauge->active_steps; ++step) {
         int step_value = dgx_gauge_value_for_step(gauge, step);
-        uint32_t color = gauge->color_fn ? gauge->color_fn(step_value) : gauge->background_color;
+        uint32_t color = dgx_gauge_color(gauge, step_value);
         dgx_gauge_step_draw(gauge, step, color, &from, &to);
     }
     for (int step = gauge->active_steps + 1; step <= dgx_gauge_steps(gauge); ++step) {

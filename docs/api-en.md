@@ -63,8 +63,8 @@ Declared in [include/dgx_draw.h](../include/dgx_draw.h):
 | `dgx_draw_triangle(scr, x0, y0, x1, y1, x2, y2, color)` | Outline of a triangle: its three lines, a pixel wide, in one update. It is the border of `dgx_fill_triangle()` with the same corners, pixel for pixel. |
 | `dgx_fill_triangle(scr, x0, y0, x1, y1, x2, y2, color)` | Filled triangle: every row from the leftmost to the rightmost pixel the lines of its sides have there, so two triangles with a side in common leave no gap. |
 | `dgx_fill_polygon4(scr, x0..y3, color)` | Filled simple quadrilateral (convex or concave). |
-| `dgx_draw_texture_quad(scr, quad, texture, tx, ty, tw, th)` | Stretch a region of a virtual screen onto a convex quadrilateral (affine, nearest texel). |
-| `dgx_draw_texture_rect(scr, x, y, w, h, texture, tx, ty, tw, th)` | Scale a region of a virtual screen into a rectangle. |
+| `dgx_draw_texture_quad(scr, quad, texture, tx, ty, tw, th)` | Stretch a region of a virtual screen onto a convex quadrilateral (affine, nearest texel). Returns `ESP_OK`, or why nothing was drawn: a texture of another depth or a region outside it, a screen without windows, no memory for a row. |
+| `dgx_draw_texture_rect(scr, x, y, w, h, texture, tx, ty, tw, th)` | Scale a region of a virtual screen into a rectangle; returns as the quad does. |
 
 Lines, circles, ellipses and sectors are one code for every screen, made of
 the pixels and the rectangles a screen draws itself: a figure has the same
@@ -184,13 +184,13 @@ Declared in [include/dgx_font.h](../include/dgx_font.h):
 | Function | Description |
 | --- | --- |
 | `dgx_font_draw(ctx, x, y, str)` | Draw a UTF-8 text by a context, `dgx_font_context_t`: `scr`, `font`, `color`, `bg`, `flags`, `orientation`, `scale`, `dot_func` with `user_data` for a dot font, and `field` with `align` for a text set in a field. Returns how far the text goes along its line, scale counted; with a field, its width. See [Text with soft edges](../README.md#text-with-soft-edges). |
-| `dgx_font_draw_char(ctx, x, y, codePoint)` | One character by a context; with `DGX_FONT_FILL` it fills the cell of the one character, with a field it is a text of one character in it. |
+| `dgx_font_draw_char(ctx, x, y, code_point)` | One character by a context; with `DGX_FONT_FILL` it fills the cell of the one character, with a field it is a text of one character in it. |
 | `dgx_font_bounds(ctx, str, top, height)` | Measure a text as `dgx_font_draw()` draws it, scale counted: returns its length along the line, fills the top from the base line and the height. |
 | `DGX_FONT_BG`, `DGX_FONT_FILL`, `DGX_FONT_MONO`, `DGX_FONT_HARD` | The flags of a context: mix soft edges with `bg`; fill the cell with `bg` too; draw a soft font cut to one bit; draw every pixel a letter touches in full. |
-| `dgx_font_find_glyph(codePoint, font, xAdvance)` | Look up a single glyph. |
+| `dgx_font_glyph(font, code_point, &advance)` | Look up a single glyph and its advance. |
 | `dgx_utf8_next(str, idx)` | Decode the next UTF-8 code point and move the byte index `idx` past it: `for (size_t i = 0; str[i];) cp = dgx_utf8_next(str, &i);` walks a string. A byte that begins no valid sequence gives U+FFFD. |
 | `dgx_utf8_length(str)` | The number of code points in a UTF-8 string; 0 for `NULL`. |
-| `dgx_font_morph_create(font, fromCP, toCP, from_x, from_y, to_x, to_y, scale)` / `dgx_font_morph_destroy(&ms)` | Build/free a glyph-to-glyph morph descriptor for animation, dot i to dot i; drawn by `dgx_morph_symbol_draw()`. |
+| `dgx_font_morph_create(font, from_cp, to_cp, from_x, from_y, to_x, to_y, scale)` / `dgx_font_morph_destroy(&ms)` | Build/free a glyph-to-glyph morph descriptor for animation, dot i to dot i; drawn by `dgx_morph_symbol_draw()`. |
 | `dgx_font_string_utf8_screen(scr, x, y, str, color, orientation, scale, font, draw_func, param)` | Deprecated: the earlier form of `dgx_font_draw()`, with everything in the arguments. Pass `NULL, NULL` for the last two for default rendering. It draws as a context with no flags does. |
 | `dgx_font_char_to_screen(scr, x, y, codePoint, color, orientation, scale, font, draw_func, param)` | Deprecated: the earlier form of `dgx_font_draw_char()`. |
 | `dgx_font_string_bounds(str, font, ycorner, height)` | Deprecated: the earlier form of `dgx_font_bounds()`, at scale 1: returns the width, fills the top offset and the height. |
@@ -201,8 +201,9 @@ Declared in [include/dgx_font.h](../include/dgx_font.h):
 `DgxOutputMirrorX`, `DgxOutputMirrorY`, `DgxOutputRotate180`,
 `DgxOutputTranspose`, `DgxOutputRotate90CCW`, `DgxOutputRotate90CW` or
 `DgxOutputTransverse`. `scale` is an integer multiplier (`1` = native size).
-Each bundled font header under `include/fonts/` exposes an accessor, e.g.
-`LiberationSansRegular12()`.
+Each bundled font header under `include/fonts/` declares the font as a
+constant, e.g. `LiberationSansRegular12`, and a program gives its address,
+`&LiberationSansRegular12`.
 
 A font tells its kind in `f_type`: bitmaps of one bit a pixel
 (`DGX_FONT_BITMAP_LINES`, `DGX_FONT_BITMAP_STREAM`), bitmaps of the coverage
@@ -229,8 +230,8 @@ Table 1. What each way writes and leaves, and what it is for.
 | `DGX_FONT_FILL` | the whole cell of the text: `bg` where no letter is, the letters over it | nothing in the cell | text drawn again over itself, a clock, a counter, a value: the old text goes in the same call, with no erase of its own |
 | a field: `field` and `align` | the whole field: `bg` where no letter is, the text set in it at its start, middle or end | nothing in the field, nothing outside it | a line of a table, a clock, a counter whose text changes its length: one call a line, and nothing of what was drawn before to remember |
 
-The cell of `DGX_FONT_FILL` is as high as the font, from `yOffsetLowest` to
-`yBottomMax`, whatever the letters, and runs from `x` to the end of the
+The cell of `DGX_FONT_FILL` is as high as the font, from `y_offset_lowest` to
+`y_bottom_max`, whatever the letters, and runs from `x` to the end of the
 advances of the text, wider where a letter sticks out on either side.
 Everything else in it is painted over. A text shorter than the one before
 leaves the end of that one outside its cell: draw it as long every time,
@@ -300,7 +301,7 @@ thickness of the pen are chosen at drawing, and letters are joined.
 | `dgx_hw_draw_text(scr, x, y, font, text, scale, width, color, joined)`, `dgx_hw_writing_begin(writing, scr, x, y, font, text, scale, width, color, joined, pace)`, `dgx_hw_morph_draw(morph, t, scr, x, y, scale, width, color)` and their `_xy` twins with `scale_x, scale_y` | Deprecated: the earlier form of the three drawing calls, with every setting as an argument; they draw the same. A scale or a width of 0 draws nothing there. |
 
 ```c
-dgx_hw_context_t pen = {.scr = scr, .font = font0ss(), .scale_x = 0.4f, .width = 3, .color = ink, .joined = true};
+dgx_hw_context_t pen = {.scr = scr, .font = &font0ss, .scale_x = 0.4f, .width = 3, .color = ink, .joined = true};
 int left, top, width, height;
 if (dgx_hw_bounds(&pen, text, &left, &top, &width, &height))                              // in the middle of the screen
     dgx_hw_draw(&pen, (scr->width - width) / 2 - left, (scr->height - height) / 2 - top, text);
@@ -320,7 +321,7 @@ same pen with color 0 is taken off, see
 and writes them by hand, [examples/hw_morph_demo](../examples/hw_morph_demo)
 morphs words one into another both ways.
 
-One such font is bundled: `font0ss()` from `fonts/font0ss.h`. It has the Latin
+One such font is bundled: `font0ss` from `fonts/font0ss.h`. It has the Latin
 alphabet with the German letters `ÄÖÜäöüß`, the Russian alphabet, digits and
 punctuation, 155 symbols in all, and nothing else: no accented letters of
 other languages, no Greek, no scripts written right to left. Drawing a
@@ -460,13 +461,13 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | --- | --- |
 | `dgx_vscreen_init(width, height, color_bits, cbo)` | Allocate a color RAM screen. |
 | `dgx_vscreen_from_array(v_array, width, height, color_bits, cbo)` | Make a RAM screen over memory the program owns: a camera frame, a decoded picture, a buffer of another library. Nothing is copied, and `dgx_screen_destroy()` leaves the memory alone. Rows lie one right after another, the high byte of a pixel first; when the rows of the memory are longer than the picture, `width` is their length and the picture goes by `dgx_vscreen_region_to_screen()`. The memory may be read-only, a `const` array in flash given as `(void *)logo`, when the screen is only read: put on a display or copied, never drawn on. See [A picture from flash](#a-picture-from-flash). |
-| `dgx_vscreen_array_set(scr, pixels, width, height)` | Point such a screen at other memory of any size. It costs a few assignments, so one screen can serve every band a renderer gives. |
+| `dgx_vscreen_array_set(scr, pixels, width, height)` | Point such a screen at other memory of any size. It costs a few assignments, so one screen can serve every band a renderer gives. `ESP_ERR_INVALID_ARG`, with the screen as it was, for another screen, no pixels or a size of none. |
 | `dgx_vscreen_clone(src)` | Allocate a copy with the same geometry and pixels. |
 | `dgx_vscreen_copy(dst, src)` | Copy a whole same-sized screen. |
-| `dgx_vscreen_to_screen(dst, x, y, src, flags)` | Put a RAM screen on a screen of the same depth: a display or another RAM screen. |
+| `dgx_vscreen_to_screen(dst, x, y, src, flags)` | Put a RAM screen on a screen of the same depth: a display or another RAM screen. Returns `ESP_OK`, also when nothing of it falls on the destination; `ESP_ERR_INVALID_ARG` for another depth or a source that is not a RAM screen; `ESP_ERR_NO_MEM` when a transfer that needs lines of its own gets no memory. |
 | `dgx_vscreen_region_to_screen(dst, x, y, src, x_src, y_src, w, h, flags)` | The same for a sub-region; `x`, `y` are where the corner of the region goes, scaled and turned as the flags ask. |
 | `dgx_vscreen8_to_screen16(dst, x, y, src, lut, flags)` | Expand an 8-bit indexed screen into 16-bit through a LUT, `uint16_t lut[256]` of RGB565 colors: see [Tables for 8-bit screens](#tables-for-8-bit-screens). |
-| `dgx_vscreen8_region_to_screen16(dst, x, y, src, x_src, y_src, w, h, lut, flags)` | The same for a sub-region. |
+| `dgx_vscreen8_region_to_screen16(dst, x, y, src, x_src, y_src, w, h, lut, flags)` | The same for a sub-region. These two return as `dgx_vscreen_to_screen()`, `ESP_ERR_INVALID_ARG` also for a destination not of 16 bits. |
 | `dgx_vscreen_to_argb8888(scr, x, y, w, h, lut, dst, dst_stride)` | Read a rectangle of a screen as 0xAARRGGBB colors, the layout of `SDL_PIXELFORMAT_ARGB8888`: for a window on a PC. An 8-bit screen goes through `lut`, or as grey without one. |
 | `dgx_overlay_set(display, layer, x, y, lut, alpha)` | Lay an 8-bit virtual screen over a 16-bit screen at `x`, `y` (`dgx_overlay.h`), or move it, or give it other colors: index 0 empty, the others the colors of `lut` mixed with what lies under them by `alpha` (0 to 255, in 32 steps). One layer a screen. Mixed into what comes from virtual screens: `dgx_vscreen8_to_screen16()`, `dgx_vscreen8_region_to_screen16()`, `dgx_vscreen_to_screen()`, `dgx_vscreen_region_to_screen()`, with all their flags; not into what is drawn straight on the screen. |
 | `dgx_overlay_set_alphas(display, alphas)` | A share of its own for every index, 0 to 255, times the `alpha` of the layer: a button solid and its shadow faint, the alpha of the layer still fading all. Kept when the layer is moved or gets other colors or another alpha, until it is taken away; NULL for 255 each. The place of the layer becomes changed. |
@@ -570,7 +571,7 @@ Declared in [include/dgx_gauge.h](../include/dgx_gauge.h):
 
 | Function | Description |
 | --- | --- |
-| `dgx_gauge_init(gauge, scr, cx, cy, inner_radius, width, start_angle, sweep_degrees, min, max, bg_color, color_fn)` | Configure a ring gauge and draw its empty ring. `color_fn` maps a value to a step color. |
+| `dgx_gauge_init_with(gauge, scr, cx, cy, inner_radius, width, start_angle, sweep_degrees, min, max, bg_color, color, user_data)` | Configure a ring gauge and draw its empty ring. `color_fn` maps a value to a step color. |
 | `dgx_gauge_set_value(gauge, value)` | Update the value, redrawing only changed steps. |
 | `dgx_gauge_redraw(gauge)` | Redraw the whole gauge. |
 
@@ -649,7 +650,7 @@ i2c_master_bus_config_t cfg = {
 i2c_master_bus_handle_t i2c;
 ESP_ERROR_CHECK(i2c_new_master_bus(&cfg, &i2c));
 dgx_bus_protocols_t *bus = dgx_i2c_init_on_bus(i2c, 0x3c, 400000);
-dgx_screen_t *scr = dgx_ssd1306_init(bus, DGX_SSD1306_128X64, 0, GPIO_NUM_NC);
+dgx_screen_t *scr = dgx_ssd1306_init(bus, GPIO_NUM_NC, DGX_SSD1306_128X64, false);
 // ... i2c_master_bus_add_device(i2c, ...) for the touch controller ...
 ```
 
@@ -977,9 +978,7 @@ Virtual screens use a single canonical layout:
   left-to-right, top-to-bottom.
 
 A display is turned by `dgx_screen_orientation(scr, dir_x, dir_y, swap_xy)`,
-whatever its driver, see [Controlling a display](#controlling-a-display); the
-setters named after a driver (`dgx_st7789_orientation()`,
-`dgx_gc9a01_orientation()` and so on) take the same three arguments. A color
+whatever its driver, see [Controlling a display](#controlling-a-display). A color
 panel reprograms the scan direction of its controller, a monochrome one turns
 the picture in the memory of its screen, a DSI display in its frame buffer.
 Text rendering takes an explicit
@@ -1113,10 +1112,12 @@ A couple of practical limitations are worth knowing up front:
 
 ## Deprecated names
 
-Calls and constants that got another name or another form. A deprecated one
-compiles as it did and does the same; new code uses what is on the right.
-Deprecated names are taken away only with a minor version, and CHANGES says
-so when it happens.
+Calls, types, constants and a header that got another name or another form.
+A deprecated one builds as it did and does the same, and the compiler warns
+at every place a program uses it, naming what to use instead. ESP-IDF, which
+turns most warnings into errors, leaves these warnings. DGX 1.0 takes them
+all away. test/host/test_deprecated.c uses each of them and checks its
+warning, in C and in C++.
 
 Table 6. Deprecated names and what to use instead.
 
@@ -1128,12 +1129,21 @@ Table 6. Deprecated names and what to use instead.
 | `dgx_screen_progress_up()`, `dgx_screen_progress_down()` | `dgx_screen_batch_begin()`, `dgx_screen_batch_end()` |
 | `scr->wait_buffer(scr)` | `dgx_screen_wait(scr)` |
 | `bus->dispose(bus)` | `dgx_bus_dispose(&bus)` |
-| `dgx_ili9341_orientation()`, `dgx_st7789_backlight()` and the others named after a driver; `dgx_gc9a01_display_off()`, `dgx_gc9a01_display_on()` | `dgx_screen_orientation()`, `dgx_screen_backlight()`, `dgx_screen_display()` |
-| `dgx_font_string_utf8_screen()`, `dgx_font_char_to_screen()`, `dgx_font_string_bounds()` | `dgx_font_draw()`, `dgx_font_draw_char()`, `dgx_font_bounds()` with a `dgx_font_context_t` |
+| `dgx_ili9341_orientation()`, `dgx_st7789_backlight()` and the others named after a driver, `dgx_panel_orientation()` and `dgx_panel_backlight()` too; `dgx_gc9a01_display_off()`, `dgx_gc9a01_display_on()` | `dgx_screen_orientation()`, `dgx_screen_backlight()`, `dgx_screen_display()` |
+| `dgx_font_string_utf8_screen()`, `dgx_font_char_to_screen()`, `dgx_font_string_bounds()`, with their `dgx_font_draw_sym_func_t`, `dgx_font_dot_func_t` and `dgx_font_sym8_params_t` | `dgx_font_draw()`, `dgx_font_draw_char()`, `dgx_font_bounds()` with a `dgx_font_context_t`, its `dot` for a dot font |
 | `dgx_hw_draw_text()`, `dgx_hw_writing_begin()`, `dgx_hw_morph_draw()` and their `_xy` twins | `dgx_hw_draw()`, `dgx_hw_writing_begin_with()`, `dgx_hw_morph_draw_with()` with a `dgx_hw_context_t` |
 | `decodeUTF8next()`, `dgx_morph_text_length()` | `dgx_utf8_next()`, `dgx_utf8_length()` |
 | `dgx_font_make_morph_struct()`, `dgx_font_make_morph_struct_destroy()` | `dgx_font_morph_create()`, `dgx_font_morph_destroy()` |
 | `dgx_matrix_init()` | `dgx_matrix_create()` |
+| `glyph_t`, `glyph_array_t` | `dgx_glyph_t`, `dgx_glyph_array_t` |
+| `yAdvance`, `yOffsetLowest`, `xWidest`, `xWidthAverage`, `yBottomMax`, `xOffsetLowest`, `xRightMax` of a `dgx_font_t` | `y_advance`, `y_offset_lowest`, `x_widest`, `x_width_average`, `y_bottom_max`, `x_offset_lowest`, `x_right_max` |
+| `fromCP`, `toCP` of a `dgx_font_symbol_morph_t` | `from_cp`, `to_cp` |
+| `dgx_font_find_glyph(code_point, font, &advance)` | `dgx_font_glyph(font, code_point, &advance)` |
+| `TerminusTTFMedium12()`, `dgx_font_text()` and every other font taken by a call | `&TerminusTTFMedium12`, `&dgx_font_text`: a font is a constant |
+| `dgx_gauge_init()`, with its `dgx_gauge_color_fn_t` | `dgx_gauge_init_with()`, whose color function takes `user_data` |
 | `SSD1306_128X64`, `SSD1309_128X64`, `SH1106_128X64`, `SSD1322_256X64`, `SSD1680_128X296_BWR` and the like, with `ssd1306_resolution_t` and the like | the same with `DGX_` and `dgx_` in front: `DGX_SSD1306_128X64`, `dgx_ssd1306_resolution_t` |
-| `ST7789_RESOLUTION_240x240`, `ST7735_RESOLUTION_128x160` and the like | `DGX_ST7789_240X240`, `DGX_ST7735_128X160` |
+| `ST7789_RESOLUTION_240x240`, `ST7735_RESOLUTION_128x160` and the like, with `st7789_resolution_t` and `st7735_resolution_t` | `DGX_ST7789_240X240`, `DGX_ST7735_128X160`, `dgx_st7789_resolution_t`, `dgx_st7735_resolution_t` |
+| `DGX_LUT_TRANSPARENT`, `DGX_LUT_EXACT`, `DGX_LUT_SMOOTH`, `DGX_LUT_SCALE(n)`, the names of 0.6 | `DGX_VSCREEN_TRANSPARENT`, `DGX_VSCREEN_EXACT`, `DGX_VSCREEN_SMOOTH`, `DGX_VSCREEN_SCALE(n)` |
+| `dgx_vscreen_to_screen()` with four arguments and `dgx_vscreen_region_to_screen()` with eight, the calls of 0.6 | the same with `flags` at the end, 0 for none |
+| `dgx_vscreen_to_vscreen(dst, x, y, src, transparent)` | `dgx_vscreen_to_screen(dst, x, y, src, DGX_VSCREEN_TRANSPARENT)`, or 0 |
 | `#include "drivers/vscreen.h"` | `#include "dgx_vscreen.h"` |

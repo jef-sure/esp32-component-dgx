@@ -85,8 +85,10 @@ void dgx_morph_glow_blur(void *user_data, uint8_t *brightness, int width, int he
 /**
  * @brief Blend the accumulated dots into the phosphor and blit to (x, y).
  * @param t Morph progress; the blend weight is smoothstep(t).
+ * @return ESP_OK; ESP_ERR_INVALID_ARG for no glow, or a screen of another depth than the glow, which is then not drawn
+ *         though the phosphor has taken the frame.
  */
-void dgx_morph_glow_present(dgx_morph_glow_t *glow, float t, dgx_screen_t *screen, int x, int y);
+esp_err_t dgx_morph_glow_present(dgx_morph_glow_t *glow, float t, dgx_screen_t *screen, int x, int y);
 
 /**
  * @brief Dot sprite renderer: a soft 8-bit dot blitted through a 256-entry

@@ -4717,7 +4717,7 @@ static const uint8_t bitmaps[] = {
 0x00, 0x00, 0x50, 0x50, 0x88, 0x88, 0xC8, 0xA8, 0xA8, 0xC8, 0x00, 0x00
 };
 
-static const glyph_t glyphs[] = {
+static const dgx_glyph_t glyphs[] = {
     { {bitmaps +     0},   6,  12,   6,    0,   -9 } /* 0020 */
 ,   { {bitmaps +    12},   6,  12,   6,    0,   -9 } /* 0021 */
 ,   { {bitmaps +    24},   6,  12,   6,    0,   -9 } /* 0022 */
@@ -5055,7 +5055,7 @@ static const glyph_t glyphs[] = {
 ,   { {bitmaps +  4008},   6,  12,   6,    0,   -9 } /* 04F8 */
 ,   { {bitmaps +  4020},   6,  12,   6,    0,   -9 } /* 04F9 */
 };
-static const glyph_array_t glyph_ranges[] = {
+static const dgx_glyph_array_t glyph_ranges[] = {
   {0x20  , 0x5f  , glyphs + 0 }
 , {0xb0  , 0x1   , glyphs + 95 }
 , {0xc0  , 0x40  , glyphs + 96 }
@@ -5074,17 +5074,14 @@ static const glyph_array_t glyph_ranges[] = {
 , {0x0   , 0x0   , 0 }
 };
 // Bitmap size: 4032
-dgx_font_t* TerminusTTFMedium12() {
-	static dgx_font_t rval = { 
+const dgx_font_t TerminusTTFMedium12 = {
     .glyph_ranges = glyph_ranges,
-    .yAdvance = 13,
-    .yOffsetLowest = -9,
-    .xWidest = 6,
-    .xWidthAverage = 6.000000,
+    .y_advance = 13,
+    .y_offset_lowest = -9,
+    .x_widest = 6,
+    .x_width_average = 6.000000,
     .f_type = DGX_FONT_BITMAP_LINES,
-    .yBottomMax = 3,
-    .xOffsetLowest = 0,
-    .xRightMax = 6
-  };
-	return &rval;
-}
+    .y_bottom_max = 3,
+    .x_offset_lowest = 0,
+    .x_right_max = 6
+};

@@ -154,9 +154,9 @@ static void test_i2c(void)
     CHECK(((dgx_i2c_bus_t *)a)->bus_handle == ((dgx_i2c_bus_t *)b)->bus_handle);
     /* other pins on the same port are refused, and nothing is left behind */
     CHECK(dgx_i2c_init(I2C_NUM_0, 0x3e, 18, 19, 400000) == NULL && i2c_devices == 2);
-    a->dispose(a);
+    a->dispose_bus(a);
     CHECK(i2c_buses_deleted == 0);
-    b->dispose(b);
+    b->dispose_bus(b);
     CHECK(i2c_buses_deleted == 1 && i2c_devices == 0);
 
     /* a device of the program on DGX's bus keeps it when the display goes; the next display takes the same bus */
@@ -165,12 +165,12 @@ static void test_i2c(void)
     i2c_device_config_t     cfg = {.device_address = 0x38};
     i2c_master_bus_add_device(((dgx_i2c_bus_t *)a)->bus_handle, &cfg, &touch);
     i2c_master_bus_handle_t kept = ((dgx_i2c_bus_t *)a)->bus_handle;
-    a->dispose(a);
+    a->dispose_bus(a);
     CHECK(i2c_buses_deleted == 1);
     a = dgx_i2c_init(I2C_NUM_1, 0x3c, 21, 22, 400000);
     CHECK(a && ((dgx_i2c_bus_t *)a)->bus_handle == kept && i2c_buses_made == 2);
     i2c_master_bus_rm_device(touch);
-    a->dispose(a);
+    a->dispose_bus(a);
     CHECK(i2c_buses_deleted == 2);
 
     /* a display that does not answer: no device, and the bus made for it is deleted again */
@@ -186,8 +186,8 @@ static void test_i2c(void)
     a = dgx_i2c_init_on_bus(own, 0x3c, 400000);
     b = dgx_i2c_init_on_bus(own, 0x3d, 400000);
     CHECK(a && b && ((fake_i2c_bus_t *)own)->devices == 2);
-    a->dispose(a);
-    b->dispose(b);
+    a->dispose_bus(a);
+    b->dispose_bus(b);
     CHECK(((fake_i2c_bus_t *)own)->devices == 0 && i2c_buses_deleted == 3);
     CHECK(i2c_del_master_bus(own) == ESP_OK);
     CHECK(dgx_i2c_init_on_bus(NULL, 0x3c, 400000) == NULL);
@@ -205,13 +205,13 @@ static void test_p8(void)
     dgx_bus_protocols_t *b = dgx_p8_init(21, 22, 23, 24, 25, 26, 27, 28, 29, GPIO_NUM_NC, 30, 31, 10000000);
     CHECK(b && i80_buses_made == 2 && ((dgx_p8_bus_t *)a)->i80_bus != ((dgx_p8_bus_t *)b)->i80_bus);
     /* each bus is deleted with its display, and its pins are free again */
-    a->dispose(a);
+    a->dispose_bus(a);
     CHECK(i80_buses_deleted == 1);
-    b->dispose(b);
+    b->dispose_bus(b);
     CHECK(i80_buses_deleted == 2);
     a = dgx_p8_init(1, 2, 3, 4, 5, 6, 7, 8, 9, GPIO_NUM_NC, 12, 11, 10000000);
     CHECK(a && i80_buses_made == 3);
-    a->dispose(a);
+    a->dispose_bus(a);
     CHECK(i80_buses_deleted == 3);
 
     /* the program's bus is never deleted by DGX */
@@ -220,7 +220,7 @@ static void test_p8(void)
     esp_lcd_new_i80_bus(&cfg, &own);
     a = dgx_p8_init_on_bus(own, GPIO_NUM_NC, 10, 10000000);
     CHECK(a && own->ios == 1);
-    a->dispose(a);
+    a->dispose_bus(a);
     CHECK(own->ios == 0 && i80_buses_deleted == 3);
     CHECK(esp_lcd_del_i80_bus(own) == ESP_OK);
 }

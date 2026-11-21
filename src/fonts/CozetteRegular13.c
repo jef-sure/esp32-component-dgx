@@ -2908,7 +2908,7 @@ static const uint8_t bitmaps[] = {
 0x9C, 0x94, 0xDC, 0xC0, 0xBC, 0xB0, 0x90, 0x90
 };
 
-static const glyph_t glyphs[] = {
+static const dgx_glyph_t glyphs[] = {
     { {.bitmap = bitmaps +     0 },   1,   1,   6,    6,    1 } /* 0020 */
 ,   { {.bitmap = bitmaps +     1 },   1,   8,   6,    3,   -7 } /* 0021 */
 ,   { {.bitmap = bitmaps +     9 },   3,   3,   6,    2,   -8 } /* 0022 */
@@ -3213,7 +3213,7 @@ static const glyph_t glyphs[] = {
 ,   { {.bitmap = bitmaps +  2274 },   5,   7,   6,    1,   -6 } /* 20AC */
 ,   { {.bitmap = bitmaps +  2281 },   6,   8,   6,    0,   -7 } /* 2116 */
 };
-static const glyph_array_t glyph_ranges[] = {
+static const dgx_glyph_array_t glyph_ranges[] = {
    {0x20  , 0x5f  , glyphs + 0 }
 , {0xa0  , 0x60  , glyphs + 95 }
 , {0x400 , 0x60  , glyphs + 191 }
@@ -3225,18 +3225,15 @@ static const glyph_array_t glyph_ranges[] = {
 , {0x0   , 0x0   , 0 }
 };
 // Bitmap size: 2289
-dgx_font_t* CozetteRegular13() {
-	static dgx_font_t rval = { 
-		.glyph_ranges = glyph_ranges,
-		.yAdvance = 13,
-		.yOffsetLowest = -9,
-		.xWidest = 7,
-		.xWidthAverage = 4.636964,
-	.f_type = DGX_FONT_BITMAP_LINES,
-		.yBottomMax = 4,
-		.xOffsetLowest = 0,
-		.xRightMax = 7,
-		.number_of_ranges = 8
-	};
-	return &rval;
-}
+const dgx_font_t CozetteRegular13 = {
+    .glyph_ranges = glyph_ranges,
+    .y_advance = 13,
+    .y_offset_lowest = -9,
+    .x_widest = 7,
+    .x_width_average = 4.636964,
+    .f_type = DGX_FONT_BITMAP_LINES,
+    .y_bottom_max = 4,
+    .x_offset_lowest = 0,
+    .x_right_max = 7,
+    .number_of_ranges = 8
+};

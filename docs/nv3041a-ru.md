@@ -331,7 +331,7 @@ COLMOD 0x00, RGB666, а остальные — как для 16 бит, 0x41 = 0
 По словам [atomic14](https://www.atomic14.com/esp32/boards/guition-jc4827w543/),
 на этой панели работают только 0° и 180°. В DGX она работала и на боку:
 [examples/graphicstest](../examples/graphicstest) рисует в 272x480 с
-`dgx_nv3041a_orientation(scr, DgxScreenLeftRight, DgxScreenBottomTop, true)`,
+`dgx_screen_orientation(scr, DgxScreenLeftRight, DgxScreenBottomTop, true)`,
 и картинка вышла верной. Остальные положения не проверялись.
 
 ## ESP-IDF 6.0 и 6.1: GPIO0

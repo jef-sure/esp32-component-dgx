@@ -95,7 +95,7 @@ static inline uint32_t dgx_vscreen_halves_room(const dgx_vscreen_halves_t *h)
 static inline void dgx_vscreen_halves_send(dgx_vscreen_halves_t *h)
 {
     h->scr->write_area(h->scr, h->half[h->which], 8u * (uint32_t)(h->at - h->half[h->which]));
-    if (h->alone) h->scr->wait_buffer(h->scr);
+    if (h->alone) h->scr->wait(h->scr);
     h->which ^= 1;
     h->at  = h->half[h->which];
     h->cap = h->len;
@@ -111,7 +111,7 @@ static inline void dgx_vscreen_halves_flush(dgx_vscreen_halves_t *h)
 static inline void dgx_vscreen_halves_end(dgx_vscreen_halves_t *h)
 {
     dgx_vscreen_halves_flush(h);
-    h->scr->wait_buffer(h->scr);
+    h->scr->wait(h->scr);
 }
 
 /* the window of a display behind a bus set, and its buffer in halves for a rectangle of `bytes` a pixel */
@@ -119,7 +119,7 @@ static inline void dgx_vscreen_halves_window(dgx_vscreen_halves_t *h, dgx_screen
 {
     dgx_bus_protocols_t *bus = ((dgx_screen_with_bus_t *)dst)->bus;
     /* the buffer free first: waiting after the window would send its memory write alone, ahead of the pixels */
-    dst->wait_buffer(dst);
+    dst->wait(dst);
     dst->set_area(dst, (uint16_t)x, (uint16_t)(x + w - 1), (uint16_t)y, (uint16_t)(y + h_rows - 1));
     const uint32_t row_bytes = (uint32_t)w * bytes;
     dgx_vscreen_halves_begin(h, dst, bus->buffer, bus->buffer_len, bytes, row_bytes, row_bytes * (uint32_t)h_rows);

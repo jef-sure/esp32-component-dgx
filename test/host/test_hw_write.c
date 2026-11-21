@@ -6,16 +6,19 @@
 #include "check.h"
 #include "dgx_draw.h"
 #include "dgx_hw_font.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "fonts/TerminusTTFMedium12.h"
 
 /* font0-ss: the numbers below are of the font as it is in src/fonts */
 #include "fonts/font0ss.h"
 
+/* the calls of before, deprecated until DGX 1.0, are checked here beside those of now; they warn everywhere else */
+DGX_DEPRECATED_USE_BEGIN
+
 #define W 300
 #define H 160
 
-static int strokes_of(dgx_font_t *font, const char *text, bool joined, dgx_hw_stroke_t *out, int max)
+static int strokes_of(const dgx_font_t *font, const char *text, bool joined, dgx_hw_stroke_t *out, int max)
 {
     dgx_hw_writer_t w;
     int             n = 0;
@@ -27,7 +30,7 @@ static int strokes_of(dgx_font_t *font, const char *text, bool joined, dgx_hw_st
 static const dgx_hw_symbol_t *symbol(uint32_t cp)
 {
     int16_t advance;
-    return dgx_font_find_glyph(cp, font0ss(), &advance)->hw;
+    return dgx_font_glyph(&font0ss, cp, &advance)->hw;
 }
 
 /* a small font of its own for what font0-ss has not: a letter with a begin connection and no end one */
@@ -42,13 +45,13 @@ static const dgx_hw_symbol_t tiny_symbols[] = {
     {1, 1, 0, 0, 1, -47, -7, 14, 14, 14, 14, 1, DGX_HW_NONE, DGX_HW_NONE, 17, 0, 16},
     {1, 1, 1, 0, 21, -47, -7, 14, 34, 14, 34, 21, DGX_HW_NONE, DGX_HW_NONE, 37, 0, 16},
 };
-static const glyph_t tiny_glyphs[] = {
+static const dgx_glyph_t tiny_glyphs[] = {
     {{.elements = tiny_elements + 0, .hw = tiny_symbols + 0}, 1, 41, 17, 0, -47},
     {{.elements = tiny_elements + 2, .hw = tiny_symbols + 1}, 21, 41, 37, 0, -47},
 };
-static const glyph_array_t tiny_ranges[] = {{'a', 2, tiny_glyphs}, {0, 0, 0}};
+static const dgx_glyph_array_t tiny_ranges[] = {{'a', 2, tiny_glyphs}, {0, 0, 0}};
 static const dgx_hw_font_t tiny_hw = {"tiny", 1, 139, 58, 16, 40, 66, 48, 100, 202};
-static dgx_font_t          tiny = {.glyph_ranges = tiny_ranges, .yAdvance = 202, .f_type = DGX_FONT_HW, .number_of_ranges = 1, .hw = &tiny_hw};
+static dgx_font_t          tiny = {.glyph_ranges = tiny_ranges, .y_advance = 202, .f_type = DGX_FONT_HW, .number_of_ranges = 1, .hw = &tiny_hw};
 
 static int ink(dgx_screen_t *s)
 {
@@ -61,7 +64,7 @@ static int ink(dgx_screen_t *s)
 
 int main(void)
 {
-    dgx_font_t     *font = font0ss();
+    const dgx_font_t     *font = &font0ss;
     dgx_hw_stroke_t s[64];
     int             n;
 
@@ -129,7 +132,7 @@ int main(void)
     CHECK(hyphen->main_segments == 1 && pace.piece == 5);
     {
         int16_t        adv;
-        const glyph_t *g = dgx_font_find_glyph('-', font, &adv);
+        const dgx_glyph_t *g = dgx_font_glyph(font, '-', &adv);
         CHECK(fabsf(pace.least - (g->elements[0].length * 0.01f + 5 * g->elements[0].pieces)) < 0.001f);
     }
     CHECK(dgx_hw_pace(&tiny, 0).least == 58 * 2 / 3.0f);
@@ -140,9 +143,9 @@ int main(void)
             {DGX_HW_LINE, 1, 1000, 10, {{45, 150}, {55, 150}}},
         };
         static const dgx_hw_symbol_t dash_symbol    = {0, 2, 0, 0, 45, -10, -9, 10, 55, 10, 55, 45, DGX_HW_NONE, DGX_HW_NONE, 50, 0, 5};
-        static const glyph_t         dash_glyph     = {{.elements = dash_elements, .hw = &dash_symbol}, 1, 45, 50, 0, -10};
-        static const glyph_array_t   dash_ranges[]  = {{'-', 1, &dash_glyph}, {0, 0, 0}};
-        static dgx_font_t            dash = {.glyph_ranges = dash_ranges, .yAdvance = 202, .f_type = DGX_FONT_HW, .number_of_ranges = 1, .hw = &tiny_hw};
+        static const dgx_glyph_t         dash_glyph     = {{.elements = dash_elements, .hw = &dash_symbol}, 1, 45, 50, 0, -10};
+        static const dgx_glyph_array_t   dash_ranges[]  = {{'-', 1, &dash_glyph}, {0, 0, 0}};
+        static dgx_font_t            dash = {.glyph_ranges = dash_ranges, .y_advance = 202, .f_type = DGX_FONT_HW, .number_of_ranges = 1, .hw = &tiny_hw};
         CHECK(fabsf(dgx_hw_pace(&dash, 0).least - 40) < 0.001f);
         CHECK(fabsf(dgx_hw_pace(&dash, 2).least - 44) < 0.001f);
     }
@@ -240,7 +243,7 @@ int main(void)
     /* a font of another kind, any size and any place: nothing is written and nothing breaks */
     {
         dgx_screen_t    *scr = dgx_vscreen_init(W, H, 8, DgxScreenRGB);
-        dgx_font_t      *other = TerminusTTFMedium12();
+        const dgx_font_t      *other = &TerminusTTFMedium12;
         dgx_hw_writing_t w;
         int              left = 7, top, right, bottom;
         CHECK(!dgx_hw_text_box(other, "abc", &left, &top, &right, &bottom) && left == 7);
@@ -319,3 +322,5 @@ int main(void)
     }
     CHECK_DONE();
 }
+
+DGX_DEPRECATED_USE_END

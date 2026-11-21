@@ -88,7 +88,7 @@ text {title}
     outdir = os.path.join(work, "out")
     h = open(os.path.join(outdir, "dgx_fonts.h"), encoding="utf-8").read()
     c = open(os.path.join(outdir, "dgx_fonts.c"), encoding="utf-8").read()
-    for line in ("dgx_font_t *dgx_font_text(void);", "#define DGX_FONT_TEXT_MADE 1", "#define DGX_FONT_TEXT_PX 48", "#define DGX_FONT_HAND_MADE 0",
+    for line in ("extern const dgx_font_t dgx_font_text;", "#define dgx_font_text() DGX_FONT_CALLED(dgx_font_text)", "#define DGX_FONT_TEXT_MADE 1", "#define DGX_FONT_TEXT_PX 48", "#define DGX_FONT_HAND_MADE 0",
                  "#define DGX_FONT_TIME_MADE 0", "#define DGX_FONT_KEYS_MM 4", "#define DGX_FONT_TITLE_MM 4.5", "#define DGX_FONT_TITLE_PX 27",
                  "#define DGX_FONT_NEEDS(X) X(title) X(text) X(hand) X(time) X(keys) X(same)", "#define DGX_FONTS_BOARD_WIDTH_MM 217",
                  "#define DGX_FONTS_SCALE 4"):
@@ -97,10 +97,11 @@ text {title}
     check("#define DGX_FONT_KEYS_PX 24" in h and "#define DGX_FONT_SAME_PX 24" in h, "4 mm is 24 px on this board")
     arrays = re.findall(r"^static const uint8_t (\w+)_bitmaps\[\]", c, re.M)
     check(sorted(arrays) == ["DejaVuSansBook24", "DejaVuSansMonoBook27", "DejaVuSansMonoBook48"], f"three fonts made for six needs: {arrays}")
-    check("dgx_font_t *dgx_font_same(void)\n{\n    return dgx_font_keys();\n}" in c, "keys and same share one font, same being a function of keys'")
+    check("#define dgx_font_same dgx_font_keys" in h and "const dgx_font_t dgx_font_same" not in c,
+          "keys and same share one font, same being another name of keys'")
     check("static const uint8_t bitmaps[]" not in c, "the arrays are named by the font")
-    check('#include "fonts/font0ss.h"' in h and "dgx_font_t *TerminusTTFMedium12(void);" in h, "fonts as they are are declared in the header")
-    check("#define dgx_font_hand font0ss" in h and "#define dgx_font_time TerminusTTFMedium12" in h, "fonts as they are are macros of their own functions")
+    check('#include "fonts/font0ss.h"' in h and "extern const dgx_font_t TerminusTTFMedium12;" in h, "fonts as they are are declared in the header")
+    check("#define dgx_font_hand font0ss" in h and "#define dgx_font_time TerminusTTFMedium12" in h, "fonts as they are are macros of their own names")
     check("return font0ss();" not in c, "no adapter of a font as it is in the C: the library of DGX does not refer to the program")
     # the letters of the text need are exactly the letters of its .po, no ASCII thrown in
     code, letters, err = tool("letters", po)
@@ -199,7 +200,7 @@ def test_twice(work):
     check(code == 0, f"a need told twice with one font: {err.strip()}")
     if code == 0:
         h = open(os.path.join(work, "out", "dgx_fonts.h"), encoding="utf-8").read()
-        check(h.count("dgx_font_t *dgx_font_title(void);") == 1 and "#define DGX_FONT_NEEDS(X) X(title) X(hand)" in h, "one need in the header")
+        check(h.count("extern const dgx_font_t dgx_font_title;") == 1 and "#define DGX_FONT_NEEDS(X) X(title) X(hand)" in h, "one need in the header")
         code, text, err = tool("json", os.path.join(work, "out", "dgx_fonts.c"), "--font", "dgx_font_title")
         if code == 0:
             glyphs = {chr(int(k)) for k in json.loads(text)["glyphs"]}
@@ -222,10 +223,11 @@ def test_lists(work):
     if code == 0:
         h = open(os.path.join(out, "dgx_fonts.h"), encoding="utf-8").read()
         c = open(os.path.join(out, "dgx_fonts.c"), encoding="utf-8").read()
-        check("dgx_font_t *widgets_title(void);" in h and "dgx_font_t *dgx_fonts_DejaVuSansBook30(void);" in h, "the functions of the list are declared")
+        check("#define widgets_title dgx_font_keys" in h and "extern const dgx_font_t dgx_fonts_DejaVuSansBook30;" in h,
+              "the fonts of the list are declared")
         check("#define DGX_FONT_NEEDS(X) X(keys)" in h, "the list's fonts are no needs")
-        # keys and widgets_title are one face at 24 px: one font, two functions
-        check(len(re.findall(r"^static const uint8_t DejaVuSansBook24_bitmaps\[\]", c, re.M)) == 1 and "return dgx_font_keys();" in c,
+        # keys and widgets_title are one face at 24 px: one font, two names
+        check(len(re.findall(r"^static const uint8_t DejaVuSansBook24_bitmaps\[\]", c, re.M)) == 1 and "#define widgets_title dgx_font_keys" in h,
               "a font of the list and a need of the same face and size are one font")
         check("widgets_title: from a list" in told, f"the list's fonts are told: {told.strip()}")
     # the list alone through font2c, as a project without the needs may run it
@@ -234,8 +236,32 @@ def test_lists(work):
     check(run.returncode == 0 and os.path.exists(os.path.join(work, "alone.h")), f"font2c -jo alone: {run.stderr.strip()}")
     if run.returncode == 0:
         h = open(os.path.join(work, "alone.h"), encoding="utf-8").read()
-        check("dgx_font_t *widgets_title(void);" in h and "dgx_font_t *alone_DejaVuSansBook30(void);" in h, "the functions of the list alone")
+        check("extern const dgx_font_t widgets_title;" in h and "extern const dgx_font_t alone_DejaVuSansBook30;" in h, "the fonts of the list alone")
 
+
+
+def test_file_before_0_12(work):
+    """A font of the program made by font2c before DGX 0.12, a function then and not a constant: its need is taken by
+    the call of then, dgx_font_<need>(), and the tool says to make the font again."""
+    d = os.path.join(work, "before")
+    os.makedirs(d, exist_ok=True)
+    text = open(os.path.join(DGX, "src", "fonts", "TerminusTTFMedium12.c"), encoding="utf-8").read()
+    m = re.search(r"const dgx_font_t (\w+) = \{(.*?)\};", text, re.S)
+    names = {"y_advance": "yAdvance", "y_offset_lowest": "yOffsetLowest", "x_widest": "xWidest", "x_width_average": "xWidthAverage",
+             "y_bottom_max": "yBottomMax", "x_offset_lowest": "xOffsetLowest", "x_right_max": "xRightMax"}
+    body = re.sub(r"\.(\w+) =", lambda f: "." + names.get(f.group(1), f.group(1)) + " =", m.group(2))
+    old = text[:m.start()] + f"dgx_font_t* {m.group(1)}() {{\n\tstatic dgx_font_t rval = {{{body}}};\n\treturn &rval;\n}}" + text[m.end():]
+    old = old.replace("dgx_glyph_array_t", "glyph_array_t").replace("dgx_glyph_t", "glyph_t")
+    path = os.path.join(d, "Old12.c")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(old)
+    code, out, err = build(d, f"need clock\nfile {path}\nletters 0123456789\n")
+    check(code == 0, f"a font of before 0.12 as a file: {err.strip()}")
+    if code == 0:
+        h = open(os.path.join(d, "out", "dgx_fonts.h"), encoding="utf-8").read()
+        check("dgx_font_t *TerminusTTFMedium12(void);" in h and "#define dgx_font_clock() TerminusTTFMedium12()" in h
+              and "extern const dgx_font_t TerminusTTFMedium12;" not in h, "a font of before 0.12 is taken by the call of then")
+        check("made by font2c before DGX 0.12" in out, f"the tool tells to make it again: {out.strip()}")
 
 def bdf_font(path, px):
     """A bitmap font of BDF, of its one size px: the letters A and B, frames of 10 x px pixels."""
@@ -262,7 +288,7 @@ def test_bitmap_font_in_a_list(work):
     if code == 0:
         h = open(os.path.join(out, "dgx_fonts.h"), encoding="utf-8").read()
         used = open(os.path.join(out, "fonts-used.txt"), encoding="utf-8").read()
-        check("dgx_font_t *bitmap_font(void);" in h and glyphs_of(os.path.join(out, "dgx_fonts.c"), "bitmap_font") == {"A", "B"},
+        check("extern const dgx_font_t bitmap_font;" in h and glyphs_of(os.path.join(out, "dgx_fonts.c"), "bitmap_font") == {"A", "B"},
               "the function of the BDF is declared and has its two letters")
         check("copyright: Copyright (c) 2026 the test" in used, f"fonts-used.txt has the COPYRIGHT of the BDF: {used}")
     # a size the bitmaps have not: font2c names the sizes they have, where it made the font of their own size under the
@@ -480,8 +506,8 @@ def test_font2c_lines(work):
     run = subprocess.run([font2c, "-jo", os.path.join(work, "plain.list"), "-o", os.path.join(work, "plain")], capture_output=True, text=True)
     h = open(os.path.join(work, "plain.h"), encoding="utf-8").read() if run.returncode == 0 else ""
     c = open(os.path.join(work, "plain.c"), encoding="utf-8").read() if run.returncode == 0 else ""
-    check("dgx_font_t *digits(void);" in h and "dgx_font_t *plain_DejaVuSansBook24(void);" in h and "return digits();" in c,
-          f"a line without -n keeps its function beside the -n name: {run.stderr.strip()}")
+    check("extern const dgx_font_t digits;" in h and "#define plain_DejaVuSansBook24 digits" in h and "const dgx_font_t digits =" in c,
+          f"a line without -n keeps its name beside the -n name: {run.stderr.strip()}")
 
 
 def soft_glyph(c_text, code_point, depth):
@@ -811,10 +837,11 @@ endif()
         check(run.returncode == 0, f"build: {(run.stdout + run.stderr).strip()[-800:]}")
         if run.returncode == 0:
             h = open(os.path.join(build_dir, "dgx_fonts", "dgx_fonts.h"), encoding="utf-8").read()
-            check("dgx_font_t *dgx_font_brackets(void);" in h and "dgx_font_t *dgx_font_fromfile(void);" in h and "dgx_font_t *widget(void);" in h,
-                  "the three fonts of the three ways are in the header")
-            check("dgx_font_t *dgx_font_soft(void);" in h and "4 bits a pixel" in h, "the font of BITS 4 is in the header, its depth told")
-            check("dgx_font_t *dgx_font_softfile(void);" in h and any(l.startswith("/* softfile:") and "4 bits a pixel" in l for l in h.splitlines()),
+            # a font is declared as its constant, or as another name of a font made once
+            declared = lambda name: f"extern const dgx_font_t {name};" in h or re.search(rf"^#define {name} \w+$", h, re.M) is not None
+            check(declared("dgx_font_brackets") and declared("dgx_font_fromfile") and declared("widget"), "the three fonts of the three ways are in the header")
+            check(declared("dgx_font_soft") and "4 bits a pixel" in h, "the font of BITS 4 is in the header, its depth told")
+            check(declared("dgx_font_softfile") and any(l.startswith("/* softfile:") and "4 bits a pixel" in l for l in h.splitlines()),
                   "the font of bits 4 in a needs file is in the header, its depth told")
             c = os.path.join(build_dir, "dgx_fonts", "dgx_fonts.c")
             # the three are one face at 12 px, so one font with the characters of all three
@@ -938,6 +965,7 @@ def main():
         test_build(work)
         test_mistakes(work)
         test_needs_file(work)
+        test_file_before_0_12(work)
         test_twice(work)
         test_lists(work)
         test_bitmap_font_in_a_list(work)

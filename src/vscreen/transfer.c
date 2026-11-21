@@ -231,15 +231,15 @@ static bool dgx_vscreen_in_place_to_bus(dgx_screen_t *dst, int x_dst, int y_dst,
 {
     if (!dgx_transfer_bus_takes(dst, bytes)) return false;
     if (width != scr_src->base.width && height != 1) return false;
-    if (!dst->set_area || !dst->write_area || !dst->wait_buffer) return false;
+    if (!dst->set_area || !dst->write_area || !dst->wait) return false;
     dgx_bus_protocols_t *bus  = ((dgx_screen_with_bus_t *)dst)->bus;
     uint8_t             *from = DGX_VSCR_PTR(scr_src, DGX_VSCR_OFFSET(scr_src, x_src, y_src));
     const uint32_t       len  = (uint32_t)width * (uint32_t)height * bytes;
     if (!dgx_vscreen_bus_sends(bus, from, len)) return false;
-    dst->wait_buffer(dst);
+    dst->wait(dst);
     dst->set_area(dst, (uint16_t)x_dst, (uint16_t)(x_dst + width - 1), (uint16_t)y_dst, (uint16_t)(y_dst + height - 1));
     dst->write_area(dst, from, len * 8u);
-    dst->wait_buffer(dst);
+    dst->wait(dst);
     return dgx_vscreen_bus_sends(bus, from, len);
 }
 
@@ -436,7 +436,7 @@ static bool dgx_transfer_turned_to_bus(dgx_screen_t *dst, const dgx_transfer_pla
     const dgx_vscreen_t *scr_src = (const dgx_vscreen_t *)src;
     dgx_bus_protocols_t *bus     = ((dgx_screen_with_bus_t *)dst)->bus;
     const size_t         pitch   = (size_t)src->width * bip;
-    if (!bus->buffer || bus->buffer_len < bip || !dst->set_area || !dst->write_area || !dst->wait_buffer) return false;
+    if (!bus->buffer || bus->buffer_len < bip || !dst->set_area || !dst->write_area || !dst->wait) return false;
     const bool swapped = p->turn & 4u, x_back = p->turn & 1u, y_back = p->turn & 2u;
     dgx_vscreen_halves_t halves;
     dgx_vscreen_halves_window(&halves, dst, p->x, p->y, p->w, p->h, (uint32_t)bip);
@@ -954,10 +954,11 @@ static void dgx_transfer_rows(dgx_screen_t *dst, const dgx_transfer_place_t *p, 
  * A screen put onto itself made larger or turned would read rows it has
  * already put. The part of it the place shows, with the pixels around it
  * that smoothing looks at, is put aside into a screen of its own first, and
- * the transfer is made from there. Returns false when the place does not
- * cover any of that, and nothing needs to be put aside.
+ * the transfer is made from there. Returns ESP_ERR_NOT_FOUND when the place
+ * does not cover any of that, and nothing needs to be put aside; else how
+ * the transfer went.
  */
-static bool dgx_transfer_aside(dgx_screen_t *scr, int x_dst, int y_dst, int x_src, int y_src, int width, int height, uint32_t flags,
+static esp_err_t dgx_transfer_aside(dgx_screen_t *scr, int x_dst, int y_dst, int x_src, int y_src, int width, int height, uint32_t flags,
                                const dgx_transfer_asked_t *asked, const dgx_transfer_place_t *p)
 {
     /* the place along the columns and the rows of the larger picture, flipped back as the turn flipped them */
@@ -977,39 +978,42 @@ static bool dgx_transfer_aside(dgx_screen_t *scr, int x_dst, int y_dst, int x_sr
     const int     x0 = cl / n - reach > 0 ? (int)(cl / n - reach) : 0, y0 = rl / n - reach > 0 ? (int)(rl / n - reach) : 0;
     const int     x1 = (ch + n - 1) / n + reach < scr->width ? (int)((ch + n - 1) / n + reach) : scr->width;
     const int     y1 = (rh + n - 1) / n + reach < scr->height ? (int)((rh + n - 1) / n + reach) : scr->height;
-    if (x1 <= p->x || p->x + p->w <= x0 || y1 <= p->y || p->y + p->h <= y0) return false;
+    if (x1 <= p->x || p->x + p->w <= x0 || y1 <= p->y || p->y + p->h <= y0) return ESP_ERR_NOT_FOUND;
     dgx_screen_t *aside = dgx_vscreen_init(x1 - x0, y1 - y0, scr->color_bits, scr->rgb_order);
     if (!aside) {
         ESP_LOGE(TAG, "no memory to put aside %dx%d pixels of a screen put onto itself", x1 - x0, y1 - y0);
-        return true;
+        return ESP_ERR_NO_MEM;
     }
-    dgx_vscreen_region_to_screen(aside, 0, 0, scr, x0, y0, x1 - x0, y1 - y0, 0u);
+    esp_err_t err = dgx_vscreen_region_to_screen(aside, 0, 0, scr, x0, y0, x1 - x0, y1 - y0, 0u);
     /* the region where it now lies: every pixel of it lands where it would have, and what is not aside the place did not show */
-    dgx_vscreen_region_to_screen(scr, x_dst, y_dst, aside, x_src - x0, y_src - y0, width, height, flags);
+    if (err == ESP_OK) err = dgx_vscreen_region_to_screen(scr, x_dst, y_dst, aside, x_src - x0, y_src - y0, width, height, flags);
     dgx_screen_destroy(&aside);
-    return true;
+    return err;
 }
 
-void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width, int height,
-                                  uint32_t flags)
+esp_err_t dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width,
+                                       int height, uint32_t flags)
 {
     if (_scr_dst->color_bits != _scr_src->color_bits) {
         ESP_LOGE(TAG, "dgx_vscreen_to_screen: source color bits %d != destination %d", _scr_src->color_bits, _scr_dst->color_bits);
-        return;
+        return ESP_ERR_INVALID_ARG;
     }
     if (!dgx_transfer_virtual(_scr_src)) {
         ESP_LOGE(TAG, "dgx_vscreen_to_screen: source is not virtual");
-        return;
+        return ESP_ERR_INVALID_ARG;
     }
     const dgx_transfer_asked_t asked = dgx_transfer_asked(flags);
     dgx_transfer_place_t       p;
-    if (!dgx_transfer_place(_scr_dst, _scr_src, x_dst, y_dst, x_src, y_src, width, height, &asked, &p)) return;
+    if (!dgx_transfer_place(_scr_dst, _scr_src, x_dst, y_dst, x_src, y_src, width, height, &asked, &p)) return ESP_OK;
     /* the alpha of the transfer: what lies under is read where the destination can be, black under it elsewhere */
     const dgx_alpha_t  alpha_of = {.weight = asked.weight, .read = dgx_screen_is_readable(_scr_dst)};
     const dgx_alpha_t *alpha    = asked.weight < 32u ? &alpha_of : NULL;
-    if (alpha && !alpha->weight && alpha->read) return; /* nothing of the picture, and what lies under stays */
-    if (_scr_dst == _scr_src && (p.scale > 1 || p.turn) && dgx_transfer_aside(_scr_dst, x_dst, y_dst, x_src, y_src, width, height, flags, &asked, &p))
-        return;
+    if (alpha && !alpha->weight && alpha->read) return ESP_OK; /* nothing of the picture, and what lies under stays */
+    if (_scr_dst == _scr_src && (p.scale > 1 || p.turn)) {
+        const esp_err_t aside = dgx_transfer_aside(_scr_dst, x_dst, y_dst, x_src, y_src, width, height, flags, &asked, &p);
+        if (aside != ESP_ERR_NOT_FOUND) return aside;
+    }
+    esp_err_t err = ESP_OK;
     /* the overlay layer of a 16-bit screen over the rectangle is mixed in on the way */
     const dgx_bus_overlay_t *over = _scr_dst->color_bits == 16 ? dgx_overlay_over(_scr_dst, p.x, p.y, p.x + p.w - 1, p.y + p.h - 1) : NULL;
     dgx_screen_batch_begin(_scr_dst);
@@ -1037,31 +1041,34 @@ void dgx_vscreen_region_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, 
         if (dgx_transfer_rows_begin(&t, &p, NULL, &source, asked.smooth, bytes)) {
             dgx_transfer_rows(_scr_dst, &p, &t, asked.transparent, over, alpha);
             free(t.scratch);
+        } else {
+            err = ESP_ERR_NO_MEM;
         }
     }
     dgx_screen_touch(_scr_dst, p.x, p.x + p.w - 1, p.y, p.y + p.h - 1);
     dgx_screen_batch_end(_scr_dst);
+    return err;
 }
 
-void dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint32_t flags)
+esp_err_t dgx_vscreen_to_screen(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, uint32_t flags)
 {
-    dgx_vscreen_region_to_screen(_scr_dst, x_dst, y_dst, _scr_src, 0, 0, _scr_src->width, _scr_src->height, flags);
+    return dgx_vscreen_region_to_screen(_scr_dst, x_dst, y_dst, _scr_src, 0, 0, _scr_src->width, _scr_src->height, flags);
 }
 
-void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width,
-                                     int height, const uint16_t *lut, uint32_t flags)
+esp_err_t dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, int x_src, int y_src, int width,
+                                          int height, const uint16_t *lut, uint32_t flags)
 {
     if (_scr_dst->color_bits != 16 || _scr_src->color_bits != 8) {
         ESP_LOGE(TAG, "vscreen8_to_screen16: source color bits %d != 8 or destination %d != 16", _scr_src->color_bits, _scr_dst->color_bits);
-        return;
+        return ESP_ERR_INVALID_ARG;
     }
     if (!dgx_transfer_virtual(_scr_src) || !dgx_vscreen_is_linear(_scr_src)) {
         ESP_LOGE(TAG, "vscreen8_to_screen16: source is not a virtual screen of rows of bytes");
-        return;
+        return ESP_ERR_INVALID_ARG;
     }
     const dgx_transfer_asked_t asked = dgx_transfer_asked(flags);
     dgx_transfer_place_t       p;
-    if (!dgx_transfer_place(_scr_dst, _scr_src, x_dst, y_dst, x_src, y_src, width, height, &asked, &p)) return;
+    if (!dgx_transfer_place(_scr_dst, _scr_src, x_dst, y_dst, x_src, y_src, width, height, &asked, &p)) return ESP_OK;
     /*
      * The alpha of the transfer. Over black, on a display that cannot be read, it is in the colors of the table, and
      * every way of the transfer puts them as they are; where the destination is read, every pixel is mixed.
@@ -1084,12 +1091,12 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
             unders[i] = (uint8_t)(32u - w);
             any |= w;
         }
-        if (!any) return; /* nothing of the ink, and what lies under stays */
+        if (!any) return ESP_OK; /* nothing of the ink, and what lies under stays */
         alpha_of.unders = unders;
         alpha_of.ink    = lut[255];
         lut             = dgx_alpha_indices();
     } else if (alpha && !alpha->weight) {
-        return; /* nothing of the picture, and what lies under stays */
+        return ESP_OK; /* nothing of the picture, and what lies under stays */
     }
     if (asked.weight < 32u && !alpha_of.read) {
         dgx_alpha_lut(faded, lut, asked.weight);
@@ -1143,18 +1150,22 @@ void dgx_vscreen8_region_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_ds
         dgx_transfer8_upright_pixels(_scr_dst, &p, &picture, alpha);
         done = true;
     }
+    esp_err_t err = ESP_OK;
     if (!done) {
         dgx_transfer_rows_t t;
         if (dgx_transfer_rows_begin(&t, &p, &picture, NULL, asked.smooth, 2u)) {
             dgx_transfer_rows(_scr_dst, &p, &t, asked.transparent, picture.overlay, alpha);
             free(t.scratch);
+        } else {
+            err = ESP_ERR_NO_MEM;
         }
     }
     dgx_screen_touch(_scr_dst, p.x, p.x + p.w - 1, p.y, p.y + p.h - 1);
     dgx_screen_batch_end(_scr_dst);
+    return err;
 }
 
-void dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, const uint16_t *lut, uint32_t flags)
+esp_err_t dgx_vscreen8_to_screen16(dgx_screen_t *_scr_dst, int x_dst, int y_dst, dgx_screen_t *_scr_src, const uint16_t *lut, uint32_t flags)
 {
-    dgx_vscreen8_region_to_screen16(_scr_dst, x_dst, y_dst, _scr_src, 0, 0, _scr_src->width, _scr_src->height, lut, flags);
+    return dgx_vscreen8_region_to_screen16(_scr_dst, x_dst, y_dst, _scr_src, 0, 0, _scr_src->width, _scr_src->height, lut, flags);
 }

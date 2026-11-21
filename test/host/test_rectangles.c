@@ -5,7 +5,7 @@
 #include "check.h"
 #include "dgx_draw.h"
 #include "dgx_screen_functions.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 /*
  * The outline of a rectangle and the rectangles with round corners, checked
@@ -213,7 +213,7 @@ int main(void)
         static uint8_t circle[H][W];
         for (int solid = 0; solid < 2; ++solid) {
             start();
-            if (solid) dgx_solid_circle(scr, 200, 190, r, 7);
+            if (solid) dgx_fill_circle(scr, 200, 190, r, 7);
             else dgx_draw_circle(scr, 200, 190, r, 7);
             memcpy(circle, canvas, sizeof(canvas));
             start();

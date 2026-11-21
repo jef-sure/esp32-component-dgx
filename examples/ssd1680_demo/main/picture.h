@@ -96,7 +96,7 @@ static void expected_bar(dgx_screen_t *scr, int way, int cx, int cy, int u, int 
 static void panel_text(dgx_screen_t *scr, dgx_screen_t *aside, int px, int py, const char *text)
 {
     dgx_fill_rectangle(aside, 0, 0, aside->width, aside->height, 0);
-    const dgx_font_context_t tiny = {.scr = aside, .font = GLCD5x7(), .color = 1};
+    const dgx_font_context_t tiny = {.scr = aside, .font = &GLCD5x7, .color = 1};
     dgx_font_draw(&tiny, 0, 7, text);
     for (int j = 0; j < aside->height; ++j) {
         for (int i = 0; i < aside->width; ++i) {
@@ -162,8 +162,8 @@ static void picture_landscape(dgx_screen_t *scr)
     dgx_draw_line(scr, 0, 0, 0, h - 1, INK);
     dgx_draw_line(scr, w - 1, 0, w - 1, h - 1, INK);
     /* y of a text is its base line */
-    const dgx_font_context_t big   = {.scr = scr, .font = DejaVuSansBook32(), .color = INK};
-    dgx_font_context_t       small = {.scr = scr, .font = TerminusTTFMedium12(), .color = INK};
+    const dgx_font_context_t big   = {.scr = scr, .font = &DejaVuSansBook32, .color = INK};
+    dgx_font_context_t       small = {.scr = scr, .font = &TerminusTTFMedium12, .color = INK};
     dgx_font_draw(&big, 8, 34, "DGX SSD1680");
     const int along = dgx_font_draw(&small, 8, 56, "black, white and ");
     small.color     = RED;
@@ -182,6 +182,6 @@ static void picture_landscape(dgx_screen_t *scr)
     dgx_draw_line(scr, 196, 76, 280, 116, INK);
     dgx_draw_line(scr, 196, 116, 280, 76, RED);
     snprintf(text, sizeof(text), "b%d", BUILD);
-    const dgx_font_context_t tiny = {.scr = scr, .font = GLCD5x7(), .color = INK};
+    const dgx_font_context_t tiny = {.scr = scr, .font = &GLCD5x7, .color = INK};
     dgx_font_draw(&tiny, 8, h - 8, text);
 }

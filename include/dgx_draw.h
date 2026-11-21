@@ -10,6 +10,7 @@
 
 #include "esp_err.h"
 
+#include "dgx_deprecated.h"
 #include "dgx_screen.h"
 
 #ifdef __cplusplus
@@ -789,8 +790,12 @@ uint32_t dgx_draw_line_mask(dgx_screen_t *scr, int x1, int y1, int x2, int y2, u
  * @param texture Source screen.
  * @param tx,ty   Top-left corner of the texture region.
  * @param tw,th   Size of the texture region; it must lie inside the texture.
+ * @return ESP_OK, also when nothing of it falls on the screen; ESP_ERR_INVALID_ARG for a texture of another depth, a
+ *         region outside it, or a region or quad too large for 16.16 fixed point; ESP_ERR_NOT_SUPPORTED for a screen
+ *         without windows, a texture that cannot be read or a depth of no whole bytes; ESP_ERR_NO_MEM when a screen
+ *         without a buffer of its bus gets no memory for a row.
  */
-void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_screen_t *texture, int tx, int ty, int tw, int th);
+esp_err_t dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_screen_t *texture, int tx, int ty, int tw, int th);
 
 /**
  * @brief Scales a rectangular region of a texture into a rectangle on the screen.
@@ -803,20 +808,37 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
  * @param texture Source screen.
  * @param tx,ty   Top-left corner of the texture region.
  * @param tw,th   Size of the texture region.
+ * @return As dgx_draw_texture_quad().
  */
-void dgx_draw_texture_rect(dgx_screen_t *scr, int x, int y, int w, int h, dgx_screen_t *texture, int tx, int ty, int tw, int th);
+esp_err_t dgx_draw_texture_rect(dgx_screen_t *scr, int x, int y, int w, int h, dgx_screen_t *texture, int tx, int ty, int tw, int th);
 
 /*
- * Deprecated names. Filled figures used to be named three ways, dgx_fill_*,
- * dgx_solid_* and dgx_draw_*_solid, and are all dgx_fill_* now; the thick
- * line is named as the thick segment is. Each deprecated name is the new
- * function: a call and a pointer to it compile as they did.
+ * Deprecated names, gone in DGX 1.0. Filled figures used to be named three
+ * ways, dgx_fill_*, dgx_solid_* and dgx_draw_*_solid, and are all dgx_fill_*
+ * now; the thick line is named as the thick segment is.
  */
-#define dgx_solid_circle        dgx_fill_circle
-#define dgx_solid_sector        dgx_fill_sector
-#define dgx_draw_triangle_solid dgx_fill_triangle
-#define dgx_draw_polygon4_solid dgx_fill_polygon4
-#define dgx_draw_line_thick     dgx_draw_thick_line
+DGX_DEPRECATED("use dgx_fill_circle()")
+static inline void dgx_solid_circle(dgx_screen_t *scr, int x, int y, int r, uint32_t color) { dgx_fill_circle(scr, x, y, r, color); }
+DGX_DEPRECATED("use dgx_fill_sector()")
+static inline void dgx_solid_sector(dgx_screen_t *scr, int x, int y, int rx, int ry, float from, float to, uint32_t color)
+{
+    dgx_fill_sector(scr, x, y, rx, ry, from, to, color);
+}
+DGX_DEPRECATED("use dgx_fill_triangle()")
+static inline void dgx_draw_triangle_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color)
+{
+    dgx_fill_triangle(scr, x0, y0, x1, y1, x2, y2, color);
+}
+DGX_DEPRECATED("use dgx_fill_polygon4()")
+static inline void dgx_draw_polygon4_solid(dgx_screen_t *scr, int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3, uint32_t color)
+{
+    dgx_fill_polygon4(scr, x0, y0, x1, y1, x2, y2, x3, y3, color);
+}
+DGX_DEPRECATED("use dgx_draw_thick_line()")
+static inline void dgx_draw_line_thick(dgx_screen_t *scr, int x1, int y1, int x2, int y2, int width, uint32_t color)
+{
+    dgx_draw_thick_line(scr, x1, y1, x2, y2, width, color);
+}
 
 #ifdef __cplusplus
 // @formatter:off

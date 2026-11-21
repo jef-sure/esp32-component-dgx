@@ -169,7 +169,7 @@ static dgx_screen_t *panel_screen(panel_t *p, uint8_t bits)
     lcd->width = DW, lcd->height = DH, lcd->color_bits = bits, lcd->screen_subtype = DgxPhysicalScreenWithBus;
     /* the rectangles and the pixels of every display behind a bus, into the window of this one */
     dgx_scr_init_slow_bus_optimized_funcs(lcd);
-    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait_buffer = panel_wait;
+    lcd->set_area = panel_set_area, lcd->write_area = panel_write_area, lcd->wait = panel_wait;
     lcd->update_screen = record;
     return lcd;
 }
@@ -357,11 +357,11 @@ static void test_icon(void)
     static const uint8_t bits[]  = {0xff, 0x81, 0x99, 0x81, 0xff};
     const dgx_image_t    icon    = {.width = 8, .height = 5, .format = DGX_IMAGE_1BPP, .data = bits};
     dgx_screen_t        *display = panel_screen(&panel, 16);
-    dgx_screen_progress_up(display);
+    dgx_screen_batch_begin(display);
     dgx_fill_rectangle(display, 10, 10, 8, 5, 0x0010);
     CHECK(dgx_image_blit(display, 10, 10, &icon, &(dgx_image_blit_t){.color = 0xffe0}) == ESP_OK);
     calls = 0;
-    dgx_screen_progress_down(display);
+    dgx_screen_batch_end(display);
     panel_wait(display);
     CHECK(calls == 1 && last_l == 10 && last_r == 17 && last_t == 10 && last_b == 14);
     for (int y = 0; y < 5; ++y) {

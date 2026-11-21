@@ -86,7 +86,7 @@ static void scene_text(void)
     dgx_font_context_t large = small; /* the same, every pixel of the font as 3 x 3 */
     large.scale              = 3;
     dgx_font_draw(&large, 3, 40, "DGX");
-    const dgx_font_context_t dim = {.scr = scr, .font = DejaVuSansBook32(), .color = gray(10)};
+    const dgx_font_context_t dim = {.scr = scr, .font = &DejaVuSansBook32, .color = gray(10)};
     dgx_font_draw(&dim, 70, 52, "16 grays");
     dgx_screen_batch_end(scr);
 }
@@ -128,13 +128,13 @@ void app_main(void)
         ESP_LOGE(TAG, "the P8 bus did not come up");
         return;
     }
-    scr = dgx_ssd1322_init(bus, DGX_SSD1322_256X64, PIN_RST);
+    scr = dgx_ssd1322_init(bus, PIN_RST, DGX_SSD1322_256X64);
     if (!scr) {
         ESP_LOGE(TAG, "the SSD1322 screen did not come up");
         return;
     }
     ESP_LOGI(TAG, "build %d, SSD1322 up: %dx%d, %u bits a pixel", BUILD, scr->width, scr->height, scr->color_bits);
-    small = (dgx_font_context_t){.scr = scr, .font = GLCD5x7(), .color = gray(15)};
+    small = (dgx_font_context_t){.scr = scr, .font = &GLCD5x7, .color = gray(15)};
     dgx_ssd1322_contrast(scr, 0x9f);
     dgx_ssd1322_brightness(scr, 15);
 

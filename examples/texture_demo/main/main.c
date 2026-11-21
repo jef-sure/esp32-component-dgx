@@ -104,7 +104,7 @@ static void card_corners(dgx_point_2d_t quad[4], float cx, float cy, const motio
 /* A text of the handwritten font fitted into a box of the card, in its middle. */
 static void write_in(dgx_screen_t *card, const char *text, int x, int y, int w, int h, int pen, uint32_t color)
 {
-    dgx_font_t *font = font0ss();
+    const dgx_font_t *font = &font0ss;
     int         left, top, right, bottom;
     if (!dgx_hw_text_box(font, text, &left, &top, &right, &bottom)) return;
     float by_width = (float)(w - pen) / (right - left + 1);
@@ -130,11 +130,11 @@ static void draw_card(dgx_screen_t *card)
     uint32_t       red = dgx_rgb_to_16(240, 70, 70);
     int            cx = CARD_W - 13, cy = 14, r = 6;
     int16_t        advance;
-    const glyph_t *c = dgx_font_find_glyph('C', DroidSansRegular9(), &advance);
+    const dgx_glyph_t *c = dgx_font_glyph(&DroidSansRegular9, 'C', &advance);
     if (c) {
         /* the letter is put by its base line: its box goes around the middle of the circle */
-        const dgx_font_context_t sign = {.scr = card, .font = DroidSansRegular9(), .color = red};
-        dgx_font_draw_char(&sign, cx - c->xOffset - c->width / 2, cy - c->yOffset - c->height / 2, 'C');
+        const dgx_font_context_t sign = {.scr = card, .font = &DroidSansRegular9, .color = red};
+        dgx_font_draw_char(&sign, cx - c->x_offset - c->width / 2, cy - c->y_offset - c->height / 2, 'C');
     }
     dgx_draw_circle(card, cx, cy, r, red);
 }
@@ -177,7 +177,7 @@ void app_main(void)
     int frame_x = (screen->width - FRAME_SIDE) / 2;
     int frame_y = screen->height - FRAME_SIDE - 4;
     /* the name of an act: every pixel of the font as 2 x 2 */
-    const dgx_font_context_t title = {.scr = screen, .font = TerminusTTFMedium12(), .color = DGX_WHITE(dgx_rgb_to_16), .scale = 2};
+    const dgx_font_context_t title = {.scr = screen, .font = &TerminusTTFMedium12, .color = DGX_WHITE(dgx_rgb_to_16), .scale = 2};
 
     for (int round = 0;; ++round) {
         const act_t *act = &acts[round % ACTS];

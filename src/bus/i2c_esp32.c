@@ -203,7 +203,7 @@ static dgx_bus_protocols_t *dgx_i2c_attach(i2c_master_bus_handle_t bus_handle, b
     bus->protocols.write_data        = dgx_i2c_send_data;
     bus->protocols.write_data_async  = dgx_i2c_send_data_async;
     bus->protocols.sync_write        = dgx_i2c_sync_write;
-    bus->protocols.dispose           = dgx_i2c_dispose_bus_func;
+    bus->protocols.dispose_bus           = dgx_i2c_dispose_bus_func;
     bus->protocols.memory_allocator  = dgx_i2c_memory_allocator;
     bus->protocols.buffer_len        = 0;
     bus->protocols.buffer            = NULL;

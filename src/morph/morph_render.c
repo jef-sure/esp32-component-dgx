@@ -306,18 +306,18 @@ static inline void glow_colors(const dgx_morph_glow_t *g, uint8_t *to, const uin
  * through the buffer it sends from, a virtual screen right into its pixels.
  * `map` is the brightness to show; NULL is the phosphor blurred on the way.
  */
-static void glow_send(dgx_morph_glow_t *g, dgx_screen_t *scr, int x_dst, int y_dst, const uint8_t *map)
+static esp_err_t glow_send(dgx_morph_glow_t *g, dgx_screen_t *scr, int x_dst, int y_dst, const uint8_t *map)
 {
     if (scr->color_bits != g->color_bits) {
         ESP_LOGE(TAG, "glow color bits %d != screen %d", g->color_bits, scr->color_bits);
-        return;
+        return ESP_ERR_INVALID_ARG;
     }
     /* the part of the frame that is inside the clip of the screen */
     const int cl = dgx_clip_left(scr), ct = dgx_clip_top(scr), cr = dgx_clip_right(scr), cb = dgx_clip_bottom(scr);
     int left = x_dst < cl ? cl - x_dst : 0, top = y_dst < ct ? ct - y_dst : 0;
     int right = cr - x_dst < g->width ? cr - x_dst : g->width;
     int bottom = cb - y_dst < g->height ? cb - y_dst : g->height;
-    if (left >= right || top >= bottom) return;
+    if (left >= right || top >= bottom) return ESP_OK;
     int    width = right - left;
     size_t pixel_bytes = g->color_bits == 16 ? 2 : 3;
     g->row_of[0] = g->row_of[1] = g->row_of[2] = -1;
@@ -355,14 +355,14 @@ static void glow_send(dgx_morph_glow_t *g, dgx_screen_t *scr, int x_dst, int y_d
         }
         if (buffer) {
             /* what was sent before may still be on its way to the panel from this buffer; waited for before the window, not after it */
-            if (scr->wait_buffer) scr->wait_buffer(scr);
+            if (scr->wait) scr->wait(scr);
             scr->set_area(scr, (uint16_t)(x_dst + left), (uint16_t)(x_dst + right - 1), (uint16_t)(y_dst + top), (uint16_t)(y_dst + bottom - 1));
             for (int y = top; y < bottom; ++y) {
                 const uint8_t *row = (map ? map + (size_t)y * g->width : glow_blurred_row(g, y)) + left;
                 for (int todo = width; todo > 0;) {
                     if (filled == buffer_pixels) {
                         scr->write_area(scr, buffer, (uint32_t)(8u * filled * pixel_bytes));
-                        if (scr->wait_buffer) scr->wait_buffer(scr);
+                        if (scr->wait) scr->wait(scr);
                         filled = 0;
                     }
                     int count = buffer_pixels - filled < (size_t)todo ? (int)(buffer_pixels - filled) : todo;
@@ -374,18 +374,19 @@ static void glow_send(dgx_morph_glow_t *g, dgx_screen_t *scr, int x_dst, int y_d
             }
             if (filled) {
                 scr->write_area(scr, buffer, (uint32_t)(8u * filled * pixel_bytes));
-                if (scr->wait_buffer) scr->wait_buffer(scr);
+                if (scr->wait) scr->wait(scr);
             }
             free(own);
         }
     }
     dgx_screen_touch(scr, x_dst + left, x_dst + right - 1, y_dst + top, y_dst + bottom - 1);
     dgx_screen_batch_end(scr);
+    return ESP_OK;
 }
 
-void dgx_morph_glow_present(dgx_morph_glow_t *glow, float t, dgx_screen_t *screen, int x, int y)
+esp_err_t dgx_morph_glow_present(dgx_morph_glow_t *glow, float t, dgx_screen_t *screen, int x, int y)
 {
-    if (!glow) return;
+    if (!glow) return ESP_ERR_INVALID_ARG;
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
 
@@ -431,7 +432,7 @@ void dgx_morph_glow_present(dgx_morph_glow_t *glow, float t, dgx_screen_t *scree
             map = NULL;
         }
     }
-    if (screen) glow_send(glow, screen, x, y, map);
+    return screen ? glow_send(glow, screen, x, y, map) : ESP_OK;
 }
 
 /* ------------------------------------------------------------------ */

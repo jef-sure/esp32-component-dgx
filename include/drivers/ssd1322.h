@@ -16,22 +16,26 @@ extern "C" {
  * The values of all but SSD1322_256X64 come from u8g2 and have not been
  * checked on a module here.
  */
+/*
+ * The values begin at 256, a number no chip has a pin of: a call in the order of
+ * before DGX 0.12, with the resolution second, is refused, not taken for a pin.
+ */
 typedef enum dgx_ssd1322_resolution_t {
-    DGX_SSD1322_256X64,         ///< 256x64: Newhaven NHD-3.12-25664 and the 3.12" clones
+    DGX_SSD1322_256X64 = 256,   ///< 256x64: Newhaven NHD-3.12-25664 and the 3.12" clones
     DGX_SSD1322_256X64_ZJY,     ///< 256x64 by ZJY, its glass from column 24
     DGX_SSD1322_240X128,        ///< 240x128, dual COM
     DGX_SSD1322_240X128_TOPWIN, ///< 240x128 by Topwin, single COM
     DGX_SSD1322_128X64,         ///< 128x64: Newhaven NHD-2.7-12864WDW3, two segments a pixel
     /* deprecated: the names of before, the same values */
-    SSD1322_256X64 = DGX_SSD1322_256X64,
-    SSD1322_256X64_ZJY = DGX_SSD1322_256X64_ZJY,
-    SSD1322_240X128 = DGX_SSD1322_240X128,
-    SSD1322_240X128_TOPWIN = DGX_SSD1322_240X128_TOPWIN,
-    SSD1322_128X64 = DGX_SSD1322_128X64,
+    SSD1322_256X64 DGX_DEPRECATED("use DGX_SSD1322_256X64") = DGX_SSD1322_256X64,
+    SSD1322_256X64_ZJY DGX_DEPRECATED("use DGX_SSD1322_256X64_ZJY") = DGX_SSD1322_256X64_ZJY,
+    SSD1322_240X128 DGX_DEPRECATED("use DGX_SSD1322_240X128") = DGX_SSD1322_240X128,
+    SSD1322_240X128_TOPWIN DGX_DEPRECATED("use DGX_SSD1322_240X128_TOPWIN") = DGX_SSD1322_240X128_TOPWIN,
+    SSD1322_128X64 DGX_DEPRECATED("use DGX_SSD1322_128X64") = DGX_SSD1322_128X64,
 } dgx_ssd1322_resolution_t;
 
-/** The name the type had before; it stays. */
-typedef dgx_ssd1322_resolution_t ssd1322_resolution_t;
+/** The name the type had before; deprecated until DGX 1.0. */
+typedef dgx_ssd1322_resolution_t ssd1322_resolution_t DGX_DEPRECATED("use dgx_ssd1322_resolution_t");
 
 /**
  * @brief Set the SSD1322 contrast current, the brightness of what is lit.
@@ -62,13 +66,21 @@ void dgx_ssd1322_brightness(dgx_screen_t *scr, uint8_t brightness);
  */
 bool dgx_ssd1322_grayscale(dgx_screen_t *scr, const uint8_t *levels);
 
+/** What dgx_ssd1322_display_mode() makes of the pixels of the panel; the values are those of before 0.12, 0 to 3. */
+typedef enum dgx_ssd1322_mode_t {
+    DGX_SSD1322_MODE_NORMAL  = 0, /**< the picture as it is */
+    DGX_SSD1322_MODE_ALL_OFF = 1, /**< every pixel dark */
+    DGX_SSD1322_MODE_ALL_ON  = 2, /**< every pixel at the brightest level */
+    DGX_SSD1322_MODE_INVERSE = 3, /**< the levels of the picture inverted */
+} dgx_ssd1322_mode_t;
+
 /**
  * @brief Turn the panel's pixels the other way: all on, all off, or the inverse of the picture.
  *
  * @param scr  Screen created by dgx_ssd1322_init().
- * @param mode 0 normal, 1 all off, 2 all on, 3 inverse.
+ * @param mode One of dgx_ssd1322_mode_t; another value changes nothing.
  */
-void dgx_ssd1322_display_mode(dgx_screen_t *scr, uint8_t mode);
+void dgx_ssd1322_display_mode(dgx_screen_t *scr, dgx_ssd1322_mode_t mode);
 
 /**
  * @brief Turn or mirror the picture.
@@ -86,6 +98,7 @@ void dgx_ssd1322_display_mode(dgx_screen_t *scr, uint8_t mode);
  * @param swap_xy Swap the X and Y axes.
  * @deprecated Use dgx_screen_orientation().
  */
+DGX_DEPRECATED("use dgx_screen_orientation()")
 void dgx_ssd1322_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 
 /**
@@ -100,11 +113,11 @@ void dgx_ssd1322_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_ori
  * controller takes a write cycle of 300 ns at the shortest, 3.3 MHz.
  *
  * @param bus        Bus backend returned by dgx_p8_init() or dgx_spi_init().
- * @param resolution Panel geometry (see dgx_ssd1322_resolution_t).
  * @param rst        Reset GPIO (GPIO_NUM_NC if the panel has no reset line).
+ * @param resolution Panel geometry (see dgx_ssd1322_resolution_t).
  * @return Newly allocated screen, or NULL on failure. Free with dgx_screen_destroy().
  */
-dgx_screen_t *dgx_ssd1322_init(dgx_bus_protocols_t *bus, dgx_ssd1322_resolution_t resolution, gpio_num_t rst);
+dgx_screen_t *dgx_ssd1322_init(dgx_bus_protocols_t *bus, gpio_num_t rst, dgx_ssd1322_resolution_t resolution);
 
 #ifdef __cplusplus
 // @formatter:off

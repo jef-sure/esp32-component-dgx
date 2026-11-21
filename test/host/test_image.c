@@ -12,7 +12,7 @@
 #include "dgx_bits.h"
 #include "dgx_draw.h"
 #include "dgx_image.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 
 #define DW 41
 #define DH 29
@@ -122,11 +122,11 @@ static void test_against_model(void)
                         for (int i = 0; i < DW * DH; ++i) v[i] = model[i] = background[i] = (uint8_t)rnd(0, 255);
                         int bl, bt, br, bb;
                         model_blit(model, x, y, &image, &how, &bl, &bt, &br, &bb);
-                        dgx_screen_progress_up(dst);
+                        dgx_screen_batch_begin(dst);
                         CHECK(dgx_image_blit(dst, x, y, &image, &how) == ESP_OK);
                         int left = 0, top = 0, width = 0, height = 0;
                         const bool dirty = dgx_screen_take_dirty(dst, &left, &top, &width, &height);
-                        dgx_screen_progress_down(dst);
+                        dgx_screen_batch_end(dst);
 
                         /* the model, pixel for pixel: also nothing outside the clip has changed */
                         int wrong = 0;
@@ -177,13 +177,13 @@ static void test_dirty_area(void)
     static const uint8_t data[] = {0x12, 0x30, 0x45, 0x60, 0x78, 0x90, 0x80, 0x00}; /* 3 x 4 pixels of 4 bits, two bytes a row */
     const dgx_image_t    image = {.width = 3, .height = 4, .origin_x = 1, .origin_y = 3, .format = DGX_IMAGE_4BPP, .data = data};
     memset(v, 0xee, DW * DH);
-    dgx_screen_progress_up(dst);
+    dgx_screen_batch_begin(dst);
     /* turned by 90 degrees clockwise: 4 wide, 3 high; the origin (1, 3) goes to (0, 1) of the turned picture */
     const dgx_image_blit_t how = {.orientation = DgxOutputRotate90CW};
     CHECK(dgx_image_blit(dst, 10, 10, &image, &how) == ESP_OK);
     int left, top, width, height;
     CHECK(dgx_screen_take_dirty(dst, &left, &top, &width, &height));
-    dgx_screen_progress_down(dst);
+    dgx_screen_batch_end(dst);
     CHECK(left == 10 && top == 9 && width == 4 && height == 3);
     /* the origin pixel, value 0 at (1, 3): transparent; its neighbour (0, 3), value 8, lies at (10, 9) */
     CHECK(v[9 * DW + 10] == 8 && v[10 * DW + 10] == 0xee);

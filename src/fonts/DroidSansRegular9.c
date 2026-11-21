@@ -6442,7 +6442,7 @@ static const uint8_t bitmaps[] = {
 0x70, 0x50, 0x50, 0x50, 0x98, 0x08, 0x10
 };
 
-static const glyph_t glyphs[] = {
+static const dgx_glyph_t glyphs[] = {
     { {.bitmap = bitmaps +     0 },   1,   1,   2,    0,    0 } /* 0020 */
 ,   { {.bitmap = bitmaps +     1 },   1,   7,   2,    0,   -6 } /* 0021 */
 ,   { {.bitmap = bitmaps +     8 },   3,   2,   4,    0,   -6 } /* 0022 */
@@ -7146,7 +7146,7 @@ static const glyph_t glyphs[] = {
 ,   { {.bitmap = bitmaps +  5036 },   7,   9,   7,    0,   -6 } /* 0512 */
 ,   { {.bitmap = bitmaps +  5045 },   5,   7,   5,    0,   -4 } /* 0513 */
 };
-static const glyph_array_t glyph_ranges[] = {
+static const dgx_glyph_array_t glyph_ranges[] = {
    {0x20  , 0x5f  , glyphs + 0 }
 , {0xa0  , 0xe0  , glyphs + 95 }
 , {0x192 , 0x1   , glyphs + 319 }
@@ -7176,18 +7176,15 @@ static const glyph_array_t glyph_ranges[] = {
 , {0x0   , 0x0   , 0 }
 };
 // Bitmap size: 5052
-dgx_font_t* DroidSansRegular9() {
-	static dgx_font_t rval = { 
-		.glyph_ranges = glyph_ranges,
-		.yAdvance = 10,
-		.yOffsetLowest = -10,
-		.xWidest = 11,
-		.xWidthAverage = 4.425926,
-	.f_type = DGX_FONT_BITMAP_LINES,
-		.yBottomMax = 5,
-		.xOffsetLowest = -5,
-		.xRightMax = 11,
-		.number_of_ranges = 26
-	};
-	return &rval;
-}
+const dgx_font_t DroidSansRegular9 = {
+    .glyph_ranges = glyph_ranges,
+    .y_advance = 10,
+    .y_offset_lowest = -10,
+    .x_widest = 11,
+    .x_width_average = 4.425926,
+    .f_type = DGX_FONT_BITMAP_LINES,
+    .y_bottom_max = 5,
+    .x_offset_lowest = -5,
+    .x_right_max = 11,
+    .number_of_ranges = 26
+};

@@ -127,7 +127,7 @@ static void dgx_texture_span(dgx_texture_ctx_t *ctx, int y, const dgx_texture_ed
     int count = x1 - x0 + 1;
 
     /* the previous scanline may still be on its way to the panel from this buffer */
-    if (dst->wait_buffer) dst->wait_buffer(dst);
+    if (dst->wait) dst->wait(dst);
     uint8_t *lp = ctx->row;
     if (ctx->texels) {
         const int pitch = ctx->src->width * 2;
@@ -180,23 +180,24 @@ static void dgx_texture_span(dgx_texture_ctx_t *ctx, int y, const dgx_texture_ed
     dst->write_area(dst, ctx->row, lenbits);
 }
 
-void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_screen_t *texture, int tx, int ty, int tw, int th)
+esp_err_t dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_screen_t *texture, int tx, int ty, int tw, int th)
 {
-    if (!scr || !quad || !texture || tw <= 0 || th <= 0) return;
-    if (!scr->set_area || !scr->write_area || !texture->get_pixel) return;
+    if (!scr || !quad || !texture) return ESP_ERR_INVALID_ARG;
+    if (tw <= 0 || th <= 0) return ESP_OK;
+    if (!scr->set_area || !scr->write_area || !texture->get_pixel) return ESP_ERR_NOT_SUPPORTED;
     if (scr->color_bits != texture->color_bits) {
         ESP_LOGE(TAG, "texture color bits %d != screen %d", texture->color_bits, scr->color_bits);
-        return;
+        return ESP_ERR_INVALID_ARG;
     }
-    if (dgx_color_points_to_bytes(scr->color_bits, 1) == 0) return; /* unsupported depth */
+    if (dgx_color_points_to_bytes(scr->color_bits, 1) == 0) return ESP_ERR_NOT_SUPPORTED; /* unsupported depth */
     if (tx < 0 || ty < 0 || tw > texture->width - tx || th > texture->height - ty) {
         ESP_LOGE(TAG, "texture region %d,%d %dx%d is outside the %dx%d texture", tx, ty, tw, th, texture->width, texture->height);
-        return;
+        return ESP_ERR_INVALID_ARG;
     }
     /* 16.16 fixed point: a texture coordinate of 32768 and more does not fit */
     if (tx + tw > INT16_MAX || ty + th > INT16_MAX) {
         ESP_LOGE(TAG, "texture region is too large for 16.16 fixed point");
-        return;
+        return ESP_ERR_INVALID_ARG;
     }
 
     /* quad[] follows the texture region corners: top-left, top-right, bottom-right, bottom-left */
@@ -216,11 +217,11 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
         if (quad[i].x < x_min) x_min = quad[i].x;
         if (quad[i].x > x_max) x_max = quad[i].x;
     }
-    if (dgx_clip_misses(scr, x_min, x_max, y_start, y_end)) return;
+    if (dgx_clip_misses(scr, x_min, x_max, y_start, y_end)) return ESP_OK;
     /* nor a slope of 32768 pixels and more a row */
     if (x_max - x_min > INT16_MAX) {
         ESP_LOGE(TAG, "quad is too large for 16.16 fixed point");
-        return;
+        return ESP_ERR_INVALID_ARG;
     }
 
     dgx_texture_ctx_t ctx = {
@@ -247,7 +248,7 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
         ctx.row = own_row = heap_caps_malloc(row_bytes, MALLOC_CAP_DMA);
         if (!own_row) {
             ESP_LOGE(TAG, "failed to allocate a %u-byte scanline", (unsigned)row_bytes);
-            return;
+            return ESP_ERR_NO_MEM;
         }
     }
 
@@ -315,21 +316,22 @@ void dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4], dgx_
 #undef DGX_QUAD_NEXT
 #undef DGX_QUAD_PREV
     if (own_row) {
-        if (scr->wait_buffer) scr->wait_buffer(scr);
+        if (scr->wait) scr->wait(scr);
         free(own_row);
     }
     dgx_screen_touch(scr, x_min, x_max, y_start, y_end);
     dgx_screen_batch_end(scr);
+    return ESP_OK;
 }
 
-void dgx_draw_texture_rect(dgx_screen_t *scr, int x, int y, int w, int h, dgx_screen_t *texture, int tx, int ty, int tw, int th)
+esp_err_t dgx_draw_texture_rect(dgx_screen_t *scr, int x, int y, int w, int h, dgx_screen_t *texture, int tx, int ty, int tw, int th)
 {
-    if (w <= 0 || h <= 0) return;
+    if (w <= 0 || h <= 0) return ESP_OK;
     const dgx_point_2d_t quad[4] = {
         {(int16_t)x,           (int16_t)y          },
         {(int16_t)(x + w - 1), (int16_t)y          },
         {(int16_t)(x + w - 1), (int16_t)(y + h - 1)},
         {(int16_t)x,           (int16_t)(y + h - 1)},
     };
-    dgx_draw_texture_quad(scr, quad, texture, tx, ty, tw, th);
+    return dgx_draw_texture_quad(scr, quad, texture, tx, ty, tw, th);
 }

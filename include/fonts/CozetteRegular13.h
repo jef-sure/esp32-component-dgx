@@ -5,7 +5,8 @@
 extern "C" {
 // @formatter:on
 #endif
-dgx_font_t* CozetteRegular13();
+extern const dgx_font_t CozetteRegular13;
+#define CozetteRegular13() DGX_FONT_CALLED(CozetteRegular13)
 #ifdef __cplusplus
 // @formatter:off
 }

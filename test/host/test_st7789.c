@@ -72,20 +72,20 @@ int main(void)
                                .buffer_len       = sizeof(buffer)};
     /* the screen it starts as; the glass upright and where it lies in the 240x320 of memory; whether its colors are inverted */
     static const struct {
-        st7789_resolution_t resolution;
+        dgx_st7789_resolution_t resolution;
         int                 width, height, glass_w, glass_h, x_offset, y_offset;
         bool                inverted;
     } panels[] = {
-        {ST7789_RESOLUTION_240x240, 240, 240, 240, 240, 0, 0, true},
-        {ST7789_RESOLUTION_240x320, 240, 320, 240, 320, 0, 0, true},
-        {ST7789_RESOLUTION_320x240, 320, 240, 240, 320, 0, 0, true},
-        {ST7789_RESOLUTION_76x284, 76, 284, 76, 284, 82, 18, false},
-        {ST7789_RESOLUTION_284x76, 284, 76, 76, 284, 82, 18, false},
-        {ST7789_RESOLUTION_135x240, 135, 240, 135, 240, 52, 40, true},
-        {ST7789_RESOLUTION_240x135, 240, 135, 135, 240, 52, 40, true},
+        {DGX_ST7789_240X240, 240, 240, 240, 240, 0, 0, true},
+        {DGX_ST7789_240X320, 240, 320, 240, 320, 0, 0, true},
+        {DGX_ST7789_320X240, 320, 240, 240, 320, 0, 0, true},
+        {DGX_ST7789_76X284, 76, 284, 76, 284, 82, 18, false},
+        {DGX_ST7789_284X76, 284, 76, 76, 284, 82, 18, false},
+        {DGX_ST7789_135X240, 135, 240, 135, 240, 52, 40, true},
+        {DGX_ST7789_240X135, 240, 135, 135, 240, 52, 40, true},
     };
     /* a depth the controller is not set up for gives no screen, and nothing is sent */
-    CHECK(dgx_st7789_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 24, DgxScreenRGB, ST7789_RESOLUTION_240x320) == NULL && command == 0);
+    CHECK(dgx_st7789_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 24, DgxScreenRGB, DGX_ST7789_240X320) == NULL && command == 0);
     for (size_t p = 0; p < sizeof(panels) / sizeof(panels[0]); ++p) {
         madctl            = 0xff;
         dgx_screen_t *scr = dgx_st7789_init(&bus, GPIO_NUM_NC, GPIO_NUM_NC, 16, DgxScreenRGB, panels[p].resolution);
@@ -95,7 +95,7 @@ int main(void)
         const int gw = panels[p].glass_w, gh = panels[p].glass_h;
         for (int turn = 0; turn < 8; ++turn) {
             const bool swap = (turn & 4) != 0, up = (turn & 2) != 0;
-            dgx_st7789_orientation(scr, turn & 1 ? DgxScreenRightLeft : DgxScreenLeftRight, up ? DgxScreenBottomTop : DgxScreenTopBottom, swap);
+            dgx_screen_orientation(scr, turn & 1 ? DgxScreenRightLeft : DgxScreenLeftRight, up ? DgxScreenBottomTop : DgxScreenTopBottom, swap);
             CHECK(agrees(scr, swap ? gh : gw, swap ? gw : gh));
             /* the first pixel of the screen, and where its window begins: a mirrored axis counts the memory from its other end */
             dgx_set_pixel(scr, 0, 0, 0xffff);

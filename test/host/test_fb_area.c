@@ -5,7 +5,7 @@
 #include "bus/dgx_fb_area_priv.h"
 #include "check.h"
 #include "dgx_draw.h"
-#include "drivers/vscreen.h"
+#include "dgx_vscreen.h"
 #include "scale_ref.h"
 
 /*

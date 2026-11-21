@@ -87,16 +87,16 @@ size_t dgx_utf8_length(const char *str)
  *
  * @note The xAdvance value is only valid if the glyph is found.
  */
-const glyph_t *dgx_font_find_glyph(uint32_t codePoint, dgx_font_t *font, int16_t *xAdvance)
+const dgx_glyph_t *dgx_font_glyph(const dgx_font_t *font, uint32_t codePoint, int16_t *xAdvance)
 {
-    const glyph_t *g = 0, *fg = 0;
+    const dgx_glyph_t *g = 0, *fg = 0;
     if (font->number_of_ranges > 0) {
         /* the ranges are told to be ascending: found by halving */
         int lo = 0, hi = font->number_of_ranges - 1;
         fg = font->glyph_ranges[0].glyphs;
         while (lo <= hi) {
             int                  mid = (lo + hi) / 2;
-            const glyph_array_t *r = font->glyph_ranges + mid;
+            const dgx_glyph_array_t *r = font->glyph_ranges + mid;
             if (codePoint < (uint32_t)r->first) {
                 hi = mid - 1;
             } else if (codePoint >= (uint32_t)r->first + r->number) {
@@ -107,7 +107,7 @@ const glyph_t *dgx_font_find_glyph(uint32_t codePoint, dgx_font_t *font, int16_t
             }
         }
     } else {
-        for (const glyph_array_t *r = font->glyph_ranges; r->number; ++r) {
+        for (const dgx_glyph_array_t *r = font->glyph_ranges; r->number; ++r) {
             if (!fg) fg = r->glyphs;
             if (codePoint >= r->first && codePoint < r->first + r->number) {
                 g = r->glyphs + (codePoint - r->first);
@@ -115,7 +115,7 @@ const glyph_t *dgx_font_find_glyph(uint32_t codePoint, dgx_font_t *font, int16_t
             }
         }
     }
-    if (xAdvance) *xAdvance = g ? g->xAdvance : fg ? fg->xAdvance : 0;
+    if (xAdvance) *xAdvance = g ? g->x_advance : fg ? fg->x_advance : 0;
     return g;
 }
 
@@ -246,7 +246,7 @@ static const uint32_t *soft_table(const dgx_font_context_t *ctx, uint32_t table[
     return table;
 }
 
-int dgx_font_glyph_foreach_ink(const dgx_font_t *font, const glyph_t *g, dgx_bw_bitmap_pixel_func_t func, void *user_data)
+int dgx_font_glyph_foreach_ink(const dgx_font_t *font, const dgx_glyph_t *g, dgx_bw_bitmap_pixel_func_t func, void *user_data)
 {
     if (!font || !g || !g->bitmap) return 0;
     const int depth = font_depth(font);
@@ -321,7 +321,7 @@ static bool span_to_bus(dgx_screen_t *scr, const glyph_place_t *p, const uint8_t
     scr->set_area(scr, (uint16_t)x0, (uint16_t)x1, (uint16_t)y0, (uint16_t)y1);
     for (int sy = y0; sy <= y1; ++sy) {
         /* the row before may still be on its way from the buffer */
-        if (scr->wait_buffer) scr->wait_buffer(scr);
+        if (scr->wait) scr->wait(scr);
         uint8_t *lp = scr->draw_buffer;
         for (int sx = x0; sx <= x1; ++sx) {
             /* the column of the glyph this pixel is of: along the run, in the order the orientation lays it */
@@ -378,7 +378,7 @@ static inline void memory_put(uint8_t *m, int bytes, uint32_t value)
  * changed area told once, the box of the glyph. The same pixels as soft_glyph() puts through the screen. cut: the
  * level from which a pixel is drawn whole, or 0; table: the colors of the levels over the paper, or NULL.
  */
-static void soft_glyph_memory(const dgx_font_context_t *ctx, const glyph_t *g, const glyph_place_t *p, const uint32_t *table, int cut, int bytes)
+static void soft_glyph_memory(const dgx_font_context_t *ctx, const dgx_glyph_t *g, const glyph_place_t *p, const uint32_t *table, int cut, int bytes)
 {
     dgx_screen_t  *scr   = ctx->scr;
     const int      depth = font_depth(ctx->font), top = (1 << depth) - 1, pitch = (g->width * depth + 7) / 8;
@@ -414,7 +414,7 @@ static void soft_glyph_memory(const dgx_font_context_t *ctx, const glyph_t *g, c
  * each; a pixel mixed with the screen is read and written, each of its scale x scale. On a display behind a bus a run
  * of touched pixels with the colors of the table goes as one window, span_to_bus().
  */
-static void soft_glyph(const dgx_font_context_t *ctx, const glyph_t *g, const glyph_place_t *p, const uint32_t *table)
+static void soft_glyph(const dgx_font_context_t *ctx, const dgx_glyph_t *g, const glyph_place_t *p, const uint32_t *table)
 {
     dgx_screen_t  *scr   = ctx->scr;
     const int      depth = font_depth(ctx->font), top = (1 << depth) - 1, unit = 255 / top;
@@ -482,7 +482,7 @@ static void soft_glyph(const dgx_font_context_t *ctx, const glyph_t *g, const gl
 static int font_char(const dgx_font_context_t *ctx, int x, int y, uint32_t codePoint, const uint32_t *table)
 {
     dgx_screen_t            *scr         = ctx->scr;
-    dgx_font_t              *font        = ctx->font;
+    const dgx_font_t              *font        = ctx->font;
     const uint32_t           color       = ctx->color;
     const dgx_output_orientation_t orientation = ctx->orientation;
     const int                scale       = ctx->scale ? ctx->scale : 1;
@@ -490,7 +490,7 @@ static int font_char(const dgx_font_context_t *ctx, int x, int y, uint32_t codeP
     dgx_orientation_t        ydir        = dgx_output_orientation_ydir(orientation);
     bool                     swap_xy     = dgx_output_orientation_swap_xy(orientation);
     int16_t                  xAdvance;
-    const glyph_t           *g = dgx_font_find_glyph(codePoint, font, &xAdvance);
+    const dgx_glyph_t           *g = dgx_font_glyph(font, codePoint, &xAdvance);
     /* a missing glyph advances by the first glyph of the font, as dgx_font_string_bounds() counts it */
     if (!g) return xAdvance * scale;
     /* a handwritten font is not drawn symbol by symbol, see dgx_hw_font.h */
@@ -501,8 +501,8 @@ static int font_char(const dgx_font_context_t *ctx, int x, int y, uint32_t codeP
         int right   = left + g->width - 1;
         int top     = 0;
         int bottom  = top + g->height - 1;
-        int x_shift = g->xOffset * scale;
-        int y_shift = g->yOffset * scale;
+        int x_shift = g->x_offset * scale;
+        int y_shift = g->y_offset * scale;
         if (swap_xy) {
             int t   = x_shift;
             x_shift = y_shift;
@@ -600,8 +600,8 @@ static int font_char(const dgx_font_context_t *ctx, int x, int y, uint32_t codeP
         }
         dgx_screen_batch_end(scr);
     } else {
-        int x_shift = g->xOffset * scale;
-        int y_shift = g->yOffset * scale;
+        int x_shift = g->x_offset * scale;
+        int y_shift = g->y_offset * scale;
         for (int i = 0; i < g->number_of_dots; i++) {
             int px = g->dots[i].x * scale + x_shift;
             int py = g->dots[i].y * scale + y_shift;
@@ -619,6 +619,9 @@ static int font_char(const dgx_font_context_t *ctx, int x, int y, uint32_t codeP
     }
     return xAdvance * scale;
 }
+
+/* The calls of before, deprecated until DGX 1.0, to the end of dgx_font_string_utf8_screen(). */
+DGX_DEPRECATED_USE_BEGIN
 
 /* the dot function of the parameters an old call passes for a dot font, dgx_font_sym8_params_t */
 static void sym8_dot(const dgx_font_context_t *ctx, int x, int y)
@@ -651,12 +654,12 @@ int dgx_font_char_to_screen(            //
     uint32_t                 color,     //
     dgx_output_orientation_t orientation, //
     int                      scale,     //
-    struct dgx_font_        *font,      //
+    const struct dgx_font_        *font,      //
     dgx_font_draw_sym_func_t draw_func, //
     void                    *param      //
 )
 {
-    if (draw_func) return draw_func(scr, x, y, codePoint, color, orientation, scale, font, param);
+    if (draw_func) return draw_func(scr, x, y, codePoint, color, orientation, scale, (struct dgx_font_ *)font, param); /* the callback of before takes it so */
     const dgx_font_context_t ctx = {.scr         = scr,
                                     .font        = font,
                                     .color       = color,
@@ -667,7 +670,7 @@ int dgx_font_char_to_screen(            //
     return font_char(&ctx, x, y, codePoint, NULL);
 }
 
-int dgx_font_string_bounds(const char *str, dgx_font_t *font, int16_t *ycorner, int16_t *height)
+int dgx_font_string_bounds(const char *str, const dgx_font_t *font, int16_t *ycorner, int16_t *height)
 {
     size_t  idx   = 0;
     int16_t width = 0, yb = 0, yt = 0;
@@ -675,11 +678,11 @@ int dgx_font_string_bounds(const char *str, dgx_font_t *font, int16_t *ycorner, 
     while (str[idx]) {
         uint32_t       cp = dgx_utf8_next(str, &idx);
         int16_t        xAdvance;
-        const glyph_t *g = dgx_font_find_glyph(cp, font, &xAdvance);
+        const dgx_glyph_t *g = dgx_font_glyph(font, cp, &xAdvance);
         width += xAdvance;
         if (g) {
-            int16_t bl = g->yOffset;
-            int16_t bh = g->height + g->yOffset;
+            int16_t bl = g->y_offset;
+            int16_t bh = g->height + g->y_offset;
             if (is_first || bl < yt) yt = bl;
             if (is_first || bh > yb) yb = bh;
             is_first = false;
@@ -702,7 +705,7 @@ void dgx_font_string_utf8_screen(       //
     uint32_t                 color,     //
     dgx_output_orientation_t orientation, //
     int                      scale,     //
-    struct dgx_font_        *font,      //
+    const struct dgx_font_        *font,      //
     dgx_font_draw_sym_func_t draw_func, //
     void                    *param      //
 )
@@ -725,6 +728,7 @@ void dgx_font_string_utf8_screen(       //
     dgx_screen_batch_end(scr);
 }
 
+DGX_DEPRECATED_USE_END
 
 /*
  * A rectangle of the upright text, ox, oy from the start of its base line and w x h, as it lies on the screen when
@@ -754,15 +758,15 @@ static void fill_cell(const dgx_font_context_t *ctx, int x, int y, const char *s
     size_t    idx = 0;
     while (str[idx]) {
         int16_t        advance;
-        const glyph_t *g = dgx_font_find_glyph(dgx_utf8_next(str, &idx), ctx->font, &advance);
+        const dgx_glyph_t *g = dgx_font_glyph(ctx->font, dgx_utf8_next(str, &idx), &advance);
         if (g && ctx->font->f_type != DGX_FONT_DOTS && ctx->font->f_type != DGX_FONT_HW && g->width > 0) {
-            if (pen + g->xOffset * scale < left) left = pen + g->xOffset * scale;
-            if (pen + (g->xOffset + g->width) * scale > right) right = pen + (g->xOffset + g->width) * scale;
+            if (pen + g->x_offset * scale < left) left = pen + g->x_offset * scale;
+            if (pen + (g->x_offset + g->width) * scale > right) right = pen + (g->x_offset + g->width) * scale;
         }
         pen += advance * scale;
     }
     if (pen > right) right = pen;
-    const int top = ctx->font->yOffsetLowest * scale, bottom = ctx->font->yBottomMax * scale;
+    const int top = ctx->font->y_offset_lowest * scale, bottom = ctx->font->y_bottom_max * scale;
     if (right <= left || bottom <= top) return;
     int sx, sy, sw, sh;
     text_rect(ctx->orientation, left, top, right - left, bottom - top, &sx, &sy, &sw, &sh);
@@ -824,17 +828,17 @@ static bool fill_in_one_pass(const dgx_font_context_t *ctx, int x, int y, const 
     size_t idx = 0;
     while (str[idx]) {
         int16_t        step;
-        const glyph_t *g = dgx_font_find_glyph(dgx_utf8_next(str, &idx), (dgx_font_t *)font, &step);
+        const dgx_glyph_t *g = dgx_font_glyph(font, dgx_utf8_next(str, &idx), &step);
         if (g && g->width > 0) {
-            if (pen + g->xOffset < left) left = pen + g->xOffset;
-            if (pen + g->xOffset + g->width > right) right = pen + g->xOffset + g->width;
+            if (pen + g->x_offset < left) left = pen + g->x_offset;
+            if (pen + g->x_offset + g->width > right) right = pen + g->x_offset + g->width;
         }
         pen += step;
     }
     if (pen > right) right = pen;
     *advance = pen * scale;
     if (cell) left = cell[0], right = cell[1];
-    const int width = right - left, height = font->yBottomMax - font->yOffsetLowest;
+    const int width = right - left, height = font->y_bottom_max - font->y_offset_lowest;
     if (width <= 0 || height <= 0) return true;
     /* the colors of the levels: mixed over the paper, or cut as DGX_FONT_HARD and DGX_FONT_MONO ask */
     int cut = 0;
@@ -864,10 +868,10 @@ static bool fill_in_one_pass(const dgx_font_context_t *ctx, int x, int y, const 
         idx    = 0;
         while (str[idx]) {
             int16_t        step;
-            const glyph_t *g = dgx_font_find_glyph(dgx_utf8_next(str, &idx), (dgx_font_t *)font, &step);
+            const dgx_glyph_t *g = dgx_font_glyph(font, dgx_utf8_next(str, &idx), &step);
             if (g && g->width > 0 && g->bitmap) {
-                b.x0 = at + g->xOffset - left;
-                b.y0 = g->yOffset - font->yOffsetLowest;
+                b.x0 = at + g->x_offset - left;
+                b.y0 = g->y_offset - font->y_offset_lowest;
                 /* the rows of the glyph in this band */
                 const int from = b.first - b.y0 > 0 ? b.first - b.y0 : 0, to = b.first + n - b.y0 < g->height ? b.first + n - b.y0 : g->height;
                 if (from < to) {
@@ -891,7 +895,7 @@ static bool fill_in_one_pass(const dgx_font_context_t *ctx, int x, int y, const 
         }
         /* where the band lies on the screen, as a rectangle of the upright text turned */
         int sx, sy, sw, sh;
-        text_rect(ctx->orientation, left * scale, (font->yOffsetLowest + first) * scale, width * scale, n * scale, &sx, &sy, &sw, &sh);
+        text_rect(ctx->orientation, left * scale, (font->y_offset_lowest + first) * scale, width * scale, n * scale, &sx, &sy, &sw, &sh);
         dgx_vscreen8_region_to_screen16(scr, x + sx, y + sy, picture, 0, 0, width, n, lut,
                                         DGX_VSCREEN_SCALE(scale) | DGX_VSCREEN_ORIENTED(ctx->orientation) | DGX_VSCREEN_EXACT);
     }
@@ -928,14 +932,14 @@ static int font_field(const dgx_font_context_t *field_ctx, int x, int y, const c
     size_t idx = 0;
     while (str[idx]) {
         int16_t advance;
-        dgx_font_find_glyph(dgx_utf8_next(str, &idx), ctx.font, &advance);
+        dgx_font_glyph(ctx.font, dgx_utf8_next(str, &idx), &advance);
         pen += advance;
     }
     const int room  = field - pen * scale;
     const int start = floor_div(ctx.align == DGX_FONT_ALIGN_RIGHT ? room : ctx.align == DGX_FONT_ALIGN_CENTER ? room / 2 : 0, scale);
     /* the field on the screen, as high as the cell of DGX_FONT_FILL; the clip cut to it */
     int fx, fy, fw, fh;
-    text_rect(ctx.orientation, 0, ctx.font->yOffsetLowest * scale, field, (ctx.font->yBottomMax - ctx.font->yOffsetLowest) * scale, &fx, &fy, &fw, &fh);
+    text_rect(ctx.orientation, 0, ctx.font->y_offset_lowest * scale, field, (ctx.font->y_bottom_max - ctx.font->y_offset_lowest) * scale, &fx, &fy, &fw, &fh);
     fx += x, fy += y;
     int cx, cy, cw, ch;
     dgx_screen_clip_get(scr, &cx, &cy, &cw, &ch);
@@ -1035,11 +1039,11 @@ int dgx_font_bounds(const dgx_font_context_t *ctx, const char *str, int *top, in
     size_t    idx   = 0;
     while (str[idx]) {
         int16_t        advance;
-        const glyph_t *g = dgx_font_find_glyph(dgx_utf8_next(str, &idx), ctx->font, &advance);
+        const dgx_glyph_t *g = dgx_font_glyph(ctx->font, dgx_utf8_next(str, &idx), &advance);
         width += advance * scale;
         if (g) {
-            if (first || g->yOffset < yt) yt = g->yOffset;
-            if (first || g->yOffset + g->height > yb) yb = g->yOffset + g->height;
+            if (first || g->y_offset < yt) yt = g->y_offset;
+            if (first || g->y_offset + g->height > yb) yb = g->y_offset + g->height;
             first = false;
         }
     }

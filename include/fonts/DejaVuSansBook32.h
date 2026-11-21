@@ -5,7 +5,8 @@
 extern "C" {
 // @formatter:on
 #endif
-dgx_font_t* DejaVuSansBook32();
+extern const dgx_font_t DejaVuSansBook32;
+#define DejaVuSansBook32() DGX_FONT_CALLED(DejaVuSansBook32)
 #ifdef __cplusplus
 // @formatter:off
 }

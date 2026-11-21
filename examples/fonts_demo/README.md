@@ -29,8 +29,8 @@ title: DejaVu Sans Bold 25 px (4.5 mm), 13 glyphs
 clock: DejaVuSansBook32 of DGX, used as is
 ```
 
-`main/main.c` includes `dgx_fonts.h` and draws with `dgx_font_body()`,
-`dgx_font_title()` and `dgx_font_clock()`. The constants of the header
+`main/main.c` includes `dgx_fonts.h` and draws with `&dgx_font_body`,
+`&dgx_font_title` and `&dgx_font_clock`. The constants of the header
 (`DGX_FONT_BODY_PX`, `DGX_FONT_TITLE_MM`, `DGX_FONT_CLOCK_MADE`,
 `DGX_FONT_NEEDS(X)` and the display's numbers) go to the log at start.
 Change a string in `main/strings.txt` and build again: only `dgx_fonts.c`

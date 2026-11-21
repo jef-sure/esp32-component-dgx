@@ -129,12 +129,14 @@ typedef struct {
     const ssd1322_init_cmd_t *init;
 } ssd1322_module_t;
 
+/* a module by its resolution, whose values begin at 256 */
+#define SSD1322_MODULE(resolution) [(resolution) - DGX_SSD1322_256X64]
 static const ssd1322_module_t ssd1322_modules[] = {
-    [DGX_SSD1322_256X64]         = {256, 64, 28, 1, {0x14, 0x11}, st_init_cmds},       /* upright on a 3.12" clone */
-    [DGX_SSD1322_256X64_ZJY]     = {256, 64, 24, 1, {0x16, 0x11}, st_init_cmds},       /* u8g2 issue 2386 */
-    [DGX_SSD1322_240X128]        = {240, 128, 24, 1, {0x36, 0x11}, st_init_cmds},      /* u8g2 issue 2092 */
-    [DGX_SSD1322_240X128_TOPWIN] = {240, 128, 24, 1, {0x36, 0x01}, st_init_cmds},      /* u8g2 discussion 2308 */
-    [DGX_SSD1322_128X64]         = {128, 64, 28, 2, {0x16, 0x11}, st_init_cmds_nhd27}, /* NHD-2.7-12864WDW3 */
+    SSD1322_MODULE(DGX_SSD1322_256X64)         = {256, 64, 28, 1, {0x14, 0x11}, st_init_cmds},       /* upright on a 3.12" clone */
+    SSD1322_MODULE(DGX_SSD1322_256X64_ZJY)     = {256, 64, 24, 1, {0x16, 0x11}, st_init_cmds},       /* u8g2 issue 2386 */
+    SSD1322_MODULE(DGX_SSD1322_240X128)        = {240, 128, 24, 1, {0x36, 0x11}, st_init_cmds},      /* u8g2 issue 2092 */
+    SSD1322_MODULE(DGX_SSD1322_240X128_TOPWIN) = {240, 128, 24, 1, {0x36, 0x01}, st_init_cmds},      /* u8g2 discussion 2308 */
+    SSD1322_MODULE(DGX_SSD1322_128X64)         = {128, 64, 28, 2, {0x16, 0x11}, st_init_cmds_nhd27}, /* NHD-2.7-12864WDW3 */
 };
 
 typedef struct _dgx_ssd1322_t {
@@ -245,11 +247,11 @@ bool dgx_ssd1322_grayscale(dgx_screen_t *_scr, const uint8_t *levels)
     return true;
 }
 
-void dgx_ssd1322_display_mode(dgx_screen_t *_scr, uint8_t mode)
+void dgx_ssd1322_display_mode(dgx_screen_t *_scr, dgx_ssd1322_mode_t mode)
 {
     static const uint8_t cmds[4] = {SSD1322_CMD_NORMALDISPLAY, SSD1322_CMD_DISPLAYALLOFF, SSD1322_CMD_DISPLAYALLON,
                                     SSD1322_CMD_INVERTDISPLAY};
-    if (mode > 3) return;
+    if ((unsigned)mode > DGX_SSD1322_MODE_INVERSE) return;
     dgx_ssd1322_command((dgx_ssd1322_t *)_scr, cmds[mode], NULL, 0);
 }
 
@@ -267,19 +269,26 @@ static esp_err_t dgx_ssd1322_level(dgx_screen_t *_scr, uint8_t level)
     return ESP_OK;
 }
 
+static void ssd1322_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy);
 static const dgx_screen_control_t dgx_ssd1322_control = {
-    .orientation = dgx_ssd1322_orientation,
+    .orientation = ssd1322_orientation,
     .display     = dgx_ssd1322_display,
     .brightness  = dgx_ssd1322_level,
 };
 
-dgx_screen_t *dgx_ssd1322_init(dgx_bus_protocols_t *bus, dgx_ssd1322_resolution_t resolution, gpio_num_t rst)
+dgx_screen_t *dgx_ssd1322_init(dgx_bus_protocols_t *bus, gpio_num_t rst, dgx_ssd1322_resolution_t resolution)
 {
-    if ((unsigned)resolution >= sizeof(ssd1322_modules) / sizeof(ssd1322_modules[0])) {
+    if ((int)rst >= DGX_SSD1322_256X64) {
+        ESP_LOGE(TAG, "dgx_ssd1322_init: rst %d is a resolution: since DGX 0.12 the order is (bus, rst, resolution)", (int)rst);
+        return NULL;
+    }
+    /* the modules from the first value of the resolutions on, 256 */
+    const unsigned module = (unsigned)resolution - (unsigned)DGX_SSD1322_256X64;
+    if (module >= sizeof(ssd1322_modules) / sizeof(ssd1322_modules[0])) {
         ESP_LOGE(TAG, "unsupported resolution %d", (int)resolution);
         return NULL;
     }
-    const ssd1322_module_t *m     = &ssd1322_modules[resolution];
+    const ssd1322_module_t *m     = &ssd1322_modules[module];
     const int               width = m->width, height = m->height;
     if (!bus || !bus->buffer || bus->buffer_len < (size_t)width * m->segments / 2u) {
         ESP_LOGE(TAG, "no bus, or its buffer cannot hold a row");
@@ -329,9 +338,15 @@ dgx_screen_t *dgx_ssd1322_init(dgx_bus_protocols_t *bus, dgx_ssd1322_resolution_
     return (dgx_screen_t *)scr;
 }
 
-void dgx_ssd1322_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+static void ssd1322_orientation(dgx_screen_t *_scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
 {
     dgx_ssd1322_t *scr = (dgx_ssd1322_t *)_scr;
     dgx_soft_turn_set(_scr, scr->base.v_array, scr->module->width, scr->module->height, dir_x, dir_y, swap_xy);
     dgx_ssd1322_update_screen(_scr, 0, _scr->width - 1, 0, _scr->height - 1);
+}
+
+/* deprecated until DGX 1.0: dgx_screen_orientation() */
+void dgx_ssd1322_orientation(dgx_screen_t *scr, dgx_orientation_t dir_x, dgx_orientation_t dir_y, bool swap_xy)
+{
+    ssd1322_orientation(scr, dir_x, dir_y, swap_xy);
 }

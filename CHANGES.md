@@ -1,5 +1,123 @@
 # Changes
 
+## 0.12.0 - 2026-11-21
+
+On the way to DGX 1.0: every name that 1.0 takes away still builds and does
+what it did, and the compiler warns at every place a program uses it,
+naming what to use instead; fonts are constants; the monochrome displays
+take their arguments in the order of the others. The fonts as constants
+were timed on the ILI9341 of a CYD; the rest is host tests and builds for
+ESP32, ESP32-S3 and ESP32-P4 under IDF 5.5.4 and 6.1.
+
+Changes a program may see:
+
+- **A font is a constant.** Its header declares `extern const dgx_font_t
+  Name;`, and a program gives `&Name` where a font is asked for, so a style
+  that holds a font can be a constant in flash too. The call of before,
+  `Name()`, builds until 1.0 with a warning and gives the font without
+  `const`, as the function did. Every call takes `const dgx_font_t *`, and
+  `dgx_font_context_t`, `dgx_hw_context_t` and the morph calls keep it so: a
+  program that copies `ctx.font` into a `dgx_font_t *` gets an error under
+  ESP-IDF, which treats a lost `const` as one. A table of the functions of
+  fonts, as docs/fonts-en.md showed for `DGX_FONT_NEEDS(X)`, no longer
+  builds; a table of `const dgx_font_t *` with `&dgx_font_<need>` takes its
+  place. DGX writes into no font. A font made by font2c before 0.12 still
+  builds and works through its function; made again it is a constant. On
+  the ILI9341 of a CYD the line of the table "What it costs in time" of
+  docs/fonts-en.md takes the same time, to 0.1%, with the font as a
+  constant in flash as with its `dgx_font_t` in RAM, as 0.11 had it, in
+  one build, in every way it is drawn.
+- **The members of a glyph are `x_advance`, `x_offset` and `y_offset`**, in
+  `dgx_glyph_t`. A font made before gives its glyphs by place and builds as
+  it did; a program that reads `glyph->xAdvance` itself does not build. The
+  old names cannot stay beside the new ones there: a font of before would
+  then need braces it does not have.
+- **The constructors of the SSD1306, SH1106, SSD1309, SSD1322 and SSD1680
+  take the reset line before the resolution**, as the color displays do:
+  `dgx_ssd1306_init(bus, rst, resolution, ext_vcc)`,
+  `dgx_sh1106_init(bus, rst, resolution)`, the same for the SSD1309 and
+  the SSD1322, and `dgx_ssd1680_init(bus, rst, busy, resolution)`.
+  `ext_vcc` is a `bool`. The values of their resolutions begin at 256, a
+  number no chip has a pin of, so a call in the order of before, which C
+  compiles under ESP-IDF without a word, is refused with a line in the log
+  that names the new order, not taken for a pin; C++ does not compile it.
+- **Eight calls that only wrote a refusal into the log return it**, an
+  `esp_err_t`, as `dgx_image_blit()` does: `dgx_vscreen_to_screen()`,
+  `dgx_vscreen_region_to_screen()`, `dgx_vscreen8_to_screen16()`,
+  `dgx_vscreen8_region_to_screen16()`, `dgx_vscreen_array_set()`,
+  `dgx_draw_texture_quad()`, `dgx_draw_texture_rect()` and
+  `dgx_morph_glow_present()`. A call builds as it did; a pointer to one of
+  them of a type that returns `void` does not.
+- `dgx_ssd1322_display_mode()` takes a `dgx_ssd1322_mode_t`,
+  `DGX_SSD1322_MODE_NORMAL` to `DGX_SSD1322_MODE_INVERSE`, of the values 0
+  to 3 it took; C++ wants the names, C takes the numbers still.
+
+New:
+
+- `dgx_font_glyph(font, code_point, &advance)`, the font first as in the
+  other calls; `dgx_font_find_glyph()` is deprecated.
+- `dgx_gauge_init_with()`, whose color function takes `user_data`;
+  `dgx_gauge_init()` is deprecated.
+- `dgx_glyph_t` and `dgx_glyph_array_t`, and the measures of a font named as
+  the rest of DGX is: `y_advance`, `y_offset_lowest`, `x_widest`,
+  `x_width_average`, `y_bottom_max`, `x_offset_lowest`, `x_right_max`; the
+  old names still read, with a warning, and a font made before gives them.
+- `dgx_deprecated.h`: `DGX_DEPRECATED("use ...")`, the mark of every name
+  that goes in 1.0.
+- font2c writes a font as a constant and its header with the call of before
+  beside it; `dgx_fonts.py` declares the needs as constants, and another name
+  of a font made once as a macro of its name. The font editor reads both
+  forms and writes a font back in the form it read, so that it agrees with
+  its header.
+
+Deprecated, until DGX 1.0, every one with a warning at its use; the whole
+list is "Deprecated names" in docs/api-en.md:
+
+- the names that were deprecated before and only said so in a comment: the
+  figures `dgx_solid_*` and `dgx_draw_*_solid`, `dgx_draw_line_thick()`,
+  `dgx_screen_progress_up/down()`, the calls named after a driver,
+  `dgx_panel_orientation()` and `dgx_panel_backlight()` among them, the text
+  and handwriting calls without a context with their callback types,
+  `decodeUTF8next()`, `dgx_morph_text_length()`,
+  `dgx_font_make_morph_struct()`, `dgx_matrix_init()`, the resolutions
+  without `DGX_`, `drivers/vscreen.h`;
+- `scr->wait_buffer(scr)` and `bus->dispose(bus)`: the members are `wait`
+  and `dispose_bus` now, called by `dgx_screen_wait()` and
+  `dgx_bus_dispose()`;
+- the resolution types without `dgx_`, which a comment called kept;
+- `DGX_LUT_TRANSPARENT`, `DGX_LUT_EXACT`, `DGX_LUT_SMOOTH`,
+  `DGX_LUT_SCALE(n)` and the calls of 0.6, `dgx_vscreen_to_screen()` with
+  four arguments, `dgx_vscreen_region_to_screen()` with eight and
+  `dgx_vscreen_to_vscreen()`;
+- `glyph_t`, `glyph_array_t`, the camelCase measures of a font and
+  `fromCP`, `toCP` of a morph of glyphs, `dgx_font_find_glyph()`, a font
+  taken by a call, `dgx_gauge_init()`.
+
+Fixed:
+
+- `drivers/dgx_panel.h` included first in a host build did not build: it
+  took `gpio_num_t` from what was included before it.
+
+Tests:
+
+- test/host/test_deprecated.c uses every deprecated name as a program of
+  before does, and a font as font2c made it before; deprecated_check.py
+  builds it as C and as C++ and wants a warning on every line of a
+  deprecated name and nothing else.
+- test_results checks what the eight calls return; test_gauge the
+  `user_data` and the old init; the tests of the five monochrome drivers a
+  call in the order of before refused; test_fonts the constants, another
+  name of a font as a macro, and a font of before 0.12 as a `FILE`.
+- DGX, its tests and its examples build without a deprecation warning.
+
+Documentation:
+
+- docs/api-en.md: "Deprecated names" lists them all and says they go in
+  1.0; the calls that return `esp_err_t` tell what. docs/fonts-en.md and
+  its Russian version: fonts as constants, the header of the needs, a table
+  of fonts by name. The rest of the docs, the README and the examples with
+  the names of now.
+
 ## 0.11.8 - 2026-11-21
 
 Fixed:
