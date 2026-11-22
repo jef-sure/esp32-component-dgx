@@ -31,6 +31,9 @@ is an error):
 
     component /path/to/the/DGX/component where font2c and the fonts of DGX are; by default, where this script is
     scale 4                              display pixels per point of the frame (for sizes in pt); 1 by default
+    scale fit 320 200                    or the largest whole scale at which a frame of 320x200 points fits the
+                                         display, worked out on the board below; 1 without a display
+    scale mm 0.3                         or the whole scale at which a point is about 0.3 mm on the display
     board pixels 1280 800                the display (for sizes in mm)
     board mm 217 136
     rules /path/fonts.rules              how faces are picked for needs declared by family: the rules, see below
@@ -852,14 +855,10 @@ def parse_needs(text, name="needs", base=None):
                 raise FontsError(f"{where}: files takes nothing after it")
             files = True
         elif key == "scale":
-            try:
-                if scale is not None and scale != float(value):
-                    raise FontsError(f"{where}: scale given twice: {scale:g} and {value}")
-                scale = float(value)
-                if scale <= 0:
-                    raise ValueError
-            except ValueError:
-                raise FontsError(f"{where}: scale <n>, display pixels per point of the frame, not '{value}'")
+            given = parse_scale(value, where)
+            if scale is not None and scale != given:
+                raise FontsError(f"{where}: scale given twice: {scale_words(scale)} and {scale_words(given)}")
+            scale = given
         elif key == "board":
             kind, _, rest = value.partition(" ")
             parts = rest.split()
@@ -879,6 +878,9 @@ def parse_needs(text, name="needs", base=None):
                 if (pixels and min(pixels) <= 0) or (mm and min(mm) <= 0):
                     raise ValueError
             except ValueError:
+                if kind == "mm" and len(parts) == 2 and all(re.fullmatch(r"0+(\.0*)?", p) for p in parts):
+                    raise FontsError(f"{where}: board mm 0 0: the size of the display in millimetres is not known; give it, or "
+                                     f"declare the board without MM, which sizes in points and px and the scale FIT need not")
                 raise FontsError(f"{where}: board pixels <w> <h> or board mm <w> <h>, not '{value}'")
         elif current is None:
             raise FontsError(f"{where}: '{key}' comes before any need")
@@ -888,7 +890,58 @@ def parse_needs(text, name="needs", base=None):
             current.words.append((key, value, where))
     if not dgx:
         dgx = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-    return dgx, rules, Board(scale if scale is not None else 1.0, pixels, mm), needs, lists, files
+    return dgx, rules, Board(scale if scale is not None else ("number", 1.0), pixels, mm), needs, lists, files
+
+
+def parse_scale(text, where):
+    """The scale of the frame as declared: a number, display pixels per point; fit <w> <h>, the largest whole scale at
+    which a frame of w x h points fits the display; mm <x>, the whole scale at which a point is about x millimetres.
+    Returns ("number", n), ("fit", w, h) or ("mm", x)."""
+    words = text.split()
+    try:
+        if len(words) == 1:
+            n = float(words[0])
+            if n > 0:
+                return ("number", n)
+        elif len(words) == 3 and words[0].lower() == "fit":
+            w, h = int(words[1]), int(words[2])
+            if w > 0 and h > 0:
+                return ("fit", w, h)
+        elif len(words) == 2 and words[0].lower() == "mm":
+            x = float(words[1])
+            if x > 0:
+                return ("mm", x)
+    except ValueError:
+        pass
+    raise FontsError(f"{where}: scale <n>, scale fit <w> <h> or scale mm <x>, not '{text}': display pixels per point of the frame, "
+                     f"the largest whole scale at which a frame of w x h points fits the display, or the one at which a point "
+                     f"is about x mm")
+
+
+def scale_words(scale):
+    """A scale as it is declared."""
+    return f"{scale[1]:g}" if scale[0] == "number" else f"fit {scale[1]} {scale[2]}" if scale[0] == "fit" else f"mm {scale[1]:g}"
+
+
+def resolve_scale(board, where):
+    """The board with its scale as a number, and what to tell of it: a rule is resolved on the display of the board;
+    without a display it is 1."""
+    rule = board.scale
+    if rule[0] == "number":
+        return board._replace(scale=rule[1]), None
+    if not board.pixels:
+        return board._replace(scale=1.0), f"scale {scale_words(rule)}: no display declared, 1"
+    if rule[0] == "fit":
+        n = min(int(board.pixels[0]) // rule[1], int(board.pixels[1]) // rule[2])
+        told = f"scale fit {rule[1]}x{rule[2]} on {board.pixels[0]:g}x{board.pixels[1]:g}: {max(n, 1)}"
+        if n < 1:
+            told += f" (the frame does not fit the display even at 1)"
+        return board._replace(scale=float(max(n, 1))), told
+    if not board.mm:
+        return board._replace(scale=1.0), f"scale mm {rule[1]:g}: the display has no size in millimetres declared, 1"
+    density = pixels_per_mm(board, where)
+    n = max(int(math.floor(rule[1] * density + 0.5)), 1)  # halves go up, as sizes in mm do
+    return board._replace(scale=float(n)), f"scale mm {rule[1]:g} at {density:.2f} px/mm: {n}"
 
 
 # what a need comes to
@@ -1540,8 +1593,13 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
         raise FontsError(f"{needs_path}: {e.strerror}")
     dgx, rules_path, board, needs, lists, files_asked = parse_needs(text, needs_path, os.path.dirname(os.path.abspath(needs_path)))
     files = files or files_asked
+    if isinstance(scale, (int, float)):
+        scale = ("number", float(scale))
+    elif isinstance(scale, str):
+        scale = parse_scale(scale, "--scale")
     if scale is not None or pixels or mm:
         board = Board(scale if scale is not None else board.scale, tuple(pixels) if pixels else board.pixels, tuple(mm) if mm else board.mm)
+    board, scale_told = resolve_scale(board, needs_path)
     if rules:
         rules_path = os.path.abspath(rules)
     if component:
@@ -1633,7 +1691,7 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
     constants, aliases = header_names(h_text)
     functions = constants + list(aliases)
     own_names = {f"dgx_font_{w.need.name}" for w in made}
-    told = []
+    told = [scale_told] if scale_told else []
     # the two files: the C as font2c wrote it, the header with the needs, the fonts as they are and the board
     c = ["/* Generated by dgx_fonts.py of DGX with font2c from the needs declared in the project's CMakeLists files. Do not edit. */",
          c_text.rstrip("\n") + "\n" if c_text else '#include "dgx_font.h"\n']
@@ -1814,7 +1872,9 @@ def main(argv=None):
     ap.add_argument("--family", help="pick, list: only this family (a pattern, as in the rules)")
     ap.add_argument("--letters", help="pick, list: the letters the face must have")
     ap.add_argument("--font", help="json: the font of the file, by the name of its function")
-    ap.add_argument("--scale", type=float, help="build: pixels of the display a point of the frame (sizes in pt)")
+    ap.add_argument("--scale", nargs="+", metavar="N", help="build: the scale of the frame (sizes in pt): a number, display pixels a point; "
+                                                           "fit W H, the largest whole one at which a frame of W x H points fits the display; "
+                                                           "mm X, the whole one at which a point is about X mm")
     ap.add_argument("--pixels", nargs=2, type=float, metavar=("W", "H"), help="build: the display in pixels (sizes in mm)")
     ap.add_argument("--mm", nargs=2, type=float, metavar=("W", "H"), help="build: the display in millimetres")
     ap.add_argument("--rules", help="build: the rules faces are picked by")
@@ -1826,7 +1886,8 @@ def main(argv=None):
         if a.what == "build":
             if len(a.args) != 2:
                 raise FontsError("build NEEDS OUTDIR")
-            told, changed = build(a.args[0], a.args[1], a.scale, a.pixels, a.mm, a.rules, a.component, a.depfile, a.files)
+            told, changed = build(a.args[0], a.args[1], " ".join(a.scale) if a.scale else None, a.pixels, a.mm, a.rules, a.component, a.depfile,
+                                  a.files)
             for line in told:
                 print(line)
             print("dgx_fonts.c and dgx_fonts.h " + ("written" if changed else "as they were"))

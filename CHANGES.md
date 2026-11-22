@@ -1,5 +1,40 @@
 # Changes
 
+## 0.12.2 - 2026-11-22
+
+The scale of the frame by a rule, so that a program writes one line for
+every board. Checked by the host tests of the fonts, through CMake too, and
+by builds for ESP32, ESP32-S3 and ESP32-P4 under IDF 5.5.4 and 6.1; the
+code that draws is that of 0.12.1.
+
+New:
+
+- **The scale of the frame by a rule.** `dgx_fonts_scale(FIT 320 200)`
+  is the largest whole scale at which a frame of 320x200 points fits the
+  display of `dgx_fonts_board()`, and `dgx_fonts_scale(MM 0.3)` the whole
+  one at which a point is about 0.3 mm on it, halves up. Either is at least
+  1, and 1 with no display declared, or for `MM` with no millimetres. The
+  build works the rule out when it makes the fonts and tells what it took;
+  the program gets the number as `DGX_FONTS_SCALE`, as before. A needs file
+  takes `scale fit 320 200` and `scale mm 0.3`, and `dgx_fonts.py build`
+  takes `--scale fit 320 200`. A number is taken as before.
+
+Fixed:
+
+- A board declared with `MM 0 0`, as a description of a board gives when it
+  does not know the size, stops the build saying so, where it said only
+  what a board line looks like.
+
+Tests:
+
+- test_fonts: the rules on five displays, with no display and with no
+  millimetres, the same rule twice taken and two different scales refused,
+  `--scale` over the needs file, `MM 0 0`; through CMake too.
+
+Documentation:
+
+- docs/fonts-en.md and docs/fonts-ru.md, "Size and board": the two rules.
+
 ## 0.12.1 - 2026-11-22
 
 A font as a file of bytes, which a program reads while it runs, and the

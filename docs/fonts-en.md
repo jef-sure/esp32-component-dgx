@@ -220,8 +220,31 @@ build stops, because the numbers cannot all be right. The result is
 rounded to whole pixels, halves up: 4 mm on a display with 5.9 px/mm is
 24 px.
 
+A program that runs on several boards gives the scale as a rule, which the
+build works out on the display of `dgx_fonts_board`:
+
+```cmake
+dgx_fonts_scale(FIT 320 200)   # the largest whole scale at which a frame of 320x200 points fits the display
+dgx_fonts_scale(MM 0.3)        # the whole scale at which a point is about 0.3 mm, for buttons rather than a frame
+```
+
+`FIT` divides the width of the display by the width of the frame and the
+height by the height, in whole numbers, and takes the smaller: a frame of
+320x200 gets 1 on a display of 320x240, 2 on 800x480, 3 on 1024x600 and 4
+on 1280x800. `MM` takes the millimetres of a point times the pixels a
+millimetre of the display, halves up. Either is at least 1, and it is 1 on
+a board with no display declared, and for `MM` on a display with no
+millimetres. The build tells in its output what it took,
+`scale fit 320x200 on 1280x800: 4`. The number reaches the program as
+`DGX_FONTS_SCALE` in `dgx_fonts.h`; CMake does not have it, as it is
+worked out when the fonts are made. A needs file says the same as
+`scale fit 320 200` and `scale mm 0.3`, and so does `dgx_fonts.py build
+--scale fit 320 200`.
+
 A need in millimeters without `PIXELS`/`MM` is a build error with a hint
-about what is missing. Declaring the display or the scale twice with the
+about what is missing, and so is a display of `MM 0 0`, which a
+description of a board gives when it does not know the size: declare the
+board without `MM` then. Declaring the display or the scale twice with the
 same numbers is fine; different numbers are an error that quotes both. So a
 board description file and the program may both declare them, as long as
 they agree.

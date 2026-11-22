@@ -17,6 +17,7 @@
 #
 #     dgx_fonts_board(PIXELS 1280 800 MM 217 136)   # the display, for sizes in millimeters
 #     dgx_fonts_scale(4)                             # display pixels per point of the frame, for sizes in points; 1 by default
+#     dgx_fonts_scale(FIT 320 200)                   # or: the largest whole scale at which a 320x200 frame fits the display
 #     dgx_fonts_rules(fonts.rules)                   # required by any need without an exact face
 #     dgx_fonts_files()                              # every font also as a file of bytes, .dgxf, beside dgx_fonts.c
 #
@@ -213,12 +214,27 @@ function(dgx_fonts_board)
     set_property(GLOBAL APPEND PROPERTY DGX_FONTS_SETTINGS ${lines})
 endfunction()
 
-# The frame scale: display pixels per point of the frame, for sizes in points; 1 by default. Declared once, by the program.
-function(dgx_fonts_scale n)
-    if(NOT n MATCHES "^[0-9]+(\\.[0-9]+)?$")
-        message(FATAL_ERROR "dgx_fonts_scale: expected a number, not '${n}'")
+# The frame scale: display pixels per point of the frame, for sizes in points; 1 by default. Declared once, by the program:
+# a number, dgx_fonts_scale(4); or a rule the fonts are made by on the display of dgx_fonts_board(PIXELS ... MM ...),
+# dgx_fonts_scale(FIT 320 200), the largest whole scale at which a frame of 320x200 points fits the display, and
+# dgx_fonts_scale(MM 0.3), the whole scale at which a point is about 0.3 mm. Without a display a rule gives 1. The
+# program gets the number as DGX_FONTS_SCALE of dgx_fonts.h.
+function(dgx_fonts_scale)
+    set(words ${ARGN})
+    list(LENGTH words count)
+    if(count EQUAL 1 AND words MATCHES "^[0-9]+(\\.[0-9]+)?$")
+        set(line "scale ${words}")
+    elseif(count EQUAL 3 AND words MATCHES "^FIT;[0-9]+;[0-9]+$")
+        list(GET words 1 w)
+        list(GET words 2 h)
+        set(line "scale fit ${w} ${h}")
+    elseif(count EQUAL 2 AND words MATCHES "^MM;[0-9]+(\\.[0-9]+)?$")
+        list(GET words 1 x)
+        set(line "scale mm ${x}")
+    else()
+        message(FATAL_ERROR "dgx_fonts_scale: expected a number, FIT <w> <h> or MM <x>, not '${ARGN}'")
     endif()
-    set_property(GLOBAL APPEND PROPERTY DGX_FONTS_SETTINGS "scale ${n}")
+    set_property(GLOBAL APPEND PROPERTY DGX_FONTS_SETTINGS "${line}")
 endfunction()
 
 # Every font of the program also as a file of bytes, <name>.dgxf, beside dgx_fonts.c, and dgx_fonts-files.txt there,

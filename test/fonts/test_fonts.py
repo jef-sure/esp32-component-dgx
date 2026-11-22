@@ -402,6 +402,48 @@ def test_bin(work):
           f"without files the files of before go: {err.strip()}")
 
 
+def test_scale_rules(work):
+    """The scale of the frame by a rule on the display of the board: fit, the largest whole scale at which a frame fits,
+    mm, the whole one at which a point is about so many millimetres; 1 without a display, told; a need of 12 pt made at
+    12 x the scale; two different scales, and a board of 0 x 0 mm, refused; --scale wins over the file."""
+    d = os.path.join(work, "scale")
+    os.makedirs(d, exist_ok=True)
+
+    def run(board, scale, *args):
+        path = os.path.join(d, "needs.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"component {DGX}\n{board}{scale}need text\nsize 12pt\npostscript DejaVuSans\nletters AB\n")
+        code, out, err = tool("build", path, os.path.join(d, "out"), *args)
+        h = open(os.path.join(d, "out", "dgx_fonts.h"), encoding="utf-8").read() if code == 0 else ""
+        m = re.search(r"#define DGX_FONTS_SCALE (\S+)", h)
+        px = re.search(r"#define DGX_FONT_TEXT_PX (\d+)", h)
+        return code, out, err, (float(m.group(1)) if m else None), (int(px.group(1)) if px else None)
+
+    for pixels, mm, want in (("320 240", "58 43", 1), ("800 480", "154 86", 2), ("1024 600", "154 86", 3), ("1280 800", "217 136", 4)):
+        code, out, err, scale, px = run(f"board pixels {pixels}\nboard mm {mm}\n", "scale fit 320 200\n")
+        check(code == 0 and scale == want and px == 12 * want and f": {want}" in out,
+              f"scale fit 320 200 on {pixels}: {want}, 12 pt is {12 * want} px: {scale} {px} {err.strip()} {out.strip()[:200]}")
+    code, out, err, scale, _ = run("board pixels 128 64\n", "scale fit 320 200\n")
+    check(code == 0 and scale == 1 and "does not fit" in out, f"a frame larger than the display: 1, told: {scale} {out.strip()[:300]}")
+    code, out, err, scale, _ = run("", "scale fit 320 200\n")
+    check(code == 0 and scale == 1 and "no display declared, 1" in out, f"no display: 1, told: {scale} {err.strip()} {out.strip()[:300]}")
+    for pixels, mm, want in (("320 240", "58 43", 2), ("1024 600", "154 86", 3)):
+        code, out, err, scale, _ = run(f"board pixels {pixels}\nboard mm {mm}\n", "scale mm 0.4\n")
+        check(code == 0 and scale == want, f"scale mm 0.4 on {pixels} of {mm} mm: {want}: {scale} {err.strip()}")
+    code, out, err, scale, _ = run("board pixels 1024 600\n", "scale mm 0.4\n")
+    check(code == 0 and scale == 1 and "no size in millimetres" in out, f"scale mm without the size: 1, told: {scale} {out.strip()[:300]}")
+    code, out, err, scale, _ = run("board pixels 1280 800\nboard mm 217 136\n", "scale fit 320 200\nscale 4\n")
+    check(code != 0 and "scale given twice: fit 320 200 and 4" in err, f"two different scales refused: {err.strip()}")
+    code, out, err, scale, _ = run("board pixels 1280 800\nboard mm 217 136\n", "scale fit 320 200\nscale fit 320 200\n")
+    check(code == 0 and scale == 4, f"the same scale twice is taken: {err.strip()}")
+    code, out, err, scale, _ = run("board pixels 1280 800\nboard mm 217 136\n", "scale 2\n", "--scale", "fit", "640", "400")
+    check(code == 0 and scale == 2 and "fit 640x400" in out, f"--scale fit wins over the file: {scale} {err.strip()}")
+    code, out, err, scale, _ = run("board pixels 1280 800\nboard mm 0 0\n", "scale fit 320 200\n")
+    check(code != 0 and "not known" in err, f"a board of 0 x 0 mm stops the build, saying why: {err.strip()}")
+    code, out, err, scale, _ = run("", "scale fit 320\n")
+    check(code != 0 and "scale fit <w> <h>" in err, f"a rule of the wrong form is refused with the forms: {err.strip()}")
+
+
 def bdf_font(path, px):
     """A bitmap font of BDF, of its one size px: the letters A and B, frames of 10 x px pixels."""
     rows = "".join("FFC0\n" if y in (0, px - 1) else "8040\n" for y in range(px))
@@ -937,6 +979,8 @@ if(CASE STREQUAL "good")
     dgx_font_need(keywords SIZE 13px LETTERS "DGX" EXCEPT MONO TEXTS t.txt)
     dgx_font_needs_file(x.needs)
     dgx_font_list(own.list)
+    # the scale by a rule on the display above: a frame of 160x120 points fits 320x240 twice
+    dgx_fonts_scale(FIT 160 120)
 elseif(CASE STREQUAL "faces")
     dgx_font_need(picked SIZE 12px TEXTS t.txt)
 elseif(CASE STREQUAL "missing")
@@ -947,6 +991,8 @@ elseif(CASE STREQUAL "bits_twice")
     dgx_font_need(b SIZE 12px BITS 4 BITS 2 POSTSCRIPT DejaVuSans TEXTS t.txt)
 elseif(CASE STREQUAL "no_value")
     dgx_font_need(b SIZE 12px POSTSCRIPT DejaVuSans TEXTS t.txt LETTERS)
+elseif(CASE STREQUAL "scale_bad")
+    dgx_fonts_scale(FIT 320)
 endif()
 """)
 
@@ -960,6 +1006,7 @@ endif()
     if run.returncode == 0:
         needs = open(os.path.join(build_dir, "dgx_fonts", "needs.txt"), encoding="utf-8").read()
         check("letters [a;b]\n" in needs, "brackets and a semicolon of LETTERS reach the needs file")
+        check("scale fit 160 120\n" in needs, "dgx_fonts_scale(FIT w h) reaches the needs file as a rule")
         check("need soft " in needs and "bits 4\n" in needs, "BITS reaches the needs file")
         check("letters DGX\nexcept MONO\n" in needs and "\nmono 1\n" not in needs[needs.find("need keywords"):],
               "LETTERS \"DGX\" and EXCEPT MONO are characters, not the keywords DGX and MONO")
@@ -978,6 +1025,8 @@ endif()
             # a font is declared as its constant, or as another name of a font made once
             declared = lambda name: f"extern const dgx_font_t {name};" in h or re.search(rf"^#define {name} \w+$", h, re.M) is not None
             check(declared("dgx_font_brackets") and declared("dgx_font_fromfile") and declared("widget"), "the three fonts of the three ways are in the header")
+            check("#define DGX_FONTS_SCALE 2\n" in h and "scale fit 160x120 on 320x240: 2" in run.stdout,
+                  f"the scale of the rule, 2, in the header and told: {run.stdout.strip()[-300:]}")
             check(declared("dgx_font_soft") and "4 bits a pixel" in h, "the font of BITS 4 is in the header, its depth told")
             check(declared("dgx_font_softfile") and any(l.startswith("/* softfile:") and "4 bits a pixel" in l for l in h.splitlines()),
                   "the font of bits 4 in a needs file is in the header, its depth told")
@@ -1011,7 +1060,7 @@ endif()
         run = subprocess.run(["cmake", "--build", build_dir], capture_output=True, text=True)
         check("DGX: the fonts of the program by its needs" in run.stdout, f"the face changed, the fonts made again: {run.stdout.strip()[-300:]}")
     for case, expected in (("missing", "none.txt does not exist"), ("twice", "SIZE given twice"), ("bits_twice", "BITS given twice"),
-                           ("no_value", "LETTERS without a value")):
+                           ("no_value", "LETTERS without a value"), ("scale_bad", "expected a number, FIT <w> <h> or MM <x>")):
         build_dir, run = configure(case)
         said = " ".join(run.stderr.split())  # CMake wraps its messages
         check(run.returncode != 0 and expected in said, f"{case}: told '{expected}': {said[-300:]}")
@@ -1119,6 +1168,7 @@ def main():
         test_font2c_long_paths(work)
         test_editor_round_trip(work)
         test_bin(work)
+        test_scale_rules(work)
         test_patches(work)
         test_cmake(work)
         test_licenses(work)
