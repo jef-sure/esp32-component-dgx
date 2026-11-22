@@ -127,7 +127,7 @@ static void demo_test_card(dgx_screen_t *screen)
 
     int bar = w / 5, top = h / 2 - 70;
     dgx_fill_rectangle(screen, bar, top, bar, 140, DGX_RED(demo_rgb));
-    dgx_fill_rectangle(screen, 2 * bar, top, bar, 140, DGX_GREEN(demo_rgb));
+    dgx_fill_rectangle(screen, 2 * bar, top, bar, 140, DGX_LIME(demo_rgb));
     dgx_fill_rectangle(screen, 3 * bar, top, bar, 140, DGX_BLUE(demo_rgb));
     demo_text(screen, bar + 16, top + 82, "red", white);
     demo_text(screen, 2 * bar + 16, top + 82, "green", DGX_BLACK(demo_rgb));
@@ -231,7 +231,7 @@ static void demo_triangles(dgx_screen_t *screen)
 static void demo_color_bars(dgx_screen_t *screen)
 {
     const uint32_t bars[] = {
-        DGX_RED(demo_rgb),  DGX_ORANGE(demo_rgb), DGX_YELLOW(demo_rgb),  DGX_GREEN(demo_rgb),
+        DGX_RED(demo_rgb),  DGX_ORANGE(demo_rgb), DGX_YELLOW(demo_rgb),  DGX_LIME(demo_rgb),
         DGX_CYAN(demo_rgb), DGX_BLUE(demo_rgb),   DGX_MAGENTA(demo_rgb), DGX_WHITE(demo_rgb),
     };
     int bar_width = screen->width / (int)(sizeof(bars) / sizeof(bars[0]));

@@ -93,7 +93,7 @@ static void demo_text(dgx_screen_t *screen)
     dgx_font_draw(&text, 12, 86, "ILI9341 over SPI @ configurable clock");
     text.color = DGX_RED(dgx_rgb_to_16);
     dgx_font_draw(&text, 12, 126, "RED");
-    text.color = DGX_GREEN(dgx_rgb_to_16);
+    text.color = DGX_LIME(dgx_rgb_to_16);
     dgx_font_draw(&text, 62, 126, "GREEN");
     text.color = DGX_BLUE(dgx_rgb_to_16);
     dgx_font_draw(&text, 132, 126, "BLUE");
@@ -177,7 +177,7 @@ static void demo_triangles(dgx_screen_t *screen)
 static void demo_color_bars(dgx_screen_t *screen)
 {
     const uint32_t bars[] = {
-        DGX_RED(dgx_rgb_to_16),  DGX_ORANGE(dgx_rgb_to_16), DGX_YELLOW(dgx_rgb_to_16),  DGX_GREEN(dgx_rgb_to_16),
+        DGX_RED(dgx_rgb_to_16),  DGX_ORANGE(dgx_rgb_to_16), DGX_YELLOW(dgx_rgb_to_16),  DGX_LIME(dgx_rgb_to_16),
         DGX_CYAN(dgx_rgb_to_16), DGX_BLUE(dgx_rgb_to_16),   DGX_MAGENTA(dgx_rgb_to_16), DGX_WHITE(dgx_rgb_to_16),
     };
 

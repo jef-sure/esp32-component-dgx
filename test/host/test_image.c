@@ -50,28 +50,34 @@ static unsigned pixel(const dgx_image_t *image, int sx, int sy)
 /* the model: what the blit has to leave in `model`, and the box of the turned picture */
 static void model_blit(uint8_t *model, int x, int y, const dgx_image_t *image, const dgx_image_blit_t *how, int *bl, int *bt, int *br, int *bb)
 {
-    int ox, oy;
+    int       ox, oy;
+    const int s = how->scale > 1 ? how->scale : 1; /* a pixel of the picture is an s x s square, the origin's at (x, y) */
     turned(how->orientation, image->width, image->height, image->origin_x, image->origin_y, &ox, &oy);
     *bl = *bt = 1 << 20, *br = *bb = -(1 << 20);
     for (int sy = 0; sy < image->height; ++sy) {
         for (int sx = 0; sx < image->width; ++sx) {
             int dx, dy;
             turned(how->orientation, image->width, image->height, sx, sy, &dx, &dy);
-            dx += x - ox, dy += y - oy;
+            dx = x + (dx - ox) * s, dy = y + (dy - oy) * s;
             if (dx < *bl) *bl = dx;
-            if (dx > *br) *br = dx;
+            if (dx + s - 1 > *br) *br = dx + s - 1;
             if (dy < *bt) *bt = dy;
-            if (dy > *bb) *bb = dy;
+            if (dy + s - 1 > *bb) *bb = dy + s - 1;
             const unsigned p = pixel(image, sx, sy);
-            if (!p || dx < 0 || dy < 0 || dx >= DW || dy >= DH) continue;
-            if ((how->flags & DGX_IMAGE_CLIP) &&
-                (dx < how->clip_x || dy < how->clip_y || dx >= how->clip_x + how->clip_w || dy >= how->clip_y + how->clip_h))
-                continue;
+            if (!p) continue;
             uint8_t index;
             if (image->format == DGX_IMAGE_1BPP || (how->flags & DGX_IMAGE_SILHOUETTE)) index = how->color;
             else if (how->map) index = how->map[p - 1];
             else index = (uint8_t)p;
-            model[dy * DW + dx] = index;
+            for (int py = dy; py < dy + s; ++py) {
+                for (int px = dx; px < dx + s; ++px) {
+                    if (px < 0 || py < 0 || px >= DW || py >= DH) continue;
+                    if ((how->flags & DGX_IMAGE_CLIP) &&
+                        (px < how->clip_x || py < how->clip_y || px >= how->clip_x + how->clip_w || py >= how->clip_y + how->clip_h))
+                        continue;
+                    model[py * DW + px] = index;
+                }
+            }
         }
     }
 }
@@ -114,6 +120,8 @@ static void test_against_model(void)
                         image.origin_x = (int16_t)(where == 0 ? rnd(0, image.width - 1) : where == 1 ? image.width - 1 : rnd(-6, image.width + 6));
                         image.origin_y = (int16_t)(where == 0 ? rnd(0, image.height - 1) : where == 1 ? 0 : rnd(-6, image.height + 6));
                         dgx_image_blit_t how = {.orientation = (dgx_output_orientation_t)turn, .color = (uint8_t)rnd(1, 255)};
+                        /* half the rounds at a scale, 1 among them */
+                        how.scale = (uint8_t)(shape < 8 ? 0 : rnd(1, 5));
                         if (paint == 1) how.map = map;
                         if (paint == 2) how.flags |= DGX_IMAGE_SILHOUETTE, how.map = rnd(0, 1) ? map : NULL;
                         pick_clip(kind, &how);
@@ -231,8 +239,28 @@ static void test_refused(void)
     dgx_screen_destroy(&dst);
 }
 
+/* the largest scale, 255: a square far larger than the screen, cut by it */
+static void test_scale_most(void)
+{
+    static const uint8_t diagonal[] = {0x80, 0x40}; /* 2 x 2: the top left and the bottom right pixels */
+    const dgx_image_t    image      = {.width = 2, .height = 2, .format = DGX_IMAGE_1BPP, .data = diagonal};
+    dgx_screen_t        *dst        = dgx_vscreen_init(DW, DH, 8, DgxScreenRGB);
+    CHECK(dst);
+    if (!dst) return;
+    uint8_t *v = ((dgx_vscreen_t *)dst)->v_array;
+    memset(v, 1, DW * DH);
+    /* the square of the origin from -250, so the next one begins at 5 */
+    CHECK(dgx_image_blit(dst, -250, -250, &image, &(dgx_image_blit_t){.color = 7, .scale = 255}) == ESP_OK);
+    int wrong = 0;
+    for (int py = 0; py < DH; ++py)
+        for (int px = 0; px < DW; ++px) wrong += v[py * DW + px] != ((px < 5) == (py < 5) ? 7 : 1);
+    CHECK(wrong == 0);
+    dgx_screen_destroy(&dst);
+}
+
 int main(void)
 {
+    test_scale_most();
     test_against_model();
     test_dirty_area();
     test_refused();

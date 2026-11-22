@@ -392,6 +392,13 @@ RGB565 packing expression with channels `(255, 0, 0)`. With
 The argument is a macro or function name, not a function pointer: there is no
 indirect call or runtime format switch.
 
+The names are those of the colors of CSS, all 148 of CSS Color Module Level
+4 with the values of CSS: `DGX_MIDNIGHTBLUE`, `DGX_CORNFLOWERBLUE`,
+`DGX_GAINSBORO`, the grays spelled both ways as CSS spells them
+(`DGX_DIMGRAY` and `DGX_DIMGREY`), and `DGX_COPPER` of DGX's own. As in
+CSS, `DGX_GREEN` is 0,128,0 and the bright green is `DGX_LIME`, and
+`DGX_DARKGRAY` (169) is lighter than `DGX_GRAY` (128).
+
 That keeps the color's meaning separate from its binary representation: one
 palette of names works for 12-, 16-, 18- and 24-bit screens. Switching a
 renderer from RGB565 to 18-bit RGB means changing the packer, not maintaining
@@ -476,7 +483,7 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_overlay_set_alphas(display, alphas)` | A share of its own for every index, 0 to 255, times the `alpha` of the layer: a button solid and its shadow faint, the alpha of the layer still fading all. Kept when the layer is moved or gets other colors or another alpha, until it is taken away; NULL for 255 each. The place of the layer becomes changed. |
 | `dgx_overlay_clear(display)` | Take the layer away; its place becomes changed. |
 | `dgx_overlay_take_dirty(display, &x, &y, &w, &h)` | The rectangle the layer changed since the last call: drawn into, laid, moved, taken away. Put it again from the picture. |
-| `dgx_image_blit(dst, x, y, image, how)` | Draw a picture of 1, 4 or 8 bits from flash or RAM (`dgx_image.h`): value 0 transparent, or `bg` with `DGX_IMAGE_OPAQUE`, a map or one color for the others, clipped, mirrored or rotated around its origin. A picture in one color, of 1 bit or any other with `DGX_IMAGE_SILHOUETTE`, goes on any screen, a display of any depth too, in a color of that screen. By its values or through a map it goes into a linear 8-bit virtual screen only, and returns `ESP_ERR_NOT_SUPPORTED` for another destination. See [A picture from flash](#a-picture-from-flash). |
+| `dgx_image_blit(dst, x, y, image, how)` | Draw a picture of 1, 4 or 8 bits from flash or RAM (`dgx_image.h`): value 0 transparent, or `bg` with `DGX_IMAGE_OPAQUE`, a map or one color for the others, clipped, mirrored or rotated around its origin. A picture in one color, of 1 bit or any other with `DGX_IMAGE_SILHOUETTE`, goes on any screen, a display of any depth too, in a color of that screen. By its values or through a map it goes into a linear 8-bit virtual screen only, and returns `ESP_ERR_NOT_SUPPORTED` for another destination. `.scale` makes every pixel of the picture a square of scale x scale, 0 and 1 the same, up to 255, on every screen and turn: the square of the origin stands at (x, y), and the clips cut the squares. With `DGX_IMAGE_OPAQUE` on a display behind a bus a scaled picture goes in one window over its box too, every pixel sent once, so an icon drawn again does not blink. See [A picture from flash](#a-picture-from-flash). |
 | `dgx_bw_init(width, height)` | Allocate a 1-bit monochrome RAM screen. |
 | `dgx_vscreen_2h_init(left, right)` | Compose two screens as one wide logical screen. |
 | `dgx_vscreen_is_linear(scr)` | True when the screen is a `dgx_vscreen_t` with row-major pixels in `v_array`. |

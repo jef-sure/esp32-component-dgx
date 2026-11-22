@@ -1,5 +1,60 @@
 # Changes
 
+## 0.12.3 - 2026-11-22
+
+The colors by the names of CSS, all of them, with the values of CSS, and a
+picture at an integer scale. Checked by host tests and builds for ESP32,
+ESP32-S3 and ESP32-P4 under IDF 5.5.4 and 6.1; the scaled picture was not
+timed on a board.
+
+Changes a program may see:
+
+- **Eight names of colors take the values of CSS**, which they had from
+  TFT_eSPI before: `DGX_GREEN` 0,255,0 is 0,128,0, and the bright green is
+  `DGX_LIME`; `DGX_DARKGREEN` 0,128,0 is 0,100,0; `DGX_DARKCYAN` 0,128,128
+  is 0,139,139; `DGX_DARKGREY` 128,128,128 is 169,169,169; `DGX_ORANGE`
+  255,180,0 is 255,165,0; `DGX_GREENYELLOW` 180,255,0 is 173,255,47;
+  `DGX_BROWN` 150,75,0 is 165,42,42; `DGX_VIOLET` 180,46,226 is
+  238,130,238. A program that wants the colors of before writes `DGX_LIME`
+  for the green, or the numbers.
+
+New:
+
+- **A picture at an integer scale.** `dgx_image_blit_t` has `scale`: every
+  pixel of the picture a square of scale x scale, 0 and 1 the same, up to
+  255, on every screen, depth and turn, the square of the origin at (x, y)
+  as the glyphs of a font stand at a scale, the clips cutting the squares.
+  A picture in one color goes as rectangles as high as a row of the picture
+  is; with `DGX_IMAGE_OPAQUE` on a display behind a bus it goes in one
+  window over the scaled box, a row put into the buffer of the bus once and
+  sent as often as it is high, every pixel once. At scale 1 the code is that
+  of before.
+- **Every name of the colors of CSS** in `dgx_colors.h`, 124 more, as
+  `DGX_<NAME>(rgb_func)` with the values of CSS Color Module Level 4: the
+  dark blues and grays of an interface, `DGX_MIDNIGHTBLUE`,
+  `DGX_CORNFLOWERBLUE`, `DGX_DIMGRAY`, `DGX_GAINSBORO` and the rest, the0/
+  grays spelled both ways as CSS spells them. `DGX_COPPER` stays, DGX's own.
+
+Tests:
+
+- test_image, test_image_screens and test_once: their models of a picture
+  at a scale, half their rounds at scales 1 to 5, on every screen they had;
+  a display behind a bus gets a window a run of a band, or one window for an
+  opaque picture with every pixel once; the scale of 255 cut by the screen.
+- test_colors: every one of the 148 names of CSS, written out in the test,
+  against its `DGX_<NAME>`, through the packing macros and the inline
+  wrappers.
+
+Examples:
+
+- screen_demo and dsi_demo draw their bright green with `DGX_LIME`, so they
+  look as they did.
+
+Documentation:
+
+- docs/api-en.md, "Colors": the names are those of CSS; `dgx_image_blit()`
+  at a scale.
+
 ## 0.12.2 - 2026-11-22
 
 The scale of the frame by a rule, so that a program writes one line for

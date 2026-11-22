@@ -131,15 +131,15 @@ static void paint(dgx_screen_t *scr, uint32_t value)
 
 /* ---- opaque pictures ---- */
 
-/* where the box of the turned picture lies, as dgx_image_blit() puts it */
-static void image_box(const dgx_image_t *im, dgx_output_orientation_t turn, int x, int y, int *bx, int *by, int *bw, int *bh)
+/* where the box of the turned picture lies at a scale, as dgx_image_blit() puts it */
+static void image_box(const dgx_image_t *im, dgx_output_orientation_t turn, int x, int y, int s, int *bx, int *by, int *bw, int *bh)
 {
     const bool swapped = turn == DgxOutputTranspose || turn == DgxOutputRotate90CCW || turn == DgxOutputRotate90CW || turn == DgxOutputTransverse;
     const bool x_back  = turn == DgxOutputMirrorX || turn == DgxOutputRotate180 || turn == DgxOutputRotate90CCW || turn == DgxOutputTransverse;
     const bool y_back  = turn == DgxOutputMirrorY || turn == DgxOutputRotate180 || turn == DgxOutputRotate90CW || turn == DgxOutputTransverse;
     const int  ox = x_back ? im->width - 1 - im->origin_x : im->origin_x, oy = y_back ? im->height - 1 - im->origin_y : im->origin_y;
-    *bx = x - (swapped ? oy : ox), *by = y - (swapped ? ox : oy);
-    *bw = swapped ? im->height : im->width, *bh = swapped ? im->width : im->height;
+    *bx = x - (swapped ? oy : ox) * s, *by = y - (swapped ? ox : oy) * s;
+    *bw = (swapped ? im->height : im->width) * s, *bh = (swapped ? im->width : im->height) * s;
 }
 
 static void test_opaque_pictures(void)
@@ -158,13 +158,15 @@ static void test_opaque_pictures(void)
                                 .origin_y = (int16_t)rnd(-3, 10), .format = format, .data = data};
         const dgx_output_orientation_t turn = (dgx_output_orientation_t)rnd(0, 7);
         const int x = rnd(-20, W + 5), y = rnd(-20, H + 5);
-        int       bx, by, bw, bh;
-        image_box(&im, turn, x, y, &bx, &by, &bw, &bh);
+        /* two rounds of five at scale 1, the others at 2, 3 or 4: a scaled box is written once as well */
+        const uint8_t scale = (uint8_t)(round % 5 < 2 ? round % 2 : rnd(2, 4));
+        int           bx, by, bw, bh;
+        image_box(&im, turn, x, y, scale ? scale : 1, &bx, &by, &bw, &bh);
         const bool clipped = round % 4 == 0;
         const int  cx = rnd(0, W / 2), cy = rnd(0, H / 2), cw = rnd(1, W / 2), ch = rnd(1, H / 2);
 
         /* by values or a map, on an 8-bit virtual screen: the box takes bg, then the pixels that are not 0 */
-        dgx_image_blit_t how = {.flags = DGX_IMAGE_OPAQUE, .map = round % 2 ? map : NULL, .color = 77, .orientation = turn, .bg = 9};
+        dgx_image_blit_t how = {.flags = DGX_IMAGE_OPAQUE, .map = round % 2 ? map : NULL, .color = 77, .orientation = turn, .bg = 9, .scale = scale};
         paint(a8, 250), paint(b8, 250);
         if (clipped) dgx_screen_clip(a8, cx, cy, cw, ch), dgx_screen_clip(b8, cx, cy, cw, ch);
         CHECK(dgx_image_blit(a8, x, y, &im, &how) == ESP_OK);
@@ -176,7 +178,7 @@ static void test_opaque_pictures(void)
         /* in one color on a 16-bit virtual screen, by runs of the two colors */
         const uint32_t color = (uint32_t)rnd(1, 0xffff), bg = (uint32_t)rnd(0, 0xffff) ^ color;
         how = (dgx_image_blit_t){.flags = DGX_IMAGE_OPAQUE | (format == DGX_IMAGE_1BPP ? 0 : DGX_IMAGE_SILHOUETTE), .color = color, .orientation = turn,
-                                 .bg = bg};
+                                 .bg = bg, .scale = scale};
         paint(a16, 0x1234), paint(b16, 0x1234);
         if (clipped) dgx_screen_clip(a16, cx, cy, cw, ch), dgx_screen_clip(b16, cx, cy, cw, ch);
         CHECK(dgx_image_blit(a16, x, y, &im, &how) == ESP_OK);

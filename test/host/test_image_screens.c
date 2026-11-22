@@ -56,7 +56,8 @@ static unsigned pixel(const dgx_image_t *image, int sx, int sy)
 /* the model: the pixels of the screen the picture puts its color on, and the box of the turned picture */
 static void model_blit(bool *inked, int x, int y, const dgx_image_t *image, const dgx_image_blit_t *how, int *bl, int *bt, int *br, int *bb)
 {
-    int ox, oy;
+    int       ox, oy;
+    const int s = how->scale > 1 ? how->scale : 1; /* a pixel of the picture is an s x s square, the origin's at (x, y) */
     turned(how->orientation, image->width, image->height, image->origin_x, image->origin_y, &ox, &oy);
     memset(inked, 0, DW * DH * sizeof(*inked));
     *bl = *bt = 1 << 20, *br = *bb = -(1 << 20);
@@ -64,16 +65,21 @@ static void model_blit(bool *inked, int x, int y, const dgx_image_t *image, cons
         for (int sx = 0; sx < image->width; ++sx) {
             int dx, dy;
             turned(how->orientation, image->width, image->height, sx, sy, &dx, &dy);
-            dx += x - ox, dy += y - oy;
+            dx = x + (dx - ox) * s, dy = y + (dy - oy) * s;
             if (dx < *bl) *bl = dx;
-            if (dx > *br) *br = dx;
+            if (dx + s - 1 > *br) *br = dx + s - 1;
             if (dy < *bt) *bt = dy;
-            if (dy > *bb) *bb = dy;
-            if (!pixel(image, sx, sy) || dx < 0 || dy < 0 || dx >= DW || dy >= DH) continue;
-            if ((how->flags & DGX_IMAGE_CLIP) &&
-                (dx < how->clip_x || dy < how->clip_y || dx >= how->clip_x + how->clip_w || dy >= how->clip_y + how->clip_h))
-                continue;
-            inked[dy * DW + dx] = true;
+            if (dy + s - 1 > *bb) *bb = dy + s - 1;
+            if (!pixel(image, sx, sy)) continue;
+            for (int py = dy; py < dy + s; ++py) {
+                for (int px = dx; px < dx + s; ++px) {
+                    if (px < 0 || py < 0 || px >= DW || py >= DH) continue;
+                    if ((how->flags & DGX_IMAGE_CLIP) &&
+                        (px < how->clip_x || py < how->clip_y || px >= how->clip_x + how->clip_w || py >= how->clip_y + how->clip_h))
+                        continue;
+                    inked[py * DW + px] = true;
+                }
+            }
         }
     }
 }
@@ -234,6 +240,8 @@ static void test_kind(int kind)
                     image.origin_x  = (int16_t)(where == 0 ? rnd(0, image.width - 1) : where == 1 ? image.width - 1 : rnd(-6, image.width + 6));
                     image.origin_y  = (int16_t)(where == 0 ? rnd(0, image.height - 1) : where == 1 ? 0 : rnd(-6, image.height + 6));
                     dgx_image_blit_t how = {.orientation = (dgx_output_orientation_t)turn, .color = any_color(mask)};
+                    /* half the rounds at a scale, 1 among them */
+                    how.scale = (uint8_t)(shape < 3 ? 0 : rnd(1, 4));
                     /* 4 and 8 bits go as a silhouette; 1 bit is one color with the flag and without it */
                     if (image.format != DGX_IMAGE_1BPP || rnd(0, 1)) how.flags |= DGX_IMAGE_SILHOUETTE;
                     pick_clip(clip, &how);
@@ -252,12 +260,18 @@ static void test_kind(int kind)
                     }
                     int bl, bt, br, bb;
                     model_blit(inked, x, y, &image, &how, &bl, &bt, &br, &bb);
-                    int set = 0, runs = 0, il = DW, it = DH, ir = -1, ib = -1;
+                    /*
+                     * At a scale the rows go in bands of one row of the picture, from the top of its box, and a run
+                     * is one rectangle as high as its band: the runs of the first row of a band seen.
+                     */
+                    const int s     = how.scale > 1 ? how.scale : 1;
+                    const int first = DGX_MAX(DGX_MAX(0, bt), (how.flags & DGX_IMAGE_CLIP) ? how.clip_y : 0);
+                    int       set = 0, runs = 0, il = DW, it = DH, ir = -1, ib = -1;
                     for (int i = 0; i < DW * DH; ++i) {
                         if (!inked[i]) continue;
                         const int px = i % DW, py = i / DW;
                         ++set;
-                        if (px == 0 || !inked[i - 1]) ++runs;
+                        if ((px == 0 || !inked[i - 1]) && (py == first || (py - bt) % s == 0)) ++runs;
                         il = DGX_MIN(il, px), ir = DGX_MAX(ir, px), it = DGX_MIN(it, py), ib = DGX_MAX(ib, py);
                         expected[i] = how.color;
                         if (twin) dgx_set_pixel(twin, px, py, how.color);

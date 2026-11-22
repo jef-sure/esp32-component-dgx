@@ -233,6 +233,98 @@ static bool image_window(dgx_screen_t *dst, const image_walk_t *wk, uint32_t col
     return true;
 }
 
+/* the value of a pixel of a row of the picture, 0 for none */
+static inline unsigned image_value(const uint8_t *row, unsigned format, int sx)
+{
+    switch (format) {
+    case DGX_IMAGE_1BPP:
+        return (row[sx >> 3] >> (7 - (sx & 7))) & 1u;
+    case DGX_IMAGE_4BPP:
+        return (sx & 1 ? row[sx >> 1] : row[sx >> 1] >> 4) & 15u;
+    default:
+        return row[sx];
+    }
+}
+
+/*
+ * A picture at a scale is walked by its own pixels: the rows of the destination go in bands that show one row v of
+ * the turned picture, at most `scale` rows, and along a band each pixel u of that row is a piece of the destination
+ * of at most `scale` pixels, the clip cutting the first and the last. The row of the picture under (u, v), and in it
+ * the column sx.
+ */
+static inline const uint8_t *image_cell(const image_walk_t *wk, int u, int v, int *sx)
+{
+    const int w = wk->image->width, h = wk->image->height;
+    *sx          = wk->x_back ? w - 1 - (wk->swapped ? v : u) : (wk->swapped ? v : u);
+    const int sy = wk->y_back ? h - 1 - (wk->swapped ? u : v) : (wk->swapped ? u : v);
+    return wk->image->data + (size_t)sy * wk->stride;
+}
+
+/* the band of rows from y that shows row v of the turned picture: its v and how many rows it has */
+static inline int image_band(const image_walk_t *wk, int scale, int y, int bottom, int *v)
+{
+    *v = (y - wk->box_y) / scale;
+    return DGX_MIN(bottom, wk->box_y + (*v + 1) * scale) - y;
+}
+
+/* image_runs() at a scale: a run of pieces of one value is one rectangle as high as its band */
+static void image_runs_scaled(dgx_screen_t *dst, const image_walk_t *wk, int scale, uint32_t color, bool opaque, uint32_t bg, int left, int top,
+                              int right, int bottom)
+{
+    const unsigned format = wk->image->format;
+    for (int y = top, v, band; y < bottom; y += band) {
+        band      = image_band(wk, scale, y, bottom, &v);
+        int  run  = left;
+        bool ink  = false;
+        for (int u = (left - wk->box_x) / scale, x = left; x < right; ++u) {
+            const int      end = DGX_MIN(right, wk->box_x + (u + 1) * scale);
+            int            sx;
+            const uint8_t *row = image_cell(wk, u, v, &sx);
+            const bool     now = image_inked(row, format, sx);
+            if (x > left && now != ink) {
+                if (ink || opaque) dgx_fill_rectangle(dst, run, y, x - run, band, ink ? color : bg);
+                run = x;
+            }
+            ink = now, x = end;
+        }
+        if (ink || opaque) dgx_fill_rectangle(dst, run, y, right - run, band, ink ? color : bg);
+    }
+}
+
+/*
+ * image_window() at a scale: one window over the box of the scaled picture, a row put into the buffer of the bus
+ * once a band and sent as many times as the band has rows; the buffer is not written over in between, so every pixel
+ * goes once and the same bytes go again.
+ */
+static bool image_window_scaled(dgx_screen_t *dst, const image_walk_t *wk, int scale, uint32_t color, uint32_t bg, int left, int top, int right,
+                                int bottom)
+{
+    const int n = right - left;
+    if (dst->screen_subtype != DgxPhysicalScreenWithBus || !dst->draw_buffer || (uint32_t)n * dst->color_bits % 8u) return false;
+    const uint32_t bytes = dgx_color_points_to_bytes(dst->color_bits, (uint32_t)n);
+    if (bytes > dst->draw_buffer_len) return false;
+    const unsigned format = wk->image->format;
+    if (dst->wait) dst->wait(dst);
+    dst->set_area(dst, (uint16_t)left, (uint16_t)(right - 1), (uint16_t)top, (uint16_t)(bottom - 1));
+    for (int y = top, v, band; y < bottom; y += band) {
+        band = image_band(wk, scale, y, bottom, &v);
+        /* the rows before may still be on their way from the buffer */
+        if (dst->wait) dst->wait(dst);
+        uint8_t *lp = dst->draw_buffer;
+        int      i  = 0;
+        for (int u = (left - wk->box_x) / scale, x = left; x < right; ++u) {
+            const int      end = DGX_MIN(right, wk->box_x + (u + 1) * scale);
+            int            sx;
+            const uint8_t *row = image_cell(wk, u, v, &sx);
+            const uint32_t c   = image_inked(row, format, sx) ? color : bg;
+            for (; x < end; ++x, ++i) lp = dgx_fill_buf_value(dst->color_bits, lp, (uint32_t)i, c);
+        }
+        for (int k = 0; k < band; ++k) dst->write_area(dst, dst->draw_buffer, bytes * 8u);
+    }
+    dgx_screen_touch(dst, left, right - 1, top, bottom - 1);
+    return true;
+}
+
 /* a linear 8-bit virtual screen: the only destination for values and maps */
 static inline bool image_indexed_screen(const dgx_screen_t *dst)
 {
@@ -258,6 +350,7 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
     if (!indexed && !one_color) return ESP_ERR_NOT_SUPPORTED;
     const int w = image->width, h = image->height;
     if (!w || !h) return ESP_OK;
+    const int scale = how->scale > 1 ? how->scale : 1;
 
     /*
      * The turn as three answers: does a row of the destination run down a
@@ -271,8 +364,8 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
 
     /* where the origin lies in the turned picture, and so where the turned picture lies on the destination */
     const int ox = x_back ? w - 1 - image->origin_x : image->origin_x, oy = y_back ? h - 1 - image->origin_y : image->origin_y;
-    const int box_x = x - (swapped ? oy : ox), box_y = y - (swapped ? ox : oy);
-    const int box_w = swapped ? h : w, box_h = swapped ? w : h;
+    const int box_x = x - (swapped ? oy : ox) * scale, box_y = y - (swapped ? ox : oy) * scale;
+    const int box_w = (swapped ? h : w) * scale, box_h = (swapped ? w : h) * scale;
 
     /* what of it may change: the clip of the destination, cut by the clip of the call */
     int left = dgx_clip_left(dst), top = dgx_clip_top(dst), right = dgx_clip_right(dst), bottom = dgx_clip_bottom(dst);
@@ -288,13 +381,17 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
     bottom = DGX_MIN(bottom, box_y + box_h);
     if (right <= left || bottom <= top) return ESP_OK;
 
-    const bool opaque = (how->flags & DGX_IMAGE_OPAQUE) != 0;
+    const bool         opaque = (how->flags & DGX_IMAGE_OPAQUE) != 0;
+    const image_walk_t wk     = {image, ((size_t)w * format + 7u) / 8u, swapped, x_back, y_back, box_x, box_y};
     if (!indexed) {
         /* the screen draws the runs itself, in one batch; an opaque box on a display behind a bus goes in one window */
-        const image_walk_t wk = {image, ((size_t)w * format + 7u) / 8u, swapped, x_back, y_back, box_x, box_y};
         dgx_screen_batch_begin(dst);
-        if (!opaque || !image_window(dst, &wk, how->color, how->bg, left, top, right, bottom))
+        if (scale > 1) {
+            if (!opaque || !image_window_scaled(dst, &wk, scale, how->color, how->bg, left, top, right, bottom))
+                image_runs_scaled(dst, &wk, scale, how->color, opaque, how->bg, left, top, right, bottom);
+        } else if (!opaque || !image_window(dst, &wk, how->color, how->bg, left, top, right, bottom)) {
             image_runs(dst, &wk, how->color, opaque, how->bg, left, top, right, bottom);
+        }
         dgx_screen_batch_end(dst);
         return ESP_OK;
     }
@@ -318,6 +415,28 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
     const size_t   stride = ((size_t)w * format + 7u) / 8u;
     const int      n      = right - left;
     const int      pitch  = dst->width;
+    if (scale > 1) {
+        /* at a scale, by the pixels of the picture: every row of a band takes the same pieces */
+        uint8_t *const array = ((dgx_vscreen_t *)dst)->v_array;
+        for (int y = top, v, band; y < bottom; y += band) {
+            band = image_band(&wk, scale, y, bottom, &v);
+            for (int k = 0; k < band; ++k) {
+                uint8_t *const line = array + (size_t)(y + k) * (size_t)pitch;
+                for (int u = (left - box_x) / scale, x = left; x < right; ++u) {
+                    const int      end = DGX_MIN(right, box_x + (u + 1) * scale);
+                    int            sx;
+                    const uint8_t *src = image_cell(&wk, u, v, &sx);
+                    const unsigned p   = image_value(src, format, sx);
+                    if (p) memset(line + x, ink ? ink[p] : (int)p, (size_t)(end - x));
+                    else if (opaque) memset(line + x, (int)(uint8_t)how->bg, (size_t)(end - x));
+                    x = end;
+                }
+            }
+        }
+        dgx_screen_touch(dst, left, right - 1, top, bottom - 1);
+        dgx_screen_batch_end(dst);
+        return ESP_OK;
+    }
     uint8_t       *row    = ((dgx_vscreen_t *)dst)->v_array + (size_t)top * (size_t)pitch + (size_t)left;
     /* the place in the turned picture of the first pixel of the first row drawn */
     const int u = left - box_x, v0 = top - box_y;

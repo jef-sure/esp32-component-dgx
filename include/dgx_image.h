@@ -62,7 +62,8 @@ typedef struct {
  * picture is written whole, every pixel once, so an icon drawn again over
  * itself on a display does not blink: on a display behind a bus by one window
  * and the bus buffer, a row at a time; on another screen by runs of the two
- * colors.
+ * colors. At a scale the same: one window over the box of the scaled picture
+ * on a display behind a bus, every pixel of it sent once.
  */
 #define DGX_IMAGE_OPAQUE 4u
 
@@ -95,6 +96,7 @@ typedef struct {
     int16_t                  clip_w;
     int16_t                  clip_h;
     uint32_t                 bg;          /**< with DGX_IMAGE_OPAQUE: what a pixel 0 puts, as color: an index of an 8-bit virtual screen, a color of any other screen */
+    uint8_t                  scale;       /**< every pixel of the picture a square of scale x scale pixels; 0 is the same as 1 */
 } dgx_image_blit_t;
 
 /**
@@ -116,6 +118,12 @@ typedef struct {
  * are drawn in runs along the rows of the screen, one filled rectangle per
  * run, like the rows of a glyph; zero pixels leave the screen as it was, or
  * take bg with DGX_IMAGE_OPAQUE.
+ *
+ * With dgx_image_blit_t::scale every pixel of the picture is a square of
+ * scale x scale pixels, on any screen, at any depth and turn. The square of
+ * the origin has its top left corner at (x, y), and the picture is mirrored
+ * and rotated around it as at scale 1, the way the glyphs of a font stand at
+ * a scale. The clips cut the squares at their edges.
  *
  * @param dst   Destination screen.
  * @param x,y   Where the origin of the picture goes.
