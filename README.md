@@ -261,7 +261,7 @@ the new file up by itself:
 ```c
 #include "fonts/YourFontRegular16.h"
 
-const dgx_font_context_t text = {.scr = scr, .font = YourFontRegular16(), .color = color};
+const dgx_font_context_t text = {.scr = scr, .font = &YourFontRegular16, .color = color};
 dgx_font_draw(&text, 10, 30, "Привет");
 ```
 
@@ -312,6 +312,12 @@ program uses, with what its file says about its license, in
 out, even when a component asks for it by name; the rule `strict` admits
 only the fonts the rules allow. See
 [Fonts and their licenses](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/fonts-en.md#fonts-and-their-licenses).
+
+A font may also be a file of bytes, `.dgxf`, which a program reads while it
+runs, from a file system, from the network or embedded in its image, with
+`dgx_font_file_load()`: `dgx_fonts_files()` in CMake writes every font of
+the program so, and `font2c -bin` a font made by hand. See
+[Fonts as files of bytes](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/fonts-en.md#fonts-as-files-of-bytes).
 
 ### Text with soft edges
 

@@ -36,7 +36,7 @@ other; asked for another, `font2c` stops and names the sizes it has.
 ```sh
 ./font2c path/to/YourFont.ttf 16 0x20 0x7e 0x410 0x44f
 ./font2c -f charset.txt path/to/YourFont.ttf 16
-./font2c [-n name] [-f charset_file] [-b bits] [-p patch] [-P dir] <font file> <size> [<first> <last>]*
+./font2c [-n name] [-f charset_file] [-b bits] [-p patch] [-P dir] [-bin dir] <font file> <size> [<first> <last>]*
 ```
 
 It writes a `.c` and a matching `.h` named after the font family, style and
@@ -135,9 +135,43 @@ command line it applies to every font of the lists, after the `-P` of the
 font's own lines. `-x`, `-i` and `-t`, which change the file of a
 handwritten font, go on neither: a list does not change its fonts.
 
+### A font as a file of bytes: -bin
+
+`-bin <dir>` writes the font also as a file of bytes, `<dir>/<name>.dgxf`,
+which a program reads while it runs with `dgx_font_file_load()` of
+[dgx_font_file.h](../include/dgx_font_file.h); with `-jo` every font of the
+lists goes into `<dir>`, named by its first name. The `.c` is written as
+without it, the pictures of the glyphs in its comments too. The file holds
+the same numbers and bytes, and a text about the font: its name, family,
+size, and the copyright and license its face tells, a long text cut at 300
+characters as `fonts-used.txt` cuts it, the URL of the license whole.
+
+```sh
+./font2c -bin . path/to/YourFont.ttf 16 0x20 0x7e     # YourFontRegular16.c, .h and .dgxf
+./font2c -jo fonts.list -o my_fonts -bin files        # a .dgxf of every font of the lists in files/
+```
+
+The file of a font of C that font2c did not make now, written by hand or
+made before, is written by `font2bin.c`, compiled with the font and DGX's
+headers on the computer; its head comment shows the command. Both write
+the file through `dgxf_write.h`, which tells the format. See
+[Fonts as files of bytes](../docs/fonts-en.md#fonts-as-files-of-bytes).
+
+### Fonts made before DGX 0.12.1
+
+Since 0.12.1 a glyph gives the offset of its data from the font's data, and
+a range the number of its first glyph: the tables hold no pointer. A `.c`
+written before has pointers there and does not build with DGX 0.12.1; it
+is rewritten in place, with its header, by
+
+```sh
+python3 dgx_fonts.py upgrade path/to/YourFont.c
+```
+
 [FontCreator](https://github.com/Llerr/FontCreator) is an alternative with a
 GUI: it generates embedded C font data and lets you edit glyphs. Use its
-exported `.c` and `.h` files the same way.
+exported `.c` and `.h` files the same way; files whose glyphs hold
+pointers, the form of DGX before 0.12.1, need `dgx_fonts.py upgrade` first.
 
 ## Handwritten fonts
 

@@ -27,7 +27,7 @@ static int place(const char *text, placed_t *out, dgx_hw_line_t *line)
         placed_t p = {0};
         p.g = dgx_hw_line_place(line, dgx_utf8_next(text, &idx), &p.shift);
         if (p.g) {
-            const dgx_hw_symbol_t *s = p.g->hw;
+            const dgx_hw_symbol_t *s = dgx_hw_glyph_symbol(&font, p.g);
             p.origin = p.shift + fhw->symbol_offset_x;
             p.left = p.origin + s->left;
             p.right = p.origin + s->right;
@@ -50,11 +50,12 @@ int main(void)
 
     /* no symbol keeps the mark of an absent space: the converter puts the space of the font there */
     for (const dgx_glyph_array_t *r = font.glyph_ranges; r->number; ++r) {
-        for (int i = 0; i < r->number; ++i) {
-            const dgx_hw_symbol_t *s = r->glyphs[i].hw;
+        for (uint32_t i = 0; i < r->number; ++i) {
+            const dgx_glyph_t     *g = &font.glyphs[r->glyph + i];
+            const dgx_hw_symbol_t *s = dgx_hw_glyph_symbol(&font, g);
             CHECK(s->space_after >= 0 && s->space_before >= 0);
-            CHECK(r->glyphs[i].x_advance == s->space_before + s->line_width + s->space_after);
-            CHECK(r->glyphs[i].x_offset == s->space_before + s->left - s->line_left);
+            CHECK(g->x_advance == s->space_before + s->line_width + s->space_after);
+            CHECK(g->x_offset == s->space_before + s->left - s->line_left);
         }
     }
 
@@ -64,31 +65,31 @@ int main(void)
     /* the line goes on by xAdvance - xOffset: line_left - left + line_width + space_after */
     CHECK(p[1].line_left == p[0].g->x_advance - p[0].g->x_offset && p[1].line_left == 53);
     /* "о" has nothing above the band and stands under the bar of "Г" */
-    CHECK(p[1].g->hw->up_left == DGX_HW_NONE && p[1].origin == 39);
+    CHECK(dgx_hw_glyph_symbol(&font, p[1].g)->up_left == DGX_HW_NONE && p[1].origin == 39);
     CHECK(p[1].left < p[0].up_right && p[0].up_right == 79);
     CHECK(line.pen == 53 + p[1].g->x_advance && line.has_up && line.up == 96);
 
     /* "ГЧ": by the band "Ч" would stand at 9 and run into the bar; it is moved behind it */
     CHECK(place("ГЧ", p, &line) == 2);
     CHECK(p[1].origin == 96);
-    CHECK(p[1].up_left == 96 + p[1].g->hw->space_before && p[1].up_left - p[0].up_right - 1 == 16 + 8);
-    CHECK(line.pen == p[1].line_left + p[1].g->hw->line_width + p[1].g->hw->space_after && line.pen == 203);
+    CHECK(p[1].up_left == 96 + dgx_hw_glyph_symbol(&font, p[1].g)->space_before && p[1].up_left - p[0].up_right - 1 == 16 + 8);
+    CHECK(line.pen == p[1].line_left + dgx_hw_glyph_symbol(&font, p[1].g)->line_width + dgx_hw_glyph_symbol(&font, p[1].g)->space_after && line.pen == 203);
 
     /* "WWW": between a curl and the next W there is space_after + space_before */
     CHECK(place("WWW", p, &line) == 3);
     CHECK(p[0].origin == -8 && p[1].origin == 100 && p[2].origin == 208);
     CHECK(p[1].up_left - p[0].up_right - 1 == 24 && p[2].up_left - p[1].up_right - 1 == 24);
-    CHECK(p[0].g->hw->space_after + p[1].g->hw->space_before == 24);
+    CHECK(dgx_hw_glyph_symbol(&font, p[0].g)->space_after + dgx_hw_glyph_symbol(&font, p[1].g)->space_before == 24);
 
     /* a space and a symbol the font has not take their room, give no glyph and end the part above the band */
     CHECK(place("аб в", p, &line) == 4);
     CHECK(p[0].origin == -21 && p[1].origin == 72 && !p[2].g && p[3].origin == 173);
-    CHECK(p[3].line_left == p[1].line_left + p[1].g->hw->line_width + p[1].g->hw->space_after + fhw->space_width);
+    CHECK(p[3].line_left == p[1].line_left + dgx_hw_glyph_symbol(&font, p[1].g)->line_width + dgx_hw_glyph_symbol(&font, p[1].g)->space_after + fhw->space_width);
     CHECK(place("б@Г", p, &line) == 3 && !p[1].g);
-    CHECK(p[2].line_left == p[0].line_left + p[0].g->hw->line_width + p[0].g->hw->space_after + fhw->symbol_size_x +
-                                p[2].g->hw->space_before);
+    CHECK(p[2].line_left == p[0].line_left + dgx_hw_glyph_symbol(&font, p[0].g)->line_width + dgx_hw_glyph_symbol(&font, p[0].g)->space_after + fhw->symbol_size_x +
+                                dgx_hw_glyph_symbol(&font, p[2].g)->space_before);
     /* a symbol after a space is not the first of the line */
-    CHECK(place(" Г", p, &line) == 2 && p[1].line_left == fhw->space_width + p[1].g->hw->space_before);
+    CHECK(place(" Г", p, &line) == 2 && p[1].line_left == fhw->space_width + dgx_hw_glyph_symbol(&font, p[1].g)->space_before);
 
     CHECK_DONE();
 }

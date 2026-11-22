@@ -65,10 +65,10 @@ typedef struct dgx_hw_element_ {
  * "postSegments". Columns are counted from symbol_offset_x of the font, rows
  * from its base line, negative above it.
  *
- * The glyph itself has width, height = bottom - top + 1, xAdvance = advance,
- * xOffset = space_before + left - line_left and yOffset = top: the symbol
- * stands with its line_left space_before cells after the cursor of a line,
- * on the base line.
+ * The glyph itself has width, height = bottom - top + 1, x_advance = advance,
+ * x_offset = space_before + left - line_left, y_offset = top and count, the
+ * elements of the four segments together: the symbol stands with its
+ * line_left space_before cells after the cursor of a line, on the base line.
  */
 typedef struct dgx_hw_symbol_ {
     uint8_t begin_connection; /* how many elements each segment has */
@@ -92,7 +92,20 @@ typedef struct dgx_hw_font_ {
     int16_t     space_width;
     int16_t     symbol_offset_x, symbol_offset_y; /* the active area of a symbol on the grid */
     int16_t     symbol_size_x, symbol_size_y;     /* symbol_size_y is the line height */
+    const dgx_hw_symbol_t *symbols;               /* one for each glyph, in the order of font->glyphs */
 } dgx_hw_font_t;
+
+/* the pen path of a glyph of a handwritten font: g->count elements */
+static inline const dgx_hw_element_t *dgx_hw_glyph_elements(const dgx_font_t *font, const dgx_glyph_t *g)
+{
+    return (const dgx_hw_element_t *)dgx_font_glyph_data(font, g);
+}
+
+/* the symbol of a glyph of a handwritten font: its segments and the rest of its measures */
+static inline const dgx_hw_symbol_t *dgx_hw_glyph_symbol(const dgx_font_t *font, const dgx_glyph_t *g)
+{
+    return font->hw->symbols + (g - font->glyphs);
+}
 
 /*
  * What the pace of the pen is counted by. Writing takes effort, in cells of

@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -263,6 +264,144 @@ def test_file_before_0_12(work):
               and "extern const dgx_font_t TerminusTTFMedium12;" not in h, "a font of before 0.12 is taken by the call of then")
         check("made by font2c before DGX 0.12" in out, f"the tool tells to make it again: {out.strip()}")
 
+def pointer_form(text):
+    """A font of DGX as font2c wrote it before DGX 0.12.1: its glyphs point into bitmaps[], its ranges into glyphs[]."""
+    text = re.sub(r"\{\s*(\d+)\s*,((?:\s*-?\d+\s*,){4}\s*-?\d+)\s*,\s*0\s*\}", r"{ {.bitmap = bitmaps + \1 },\2 }", text)
+    text = re.sub(r"\{(0x[0-9a-f]+\s*,\s*0x[0-9a-f]+\s*,\s*)(\d+)\s*\}", lambda m: m.group(0) if m.group(1).startswith("0x0 ") and m.group(2) == "0"
+                  else "{" + m.group(1) + "glyphs + " + m.group(2) + " }", text)
+    return re.sub(r",?\n\s*\.glyphs = glyphs,\n\s*\.data = bitmaps,?\n", "\n", text)
+
+
+def test_file_before_0_12_1(work):
+    """A font of the program whose glyphs hold pointers, as font2c wrote them before DGX 0.12.1, is refused with the way
+    to rewrite it, and dgx_fonts.py upgrade rewrites it: then it is taken, and it has the glyphs it had."""
+    d = os.path.join(work, "pointers")
+    os.makedirs(d, exist_ok=True)
+    bundled = os.path.join(DGX, "src", "fonts", "TerminusTTFMedium12.c")
+    old = pointer_form(open(bundled, encoding="utf-8").read())
+    check("{.bitmap = bitmaps + " in old and "glyphs + " in old and ".data =" not in old, "a font of the form before 0.12.1 is made for the test")
+    path = os.path.join(d, "Pointers12.c")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(old)
+    code, out, err = build(d, f"need clock\nfile {path}\nletters 0123456789\n")
+    check(code != 0 and f"dgx_fonts.py upgrade {path}" in err, f"a font whose glyphs hold pointers is refused with the way to rewrite it: {err.strip()}")
+    code, out, err = tool("upgrade", path)
+    check(code == 0 and "rewritten" in out, f"upgrade rewrites it: {err.strip()}")
+    code, out, err = tool("upgrade", path)
+    check(code == 0 and "already" in out, f"upgrade leaves a font of now as it is: {out.strip()} {err.strip()}")
+    code, out, err = build(d, f"need clock\nfile {path}\nletters 0123456789\n")
+    check(code == 0, f"the font rewritten is taken: {err.strip()}")
+    a, b = tool("json", bundled), tool("json", path)
+    check(a[0] == 0 and b[0] == 0 and json.loads(a[1])["glyphs"] == json.loads(b[1])["glyphs"], "the font rewritten has the glyphs it had")
+
+
+TINY_HW = {"format": "hw-font", "formatVersion": 1, "name": "tiny \"test\"", "baseLine": 139, "xHeight": 58, "symbolSpace": 16, "spaceWidth": 40,
+           "symbolOffsetX": 66, "symbolOffsetY": 48, "symbolSizeX": 100, "symbolSizeY": 202, "codePoints": {
+               "33": {"mainSegments": [{"type": "line", "points": [{"x": 105, "y": 68}, {"x": 82, "y": 158}], "length": 92.89, "pieces": 1, "pixels": 91},
+                                       {"type": "dot", "points": [{"x": 76, "y": 184}], "length": 0, "pieces": 0, "pixels": 1}],
+                      "postSegments": [], "beginConnection": [], "endConnection": [], "width": 30, "top": -119, "bottom": -3, "left": 10, "right": 39,
+                      "lineLeft": 10, "lineRight": 23, "lineWidth": 14, "upLeft": 24, "upRight": 39, "advance": 42, "spaceBefore": 12},
+               "49": {"mainSegments": [{"type": "line", "points": [{"x": 110, "y": 67}, {"x": 110, "y": 187}], "length": 120, "pieces": 1, "pixels": 120}],
+                      "postSegments": [], "beginConnection": [], "endConnection": [], "width": 1, "top": -120, "bottom": 0, "left": 44, "right": 44,
+                      "lineLeft": 44, "lineRight": 44, "lineWidth": 1, "upLeft": None, "upRight": None, "advance": 17}}}
+
+
+def file_of_c(work, c_path, name):
+    """The file of bytes font2c/font2bin.c writes of a font of C compiled with it, or None."""
+    program = os.path.join(work, f"font2bin-{name}")
+    run = subprocess.run(["cc", "-std=gnu11", "-w", f"-DFONT={name}", "-I" + os.path.join(DGX, "include"), "-I" + os.path.join(DGX, "host", "stubs"),
+                          "-I" + os.path.dirname(c_path), "-include", os.path.join(DGX, "host", "stubs", "esp_log.h"),
+                          os.path.join(DGX, "font2c", "font2bin.c"), c_path, "-o", program], capture_output=True, text=True)
+    if run.returncode:
+        print(run.stderr)
+        return None
+    out = program + ".dgxf"
+    return open(out, "rb").read() if subprocess.run([program, out]).returncode == 0 else None
+
+
+def same_but_about(a, b):
+    """Two files of a font the same byte for byte but for the text about the font, which is last, and its place."""
+    if a is None or b is None or a[:4] != b"DGXF" or b[:4] != b"DGXF":
+        return False
+    end = lambda x: struct.unpack_from("<I", x, 52)[0] or len(x)
+    tables = min(end(a), end(b))
+    mask = lambda x: x[:28] + b"\0" * 4 + x[32:52] + b"\0" * 8 + x[60:tables]
+    return mask(a) == mask(b) and abs(end(a) - end(b)) < 4
+
+
+def about_of(data):
+    at, n = struct.unpack_from("<II", data, 52)
+    return data[at:at + n].decode("utf-8") if at else ""
+
+
+def test_bin(work):
+    """font2c -bin writes a font also as a file of bytes, from the numbers and bytes of its C: the same file but the text
+    about the font as font2bin.c writes of the C compiled, for fonts of 1, 2 and 4 bits a pixel and a handwritten one;
+    with -jo every font of the lists, by its first name. A files line in the needs gives every font of the program as a
+    file beside dgx_fonts.c, those of DGX and of C of the program too, and dgx_fonts-files.txt names the file of every
+    name; without it the files go."""
+    d = os.path.join(work, "bin")
+    os.makedirs(d, exist_ok=True)
+    font2c = os.path.join(work, "out", "font2c")
+    sans = dejavu_file()
+    with open(os.path.join(d, "tiny.json"), "w", encoding="utf-8") as f:
+        json.dump(TINY_HW, f)
+    for args, name in ((["-n", "One", sans, "14", "0x20", "0x7e", "0x410", "0x44f"], "One"), (["-b", "2", "-n", "Two", sans, "12", "0x20", "0x7e"], "Two"),
+                       (["-b", "4", "-n", "Four", sans, "16", "0x20", "0x7e"], "Four"), (["-n", "Hand", "tiny.json"], "Hand")):
+        run = subprocess.run([font2c, "-bin", "."] + args, capture_output=True, text=True, cwd=d)
+        made = os.path.join(d, name + ".dgxf")
+        check(run.returncode == 0 and os.path.exists(made), f"font2c -bin {name}: {run.stderr.strip()}")
+        if not os.path.exists(made):
+            continue
+        data = open(made, "rb").read()
+        check(same_but_about(data, file_of_c(d, os.path.join(d, name + ".c"), name)), f"{name}: the file of font2c is that of its C compiled")
+        about = about_of(data)
+        check(f"name: {name}\n" in about and "made-by: font2c of DGX\n" in about, f"{name}: the text about the font names it: {about[:200]!r}")
+        if name != "Hand":
+            check("family: DejaVu Sans\n" in about and "copyright: " in about, f"{name}: its family and copyright are told: {about[:300]!r}")
+        else:
+            check('family: tiny "test"\n' in about, f"the handwritten font's name is told: {about!r}")
+    with open(os.path.join(d, "two.list"), "w", encoding="utf-8") as f:
+        f.write(f"-n first -n second {sans} 13 0x41 0x5a\n-n hand tiny.json\n")
+    run = subprocess.run([font2c, "-jo", "two.list", "-o", "listed", "-bin", "files"], capture_output=True, text=True, cwd=d)
+    check(run.returncode != 0, "-bin into a directory that is not there fails")
+    os.makedirs(os.path.join(d, "files"))
+    run = subprocess.run([font2c, "-jo", "two.list", "-o", "listed", "-bin", "files"], capture_output=True, text=True, cwd=d)
+    check(run.returncode == 0 and sorted(os.listdir(os.path.join(d, "files"))) == ["first.dgxf", "hand.dgxf"],
+          f"-jo -bin: a file of every font of the lists, by its first name: {run.stderr.strip()} {os.listdir(os.path.join(d, 'files'))}")
+
+    # a build that asks for the files
+    mine = re.sub(r"\bTerminusTTFMedium12\b", "Mine12", open(os.path.join(DGX, "src", "fonts", "TerminusTTFMedium12.c"), encoding="utf-8").read())
+    with open(os.path.join(d, "Mine12.c"), "w", encoding="utf-8") as f:
+        f.write(mine)
+    needs = (f"files\nneed text\nsize 14px\npostscript DejaVuSans\nletters ABC\nneed copy\nsize 14px\npostscript DejaVuSans\nletters CDE\n"
+             f"need hand\ndgx font0ss\nletters abc\nneed mine\nfile {os.path.join(d, 'Mine12.c')}\nletters 0123\n")
+    code, out, err = build(d, needs)
+    check(code == 0, f"a build with files: {err.strip()}")
+    outdir = os.path.join(d, "out")
+    if code == 0:
+        index = dict(line.split(" ", 1) for line in open(os.path.join(outdir, "dgx_fonts-files.txt"), encoding="utf-8").read().splitlines())
+        files = sorted(f for f in os.listdir(outdir) if f.endswith(".dgxf"))
+        dgx_fonts = sorted(os.path.splitext(f)[0] + ".dgxf" for f in os.listdir(os.path.join(DGX, "src", "fonts")) if f.endswith(".c"))
+        check(set(dgx_fonts) <= set(files) and "Mine12.dgxf" in files, f"every font of DGX and the program's font of C as a file: {files}")
+        check(index.get("dgx_font_hand") == "font0ss.dgxf" and index.get("font0ss") == "font0ss.dgxf" and index.get("dgx_font_mine") == "Mine12.dgxf"
+              and index.get("Mine12") == "Mine12.dgxf", f"the index names the file of every name: {index}")
+        made = index.get("dgx_font_text")
+        check(made and index.get("dgx_font_copy") == made and made in files, f"a font made for two needs is one file, of both names: {index}")
+        check(all(v in files for v in index.values()), "every file the index names is there")
+        if made:
+            name = os.path.splitext(made)[0]
+            check(same_but_about(open(os.path.join(outdir, made), "rb").read(), file_of_c(d, os.path.join(outdir, "dgx_fonts.c"), name)),
+                  "the file of a font made for the needs is that of dgx_fonts.c compiled")
+        check(open(os.path.join(outdir, "Mine12.dgxf"), "rb").read()[:4] == b"DGXF", "the program's font of C is written as a file")
+        check(same_but_about(open(os.path.join(outdir, "TerminusTTFMedium12.dgxf"), "rb").read(), open(os.path.join(outdir, "Mine12.dgxf"), "rb").read()),
+              "the same font of C gives the same file")
+        check("license: " in about_of(open(os.path.join(outdir, "TerminusTTFMedium12.dgxf"), "rb").read()), "a font of DGX tells its license")
+    code, out, err = build(d, needs.replace("files\n", ""))
+    check(code == 0 and not [f for f in os.listdir(outdir) if f.endswith(".dgxf") or f == "dgx_fonts-files.txt"],
+          f"without files the files of before go: {err.strip()}")
+
+
 def bdf_font(path, px):
     """A bitmap font of BDF, of its one size px: the letters A and B, frames of 10 x px pixels."""
     rows = "".join("FFC0\n" if y in (0, px - 1) else "8040\n" for y in range(px))
@@ -513,8 +652,7 @@ def test_font2c_lines(work):
 def soft_glyph(c_text, code_point, depth):
     """A glyph of a font of 2 or 4 bits a pixel as font2c wrote it: (the levels unpacked from its bytes, the levels of its
     picture in the comment), rows of numbers each, or None when it is not there."""
-    m = re.search(r"\{\s*\{\s*\.bitmap\s*=\s*\w*bitmaps\s*\+\s*(\d+)\s*\}\s*,\s*(\d+)\s*,\s*(\d+)\s*,[^}]*\}\s*/\*\s*%04X\s*\*/" % code_point,
-                  c_text)
+    m = re.search(r"\{\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,[^}]*\}\s*/\*\s*%04X\s*\*/" % code_point, c_text)
     art = re.search(r"/\* %04X - \w+ \*/((?:\n/\* .* \*/)+)" % code_point, c_text)
     if not m or not art:
         return None
@@ -577,7 +715,7 @@ def test_depth(work):
     run = subprocess.run([font2c, "-jo", os.path.join(work, "depth.list"), "-o", os.path.join(work, "depth")], capture_output=True, text=True)
     check(run.returncode == 1 and "a font of 2 bits is not patched" in run.stderr, f"-b with -P on a line is refused: {run.stderr.strip()}")
     run = subprocess.run([font2c, "-b", "4", "-jo", os.path.join(work, "depth.list"), "-o", os.path.join(work, "depth")], capture_output=True, text=True)
-    check(run.returncode == 1 and "only -o and -P go on the command line" in run.stderr, f"-b beside -jo is refused: {run.stderr.strip()}")
+    check(run.returncode == 1 and "only -o, -P and -bin go on the command line" in run.stderr, f"-b beside -jo is refused: {run.stderr.strip()}")
     # a need of 4 bits beside one of one bit of the same face and size: two fonts, the depth told in the header
     title = os.path.join(HERE, "title.txt")
     code, out, err = build(work, f"need soft\nsize 16px\npostscript DejaVuSans\nbits 4\ntext {title}\n"
@@ -966,6 +1104,7 @@ def main():
         test_mistakes(work)
         test_needs_file(work)
         test_file_before_0_12(work)
+        test_file_before_0_12_1(work)
         test_twice(work)
         test_lists(work)
         test_bitmap_font_in_a_list(work)
@@ -979,6 +1118,7 @@ def main():
         test_depth(work)
         test_font2c_long_paths(work)
         test_editor_round_trip(work)
+        test_bin(work)
         test_patches(work)
         test_cmake(work)
         test_licenses(work)

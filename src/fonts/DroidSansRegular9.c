@@ -6443,736 +6443,736 @@ static const uint8_t bitmaps[] = {
 };
 
 static const dgx_glyph_t glyphs[] = {
-    { {.bitmap = bitmaps +     0 },   1,   1,   2,    0,    0 } /* 0020 */
-,   { {.bitmap = bitmaps +     1 },   1,   7,   2,    0,   -6 } /* 0021 */
-,   { {.bitmap = bitmaps +     8 },   3,   2,   4,    0,   -6 } /* 0022 */
-,   { {.bitmap = bitmaps +    10 },   6,   7,   6,    0,   -6 } /* 0023 */
-,   { {.bitmap = bitmaps +    17 },   4,   9,   5,    0,   -7 } /* 0024 */
-,   { {.bitmap = bitmaps +    26 },   7,   7,   8,    0,   -6 } /* 0025 */
-,   { {.bitmap = bitmaps +    33 },   6,   7,   7,    0,   -6 } /* 0026 */
-,   { {.bitmap = bitmaps +    40 },   2,   2,   3,    0,   -6 } /* 0027 */
-,   { {.bitmap = bitmaps +    42 },   2,   8,   3,    0,   -6 } /* 0028 */
-,   { {.bitmap = bitmaps +    50 },   2,   8,   3,    0,   -6 } /* 0029 */
-,   { {.bitmap = bitmaps +    58 },   5,   5,   6,    0,   -6 } /* 002A */
-,   { {.bitmap = bitmaps +    63 },   3,   3,   4,    0,   -5 } /* 002B */
-,   { {.bitmap = bitmaps +    66 },   2,   2,   3,    0,    0 } /* 002C */
-,   { {.bitmap = bitmaps +    68 },   3,   1,   4,    0,   -2 } /* 002D */
-,   { {.bitmap = bitmaps +    69 },   1,   1,   2,    0,    0 } /* 002E */
-,   { {.bitmap = bitmaps +    70 },   3,   7,   3,    0,   -6 } /* 002F */
-,   { {.bitmap = bitmaps +    77 },   4,   7,   5,    0,   -6 } /* 0030 */
-,   { {.bitmap = bitmaps +    84 },   3,   7,   4,    0,   -6 } /* 0031 */
-,   { {.bitmap = bitmaps +    91 },   4,   7,   5,    0,   -6 } /* 0032 */
-,   { {.bitmap = bitmaps +    98 },   4,   7,   5,    0,   -6 } /* 0033 */
-,   { {.bitmap = bitmaps +   105 },   5,   7,   5,    0,   -6 } /* 0034 */
-,   { {.bitmap = bitmaps +   112 },   4,   7,   5,    0,   -6 } /* 0035 */
-,   { {.bitmap = bitmaps +   119 },   4,   7,   5,    0,   -6 } /* 0036 */
-,   { {.bitmap = bitmaps +   126 },   4,   7,   5,    0,   -6 } /* 0037 */
-,   { {.bitmap = bitmaps +   133 },   4,   7,   5,    0,   -6 } /* 0038 */
-,   { {.bitmap = bitmaps +   140 },   4,   7,   5,    0,   -6 } /* 0039 */
-,   { {.bitmap = bitmaps +   147 },   1,   5,   2,    0,   -4 } /* 003A */
-,   { {.bitmap = bitmaps +   152 },   2,   6,   3,    0,   -4 } /* 003B */
-,   { {.bitmap = bitmaps +   158 },   4,   5,   5,    0,   -5 } /* 003C */
-,   { {.bitmap = bitmaps +   163 },   4,   3,   5,    0,   -4 } /* 003D */
-,   { {.bitmap = bitmaps +   166 },   4,   5,   5,    0,   -5 } /* 003E */
-,   { {.bitmap = bitmaps +   171 },   3,   7,   4,    0,   -6 } /* 003F */
-,   { {.bitmap = bitmaps +   178 },   7,   8,   8,    0,   -6 } /* 0040 */
-,   { {.bitmap = bitmaps +   186 },   5,   7,   6,    0,   -6 } /* 0041 */
-,   { {.bitmap = bitmaps +   193 },   4,   7,   5,    0,   -6 } /* 0042 */
-,   { {.bitmap = bitmaps +   200 },   4,   7,   5,    0,   -6 } /* 0043 */
-,   { {.bitmap = bitmaps +   207 },   4,   7,   5,    0,   -6 } /* 0044 */
-,   { {.bitmap = bitmaps +   214 },   4,   7,   5,    0,   -6 } /* 0045 */
-,   { {.bitmap = bitmaps +   221 },   4,   7,   5,    0,   -6 } /* 0046 */
-,   { {.bitmap = bitmaps +   228 },   4,   7,   5,    0,   -6 } /* 0047 */
-,   { {.bitmap = bitmaps +   235 },   4,   7,   5,    0,   -6 } /* 0048 */
-,   { {.bitmap = bitmaps +   242 },   3,   7,   4,    0,   -6 } /* 0049 */
-,   { {.bitmap = bitmaps +   249 },   3,   9,   3,   -1,   -6 } /* 004A */
-,   { {.bitmap = bitmaps +   258 },   4,   7,   5,    0,   -6 } /* 004B */
-,   { {.bitmap = bitmaps +   265 },   4,   7,   4,    0,   -6 } /* 004C */
-,   { {.bitmap = bitmaps +   272 },   5,   7,   6,    0,   -6 } /* 004D */
-,   { {.bitmap = bitmaps +   279 },   5,   7,   6,    0,   -6 } /* 004E */
-,   { {.bitmap = bitmaps +   286 },   5,   7,   6,    0,   -6 } /* 004F */
-,   { {.bitmap = bitmaps +   293 },   4,   7,   5,    0,   -6 } /* 0050 */
-,   { {.bitmap = bitmaps +   300 },   5,   8,   6,    0,   -6 } /* 0051 */
-,   { {.bitmap = bitmaps +   308 },   4,   7,   5,    0,   -6 } /* 0052 */
-,   { {.bitmap = bitmaps +   315 },   4,   7,   5,    0,   -6 } /* 0053 */
-,   { {.bitmap = bitmaps +   322 },   5,   7,   4,   -1,   -6 } /* 0054 */
-,   { {.bitmap = bitmaps +   329 },   4,   7,   5,    0,   -6 } /* 0055 */
-,   { {.bitmap = bitmaps +   336 },   5,   7,   6,    0,   -6 } /* 0056 */
-,   { {.bitmap = bitmaps +   343 },   5,   7,   6,    0,   -6 } /* 0057 */
-,   { {.bitmap = bitmaps +   350 },   5,   7,   6,    0,   -6 } /* 0058 */
-,   { {.bitmap = bitmaps +   357 },   5,   7,   6,    0,   -6 } /* 0059 */
-,   { {.bitmap = bitmaps +   364 },   4,   7,   5,    0,   -6 } /* 005A */
-,   { {.bitmap = bitmaps +   371 },   2,   8,   3,    0,   -6 } /* 005B */
-,   { {.bitmap = bitmaps +   379 },   3,   7,   3,    0,   -6 } /* 005C */
-,   { {.bitmap = bitmaps +   386 },   2,   8,   3,    0,   -6 } /* 005D */
-,   { {.bitmap = bitmaps +   394 },   5,   4,   5,    0,   -6 } /* 005E */
-,   { {.bitmap = bitmaps +   398 },   4,   1,   4,    0,    2 } /* 005F */
-,   { {.bitmap = bitmaps +   399 },   2,   2,   5,    2,   -7 } /* 0060 */
-,   { {.bitmap = bitmaps +   401 },   4,   5,   5,    0,   -4 } /* 0061 */
-,   { {.bitmap = bitmaps +   406 },   4,   7,   5,    0,   -6 } /* 0062 */
-,   { {.bitmap = bitmaps +   413 },   3,   5,   4,    0,   -4 } /* 0063 */
-,   { {.bitmap = bitmaps +   418 },   4,   7,   5,    0,   -6 } /* 0064 */
-,   { {.bitmap = bitmaps +   425 },   4,   5,   5,    0,   -4 } /* 0065 */
-,   { {.bitmap = bitmaps +   430 },   3,   7,   4,    0,   -6 } /* 0066 */
-,   { {.bitmap = bitmaps +   437 },   4,   7,   5,    0,   -4 } /* 0067 */
-,   { {.bitmap = bitmaps +   444 },   4,   7,   5,    0,   -6 } /* 0068 */
-,   { {.bitmap = bitmaps +   451 },   1,   7,   2,    0,   -6 } /* 0069 */
-,   { {.bitmap = bitmaps +   458 },   2,   9,   2,   -1,   -6 } /* 006A */
-,   { {.bitmap = bitmaps +   467 },   4,   7,   5,    0,   -6 } /* 006B */
-,   { {.bitmap = bitmaps +   474 },   2,   7,   3,    0,   -6 } /* 006C */
-,   { {.bitmap = bitmaps +   481 },   7,   5,   8,    0,   -4 } /* 006D */
-,   { {.bitmap = bitmaps +   486 },   4,   5,   5,    0,   -4 } /* 006E */
-,   { {.bitmap = bitmaps +   491 },   4,   5,   5,    0,   -4 } /* 006F */
-,   { {.bitmap = bitmaps +   496 },   4,   7,   5,    0,   -4 } /* 0070 */
-,   { {.bitmap = bitmaps +   503 },   4,   7,   5,    0,   -4 } /* 0071 */
-,   { {.bitmap = bitmaps +   510 },   4,   5,   5,    0,   -4 } /* 0072 */
-,   { {.bitmap = bitmaps +   515 },   3,   5,   4,    0,   -4 } /* 0073 */
-,   { {.bitmap = bitmaps +   520 },   3,   6,   4,    0,   -5 } /* 0074 */
-,   { {.bitmap = bitmaps +   526 },   4,   5,   5,    0,   -4 } /* 0075 */
-,   { {.bitmap = bitmaps +   531 },   5,   5,   6,    0,   -4 } /* 0076 */
-,   { {.bitmap = bitmaps +   536 },   5,   5,   6,    0,   -4 } /* 0077 */
-,   { {.bitmap = bitmaps +   541 },   5,   5,   6,    0,   -4 } /* 0078 */
-,   { {.bitmap = bitmaps +   546 },   4,   7,   5,    0,   -4 } /* 0079 */
-,   { {.bitmap = bitmaps +   553 },   3,   5,   4,    0,   -4 } /* 007A */
-,   { {.bitmap = bitmaps +   558 },   3,   7,   4,    0,   -6 } /* 007B */
-,   { {.bitmap = bitmaps +   565 },   1,   9,   5,    2,   -6 } /* 007C */
-,   { {.bitmap = bitmaps +   574 },   3,   7,   4,    0,   -6 } /* 007D */
-,   { {.bitmap = bitmaps +   581 },   4,   2,   5,    0,   -4 } /* 007E */
-,   { {.bitmap = bitmaps +   583 },   1,   1,   2,    0,    0 } /* 00A0 */
-,   { {.bitmap = bitmaps +   584 },   1,   7,   2,    0,   -4 } /* 00A1 */
-,   { {.bitmap = bitmaps +   591 },   4,   7,   5,    0,   -6 } /* 00A2 */
-,   { {.bitmap = bitmaps +   598 },   4,   7,   5,    0,   -6 } /* 00A3 */
-,   { {.bitmap = bitmaps +   605 },   4,   4,   5,    0,   -4 } /* 00A4 */
-,   { {.bitmap = bitmaps +   609 },   5,   7,   5,    0,   -6 } /* 00A5 */
-,   { {.bitmap = bitmaps +   616 },   1,   9,   5,    2,   -6 } /* 00A6 */
-,   { {.bitmap = bitmaps +   625 },   3,   7,   4,    0,   -6 } /* 00A7 */
-,   { {.bitmap = bitmaps +   632 },   3,   1,   5,    1,   -6 } /* 00A8 */
-,   { {.bitmap = bitmaps +   633 },   6,   7,   7,    0,   -6 } /* 00A9 */
-,   { {.bitmap = bitmaps +   640 },   3,   3,   4,    0,   -6 } /* 00AA */
-,   { {.bitmap = bitmaps +   643 },   4,   3,   5,    0,   -3 } /* 00AB */
-,   { {.bitmap = bitmaps +   646 },   4,   2,   5,    0,   -3 } /* 00AC */
-,   { {.bitmap = bitmaps +   648 },   2,   1,   3,    0,   -2 } /* 00AD */
-,   { {.bitmap = bitmaps +   649 },   6,   7,   7,    0,   -6 } /* 00AE */
-,   { {.bitmap = bitmaps +   656 },   5,   1,   5,    0,   -6 } /* 00AF */
-,   { {.bitmap = bitmaps +   657 },   3,   3,   4,    0,   -6 } /* 00B0 */
-,   { {.bitmap = bitmaps +   660 },   4,   6,   5,    0,   -5 } /* 00B1 */
-,   { {.bitmap = bitmaps +   666 },   3,   4,   4,    0,   -6 } /* 00B2 */
-,   { {.bitmap = bitmaps +   670 },   3,   4,   4,    0,   -6 } /* 00B3 */
-,   { {.bitmap = bitmaps +   674 },   2,   2,   5,    2,   -7 } /* 00B4 */
-,   { {.bitmap = bitmaps +   676 },   4,   7,   5,    0,   -4 } /* 00B5 */
-,   { {.bitmap = bitmaps +   683 },   5,   8,   6,    0,   -6 } /* 00B6 */
-,   { {.bitmap = bitmaps +   691 },   1,   1,   2,    0,   -3 } /* 00B7 */
-,   { {.bitmap = bitmaps +   692 },   2,   3,   2,    0,    0 } /* 00B8 */
-,   { {.bitmap = bitmaps +   695 },   2,   4,   4,    0,   -6 } /* 00B9 */
-,   { {.bitmap = bitmaps +   699 },   3,   3,   4,    0,   -6 } /* 00BA */
-,   { {.bitmap = bitmaps +   702 },   4,   3,   5,    0,   -3 } /* 00BB */
-,   { {.bitmap = bitmaps +   705 },   6,   7,   7,    0,   -6 } /* 00BC */
-,   { {.bitmap = bitmaps +   712 },   6,   7,   7,    0,   -6 } /* 00BD */
-,   { {.bitmap = bitmaps +   719 },   7,   7,   8,    0,   -6 } /* 00BE */
-,   { {.bitmap = bitmaps +   726 },   3,   7,   4,    0,   -4 } /* 00BF */
-,   { {.bitmap = bitmaps +   733 },   5,  10,   6,    0,   -9 } /* 00C0 */
-,   { {.bitmap = bitmaps +   743 },   5,  10,   6,    0,   -9 } /* 00C1 */
-,   { {.bitmap = bitmaps +   753 },   5,  10,   6,    0,   -9 } /* 00C2 */
-,   { {.bitmap = bitmaps +   763 },   5,  10,   6,    0,   -9 } /* 00C3 */
-,   { {.bitmap = bitmaps +   773 },   5,   9,   6,    0,   -8 } /* 00C4 */
-,   { {.bitmap = bitmaps +   782 },   5,   9,   6,    0,   -8 } /* 00C5 */
-,   { {.bitmap = bitmaps +   791 },   7,   7,   8,    0,   -6 } /* 00C6 */
-,   { {.bitmap = bitmaps +   798 },   4,   9,   5,    0,   -6 } /* 00C7 */
-,   { {.bitmap = bitmaps +   807 },   4,  10,   5,    0,   -9 } /* 00C8 */
-,   { {.bitmap = bitmaps +   817 },   4,  10,   5,    0,   -9 } /* 00C9 */
-,   { {.bitmap = bitmaps +   827 },   4,  10,   5,    0,   -9 } /* 00CA */
-,   { {.bitmap = bitmaps +   837 },   4,   9,   5,    0,   -8 } /* 00CB */
-,   { {.bitmap = bitmaps +   846 },   3,  10,   4,    0,   -9 } /* 00CC */
-,   { {.bitmap = bitmaps +   856 },   3,  10,   4,    0,   -9 } /* 00CD */
-,   { {.bitmap = bitmaps +   866 },   3,  10,   4,    0,   -9 } /* 00CE */
-,   { {.bitmap = bitmaps +   876 },   3,   9,   4,    0,   -8 } /* 00CF */
-,   { {.bitmap = bitmaps +   885 },   6,   7,   6,   -1,   -6 } /* 00D0 */
-,   { {.bitmap = bitmaps +   892 },   5,  10,   6,    0,   -9 } /* 00D1 */
-,   { {.bitmap = bitmaps +   902 },   6,  10,   7,    0,   -9 } /* 00D2 */
-,   { {.bitmap = bitmaps +   912 },   6,  10,   7,    0,   -9 } /* 00D3 */
-,   { {.bitmap = bitmaps +   922 },   6,  10,   7,    0,   -9 } /* 00D4 */
-,   { {.bitmap = bitmaps +   932 },   6,  10,   7,    0,   -9 } /* 00D5 */
-,   { {.bitmap = bitmaps +   942 },   6,   9,   7,    0,   -8 } /* 00D6 */
-,   { {.bitmap = bitmaps +   951 },   3,   3,   5,    1,   -4 } /* 00D7 */
-,   { {.bitmap = bitmaps +   954 },   6,   7,   7,    0,   -6 } /* 00D8 */
-,   { {.bitmap = bitmaps +   961 },   5,  10,   6,    0,   -9 } /* 00D9 */
-,   { {.bitmap = bitmaps +   971 },   5,  10,   6,    0,   -9 } /* 00DA */
-,   { {.bitmap = bitmaps +   981 },   5,  10,   6,    0,   -9 } /* 00DB */
-,   { {.bitmap = bitmaps +   991 },   5,   9,   6,    0,   -8 } /* 00DC */
-,   { {.bitmap = bitmaps +  1000 },   5,  10,   6,    0,   -9 } /* 00DD */
-,   { {.bitmap = bitmaps +  1010 },   4,   7,   5,    0,   -6 } /* 00DE */
-,   { {.bitmap = bitmaps +  1017 },   4,   7,   5,    0,   -6 } /* 00DF */
-,   { {.bitmap = bitmaps +  1024 },   4,   8,   5,    0,   -7 } /* 00E0 */
-,   { {.bitmap = bitmaps +  1032 },   4,   8,   5,    0,   -7 } /* 00E1 */
-,   { {.bitmap = bitmaps +  1040 },   4,   8,   5,    0,   -7 } /* 00E2 */
-,   { {.bitmap = bitmaps +  1048 },   4,   8,   5,    0,   -7 } /* 00E3 */
-,   { {.bitmap = bitmaps +  1056 },   4,   7,   5,    0,   -6 } /* 00E4 */
-,   { {.bitmap = bitmaps +  1063 },   4,   9,   5,    0,   -8 } /* 00E5 */
-,   { {.bitmap = bitmaps +  1072 },   7,   5,   8,    0,   -4 } /* 00E6 */
-,   { {.bitmap = bitmaps +  1077 },   3,   7,   4,    0,   -4 } /* 00E7 */
-,   { {.bitmap = bitmaps +  1084 },   4,   8,   5,    0,   -7 } /* 00E8 */
-,   { {.bitmap = bitmaps +  1092 },   4,   8,   5,    0,   -7 } /* 00E9 */
-,   { {.bitmap = bitmaps +  1100 },   4,   8,   5,    0,   -7 } /* 00EA */
-,   { {.bitmap = bitmaps +  1108 },   4,   7,   5,    0,   -6 } /* 00EB */
-,   { {.bitmap = bitmaps +  1115 },   2,   8,   2,   -1,   -7 } /* 00EC */
-,   { {.bitmap = bitmaps +  1123 },   2,   8,   2,    0,   -7 } /* 00ED */
-,   { {.bitmap = bitmaps +  1131 },   3,   8,   2,   -1,   -7 } /* 00EE */
-,   { {.bitmap = bitmaps +  1139 },   3,   7,   2,   -1,   -6 } /* 00EF */
-,   { {.bitmap = bitmaps +  1146 },   4,   7,   5,    0,   -6 } /* 00F0 */
-,   { {.bitmap = bitmaps +  1153 },   4,   8,   5,    0,   -7 } /* 00F1 */
-,   { {.bitmap = bitmaps +  1161 },   4,   8,   5,    0,   -7 } /* 00F2 */
-,   { {.bitmap = bitmaps +  1169 },   4,   8,   5,    0,   -7 } /* 00F3 */
-,   { {.bitmap = bitmaps +  1177 },   4,   8,   5,    0,   -7 } /* 00F4 */
-,   { {.bitmap = bitmaps +  1185 },   4,   8,   5,    0,   -7 } /* 00F5 */
-,   { {.bitmap = bitmaps +  1193 },   4,   7,   5,    0,   -6 } /* 00F6 */
-,   { {.bitmap = bitmaps +  1200 },   5,   5,   5,    0,   -5 } /* 00F7 */
-,   { {.bitmap = bitmaps +  1205 },   4,   5,   5,    0,   -4 } /* 00F8 */
-,   { {.bitmap = bitmaps +  1210 },   4,   8,   5,    0,   -7 } /* 00F9 */
-,   { {.bitmap = bitmaps +  1218 },   4,   8,   5,    0,   -7 } /* 00FA */
-,   { {.bitmap = bitmaps +  1226 },   4,   8,   5,    0,   -7 } /* 00FB */
-,   { {.bitmap = bitmaps +  1234 },   4,   7,   5,    0,   -6 } /* 00FC */
-,   { {.bitmap = bitmaps +  1241 },   4,  10,   5,    0,   -7 } /* 00FD */
-,   { {.bitmap = bitmaps +  1251 },   4,   9,   5,    0,   -6 } /* 00FE */
-,   { {.bitmap = bitmaps +  1260 },   4,   9,   5,    0,   -6 } /* 00FF */
-,   { {.bitmap = bitmaps +  1269 },   5,   9,   6,    0,   -8 } /* 0100 */
-,   { {.bitmap = bitmaps +  1278 },   4,   7,   5,    0,   -6 } /* 0101 */
-,   { {.bitmap = bitmaps +  1285 },   5,  10,   6,    0,   -9 } /* 0102 */
-,   { {.bitmap = bitmaps +  1295 },   4,   8,   5,    0,   -7 } /* 0103 */
-,   { {.bitmap = bitmaps +  1303 },   6,   9,   6,    0,   -6 } /* 0104 */
-,   { {.bitmap = bitmaps +  1312 },   5,   7,   5,    0,   -4 } /* 0105 */
-,   { {.bitmap = bitmaps +  1319 },   4,  10,   5,    0,   -9 } /* 0106 */
-,   { {.bitmap = bitmaps +  1329 },   3,   8,   4,    0,   -7 } /* 0107 */
-,   { {.bitmap = bitmaps +  1337 },   4,  10,   5,    0,   -9 } /* 0108 */
-,   { {.bitmap = bitmaps +  1347 },   4,   8,   4,    0,   -7 } /* 0109 */
-,   { {.bitmap = bitmaps +  1355 },   4,   9,   5,    0,   -8 } /* 010A */
-,   { {.bitmap = bitmaps +  1364 },   3,   7,   4,    0,   -6 } /* 010B */
-,   { {.bitmap = bitmaps +  1371 },   4,  10,   5,    0,   -9 } /* 010C */
-,   { {.bitmap = bitmaps +  1381 },   4,   8,   4,    0,   -7 } /* 010D */
-,   { {.bitmap = bitmaps +  1389 },   5,  10,   6,    0,   -9 } /* 010E */
-,   { {.bitmap = bitmaps +  1399 },   6,   7,   5,    0,   -6 } /* 010F */
-,   { {.bitmap = bitmaps +  1406 },   6,   7,   6,   -1,   -6 } /* 0110 */
-,   { {.bitmap = bitmaps +  1413 },   5,   7,   5,    0,   -6 } /* 0111 */
-,   { {.bitmap = bitmaps +  1420 },   4,   9,   5,    0,   -8 } /* 0112 */
-,   { {.bitmap = bitmaps +  1429 },   4,   7,   5,    0,   -6 } /* 0113 */
-,   { {.bitmap = bitmaps +  1436 },   4,  10,   5,    0,   -9 } /* 0114 */
-,   { {.bitmap = bitmaps +  1446 },   4,   8,   5,    0,   -7 } /* 0115 */
-,   { {.bitmap = bitmaps +  1454 },   4,   9,   5,    0,   -8 } /* 0116 */
-,   { {.bitmap = bitmaps +  1463 },   4,   7,   5,    0,   -6 } /* 0117 */
-,   { {.bitmap = bitmaps +  1470 },   4,   9,   5,    0,   -6 } /* 0118 */
-,   { {.bitmap = bitmaps +  1479 },   4,   7,   5,    0,   -4 } /* 0119 */
-,   { {.bitmap = bitmaps +  1486 },   4,  10,   5,    0,   -9 } /* 011A */
-,   { {.bitmap = bitmaps +  1496 },   4,   8,   5,    0,   -7 } /* 011B */
-,   { {.bitmap = bitmaps +  1504 },   5,  10,   6,    0,   -9 } /* 011C */
-,   { {.bitmap = bitmaps +  1514 },   4,  10,   5,    0,   -7 } /* 011D */
-,   { {.bitmap = bitmaps +  1524 },   5,  10,   6,    0,   -9 } /* 011E */
-,   { {.bitmap = bitmaps +  1534 },   4,  10,   5,    0,   -7 } /* 011F */
-,   { {.bitmap = bitmaps +  1544 },   5,   9,   6,    0,   -8 } /* 0120 */
-,   { {.bitmap = bitmaps +  1553 },   4,   9,   5,    0,   -6 } /* 0121 */
-,   { {.bitmap = bitmaps +  1562 },   5,  10,   6,    0,   -6 } /* 0122 */
-,   { {.bitmap = bitmaps +  1572 },   4,  10,   5,    0,   -7 } /* 0123 */
-,   { {.bitmap = bitmaps +  1582 },   5,  10,   6,    0,   -9 } /* 0124 */
-,   { {.bitmap = bitmaps +  1592 },   4,  10,   5,    0,   -9 } /* 0125 */
-,   { {.bitmap = bitmaps +  1602 },   7,   7,   6,   -1,   -6 } /* 0126 */
-,   { {.bitmap = bitmaps +  1609 },   5,   7,   5,   -1,   -6 } /* 0127 */
-,   { {.bitmap = bitmaps +  1616 },   4,  10,   4,    0,   -9 } /* 0128 */
-,   { {.bitmap = bitmaps +  1626 },   4,   8,   2,   -1,   -7 } /* 0129 */
-,   { {.bitmap = bitmaps +  1634 },   3,   9,   4,    0,   -8 } /* 012A */
-,   { {.bitmap = bitmaps +  1643 },   3,   7,   2,   -1,   -6 } /* 012B */
-,   { {.bitmap = bitmaps +  1650 },   3,  10,   4,    0,   -9 } /* 012C */
-,   { {.bitmap = bitmaps +  1660 },   3,   8,   2,   -1,   -7 } /* 012D */
-,   { {.bitmap = bitmaps +  1668 },   3,   9,   4,    0,   -6 } /* 012E */
-,   { {.bitmap = bitmaps +  1677 },   2,   9,   2,    0,   -6 } /* 012F */
-,   { {.bitmap = bitmaps +  1686 },   3,   9,   4,    0,   -8 } /* 0130 */
-,   { {.bitmap = bitmaps +  1695 },   1,   5,   2,    0,   -4 } /* 0131 */
-,   { {.bitmap = bitmaps +  1700 },   5,   9,   6,    0,   -6 } /* 0132 */
-,   { {.bitmap = bitmaps +  1709 },   3,   9,   4,    0,   -6 } /* 0133 */
-,   { {.bitmap = bitmaps +  1718 },   4,  12,   3,   -1,   -9 } /* 0134 */
-,   { {.bitmap = bitmaps +  1730 },   3,  10,   2,   -1,   -7 } /* 0135 */
-,   { {.bitmap = bitmaps +  1740 },   5,  10,   5,    0,   -6 } /* 0136 */
-,   { {.bitmap = bitmaps +  1750 },   4,  10,   5,    0,   -6 } /* 0137 */
-,   { {.bitmap = bitmaps +  1760 },   4,   5,   5,    0,   -4 } /* 0138 */
-,   { {.bitmap = bitmaps +  1765 },   4,  10,   4,    0,   -9 } /* 0139 */
-,   { {.bitmap = bitmaps +  1775 },   2,  10,   2,    0,   -9 } /* 013A */
-,   { {.bitmap = bitmaps +  1785 },   4,  10,   4,    0,   -6 } /* 013B */
-,   { {.bitmap = bitmaps +  1795 },   1,  10,   2,    0,   -6 } /* 013C */
-,   { {.bitmap = bitmaps +  1805 },   4,   7,   4,    0,   -6 } /* 013D */
-,   { {.bitmap = bitmaps +  1812 },   3,   7,   2,    0,   -6 } /* 013E */
-,   { {.bitmap = bitmaps +  1819 },   4,   7,   4,    0,   -6 } /* 013F */
-,   { {.bitmap = bitmaps +  1826 },   3,   7,   3,    0,   -6 } /* 0140 */
-,   { {.bitmap = bitmaps +  1833 },   5,   7,   4,   -1,   -6 } /* 0141 */
-,   { {.bitmap = bitmaps +  1840 },   3,   7,   2,   -1,   -6 } /* 0142 */
-,   { {.bitmap = bitmaps +  1847 },   5,  10,   6,    0,   -9 } /* 0143 */
-,   { {.bitmap = bitmaps +  1857 },   4,   8,   5,    0,   -7 } /* 0144 */
-,   { {.bitmap = bitmaps +  1865 },   5,  10,   6,    0,   -6 } /* 0145 */
-,   { {.bitmap = bitmaps +  1875 },   4,   8,   5,    0,   -4 } /* 0146 */
-,   { {.bitmap = bitmaps +  1883 },   5,  10,   6,    0,   -9 } /* 0147 */
-,   { {.bitmap = bitmaps +  1893 },   4,   8,   5,    0,   -7 } /* 0148 */
-,   { {.bitmap = bitmaps +  1901 },   5,   7,   6,    0,   -6 } /* 0149 */
-,   { {.bitmap = bitmaps +  1908 },   5,   9,   6,    0,   -6 } /* 014A */
-,   { {.bitmap = bitmaps +  1917 },   4,   7,   5,    0,   -4 } /* 014B */
-,   { {.bitmap = bitmaps +  1924 },   6,   9,   7,    0,   -8 } /* 014C */
-,   { {.bitmap = bitmaps +  1933 },   4,   7,   5,    0,   -6 } /* 014D */
-,   { {.bitmap = bitmaps +  1940 },   6,  10,   7,    0,   -9 } /* 014E */
-,   { {.bitmap = bitmaps +  1950 },   4,   8,   5,    0,   -7 } /* 014F */
-,   { {.bitmap = bitmaps +  1958 },   6,  10,   7,    0,   -9 } /* 0150 */
-,   { {.bitmap = bitmaps +  1968 },   5,   8,   5,    0,   -7 } /* 0151 */
-,   { {.bitmap = bitmaps +  1976 },   8,   7,   9,    0,   -6 } /* 0152 */
-,   { {.bitmap = bitmaps +  1983 },   7,   5,   8,    0,   -4 } /* 0153 */
-,   { {.bitmap = bitmaps +  1988 },   4,  10,   5,    0,   -9 } /* 0154 */
-,   { {.bitmap = bitmaps +  1998 },   3,   8,   4,    0,   -7 } /* 0155 */
-,   { {.bitmap = bitmaps +  2006 },   4,  10,   5,    0,   -6 } /* 0156 */
-,   { {.bitmap = bitmaps +  2016 },   3,   8,   4,    0,   -4 } /* 0157 */
-,   { {.bitmap = bitmaps +  2024 },   4,  10,   5,    0,   -9 } /* 0158 */
-,   { {.bitmap = bitmaps +  2034 },   3,   8,   4,    0,   -7 } /* 0159 */
-,   { {.bitmap = bitmaps +  2042 },   4,  10,   5,    0,   -9 } /* 015A */
-,   { {.bitmap = bitmaps +  2052 },   3,   8,   4,    0,   -7 } /* 015B */
-,   { {.bitmap = bitmaps +  2060 },   4,  10,   5,    0,   -9 } /* 015C */
-,   { {.bitmap = bitmaps +  2070 },   3,   8,   4,    0,   -7 } /* 015D */
-,   { {.bitmap = bitmaps +  2078 },   4,   9,   5,    0,   -6 } /* 015E */
-,   { {.bitmap = bitmaps +  2087 },   3,   7,   4,    0,   -4 } /* 015F */
-,   { {.bitmap = bitmaps +  2094 },   4,  10,   5,    0,   -9 } /* 0160 */
-,   { {.bitmap = bitmaps +  2104 },   3,   8,   4,    0,   -7 } /* 0161 */
-,   { {.bitmap = bitmaps +  2112 },   5,   9,   4,   -1,   -6 } /* 0162 */
-,   { {.bitmap = bitmaps +  2121 },   3,   8,   4,    0,   -5 } /* 0163 */
-,   { {.bitmap = bitmaps +  2129 },   5,  10,   4,   -1,   -9 } /* 0164 */
-,   { {.bitmap = bitmaps +  2139 },   4,   7,   4,    0,   -6 } /* 0165 */
-,   { {.bitmap = bitmaps +  2146 },   5,   7,   4,   -1,   -6 } /* 0166 */
-,   { {.bitmap = bitmaps +  2153 },   3,   6,   4,    0,   -5 } /* 0167 */
-,   { {.bitmap = bitmaps +  2159 },   5,  10,   6,    0,   -9 } /* 0168 */
-,   { {.bitmap = bitmaps +  2169 },   4,   8,   5,    0,   -7 } /* 0169 */
-,   { {.bitmap = bitmaps +  2177 },   5,   9,   6,    0,   -8 } /* 016A */
-,   { {.bitmap = bitmaps +  2186 },   4,   7,   5,    0,   -6 } /* 016B */
-,   { {.bitmap = bitmaps +  2193 },   5,  10,   6,    0,   -9 } /* 016C */
-,   { {.bitmap = bitmaps +  2203 },   4,   8,   5,    0,   -7 } /* 016D */
-,   { {.bitmap = bitmaps +  2211 },   5,  11,   6,    0,  -10 } /* 016E */
-,   { {.bitmap = bitmaps +  2222 },   4,   9,   5,    0,   -8 } /* 016F */
-,   { {.bitmap = bitmaps +  2231 },   5,  10,   6,    0,   -9 } /* 0170 */
-,   { {.bitmap = bitmaps +  2241 },   5,   8,   5,    0,   -7 } /* 0171 */
-,   { {.bitmap = bitmaps +  2249 },   5,   9,   6,    0,   -6 } /* 0172 */
-,   { {.bitmap = bitmaps +  2258 },   4,   7,   5,    0,   -4 } /* 0173 */
-,   { {.bitmap = bitmaps +  2265 },   7,  10,   8,    0,   -9 } /* 0174 */
-,   { {.bitmap = bitmaps +  2275 },   5,   8,   6,    0,   -7 } /* 0175 */
-,   { {.bitmap = bitmaps +  2283 },   5,  10,   6,    0,   -9 } /* 0176 */
-,   { {.bitmap = bitmaps +  2293 },   4,  10,   5,    0,   -7 } /* 0177 */
-,   { {.bitmap = bitmaps +  2303 },   5,   9,   6,    0,   -8 } /* 0178 */
-,   { {.bitmap = bitmaps +  2312 },   4,  10,   5,    0,   -9 } /* 0179 */
-,   { {.bitmap = bitmaps +  2322 },   3,   8,   4,    0,   -7 } /* 017A */
-,   { {.bitmap = bitmaps +  2330 },   4,   9,   5,    0,   -8 } /* 017B */
-,   { {.bitmap = bitmaps +  2339 },   3,   7,   4,    0,   -6 } /* 017C */
-,   { {.bitmap = bitmaps +  2346 },   4,  10,   5,    0,   -9 } /* 017D */
-,   { {.bitmap = bitmaps +  2356 },   3,   8,   4,    0,   -7 } /* 017E */
-,   { {.bitmap = bitmaps +  2364 },   3,   7,   2,    0,   -6 } /* 017F */
-,   { {.bitmap = bitmaps +  2371 },   3,   9,   5,    1,   -6 } /* 0192 */
-,   { {.bitmap = bitmaps +  2380 },   7,   8,   7,    0,   -7 } /* 01A0 */
-,   { {.bitmap = bitmaps +  2388 },   5,   6,   5,    0,   -5 } /* 01A1 */
-,   { {.bitmap = bitmaps +  2394 },   7,   8,   6,    0,   -7 } /* 01AF */
-,   { {.bitmap = bitmaps +  2402 },   6,   6,   5,    0,   -5 } /* 01B0 */
-,   { {.bitmap = bitmaps +  2408 },   4,  10,   2,   -1,   -7 } /* 01F0 */
-,   { {.bitmap = bitmaps +  2418 },   5,   9,   6,    0,   -8 } /* 01FA */
-,   { {.bitmap = bitmaps +  2427 },   4,  10,   5,    0,   -9 } /* 01FB */
-,   { {.bitmap = bitmaps +  2437 },   7,  10,   8,    0,   -9 } /* 01FC */
-,   { {.bitmap = bitmaps +  2447 },   7,   8,   8,    0,   -7 } /* 01FD */
-,   { {.bitmap = bitmaps +  2455 },   6,  10,   7,    0,   -9 } /* 01FE */
-,   { {.bitmap = bitmaps +  2465 },   4,   8,   5,    0,   -7 } /* 01FF */
-,   { {.bitmap = bitmaps +  2473 },   4,  10,   5,    0,   -6 } /* 0218 */
-,   { {.bitmap = bitmaps +  2483 },   3,   8,   4,    0,   -4 } /* 0219 */
-,   { {.bitmap = bitmaps +  2491 },   5,  10,   4,   -1,   -6 } /* 021A */
-,   { {.bitmap = bitmaps +  2501 },   3,   9,   4,    0,   -5 } /* 021B */
-,   { {.bitmap = bitmaps +  2510 },   2,   2,   2,    0,   -6 } /* 02BC */
-,   { {.bitmap = bitmaps +  2512 },   3,   2,   5,    1,   -7 } /* 02C6 */
-,   { {.bitmap = bitmaps +  2514 },   3,   2,   5,    1,   -7 } /* 02C7 */
-,   { {.bitmap = bitmaps +  2516 },   3,   1,   5,    1,   -6 } /* 02C9 */
-,   { {.bitmap = bitmaps +  2517 },   3,   2,   5,    1,   -7 } /* 02D8 */
-,   { {.bitmap = bitmaps +  2519 },   1,   1,   2,    1,   -6 } /* 02D9 */
-,   { {.bitmap = bitmaps +  2520 },   3,   3,   5,    1,   -8 } /* 02DA */
-,   { {.bitmap = bitmaps +  2523 },   2,   2,   2,    0,    1 } /* 02DB */
-,   { {.bitmap = bitmaps +  2525 },   4,   2,   5,    0,   -7 } /* 02DC */
-,   { {.bitmap = bitmaps +  2527 },   4,   2,   5,    1,   -7 } /* 02DD */
-,   { {.bitmap = bitmaps +  2529 },   3,   3,   3,    0,    2 } /* 02F3 */
-,   { {.bitmap = bitmaps +  2532 },   2,   2,   0,   -4,   -7 } /* 0300 */
-,   { {.bitmap = bitmaps +  2534 },   2,   2,   0,   -3,   -7 } /* 0301 */
-,   { {.bitmap = bitmaps +  2536 },   4,   2,   0,   -5,   -7 } /* 0303 */
-,   { {.bitmap = bitmaps +  2538 },   2,   3,   0,   -3,   -7 } /* 0309 */
-,   { {.bitmap = bitmaps +  2541 },   4,   2,   0,   -5,   -7 } /* 030F */
-,   { {.bitmap = bitmaps +  2543 },   1,   1,   0,   -3,    2 } /* 0323 */
-,   { {.bitmap = bitmaps +  2544 },   1,   2,   5,    1,   -7 } /* 0384 */
-,   { {.bitmap = bitmaps +  2546 },   5,   2,   5,    0,   -7 } /* 0385 */
-,   { {.bitmap = bitmaps +  2548 },   5,   7,   6,    0,   -6 } /* 0386 */
-,   { {.bitmap = bitmaps +  2555 },   1,   1,   2,    0,   -3 } /* 0387 */
-,   { {.bitmap = bitmaps +  2556 },   6,   7,   6,   -1,   -6 } /* 0388 */
-,   { {.bitmap = bitmaps +  2563 },   7,   7,   7,   -1,   -6 } /* 0389 */
-,   { {.bitmap = bitmaps +  2570 },   5,   7,   5,   -1,   -6 } /* 038A */
-,   { {.bitmap = bitmaps +  2577 },   8,   7,   8,   -1,   -6 } /* 038C */
-,   { {.bitmap = bitmaps +  2584 },   7,   7,   7,   -1,   -6 } /* 038E */
-,   { {.bitmap = bitmaps +  2591 },   8,   7,   8,   -1,   -6 } /* 038F */
-,   { {.bitmap = bitmaps +  2598 },   5,   8,   2,   -2,   -7 } /* 0390 */
-,   { {.bitmap = bitmaps +  2606 },   5,   7,   6,    0,   -6 } /* 0391 */
-,   { {.bitmap = bitmaps +  2613 },   4,   7,   5,    0,   -6 } /* 0392 */
-,   { {.bitmap = bitmaps +  2620 },   4,   7,   5,    0,   -6 } /* 0393 */
-,   { {.bitmap = bitmaps +  2627 },   5,   7,   6,    0,   -6 } /* 0394 */
-,   { {.bitmap = bitmaps +  2634 },   4,   7,   5,    0,   -6 } /* 0395 */
-,   { {.bitmap = bitmaps +  2641 },   4,   7,   5,    0,   -6 } /* 0396 */
-,   { {.bitmap = bitmaps +  2648 },   5,   7,   6,    0,   -6 } /* 0397 */
-,   { {.bitmap = bitmaps +  2655 },   6,   7,   7,    0,   -6 } /* 0398 */
-,   { {.bitmap = bitmaps +  2662 },   3,   7,   4,    0,   -6 } /* 0399 */
-,   { {.bitmap = bitmaps +  2669 },   5,   7,   5,    0,   -6 } /* 039A */
-,   { {.bitmap = bitmaps +  2676 },   5,   7,   6,    0,   -6 } /* 039B */
-,   { {.bitmap = bitmaps +  2683 },   7,   7,   8,    0,   -6 } /* 039C */
-,   { {.bitmap = bitmaps +  2690 },   5,   7,   6,    0,   -6 } /* 039D */
-,   { {.bitmap = bitmaps +  2697 },   4,   7,   5,    0,   -6 } /* 039E */
-,   { {.bitmap = bitmaps +  2704 },   6,   7,   7,    0,   -6 } /* 039F */
-,   { {.bitmap = bitmaps +  2711 },   5,   7,   6,    0,   -6 } /* 03A0 */
-,   { {.bitmap = bitmaps +  2718 },   4,   7,   5,    0,   -6 } /* 03A1 */
-,   { {.bitmap = bitmaps +  2725 },   4,   7,   5,    0,   -6 } /* 03A3 */
-,   { {.bitmap = bitmaps +  2732 },   5,   7,   4,   -1,   -6 } /* 03A4 */
-,   { {.bitmap = bitmaps +  2739 },   5,   7,   6,    0,   -6 } /* 03A5 */
-,   { {.bitmap = bitmaps +  2746 },   5,   7,   6,    0,   -6 } /* 03A6 */
-,   { {.bitmap = bitmaps +  2753 },   5,   7,   6,    0,   -6 } /* 03A7 */
-,   { {.bitmap = bitmaps +  2760 },   5,   7,   6,    0,   -6 } /* 03A8 */
-,   { {.bitmap = bitmaps +  2767 },   6,   7,   7,    0,   -6 } /* 03A9 */
-,   { {.bitmap = bitmaps +  2774 },   3,   9,   4,    0,   -8 } /* 03AA */
-,   { {.bitmap = bitmaps +  2783 },   5,   9,   6,    0,   -8 } /* 03AB */
-,   { {.bitmap = bitmaps +  2792 },   5,   8,   5,    0,   -7 } /* 03AC */
-,   { {.bitmap = bitmaps +  2800 },   3,   8,   4,    0,   -7 } /* 03AD */
-,   { {.bitmap = bitmaps +  2808 },   4,  10,   5,    0,   -7 } /* 03AE */
-,   { {.bitmap = bitmaps +  2818 },   2,   8,   2,    0,   -7 } /* 03AF */
-,   { {.bitmap = bitmaps +  2826 },   5,   8,   5,    0,   -7 } /* 03B0 */
-,   { {.bitmap = bitmaps +  2834 },   5,   5,   5,    0,   -4 } /* 03B1 */
-,   { {.bitmap = bitmaps +  2839 },   4,   9,   5,    0,   -6 } /* 03B2 */
-,   { {.bitmap = bitmaps +  2848 },   4,   7,   5,    0,   -4 } /* 03B3 */
-,   { {.bitmap = bitmaps +  2855 },   4,   7,   5,    0,   -6 } /* 03B4 */
-,   { {.bitmap = bitmaps +  2862 },   3,   5,   4,    0,   -4 } /* 03B5 */
-,   { {.bitmap = bitmaps +  2867 },   4,   9,   4,    0,   -6 } /* 03B6 */
-,   { {.bitmap = bitmaps +  2876 },   4,   7,   5,    0,   -4 } /* 03B7 */
-,   { {.bitmap = bitmaps +  2883 },   4,   7,   5,    0,   -6 } /* 03B8 */
-,   { {.bitmap = bitmaps +  2890 },   2,   5,   2,    0,   -4 } /* 03B9 */
-,   { {.bitmap = bitmaps +  2895 },   4,   5,   5,    0,   -4 } /* 03BA */
-,   { {.bitmap = bitmaps +  2900 },   5,   7,   5,    0,   -6 } /* 03BB */
-,   { {.bitmap = bitmaps +  2907 },   4,   7,   5,    0,   -4 } /* 03BC */
-,   { {.bitmap = bitmaps +  2914 },   4,   5,   5,    0,   -4 } /* 03BD */
-,   { {.bitmap = bitmaps +  2919 },   4,   9,   4,    0,   -6 } /* 03BE */
-,   { {.bitmap = bitmaps +  2928 },   4,   5,   5,    0,   -4 } /* 03BF */
-,   { {.bitmap = bitmaps +  2933 },   6,   5,   6,   -1,   -4 } /* 03C0 */
-,   { {.bitmap = bitmaps +  2938 },   4,   7,   5,    0,   -4 } /* 03C1 */
-,   { {.bitmap = bitmaps +  2945 },   3,   7,   4,    0,   -4 } /* 03C2 */
-,   { {.bitmap = bitmaps +  2952 },   4,   5,   5,    0,   -4 } /* 03C3 */
-,   { {.bitmap = bitmaps +  2957 },   3,   5,   4,    0,   -4 } /* 03C4 */
-,   { {.bitmap = bitmaps +  2962 },   4,   5,   5,    0,   -4 } /* 03C5 */
-,   { {.bitmap = bitmaps +  2967 },   5,   7,   6,    0,   -4 } /* 03C6 */
-,   { {.bitmap = bitmaps +  2974 },   5,   7,   6,    0,   -4 } /* 03C7 */
-,   { {.bitmap = bitmaps +  2981 },   5,   9,   6,    0,   -6 } /* 03C8 */
-,   { {.bitmap = bitmaps +  2990 },   5,   5,   6,    0,   -4 } /* 03C9 */
-,   { {.bitmap = bitmaps +  2995 },   3,   7,   2,   -1,   -6 } /* 03CA */
-,   { {.bitmap = bitmaps +  3002 },   4,   7,   5,    0,   -6 } /* 03CB */
-,   { {.bitmap = bitmaps +  3009 },   4,   8,   5,    0,   -7 } /* 03CC */
-,   { {.bitmap = bitmaps +  3017 },   4,   8,   5,    0,   -7 } /* 03CD */
-,   { {.bitmap = bitmaps +  3025 },   5,   8,   6,    0,   -7 } /* 03CE */
-,   { {.bitmap = bitmaps +  3033 },   6,   7,   6,    0,   -6 } /* 03D1 */
-,   { {.bitmap = bitmaps +  3040 },   6,   7,   6,    0,   -6 } /* 03D2 */
-,   { {.bitmap = bitmaps +  3047 },   7,   5,   6,   -1,   -4 } /* 03D6 */
-,   { {.bitmap = bitmaps +  3052 },   4,  10,   5,    0,   -9 } /* 0400 */
-,   { {.bitmap = bitmaps +  3062 },   4,   9,   5,    0,   -8 } /* 0401 */
-,   { {.bitmap = bitmaps +  3071 },   6,   7,   6,   -1,   -6 } /* 0402 */
-,   { {.bitmap = bitmaps +  3078 },   4,  10,   5,    0,   -9 } /* 0403 */
-,   { {.bitmap = bitmaps +  3088 },   4,   7,   5,    0,   -6 } /* 0404 */
-,   { {.bitmap = bitmaps +  3095 },   4,   7,   5,    0,   -6 } /* 0405 */
-,   { {.bitmap = bitmaps +  3102 },   3,   7,   4,    0,   -6 } /* 0406 */
-,   { {.bitmap = bitmaps +  3109 },   3,   9,   4,    0,   -8 } /* 0407 */
-,   { {.bitmap = bitmaps +  3118 },   3,   9,   3,   -1,   -6 } /* 0408 */
-,   { {.bitmap = bitmaps +  3127 },   8,   7,   9,    0,   -6 } /* 0409 */
-,   { {.bitmap = bitmaps +  3134 },   8,   7,   9,    0,   -6 } /* 040A */
-,   { {.bitmap = bitmaps +  3141 },   6,   7,   6,   -1,   -6 } /* 040B */
-,   { {.bitmap = bitmaps +  3148 },   5,  10,   5,    0,   -9 } /* 040C */
-,   { {.bitmap = bitmaps +  3158 },   5,  10,   6,    0,   -9 } /* 040D */
-,   { {.bitmap = bitmaps +  3168 },   5,  10,   6,    0,   -9 } /* 040E */
-,   { {.bitmap = bitmaps +  3178 },   5,   9,   6,    0,   -6 } /* 040F */
-,   { {.bitmap = bitmaps +  3187 },   5,   7,   6,    0,   -6 } /* 0410 */
-,   { {.bitmap = bitmaps +  3194 },   4,   7,   5,    0,   -6 } /* 0411 */
-,   { {.bitmap = bitmaps +  3201 },   4,   7,   5,    0,   -6 } /* 0412 */
-,   { {.bitmap = bitmaps +  3208 },   4,   7,   5,    0,   -6 } /* 0413 */
-,   { {.bitmap = bitmaps +  3215 },   6,   9,   6,    0,   -6 } /* 0414 */
-,   { {.bitmap = bitmaps +  3224 },   4,   7,   5,    0,   -6 } /* 0415 */
-,   { {.bitmap = bitmaps +  3231 },   7,   7,   8,    0,   -6 } /* 0416 */
-,   { {.bitmap = bitmaps +  3238 },   4,   7,   5,    0,   -6 } /* 0417 */
-,   { {.bitmap = bitmaps +  3245 },   5,   7,   6,    0,   -6 } /* 0418 */
-,   { {.bitmap = bitmaps +  3252 },   5,  10,   6,    0,   -9 } /* 0419 */
-,   { {.bitmap = bitmaps +  3262 },   5,   7,   5,    0,   -6 } /* 041A */
-,   { {.bitmap = bitmaps +  3269 },   6,   7,   7,    0,   -6 } /* 041B */
-,   { {.bitmap = bitmaps +  3276 },   7,   7,   8,    0,   -6 } /* 041C */
-,   { {.bitmap = bitmaps +  3283 },   5,   7,   6,    0,   -6 } /* 041D */
-,   { {.bitmap = bitmaps +  3290 },   6,   7,   7,    0,   -6 } /* 041E */
-,   { {.bitmap = bitmaps +  3297 },   5,   7,   6,    0,   -6 } /* 041F */
-,   { {.bitmap = bitmaps +  3304 },   4,   7,   5,    0,   -6 } /* 0420 */
-,   { {.bitmap = bitmaps +  3311 },   4,   7,   5,    0,   -6 } /* 0421 */
-,   { {.bitmap = bitmaps +  3318 },   5,   7,   4,   -1,   -6 } /* 0422 */
-,   { {.bitmap = bitmaps +  3325 },   5,   7,   6,    0,   -6 } /* 0423 */
-,   { {.bitmap = bitmaps +  3332 },   5,   7,   6,    0,   -6 } /* 0424 */
-,   { {.bitmap = bitmaps +  3339 },   5,   7,   6,    0,   -6 } /* 0425 */
-,   { {.bitmap = bitmaps +  3346 },   6,   9,   6,    0,   -6 } /* 0426 */
-,   { {.bitmap = bitmaps +  3355 },   5,   7,   6,    0,   -6 } /* 0427 */
-,   { {.bitmap = bitmaps +  3362 },   7,   7,   8,    0,   -6 } /* 0428 */
-,   { {.bitmap = bitmaps +  3369 },   8,   9,   8,    0,   -6 } /* 0429 */
-,   { {.bitmap = bitmaps +  3378 },   6,   7,   7,    0,   -6 } /* 042A */
-,   { {.bitmap = bitmaps +  3385 },   6,   7,   7,    0,   -6 } /* 042B */
-,   { {.bitmap = bitmaps +  3392 },   4,   7,   5,    0,   -6 } /* 042C */
-,   { {.bitmap = bitmaps +  3399 },   4,   7,   5,    0,   -6 } /* 042D */
-,   { {.bitmap = bitmaps +  3406 },   8,   7,   9,    0,   -6 } /* 042E */
-,   { {.bitmap = bitmaps +  3413 },   4,   7,   5,    0,   -6 } /* 042F */
-,   { {.bitmap = bitmaps +  3420 },   4,   5,   5,    0,   -4 } /* 0430 */
-,   { {.bitmap = bitmaps +  3425 },   4,   7,   5,    0,   -6 } /* 0431 */
-,   { {.bitmap = bitmaps +  3432 },   4,   5,   5,    0,   -4 } /* 0432 */
-,   { {.bitmap = bitmaps +  3437 },   3,   5,   4,    0,   -4 } /* 0433 */
-,   { {.bitmap = bitmaps +  3442 },   5,   7,   5,    0,   -4 } /* 0434 */
-,   { {.bitmap = bitmaps +  3449 },   4,   5,   5,    0,   -4 } /* 0435 */
-,   { {.bitmap = bitmaps +  3454 },   5,   5,   6,    0,   -4 } /* 0436 */
-,   { {.bitmap = bitmaps +  3459 },   3,   5,   4,    0,   -4 } /* 0437 */
-,   { {.bitmap = bitmaps +  3464 },   4,   5,   5,    0,   -4 } /* 0438 */
-,   { {.bitmap = bitmaps +  3469 },   4,   8,   5,    0,   -7 } /* 0439 */
-,   { {.bitmap = bitmaps +  3477 },   4,   5,   5,    0,   -4 } /* 043A */
-,   { {.bitmap = bitmaps +  3482 },   4,   5,   5,    0,   -4 } /* 043B */
-,   { {.bitmap = bitmaps +  3487 },   5,   5,   6,    0,   -4 } /* 043C */
-,   { {.bitmap = bitmaps +  3492 },   4,   5,   5,    0,   -4 } /* 043D */
-,   { {.bitmap = bitmaps +  3497 },   4,   5,   5,    0,   -4 } /* 043E */
-,   { {.bitmap = bitmaps +  3502 },   4,   5,   5,    0,   -4 } /* 043F */
-,   { {.bitmap = bitmaps +  3507 },   4,   7,   5,    0,   -4 } /* 0440 */
-,   { {.bitmap = bitmaps +  3514 },   3,   5,   4,    0,   -4 } /* 0441 */
-,   { {.bitmap = bitmaps +  3519 },   3,   5,   4,    0,   -4 } /* 0442 */
-,   { {.bitmap = bitmaps +  3524 },   4,   7,   5,    0,   -4 } /* 0443 */
-,   { {.bitmap = bitmaps +  3531 },   5,   9,   6,    0,   -6 } /* 0444 */
-,   { {.bitmap = bitmaps +  3540 },   5,   5,   6,    0,   -4 } /* 0445 */
-,   { {.bitmap = bitmaps +  3545 },   5,   7,   5,    0,   -4 } /* 0446 */
-,   { {.bitmap = bitmaps +  3552 },   4,   5,   5,    0,   -4 } /* 0447 */
-,   { {.bitmap = bitmaps +  3557 },   7,   5,   8,    0,   -4 } /* 0448 */
-,   { {.bitmap = bitmaps +  3562 },   8,   7,   8,    0,   -4 } /* 0449 */
-,   { {.bitmap = bitmaps +  3569 },   6,   5,   6,   -1,   -4 } /* 044A */
-,   { {.bitmap = bitmaps +  3574 },   6,   5,   7,    0,   -4 } /* 044B */
-,   { {.bitmap = bitmaps +  3579 },   4,   5,   5,    0,   -4 } /* 044C */
-,   { {.bitmap = bitmaps +  3584 },   3,   5,   4,    0,   -4 } /* 044D */
-,   { {.bitmap = bitmaps +  3589 },   6,   5,   7,    0,   -4 } /* 044E */
-,   { {.bitmap = bitmaps +  3594 },   4,   5,   5,    0,   -4 } /* 044F */
-,   { {.bitmap = bitmaps +  3599 },   4,   8,   5,    0,   -7 } /* 0450 */
-,   { {.bitmap = bitmaps +  3607 },   4,   7,   5,    0,   -6 } /* 0451 */
-,   { {.bitmap = bitmaps +  3614 },   5,   9,   5,   -1,   -6 } /* 0452 */
-,   { {.bitmap = bitmaps +  3623 },   3,   8,   4,    0,   -7 } /* 0453 */
-,   { {.bitmap = bitmaps +  3631 },   3,   5,   4,    0,   -4 } /* 0454 */
-,   { {.bitmap = bitmaps +  3636 },   3,   5,   4,    0,   -4 } /* 0455 */
-,   { {.bitmap = bitmaps +  3641 },   1,   7,   2,    0,   -6 } /* 0456 */
-,   { {.bitmap = bitmaps +  3648 },   3,   7,   2,   -1,   -6 } /* 0457 */
-,   { {.bitmap = bitmaps +  3655 },   2,   9,   2,   -1,   -6 } /* 0458 */
-,   { {.bitmap = bitmaps +  3664 },   7,   5,   8,    0,   -4 } /* 0459 */
-,   { {.bitmap = bitmaps +  3669 },   7,   5,   8,    0,   -4 } /* 045A */
-,   { {.bitmap = bitmaps +  3674 },   5,   7,   5,   -1,   -6 } /* 045B */
-,   { {.bitmap = bitmaps +  3681 },   4,   8,   5,    0,   -7 } /* 045C */
-,   { {.bitmap = bitmaps +  3689 },   4,   8,   5,    0,   -7 } /* 045D */
-,   { {.bitmap = bitmaps +  3697 },   4,  10,   5,    0,   -7 } /* 045E */
-,   { {.bitmap = bitmaps +  3707 },   4,   7,   5,    0,   -4 } /* 045F */
-,   { {.bitmap = bitmaps +  3714 },   7,   7,   8,    0,   -6 } /* 0460 */
-,   { {.bitmap = bitmaps +  3721 },   6,   5,   7,    0,   -4 } /* 0461 */
-,   { {.bitmap = bitmaps +  3726 },   5,   7,   6,    0,   -6 } /* 0462 */
-,   { {.bitmap = bitmaps +  3733 },   4,   6,   5,    0,   -5 } /* 0463 */
-,   { {.bitmap = bitmaps +  3739 },   7,   7,   8,    0,   -6 } /* 0464 */
-,   { {.bitmap = bitmaps +  3746 },   5,   5,   6,    0,   -4 } /* 0465 */
-,   { {.bitmap = bitmaps +  3751 },   5,   7,   6,    0,   -6 } /* 0466 */
-,   { {.bitmap = bitmaps +  3758 },   5,   5,   6,    0,   -4 } /* 0467 */
-,   { {.bitmap = bitmaps +  3763 },   7,   7,   8,    0,   -6 } /* 0468 */
-,   { {.bitmap = bitmaps +  3770 },   6,   5,   7,    0,   -4 } /* 0469 */
-,   { {.bitmap = bitmaps +  3775 },   5,   7,   6,    0,   -6 } /* 046A */
-,   { {.bitmap = bitmaps +  3782 },   5,   5,   6,    0,   -4 } /* 046B */
-,   { {.bitmap = bitmaps +  3787 },   7,   7,   8,    0,   -6 } /* 046C */
-,   { {.bitmap = bitmaps +  3794 },   6,   5,   7,    0,   -4 } /* 046D */
-,   { {.bitmap = bitmaps +  3799 },   4,  11,   5,    0,   -8 } /* 046E */
-,   { {.bitmap = bitmaps +  3810 },   3,   9,   4,    0,   -6 } /* 046F */
-,   { {.bitmap = bitmaps +  3819 },   5,   7,   6,    0,   -6 } /* 0470 */
-,   { {.bitmap = bitmaps +  3826 },   5,   9,   6,    0,   -6 } /* 0471 */
-,   { {.bitmap = bitmaps +  3835 },   6,   7,   7,    0,   -6 } /* 0472 */
-,   { {.bitmap = bitmaps +  3842 },   4,   5,   5,    0,   -4 } /* 0473 */
-,   { {.bitmap = bitmaps +  3847 },   6,   7,   6,    0,   -6 } /* 0474 */
-,   { {.bitmap = bitmaps +  3854 },   5,   5,   5,    0,   -4 } /* 0475 */
-,   { {.bitmap = bitmaps +  3859 },   6,  10,   6,    0,   -9 } /* 0476 */
-,   { {.bitmap = bitmaps +  3869 },   5,   8,   5,    0,   -7 } /* 0477 */
-,   { {.bitmap = bitmaps +  3877 },  11,   9,  12,    0,   -6 } /* 0478 */
-,   { {.bitmap = bitmaps +  3895 },   9,   7,   9,    0,   -4 } /* 0479 */
-,   { {.bitmap = bitmaps +  3909 },   6,   9,   7,    0,   -7 } /* 047A */
-,   { {.bitmap = bitmaps +  3918 },   4,   5,   5,    0,   -4 } /* 047B */
-,   { {.bitmap = bitmaps +  3923 },   7,  10,   8,    0,   -9 } /* 047C */
-,   { {.bitmap = bitmaps +  3933 },   6,   8,   7,    0,   -7 } /* 047D */
-,   { {.bitmap = bitmaps +  3941 },   7,   9,   8,    0,   -8 } /* 047E */
-,   { {.bitmap = bitmaps +  3950 },   6,   8,   7,    0,   -7 } /* 047F */
-,   { {.bitmap = bitmaps +  3958 },   4,   9,   5,    0,   -6 } /* 0480 */
-,   { {.bitmap = bitmaps +  3967 },   3,   7,   4,    0,   -4 } /* 0481 */
-,   { {.bitmap = bitmaps +  3974 },   4,   7,   5,    0,   -6 } /* 0482 */
-,   { {.bitmap = bitmaps +  3981 },   4,   3,   5,    0,   -7 } /* 0483 */
-,   { {.bitmap = bitmaps +  3984 },   4,   2,   5,    0,   -7 } /* 0484 */
-,   { {.bitmap = bitmaps +  3986 },   1,   2,   5,    2,   -6 } /* 0485 */
-,   { {.bitmap = bitmaps +  3988 },   1,   2,   5,    2,   -6 } /* 0486 */
-,   { {.bitmap = bitmaps +  3990 },   9,   7,   9,    0,   -5 } /* 0488 */
-,   { {.bitmap = bitmaps +  4004 },   8,   9,   9,    0,   -6 } /* 0489 */
-,   { {.bitmap = bitmaps +  4013 },   6,  12,   6,    0,   -9 } /* 048A */
-,   { {.bitmap = bitmaps +  4025 },   5,  10,   5,    0,   -7 } /* 048B */
-,   { {.bitmap = bitmaps +  4035 },   4,   7,   5,    0,   -6 } /* 048C */
-,   { {.bitmap = bitmaps +  4042 },   5,   7,   5,   -1,   -6 } /* 048D */
-,   { {.bitmap = bitmaps +  4049 },   4,   7,   5,    0,   -6 } /* 048E */
-,   { {.bitmap = bitmaps +  4056 },   4,   7,   5,    0,   -4 } /* 048F */
-,   { {.bitmap = bitmaps +  4063 },   4,   8,   5,    0,   -7 } /* 0490 */
-,   { {.bitmap = bitmaps +  4071 },   3,   6,   4,    0,   -5 } /* 0491 */
-,   { {.bitmap = bitmaps +  4077 },   5,   7,   5,   -1,   -6 } /* 0492 */
-,   { {.bitmap = bitmaps +  4084 },   4,   5,   4,   -1,   -4 } /* 0493 */
-,   { {.bitmap = bitmaps +  4089 },   4,   9,   5,    0,   -6 } /* 0494 */
-,   { {.bitmap = bitmaps +  4098 },   4,   7,   5,    0,   -4 } /* 0495 */
-,   { {.bitmap = bitmaps +  4105 },   7,   9,   8,    0,   -6 } /* 0496 */
-,   { {.bitmap = bitmaps +  4114 },   5,   7,   6,    0,   -4 } /* 0497 */
-,   { {.bitmap = bitmaps +  4121 },   4,   9,   5,    0,   -6 } /* 0498 */
-,   { {.bitmap = bitmaps +  4130 },   3,   7,   4,    0,   -4 } /* 0499 */
-,   { {.bitmap = bitmaps +  4137 },   6,   9,   6,    0,   -6 } /* 049A */
-,   { {.bitmap = bitmaps +  4146 },   4,   7,   5,    0,   -4 } /* 049B */
-,   { {.bitmap = bitmaps +  4153 },   5,   7,   5,    0,   -6 } /* 049C */
-,   { {.bitmap = bitmaps +  4160 },   4,   5,   5,    0,   -4 } /* 049D */
-,   { {.bitmap = bitmaps +  4165 },   6,   7,   5,   -1,   -6 } /* 049E */
-,   { {.bitmap = bitmaps +  4172 },   5,   7,   5,   -1,   -6 } /* 049F */
-,   { {.bitmap = bitmaps +  4179 },   6,   7,   6,    0,   -6 } /* 04A0 */
-,   { {.bitmap = bitmaps +  4186 },   5,   5,   6,    0,   -4 } /* 04A1 */
-,   { {.bitmap = bitmaps +  4191 },   6,   9,   6,    0,   -6 } /* 04A2 */
-,   { {.bitmap = bitmaps +  4200 },   5,   7,   5,    0,   -4 } /* 04A3 */
-,   { {.bitmap = bitmaps +  4207 },   6,   7,   6,    0,   -6 } /* 04A4 */
-,   { {.bitmap = bitmaps +  4214 },   5,   5,   5,    0,   -4 } /* 04A5 */
-,   { {.bitmap = bitmaps +  4219 },   8,   9,   9,    0,   -6 } /* 04A6 */
-,   { {.bitmap = bitmaps +  4228 },   7,   7,   8,    0,   -4 } /* 04A7 */
-,   { {.bitmap = bitmaps +  4235 },   6,   7,   7,    0,   -6 } /* 04A8 */
-,   { {.bitmap = bitmaps +  4242 },   5,   5,   6,    0,   -4 } /* 04A9 */
-,   { {.bitmap = bitmaps +  4247 },   4,   9,   5,    0,   -6 } /* 04AA */
-,   { {.bitmap = bitmaps +  4256 },   3,   7,   4,    0,   -4 } /* 04AB */
-,   { {.bitmap = bitmaps +  4263 },   5,   9,   4,   -1,   -6 } /* 04AC */
-,   { {.bitmap = bitmaps +  4272 },   3,   7,   4,    0,   -4 } /* 04AD */
-,   { {.bitmap = bitmaps +  4279 },   5,   7,   6,    0,   -6 } /* 04AE */
-,   { {.bitmap = bitmaps +  4286 },   3,   7,   4,    0,   -4 } /* 04AF */
-,   { {.bitmap = bitmaps +  4293 },   5,   7,   6,    0,   -6 } /* 04B0 */
-,   { {.bitmap = bitmaps +  4300 },   3,   7,   4,    0,   -4 } /* 04B1 */
-,   { {.bitmap = bitmaps +  4307 },   6,   9,   6,    0,   -6 } /* 04B2 */
-,   { {.bitmap = bitmaps +  4316 },   4,   7,   5,    0,   -4 } /* 04B3 */
-,   { {.bitmap = bitmaps +  4323 },   7,   9,   8,    0,   -6 } /* 04B4 */
-,   { {.bitmap = bitmaps +  4332 },   6,   7,   7,    0,   -4 } /* 04B5 */
-,   { {.bitmap = bitmaps +  4339 },   6,   9,   7,    0,   -6 } /* 04B6 */
-,   { {.bitmap = bitmaps +  4348 },   5,   7,   6,    0,   -4 } /* 04B7 */
-,   { {.bitmap = bitmaps +  4355 },   5,   7,   6,    0,   -6 } /* 04B8 */
-,   { {.bitmap = bitmaps +  4362 },   4,   5,   5,    0,   -4 } /* 04B9 */
-,   { {.bitmap = bitmaps +  4367 },   5,   7,   6,    0,   -6 } /* 04BA */
-,   { {.bitmap = bitmaps +  4374 },   4,   5,   5,    0,   -4 } /* 04BB */
-,   { {.bitmap = bitmaps +  4379 },   6,   7,   8,    1,   -6 } /* 04BC */
-,   { {.bitmap = bitmaps +  4386 },   5,   5,   6,    0,   -4 } /* 04BD */
-,   { {.bitmap = bitmaps +  4391 },   6,   9,   8,    1,   -6 } /* 04BE */
-,   { {.bitmap = bitmaps +  4400 },   5,   7,   6,    0,   -4 } /* 04BF */
-,   { {.bitmap = bitmaps +  4407 },   3,   7,   4,    0,   -6 } /* 04C0 */
-,   { {.bitmap = bitmaps +  4414 },   7,  10,   8,    0,   -9 } /* 04C1 */
-,   { {.bitmap = bitmaps +  4424 },   5,   8,   6,    0,   -7 } /* 04C2 */
-,   { {.bitmap = bitmaps +  4432 },   5,   9,   6,    0,   -6 } /* 04C3 */
-,   { {.bitmap = bitmaps +  4441 },   4,   7,   5,    0,   -4 } /* 04C4 */
-,   { {.bitmap = bitmaps +  4448 },   7,   9,   7,    0,   -6 } /* 04C5 */
-,   { {.bitmap = bitmaps +  4457 },   5,   7,   5,    0,   -4 } /* 04C6 */
-,   { {.bitmap = bitmaps +  4464 },   5,   9,   6,    0,   -6 } /* 04C7 */
-,   { {.bitmap = bitmaps +  4473 },   4,   7,   5,    0,   -4 } /* 04C8 */
-,   { {.bitmap = bitmaps +  4480 },   6,   9,   6,    0,   -6 } /* 04C9 */
-,   { {.bitmap = bitmaps +  4489 },   5,   7,   5,    0,   -4 } /* 04CA */
-,   { {.bitmap = bitmaps +  4496 },   5,   9,   6,    0,   -6 } /* 04CB */
-,   { {.bitmap = bitmaps +  4505 },   4,   7,   5,    0,   -4 } /* 04CC */
-,   { {.bitmap = bitmaps +  4512 },   8,   9,   8,    0,   -6 } /* 04CD */
-,   { {.bitmap = bitmaps +  4521 },   6,   7,   6,    0,   -4 } /* 04CE */
-,   { {.bitmap = bitmaps +  4528 },   3,   7,   4,    0,   -6 } /* 04CF */
-,   { {.bitmap = bitmaps +  4535 },   5,  10,   6,    0,   -9 } /* 04D0 */
-,   { {.bitmap = bitmaps +  4545 },   4,   8,   5,    0,   -7 } /* 04D1 */
-,   { {.bitmap = bitmaps +  4553 },   5,   9,   6,    0,   -8 } /* 04D2 */
-,   { {.bitmap = bitmaps +  4562 },   4,   7,   5,    0,   -6 } /* 04D3 */
-,   { {.bitmap = bitmaps +  4569 },   7,   7,   8,    0,   -6 } /* 04D4 */
-,   { {.bitmap = bitmaps +  4576 },   7,   5,   8,    0,   -4 } /* 04D5 */
-,   { {.bitmap = bitmaps +  4581 },   4,  10,   5,    0,   -9 } /* 04D6 */
-,   { {.bitmap = bitmaps +  4591 },   4,   8,   5,    0,   -7 } /* 04D7 */
-,   { {.bitmap = bitmaps +  4599 },   6,   7,   7,    0,   -6 } /* 04D8 */
-,   { {.bitmap = bitmaps +  4606 },   4,   5,   5,    0,   -4 } /* 04D9 */
-,   { {.bitmap = bitmaps +  4611 },   6,   9,   7,    0,   -8 } /* 04DA */
-,   { {.bitmap = bitmaps +  4620 },   4,   7,   5,    0,   -6 } /* 04DB */
-,   { {.bitmap = bitmaps +  4627 },   7,   9,   8,    0,   -8 } /* 04DC */
-,   { {.bitmap = bitmaps +  4636 },   5,   7,   6,    0,   -6 } /* 04DD */
-,   { {.bitmap = bitmaps +  4643 },   4,   9,   5,    0,   -8 } /* 04DE */
-,   { {.bitmap = bitmaps +  4652 },   3,   7,   4,    0,   -6 } /* 04DF */
-,   { {.bitmap = bitmaps +  4659 },   4,   7,   5,    0,   -6 } /* 04E0 */
-,   { {.bitmap = bitmaps +  4666 },   3,   7,   4,    0,   -4 } /* 04E1 */
-,   { {.bitmap = bitmaps +  4673 },   5,   9,   6,    0,   -8 } /* 04E2 */
-,   { {.bitmap = bitmaps +  4682 },   4,   7,   5,    0,   -6 } /* 04E3 */
-,   { {.bitmap = bitmaps +  4689 },   5,   9,   6,    0,   -8 } /* 04E4 */
-,   { {.bitmap = bitmaps +  4698 },   4,   7,   5,    0,   -6 } /* 04E5 */
-,   { {.bitmap = bitmaps +  4705 },   6,   9,   7,    0,   -8 } /* 04E6 */
-,   { {.bitmap = bitmaps +  4714 },   4,   7,   5,    0,   -6 } /* 04E7 */
-,   { {.bitmap = bitmaps +  4721 },   6,   7,   7,    0,   -6 } /* 04E8 */
-,   { {.bitmap = bitmaps +  4728 },   4,   5,   5,    0,   -4 } /* 04E9 */
-,   { {.bitmap = bitmaps +  4733 },   6,   9,   7,    0,   -8 } /* 04EA */
-,   { {.bitmap = bitmaps +  4742 },   4,   7,   5,    0,   -6 } /* 04EB */
-,   { {.bitmap = bitmaps +  4749 },   4,   9,   5,    0,   -8 } /* 04EC */
-,   { {.bitmap = bitmaps +  4758 },   3,   7,   4,    0,   -6 } /* 04ED */
-,   { {.bitmap = bitmaps +  4765 },   5,   9,   6,    0,   -8 } /* 04EE */
-,   { {.bitmap = bitmaps +  4774 },   4,   9,   5,    0,   -6 } /* 04EF */
-,   { {.bitmap = bitmaps +  4783 },   5,   9,   6,    0,   -8 } /* 04F0 */
-,   { {.bitmap = bitmaps +  4792 },   4,   9,   5,    0,   -6 } /* 04F1 */
-,   { {.bitmap = bitmaps +  4801 },   5,  10,   6,    0,   -9 } /* 04F2 */
-,   { {.bitmap = bitmaps +  4811 },   5,  10,   5,    0,   -7 } /* 04F3 */
-,   { {.bitmap = bitmaps +  4821 },   5,   9,   6,    0,   -8 } /* 04F4 */
-,   { {.bitmap = bitmaps +  4830 },   4,   7,   5,    0,   -6 } /* 04F5 */
-,   { {.bitmap = bitmaps +  4837 },   4,   9,   5,    0,   -6 } /* 04F6 */
-,   { {.bitmap = bitmaps +  4846 },   3,   7,   4,    0,   -4 } /* 04F7 */
-,   { {.bitmap = bitmaps +  4853 },   6,   9,   7,    0,   -8 } /* 04F8 */
-,   { {.bitmap = bitmaps +  4862 },   6,   7,   7,    0,   -6 } /* 04F9 */
-,   { {.bitmap = bitmaps +  4869 },   5,   9,   5,   -1,   -6 } /* 04FA */
-,   { {.bitmap = bitmaps +  4878 },   4,   7,   4,   -1,   -4 } /* 04FB */
-,   { {.bitmap = bitmaps +  4885 },   6,   9,   5,    0,   -6 } /* 04FC */
-,   { {.bitmap = bitmaps +  4894 },   5,   7,   5,    0,   -4 } /* 04FD */
-,   { {.bitmap = bitmaps +  4901 },   5,   7,   6,    0,   -6 } /* 04FE */
-,   { {.bitmap = bitmaps +  4908 },   4,   5,   5,    0,   -4 } /* 04FF */
-,   { {.bitmap = bitmaps +  4913 },   4,   7,   5,    0,   -6 } /* 0500 */
-,   { {.bitmap = bitmaps +  4920 },   4,   7,   5,    0,   -6 } /* 0501 */
-,   { {.bitmap = bitmaps +  4927 },   7,   7,   8,    0,   -6 } /* 0502 */
-,   { {.bitmap = bitmaps +  4934 },   7,   7,   8,    0,   -6 } /* 0503 */
-,   { {.bitmap = bitmaps +  4941 },   7,   7,   8,    0,   -6 } /* 0504 */
-,   { {.bitmap = bitmaps +  4948 },   6,   5,   7,    0,   -4 } /* 0505 */
-,   { {.bitmap = bitmaps +  4953 },   5,   9,   5,    0,   -6 } /* 0506 */
-,   { {.bitmap = bitmaps +  4962 },   4,   7,   5,    0,   -4 } /* 0507 */
-,   { {.bitmap = bitmaps +  4969 },   9,   7,  10,    0,   -6 } /* 0508 */
-,   { {.bitmap = bitmaps +  4983 },   6,   5,   7,    0,   -4 } /* 0509 */
-,   { {.bitmap = bitmaps +  4988 },   8,   7,   9,    0,   -6 } /* 050A */
-,   { {.bitmap = bitmaps +  4995 },   7,   5,   8,    0,   -4 } /* 050B */
-,   { {.bitmap = bitmaps +  5000 },   5,   7,   6,    0,   -6 } /* 050C */
-,   { {.bitmap = bitmaps +  5007 },   4,   5,   5,    0,   -4 } /* 050D */
-,   { {.bitmap = bitmaps +  5012 },   6,   7,   6,   -1,   -6 } /* 050E */
-,   { {.bitmap = bitmaps +  5019 },   4,   5,   5,    0,   -4 } /* 050F */
-,   { {.bitmap = bitmaps +  5024 },   4,   7,   5,    0,   -6 } /* 0510 */
-,   { {.bitmap = bitmaps +  5031 },   3,   5,   4,    0,   -4 } /* 0511 */
-,   { {.bitmap = bitmaps +  5036 },   7,   9,   7,    0,   -6 } /* 0512 */
-,   { {.bitmap = bitmaps +  5045 },   5,   7,   5,    0,   -4 } /* 0513 */
+    {     0,   1,   1,   2,    0,    0, 0 } /* 0020 */
+,   {     1,   1,   7,   2,    0,   -6, 0 } /* 0021 */
+,   {     8,   3,   2,   4,    0,   -6, 0 } /* 0022 */
+,   {    10,   6,   7,   6,    0,   -6, 0 } /* 0023 */
+,   {    17,   4,   9,   5,    0,   -7, 0 } /* 0024 */
+,   {    26,   7,   7,   8,    0,   -6, 0 } /* 0025 */
+,   {    33,   6,   7,   7,    0,   -6, 0 } /* 0026 */
+,   {    40,   2,   2,   3,    0,   -6, 0 } /* 0027 */
+,   {    42,   2,   8,   3,    0,   -6, 0 } /* 0028 */
+,   {    50,   2,   8,   3,    0,   -6, 0 } /* 0029 */
+,   {    58,   5,   5,   6,    0,   -6, 0 } /* 002A */
+,   {    63,   3,   3,   4,    0,   -5, 0 } /* 002B */
+,   {    66,   2,   2,   3,    0,    0, 0 } /* 002C */
+,   {    68,   3,   1,   4,    0,   -2, 0 } /* 002D */
+,   {    69,   1,   1,   2,    0,    0, 0 } /* 002E */
+,   {    70,   3,   7,   3,    0,   -6, 0 } /* 002F */
+,   {    77,   4,   7,   5,    0,   -6, 0 } /* 0030 */
+,   {    84,   3,   7,   4,    0,   -6, 0 } /* 0031 */
+,   {    91,   4,   7,   5,    0,   -6, 0 } /* 0032 */
+,   {    98,   4,   7,   5,    0,   -6, 0 } /* 0033 */
+,   {   105,   5,   7,   5,    0,   -6, 0 } /* 0034 */
+,   {   112,   4,   7,   5,    0,   -6, 0 } /* 0035 */
+,   {   119,   4,   7,   5,    0,   -6, 0 } /* 0036 */
+,   {   126,   4,   7,   5,    0,   -6, 0 } /* 0037 */
+,   {   133,   4,   7,   5,    0,   -6, 0 } /* 0038 */
+,   {   140,   4,   7,   5,    0,   -6, 0 } /* 0039 */
+,   {   147,   1,   5,   2,    0,   -4, 0 } /* 003A */
+,   {   152,   2,   6,   3,    0,   -4, 0 } /* 003B */
+,   {   158,   4,   5,   5,    0,   -5, 0 } /* 003C */
+,   {   163,   4,   3,   5,    0,   -4, 0 } /* 003D */
+,   {   166,   4,   5,   5,    0,   -5, 0 } /* 003E */
+,   {   171,   3,   7,   4,    0,   -6, 0 } /* 003F */
+,   {   178,   7,   8,   8,    0,   -6, 0 } /* 0040 */
+,   {   186,   5,   7,   6,    0,   -6, 0 } /* 0041 */
+,   {   193,   4,   7,   5,    0,   -6, 0 } /* 0042 */
+,   {   200,   4,   7,   5,    0,   -6, 0 } /* 0043 */
+,   {   207,   4,   7,   5,    0,   -6, 0 } /* 0044 */
+,   {   214,   4,   7,   5,    0,   -6, 0 } /* 0045 */
+,   {   221,   4,   7,   5,    0,   -6, 0 } /* 0046 */
+,   {   228,   4,   7,   5,    0,   -6, 0 } /* 0047 */
+,   {   235,   4,   7,   5,    0,   -6, 0 } /* 0048 */
+,   {   242,   3,   7,   4,    0,   -6, 0 } /* 0049 */
+,   {   249,   3,   9,   3,   -1,   -6, 0 } /* 004A */
+,   {   258,   4,   7,   5,    0,   -6, 0 } /* 004B */
+,   {   265,   4,   7,   4,    0,   -6, 0 } /* 004C */
+,   {   272,   5,   7,   6,    0,   -6, 0 } /* 004D */
+,   {   279,   5,   7,   6,    0,   -6, 0 } /* 004E */
+,   {   286,   5,   7,   6,    0,   -6, 0 } /* 004F */
+,   {   293,   4,   7,   5,    0,   -6, 0 } /* 0050 */
+,   {   300,   5,   8,   6,    0,   -6, 0 } /* 0051 */
+,   {   308,   4,   7,   5,    0,   -6, 0 } /* 0052 */
+,   {   315,   4,   7,   5,    0,   -6, 0 } /* 0053 */
+,   {   322,   5,   7,   4,   -1,   -6, 0 } /* 0054 */
+,   {   329,   4,   7,   5,    0,   -6, 0 } /* 0055 */
+,   {   336,   5,   7,   6,    0,   -6, 0 } /* 0056 */
+,   {   343,   5,   7,   6,    0,   -6, 0 } /* 0057 */
+,   {   350,   5,   7,   6,    0,   -6, 0 } /* 0058 */
+,   {   357,   5,   7,   6,    0,   -6, 0 } /* 0059 */
+,   {   364,   4,   7,   5,    0,   -6, 0 } /* 005A */
+,   {   371,   2,   8,   3,    0,   -6, 0 } /* 005B */
+,   {   379,   3,   7,   3,    0,   -6, 0 } /* 005C */
+,   {   386,   2,   8,   3,    0,   -6, 0 } /* 005D */
+,   {   394,   5,   4,   5,    0,   -6, 0 } /* 005E */
+,   {   398,   4,   1,   4,    0,    2, 0 } /* 005F */
+,   {   399,   2,   2,   5,    2,   -7, 0 } /* 0060 */
+,   {   401,   4,   5,   5,    0,   -4, 0 } /* 0061 */
+,   {   406,   4,   7,   5,    0,   -6, 0 } /* 0062 */
+,   {   413,   3,   5,   4,    0,   -4, 0 } /* 0063 */
+,   {   418,   4,   7,   5,    0,   -6, 0 } /* 0064 */
+,   {   425,   4,   5,   5,    0,   -4, 0 } /* 0065 */
+,   {   430,   3,   7,   4,    0,   -6, 0 } /* 0066 */
+,   {   437,   4,   7,   5,    0,   -4, 0 } /* 0067 */
+,   {   444,   4,   7,   5,    0,   -6, 0 } /* 0068 */
+,   {   451,   1,   7,   2,    0,   -6, 0 } /* 0069 */
+,   {   458,   2,   9,   2,   -1,   -6, 0 } /* 006A */
+,   {   467,   4,   7,   5,    0,   -6, 0 } /* 006B */
+,   {   474,   2,   7,   3,    0,   -6, 0 } /* 006C */
+,   {   481,   7,   5,   8,    0,   -4, 0 } /* 006D */
+,   {   486,   4,   5,   5,    0,   -4, 0 } /* 006E */
+,   {   491,   4,   5,   5,    0,   -4, 0 } /* 006F */
+,   {   496,   4,   7,   5,    0,   -4, 0 } /* 0070 */
+,   {   503,   4,   7,   5,    0,   -4, 0 } /* 0071 */
+,   {   510,   4,   5,   5,    0,   -4, 0 } /* 0072 */
+,   {   515,   3,   5,   4,    0,   -4, 0 } /* 0073 */
+,   {   520,   3,   6,   4,    0,   -5, 0 } /* 0074 */
+,   {   526,   4,   5,   5,    0,   -4, 0 } /* 0075 */
+,   {   531,   5,   5,   6,    0,   -4, 0 } /* 0076 */
+,   {   536,   5,   5,   6,    0,   -4, 0 } /* 0077 */
+,   {   541,   5,   5,   6,    0,   -4, 0 } /* 0078 */
+,   {   546,   4,   7,   5,    0,   -4, 0 } /* 0079 */
+,   {   553,   3,   5,   4,    0,   -4, 0 } /* 007A */
+,   {   558,   3,   7,   4,    0,   -6, 0 } /* 007B */
+,   {   565,   1,   9,   5,    2,   -6, 0 } /* 007C */
+,   {   574,   3,   7,   4,    0,   -6, 0 } /* 007D */
+,   {   581,   4,   2,   5,    0,   -4, 0 } /* 007E */
+,   {   583,   1,   1,   2,    0,    0, 0 } /* 00A0 */
+,   {   584,   1,   7,   2,    0,   -4, 0 } /* 00A1 */
+,   {   591,   4,   7,   5,    0,   -6, 0 } /* 00A2 */
+,   {   598,   4,   7,   5,    0,   -6, 0 } /* 00A3 */
+,   {   605,   4,   4,   5,    0,   -4, 0 } /* 00A4 */
+,   {   609,   5,   7,   5,    0,   -6, 0 } /* 00A5 */
+,   {   616,   1,   9,   5,    2,   -6, 0 } /* 00A6 */
+,   {   625,   3,   7,   4,    0,   -6, 0 } /* 00A7 */
+,   {   632,   3,   1,   5,    1,   -6, 0 } /* 00A8 */
+,   {   633,   6,   7,   7,    0,   -6, 0 } /* 00A9 */
+,   {   640,   3,   3,   4,    0,   -6, 0 } /* 00AA */
+,   {   643,   4,   3,   5,    0,   -3, 0 } /* 00AB */
+,   {   646,   4,   2,   5,    0,   -3, 0 } /* 00AC */
+,   {   648,   2,   1,   3,    0,   -2, 0 } /* 00AD */
+,   {   649,   6,   7,   7,    0,   -6, 0 } /* 00AE */
+,   {   656,   5,   1,   5,    0,   -6, 0 } /* 00AF */
+,   {   657,   3,   3,   4,    0,   -6, 0 } /* 00B0 */
+,   {   660,   4,   6,   5,    0,   -5, 0 } /* 00B1 */
+,   {   666,   3,   4,   4,    0,   -6, 0 } /* 00B2 */
+,   {   670,   3,   4,   4,    0,   -6, 0 } /* 00B3 */
+,   {   674,   2,   2,   5,    2,   -7, 0 } /* 00B4 */
+,   {   676,   4,   7,   5,    0,   -4, 0 } /* 00B5 */
+,   {   683,   5,   8,   6,    0,   -6, 0 } /* 00B6 */
+,   {   691,   1,   1,   2,    0,   -3, 0 } /* 00B7 */
+,   {   692,   2,   3,   2,    0,    0, 0 } /* 00B8 */
+,   {   695,   2,   4,   4,    0,   -6, 0 } /* 00B9 */
+,   {   699,   3,   3,   4,    0,   -6, 0 } /* 00BA */
+,   {   702,   4,   3,   5,    0,   -3, 0 } /* 00BB */
+,   {   705,   6,   7,   7,    0,   -6, 0 } /* 00BC */
+,   {   712,   6,   7,   7,    0,   -6, 0 } /* 00BD */
+,   {   719,   7,   7,   8,    0,   -6, 0 } /* 00BE */
+,   {   726,   3,   7,   4,    0,   -4, 0 } /* 00BF */
+,   {   733,   5,  10,   6,    0,   -9, 0 } /* 00C0 */
+,   {   743,   5,  10,   6,    0,   -9, 0 } /* 00C1 */
+,   {   753,   5,  10,   6,    0,   -9, 0 } /* 00C2 */
+,   {   763,   5,  10,   6,    0,   -9, 0 } /* 00C3 */
+,   {   773,   5,   9,   6,    0,   -8, 0 } /* 00C4 */
+,   {   782,   5,   9,   6,    0,   -8, 0 } /* 00C5 */
+,   {   791,   7,   7,   8,    0,   -6, 0 } /* 00C6 */
+,   {   798,   4,   9,   5,    0,   -6, 0 } /* 00C7 */
+,   {   807,   4,  10,   5,    0,   -9, 0 } /* 00C8 */
+,   {   817,   4,  10,   5,    0,   -9, 0 } /* 00C9 */
+,   {   827,   4,  10,   5,    0,   -9, 0 } /* 00CA */
+,   {   837,   4,   9,   5,    0,   -8, 0 } /* 00CB */
+,   {   846,   3,  10,   4,    0,   -9, 0 } /* 00CC */
+,   {   856,   3,  10,   4,    0,   -9, 0 } /* 00CD */
+,   {   866,   3,  10,   4,    0,   -9, 0 } /* 00CE */
+,   {   876,   3,   9,   4,    0,   -8, 0 } /* 00CF */
+,   {   885,   6,   7,   6,   -1,   -6, 0 } /* 00D0 */
+,   {   892,   5,  10,   6,    0,   -9, 0 } /* 00D1 */
+,   {   902,   6,  10,   7,    0,   -9, 0 } /* 00D2 */
+,   {   912,   6,  10,   7,    0,   -9, 0 } /* 00D3 */
+,   {   922,   6,  10,   7,    0,   -9, 0 } /* 00D4 */
+,   {   932,   6,  10,   7,    0,   -9, 0 } /* 00D5 */
+,   {   942,   6,   9,   7,    0,   -8, 0 } /* 00D6 */
+,   {   951,   3,   3,   5,    1,   -4, 0 } /* 00D7 */
+,   {   954,   6,   7,   7,    0,   -6, 0 } /* 00D8 */
+,   {   961,   5,  10,   6,    0,   -9, 0 } /* 00D9 */
+,   {   971,   5,  10,   6,    0,   -9, 0 } /* 00DA */
+,   {   981,   5,  10,   6,    0,   -9, 0 } /* 00DB */
+,   {   991,   5,   9,   6,    0,   -8, 0 } /* 00DC */
+,   {  1000,   5,  10,   6,    0,   -9, 0 } /* 00DD */
+,   {  1010,   4,   7,   5,    0,   -6, 0 } /* 00DE */
+,   {  1017,   4,   7,   5,    0,   -6, 0 } /* 00DF */
+,   {  1024,   4,   8,   5,    0,   -7, 0 } /* 00E0 */
+,   {  1032,   4,   8,   5,    0,   -7, 0 } /* 00E1 */
+,   {  1040,   4,   8,   5,    0,   -7, 0 } /* 00E2 */
+,   {  1048,   4,   8,   5,    0,   -7, 0 } /* 00E3 */
+,   {  1056,   4,   7,   5,    0,   -6, 0 } /* 00E4 */
+,   {  1063,   4,   9,   5,    0,   -8, 0 } /* 00E5 */
+,   {  1072,   7,   5,   8,    0,   -4, 0 } /* 00E6 */
+,   {  1077,   3,   7,   4,    0,   -4, 0 } /* 00E7 */
+,   {  1084,   4,   8,   5,    0,   -7, 0 } /* 00E8 */
+,   {  1092,   4,   8,   5,    0,   -7, 0 } /* 00E9 */
+,   {  1100,   4,   8,   5,    0,   -7, 0 } /* 00EA */
+,   {  1108,   4,   7,   5,    0,   -6, 0 } /* 00EB */
+,   {  1115,   2,   8,   2,   -1,   -7, 0 } /* 00EC */
+,   {  1123,   2,   8,   2,    0,   -7, 0 } /* 00ED */
+,   {  1131,   3,   8,   2,   -1,   -7, 0 } /* 00EE */
+,   {  1139,   3,   7,   2,   -1,   -6, 0 } /* 00EF */
+,   {  1146,   4,   7,   5,    0,   -6, 0 } /* 00F0 */
+,   {  1153,   4,   8,   5,    0,   -7, 0 } /* 00F1 */
+,   {  1161,   4,   8,   5,    0,   -7, 0 } /* 00F2 */
+,   {  1169,   4,   8,   5,    0,   -7, 0 } /* 00F3 */
+,   {  1177,   4,   8,   5,    0,   -7, 0 } /* 00F4 */
+,   {  1185,   4,   8,   5,    0,   -7, 0 } /* 00F5 */
+,   {  1193,   4,   7,   5,    0,   -6, 0 } /* 00F6 */
+,   {  1200,   5,   5,   5,    0,   -5, 0 } /* 00F7 */
+,   {  1205,   4,   5,   5,    0,   -4, 0 } /* 00F8 */
+,   {  1210,   4,   8,   5,    0,   -7, 0 } /* 00F9 */
+,   {  1218,   4,   8,   5,    0,   -7, 0 } /* 00FA */
+,   {  1226,   4,   8,   5,    0,   -7, 0 } /* 00FB */
+,   {  1234,   4,   7,   5,    0,   -6, 0 } /* 00FC */
+,   {  1241,   4,  10,   5,    0,   -7, 0 } /* 00FD */
+,   {  1251,   4,   9,   5,    0,   -6, 0 } /* 00FE */
+,   {  1260,   4,   9,   5,    0,   -6, 0 } /* 00FF */
+,   {  1269,   5,   9,   6,    0,   -8, 0 } /* 0100 */
+,   {  1278,   4,   7,   5,    0,   -6, 0 } /* 0101 */
+,   {  1285,   5,  10,   6,    0,   -9, 0 } /* 0102 */
+,   {  1295,   4,   8,   5,    0,   -7, 0 } /* 0103 */
+,   {  1303,   6,   9,   6,    0,   -6, 0 } /* 0104 */
+,   {  1312,   5,   7,   5,    0,   -4, 0 } /* 0105 */
+,   {  1319,   4,  10,   5,    0,   -9, 0 } /* 0106 */
+,   {  1329,   3,   8,   4,    0,   -7, 0 } /* 0107 */
+,   {  1337,   4,  10,   5,    0,   -9, 0 } /* 0108 */
+,   {  1347,   4,   8,   4,    0,   -7, 0 } /* 0109 */
+,   {  1355,   4,   9,   5,    0,   -8, 0 } /* 010A */
+,   {  1364,   3,   7,   4,    0,   -6, 0 } /* 010B */
+,   {  1371,   4,  10,   5,    0,   -9, 0 } /* 010C */
+,   {  1381,   4,   8,   4,    0,   -7, 0 } /* 010D */
+,   {  1389,   5,  10,   6,    0,   -9, 0 } /* 010E */
+,   {  1399,   6,   7,   5,    0,   -6, 0 } /* 010F */
+,   {  1406,   6,   7,   6,   -1,   -6, 0 } /* 0110 */
+,   {  1413,   5,   7,   5,    0,   -6, 0 } /* 0111 */
+,   {  1420,   4,   9,   5,    0,   -8, 0 } /* 0112 */
+,   {  1429,   4,   7,   5,    0,   -6, 0 } /* 0113 */
+,   {  1436,   4,  10,   5,    0,   -9, 0 } /* 0114 */
+,   {  1446,   4,   8,   5,    0,   -7, 0 } /* 0115 */
+,   {  1454,   4,   9,   5,    0,   -8, 0 } /* 0116 */
+,   {  1463,   4,   7,   5,    0,   -6, 0 } /* 0117 */
+,   {  1470,   4,   9,   5,    0,   -6, 0 } /* 0118 */
+,   {  1479,   4,   7,   5,    0,   -4, 0 } /* 0119 */
+,   {  1486,   4,  10,   5,    0,   -9, 0 } /* 011A */
+,   {  1496,   4,   8,   5,    0,   -7, 0 } /* 011B */
+,   {  1504,   5,  10,   6,    0,   -9, 0 } /* 011C */
+,   {  1514,   4,  10,   5,    0,   -7, 0 } /* 011D */
+,   {  1524,   5,  10,   6,    0,   -9, 0 } /* 011E */
+,   {  1534,   4,  10,   5,    0,   -7, 0 } /* 011F */
+,   {  1544,   5,   9,   6,    0,   -8, 0 } /* 0120 */
+,   {  1553,   4,   9,   5,    0,   -6, 0 } /* 0121 */
+,   {  1562,   5,  10,   6,    0,   -6, 0 } /* 0122 */
+,   {  1572,   4,  10,   5,    0,   -7, 0 } /* 0123 */
+,   {  1582,   5,  10,   6,    0,   -9, 0 } /* 0124 */
+,   {  1592,   4,  10,   5,    0,   -9, 0 } /* 0125 */
+,   {  1602,   7,   7,   6,   -1,   -6, 0 } /* 0126 */
+,   {  1609,   5,   7,   5,   -1,   -6, 0 } /* 0127 */
+,   {  1616,   4,  10,   4,    0,   -9, 0 } /* 0128 */
+,   {  1626,   4,   8,   2,   -1,   -7, 0 } /* 0129 */
+,   {  1634,   3,   9,   4,    0,   -8, 0 } /* 012A */
+,   {  1643,   3,   7,   2,   -1,   -6, 0 } /* 012B */
+,   {  1650,   3,  10,   4,    0,   -9, 0 } /* 012C */
+,   {  1660,   3,   8,   2,   -1,   -7, 0 } /* 012D */
+,   {  1668,   3,   9,   4,    0,   -6, 0 } /* 012E */
+,   {  1677,   2,   9,   2,    0,   -6, 0 } /* 012F */
+,   {  1686,   3,   9,   4,    0,   -8, 0 } /* 0130 */
+,   {  1695,   1,   5,   2,    0,   -4, 0 } /* 0131 */
+,   {  1700,   5,   9,   6,    0,   -6, 0 } /* 0132 */
+,   {  1709,   3,   9,   4,    0,   -6, 0 } /* 0133 */
+,   {  1718,   4,  12,   3,   -1,   -9, 0 } /* 0134 */
+,   {  1730,   3,  10,   2,   -1,   -7, 0 } /* 0135 */
+,   {  1740,   5,  10,   5,    0,   -6, 0 } /* 0136 */
+,   {  1750,   4,  10,   5,    0,   -6, 0 } /* 0137 */
+,   {  1760,   4,   5,   5,    0,   -4, 0 } /* 0138 */
+,   {  1765,   4,  10,   4,    0,   -9, 0 } /* 0139 */
+,   {  1775,   2,  10,   2,    0,   -9, 0 } /* 013A */
+,   {  1785,   4,  10,   4,    0,   -6, 0 } /* 013B */
+,   {  1795,   1,  10,   2,    0,   -6, 0 } /* 013C */
+,   {  1805,   4,   7,   4,    0,   -6, 0 } /* 013D */
+,   {  1812,   3,   7,   2,    0,   -6, 0 } /* 013E */
+,   {  1819,   4,   7,   4,    0,   -6, 0 } /* 013F */
+,   {  1826,   3,   7,   3,    0,   -6, 0 } /* 0140 */
+,   {  1833,   5,   7,   4,   -1,   -6, 0 } /* 0141 */
+,   {  1840,   3,   7,   2,   -1,   -6, 0 } /* 0142 */
+,   {  1847,   5,  10,   6,    0,   -9, 0 } /* 0143 */
+,   {  1857,   4,   8,   5,    0,   -7, 0 } /* 0144 */
+,   {  1865,   5,  10,   6,    0,   -6, 0 } /* 0145 */
+,   {  1875,   4,   8,   5,    0,   -4, 0 } /* 0146 */
+,   {  1883,   5,  10,   6,    0,   -9, 0 } /* 0147 */
+,   {  1893,   4,   8,   5,    0,   -7, 0 } /* 0148 */
+,   {  1901,   5,   7,   6,    0,   -6, 0 } /* 0149 */
+,   {  1908,   5,   9,   6,    0,   -6, 0 } /* 014A */
+,   {  1917,   4,   7,   5,    0,   -4, 0 } /* 014B */
+,   {  1924,   6,   9,   7,    0,   -8, 0 } /* 014C */
+,   {  1933,   4,   7,   5,    0,   -6, 0 } /* 014D */
+,   {  1940,   6,  10,   7,    0,   -9, 0 } /* 014E */
+,   {  1950,   4,   8,   5,    0,   -7, 0 } /* 014F */
+,   {  1958,   6,  10,   7,    0,   -9, 0 } /* 0150 */
+,   {  1968,   5,   8,   5,    0,   -7, 0 } /* 0151 */
+,   {  1976,   8,   7,   9,    0,   -6, 0 } /* 0152 */
+,   {  1983,   7,   5,   8,    0,   -4, 0 } /* 0153 */
+,   {  1988,   4,  10,   5,    0,   -9, 0 } /* 0154 */
+,   {  1998,   3,   8,   4,    0,   -7, 0 } /* 0155 */
+,   {  2006,   4,  10,   5,    0,   -6, 0 } /* 0156 */
+,   {  2016,   3,   8,   4,    0,   -4, 0 } /* 0157 */
+,   {  2024,   4,  10,   5,    0,   -9, 0 } /* 0158 */
+,   {  2034,   3,   8,   4,    0,   -7, 0 } /* 0159 */
+,   {  2042,   4,  10,   5,    0,   -9, 0 } /* 015A */
+,   {  2052,   3,   8,   4,    0,   -7, 0 } /* 015B */
+,   {  2060,   4,  10,   5,    0,   -9, 0 } /* 015C */
+,   {  2070,   3,   8,   4,    0,   -7, 0 } /* 015D */
+,   {  2078,   4,   9,   5,    0,   -6, 0 } /* 015E */
+,   {  2087,   3,   7,   4,    0,   -4, 0 } /* 015F */
+,   {  2094,   4,  10,   5,    0,   -9, 0 } /* 0160 */
+,   {  2104,   3,   8,   4,    0,   -7, 0 } /* 0161 */
+,   {  2112,   5,   9,   4,   -1,   -6, 0 } /* 0162 */
+,   {  2121,   3,   8,   4,    0,   -5, 0 } /* 0163 */
+,   {  2129,   5,  10,   4,   -1,   -9, 0 } /* 0164 */
+,   {  2139,   4,   7,   4,    0,   -6, 0 } /* 0165 */
+,   {  2146,   5,   7,   4,   -1,   -6, 0 } /* 0166 */
+,   {  2153,   3,   6,   4,    0,   -5, 0 } /* 0167 */
+,   {  2159,   5,  10,   6,    0,   -9, 0 } /* 0168 */
+,   {  2169,   4,   8,   5,    0,   -7, 0 } /* 0169 */
+,   {  2177,   5,   9,   6,    0,   -8, 0 } /* 016A */
+,   {  2186,   4,   7,   5,    0,   -6, 0 } /* 016B */
+,   {  2193,   5,  10,   6,    0,   -9, 0 } /* 016C */
+,   {  2203,   4,   8,   5,    0,   -7, 0 } /* 016D */
+,   {  2211,   5,  11,   6,    0,  -10, 0 } /* 016E */
+,   {  2222,   4,   9,   5,    0,   -8, 0 } /* 016F */
+,   {  2231,   5,  10,   6,    0,   -9, 0 } /* 0170 */
+,   {  2241,   5,   8,   5,    0,   -7, 0 } /* 0171 */
+,   {  2249,   5,   9,   6,    0,   -6, 0 } /* 0172 */
+,   {  2258,   4,   7,   5,    0,   -4, 0 } /* 0173 */
+,   {  2265,   7,  10,   8,    0,   -9, 0 } /* 0174 */
+,   {  2275,   5,   8,   6,    0,   -7, 0 } /* 0175 */
+,   {  2283,   5,  10,   6,    0,   -9, 0 } /* 0176 */
+,   {  2293,   4,  10,   5,    0,   -7, 0 } /* 0177 */
+,   {  2303,   5,   9,   6,    0,   -8, 0 } /* 0178 */
+,   {  2312,   4,  10,   5,    0,   -9, 0 } /* 0179 */
+,   {  2322,   3,   8,   4,    0,   -7, 0 } /* 017A */
+,   {  2330,   4,   9,   5,    0,   -8, 0 } /* 017B */
+,   {  2339,   3,   7,   4,    0,   -6, 0 } /* 017C */
+,   {  2346,   4,  10,   5,    0,   -9, 0 } /* 017D */
+,   {  2356,   3,   8,   4,    0,   -7, 0 } /* 017E */
+,   {  2364,   3,   7,   2,    0,   -6, 0 } /* 017F */
+,   {  2371,   3,   9,   5,    1,   -6, 0 } /* 0192 */
+,   {  2380,   7,   8,   7,    0,   -7, 0 } /* 01A0 */
+,   {  2388,   5,   6,   5,    0,   -5, 0 } /* 01A1 */
+,   {  2394,   7,   8,   6,    0,   -7, 0 } /* 01AF */
+,   {  2402,   6,   6,   5,    0,   -5, 0 } /* 01B0 */
+,   {  2408,   4,  10,   2,   -1,   -7, 0 } /* 01F0 */
+,   {  2418,   5,   9,   6,    0,   -8, 0 } /* 01FA */
+,   {  2427,   4,  10,   5,    0,   -9, 0 } /* 01FB */
+,   {  2437,   7,  10,   8,    0,   -9, 0 } /* 01FC */
+,   {  2447,   7,   8,   8,    0,   -7, 0 } /* 01FD */
+,   {  2455,   6,  10,   7,    0,   -9, 0 } /* 01FE */
+,   {  2465,   4,   8,   5,    0,   -7, 0 } /* 01FF */
+,   {  2473,   4,  10,   5,    0,   -6, 0 } /* 0218 */
+,   {  2483,   3,   8,   4,    0,   -4, 0 } /* 0219 */
+,   {  2491,   5,  10,   4,   -1,   -6, 0 } /* 021A */
+,   {  2501,   3,   9,   4,    0,   -5, 0 } /* 021B */
+,   {  2510,   2,   2,   2,    0,   -6, 0 } /* 02BC */
+,   {  2512,   3,   2,   5,    1,   -7, 0 } /* 02C6 */
+,   {  2514,   3,   2,   5,    1,   -7, 0 } /* 02C7 */
+,   {  2516,   3,   1,   5,    1,   -6, 0 } /* 02C9 */
+,   {  2517,   3,   2,   5,    1,   -7, 0 } /* 02D8 */
+,   {  2519,   1,   1,   2,    1,   -6, 0 } /* 02D9 */
+,   {  2520,   3,   3,   5,    1,   -8, 0 } /* 02DA */
+,   {  2523,   2,   2,   2,    0,    1, 0 } /* 02DB */
+,   {  2525,   4,   2,   5,    0,   -7, 0 } /* 02DC */
+,   {  2527,   4,   2,   5,    1,   -7, 0 } /* 02DD */
+,   {  2529,   3,   3,   3,    0,    2, 0 } /* 02F3 */
+,   {  2532,   2,   2,   0,   -4,   -7, 0 } /* 0300 */
+,   {  2534,   2,   2,   0,   -3,   -7, 0 } /* 0301 */
+,   {  2536,   4,   2,   0,   -5,   -7, 0 } /* 0303 */
+,   {  2538,   2,   3,   0,   -3,   -7, 0 } /* 0309 */
+,   {  2541,   4,   2,   0,   -5,   -7, 0 } /* 030F */
+,   {  2543,   1,   1,   0,   -3,    2, 0 } /* 0323 */
+,   {  2544,   1,   2,   5,    1,   -7, 0 } /* 0384 */
+,   {  2546,   5,   2,   5,    0,   -7, 0 } /* 0385 */
+,   {  2548,   5,   7,   6,    0,   -6, 0 } /* 0386 */
+,   {  2555,   1,   1,   2,    0,   -3, 0 } /* 0387 */
+,   {  2556,   6,   7,   6,   -1,   -6, 0 } /* 0388 */
+,   {  2563,   7,   7,   7,   -1,   -6, 0 } /* 0389 */
+,   {  2570,   5,   7,   5,   -1,   -6, 0 } /* 038A */
+,   {  2577,   8,   7,   8,   -1,   -6, 0 } /* 038C */
+,   {  2584,   7,   7,   7,   -1,   -6, 0 } /* 038E */
+,   {  2591,   8,   7,   8,   -1,   -6, 0 } /* 038F */
+,   {  2598,   5,   8,   2,   -2,   -7, 0 } /* 0390 */
+,   {  2606,   5,   7,   6,    0,   -6, 0 } /* 0391 */
+,   {  2613,   4,   7,   5,    0,   -6, 0 } /* 0392 */
+,   {  2620,   4,   7,   5,    0,   -6, 0 } /* 0393 */
+,   {  2627,   5,   7,   6,    0,   -6, 0 } /* 0394 */
+,   {  2634,   4,   7,   5,    0,   -6, 0 } /* 0395 */
+,   {  2641,   4,   7,   5,    0,   -6, 0 } /* 0396 */
+,   {  2648,   5,   7,   6,    0,   -6, 0 } /* 0397 */
+,   {  2655,   6,   7,   7,    0,   -6, 0 } /* 0398 */
+,   {  2662,   3,   7,   4,    0,   -6, 0 } /* 0399 */
+,   {  2669,   5,   7,   5,    0,   -6, 0 } /* 039A */
+,   {  2676,   5,   7,   6,    0,   -6, 0 } /* 039B */
+,   {  2683,   7,   7,   8,    0,   -6, 0 } /* 039C */
+,   {  2690,   5,   7,   6,    0,   -6, 0 } /* 039D */
+,   {  2697,   4,   7,   5,    0,   -6, 0 } /* 039E */
+,   {  2704,   6,   7,   7,    0,   -6, 0 } /* 039F */
+,   {  2711,   5,   7,   6,    0,   -6, 0 } /* 03A0 */
+,   {  2718,   4,   7,   5,    0,   -6, 0 } /* 03A1 */
+,   {  2725,   4,   7,   5,    0,   -6, 0 } /* 03A3 */
+,   {  2732,   5,   7,   4,   -1,   -6, 0 } /* 03A4 */
+,   {  2739,   5,   7,   6,    0,   -6, 0 } /* 03A5 */
+,   {  2746,   5,   7,   6,    0,   -6, 0 } /* 03A6 */
+,   {  2753,   5,   7,   6,    0,   -6, 0 } /* 03A7 */
+,   {  2760,   5,   7,   6,    0,   -6, 0 } /* 03A8 */
+,   {  2767,   6,   7,   7,    0,   -6, 0 } /* 03A9 */
+,   {  2774,   3,   9,   4,    0,   -8, 0 } /* 03AA */
+,   {  2783,   5,   9,   6,    0,   -8, 0 } /* 03AB */
+,   {  2792,   5,   8,   5,    0,   -7, 0 } /* 03AC */
+,   {  2800,   3,   8,   4,    0,   -7, 0 } /* 03AD */
+,   {  2808,   4,  10,   5,    0,   -7, 0 } /* 03AE */
+,   {  2818,   2,   8,   2,    0,   -7, 0 } /* 03AF */
+,   {  2826,   5,   8,   5,    0,   -7, 0 } /* 03B0 */
+,   {  2834,   5,   5,   5,    0,   -4, 0 } /* 03B1 */
+,   {  2839,   4,   9,   5,    0,   -6, 0 } /* 03B2 */
+,   {  2848,   4,   7,   5,    0,   -4, 0 } /* 03B3 */
+,   {  2855,   4,   7,   5,    0,   -6, 0 } /* 03B4 */
+,   {  2862,   3,   5,   4,    0,   -4, 0 } /* 03B5 */
+,   {  2867,   4,   9,   4,    0,   -6, 0 } /* 03B6 */
+,   {  2876,   4,   7,   5,    0,   -4, 0 } /* 03B7 */
+,   {  2883,   4,   7,   5,    0,   -6, 0 } /* 03B8 */
+,   {  2890,   2,   5,   2,    0,   -4, 0 } /* 03B9 */
+,   {  2895,   4,   5,   5,    0,   -4, 0 } /* 03BA */
+,   {  2900,   5,   7,   5,    0,   -6, 0 } /* 03BB */
+,   {  2907,   4,   7,   5,    0,   -4, 0 } /* 03BC */
+,   {  2914,   4,   5,   5,    0,   -4, 0 } /* 03BD */
+,   {  2919,   4,   9,   4,    0,   -6, 0 } /* 03BE */
+,   {  2928,   4,   5,   5,    0,   -4, 0 } /* 03BF */
+,   {  2933,   6,   5,   6,   -1,   -4, 0 } /* 03C0 */
+,   {  2938,   4,   7,   5,    0,   -4, 0 } /* 03C1 */
+,   {  2945,   3,   7,   4,    0,   -4, 0 } /* 03C2 */
+,   {  2952,   4,   5,   5,    0,   -4, 0 } /* 03C3 */
+,   {  2957,   3,   5,   4,    0,   -4, 0 } /* 03C4 */
+,   {  2962,   4,   5,   5,    0,   -4, 0 } /* 03C5 */
+,   {  2967,   5,   7,   6,    0,   -4, 0 } /* 03C6 */
+,   {  2974,   5,   7,   6,    0,   -4, 0 } /* 03C7 */
+,   {  2981,   5,   9,   6,    0,   -6, 0 } /* 03C8 */
+,   {  2990,   5,   5,   6,    0,   -4, 0 } /* 03C9 */
+,   {  2995,   3,   7,   2,   -1,   -6, 0 } /* 03CA */
+,   {  3002,   4,   7,   5,    0,   -6, 0 } /* 03CB */
+,   {  3009,   4,   8,   5,    0,   -7, 0 } /* 03CC */
+,   {  3017,   4,   8,   5,    0,   -7, 0 } /* 03CD */
+,   {  3025,   5,   8,   6,    0,   -7, 0 } /* 03CE */
+,   {  3033,   6,   7,   6,    0,   -6, 0 } /* 03D1 */
+,   {  3040,   6,   7,   6,    0,   -6, 0 } /* 03D2 */
+,   {  3047,   7,   5,   6,   -1,   -4, 0 } /* 03D6 */
+,   {  3052,   4,  10,   5,    0,   -9, 0 } /* 0400 */
+,   {  3062,   4,   9,   5,    0,   -8, 0 } /* 0401 */
+,   {  3071,   6,   7,   6,   -1,   -6, 0 } /* 0402 */
+,   {  3078,   4,  10,   5,    0,   -9, 0 } /* 0403 */
+,   {  3088,   4,   7,   5,    0,   -6, 0 } /* 0404 */
+,   {  3095,   4,   7,   5,    0,   -6, 0 } /* 0405 */
+,   {  3102,   3,   7,   4,    0,   -6, 0 } /* 0406 */
+,   {  3109,   3,   9,   4,    0,   -8, 0 } /* 0407 */
+,   {  3118,   3,   9,   3,   -1,   -6, 0 } /* 0408 */
+,   {  3127,   8,   7,   9,    0,   -6, 0 } /* 0409 */
+,   {  3134,   8,   7,   9,    0,   -6, 0 } /* 040A */
+,   {  3141,   6,   7,   6,   -1,   -6, 0 } /* 040B */
+,   {  3148,   5,  10,   5,    0,   -9, 0 } /* 040C */
+,   {  3158,   5,  10,   6,    0,   -9, 0 } /* 040D */
+,   {  3168,   5,  10,   6,    0,   -9, 0 } /* 040E */
+,   {  3178,   5,   9,   6,    0,   -6, 0 } /* 040F */
+,   {  3187,   5,   7,   6,    0,   -6, 0 } /* 0410 */
+,   {  3194,   4,   7,   5,    0,   -6, 0 } /* 0411 */
+,   {  3201,   4,   7,   5,    0,   -6, 0 } /* 0412 */
+,   {  3208,   4,   7,   5,    0,   -6, 0 } /* 0413 */
+,   {  3215,   6,   9,   6,    0,   -6, 0 } /* 0414 */
+,   {  3224,   4,   7,   5,    0,   -6, 0 } /* 0415 */
+,   {  3231,   7,   7,   8,    0,   -6, 0 } /* 0416 */
+,   {  3238,   4,   7,   5,    0,   -6, 0 } /* 0417 */
+,   {  3245,   5,   7,   6,    0,   -6, 0 } /* 0418 */
+,   {  3252,   5,  10,   6,    0,   -9, 0 } /* 0419 */
+,   {  3262,   5,   7,   5,    0,   -6, 0 } /* 041A */
+,   {  3269,   6,   7,   7,    0,   -6, 0 } /* 041B */
+,   {  3276,   7,   7,   8,    0,   -6, 0 } /* 041C */
+,   {  3283,   5,   7,   6,    0,   -6, 0 } /* 041D */
+,   {  3290,   6,   7,   7,    0,   -6, 0 } /* 041E */
+,   {  3297,   5,   7,   6,    0,   -6, 0 } /* 041F */
+,   {  3304,   4,   7,   5,    0,   -6, 0 } /* 0420 */
+,   {  3311,   4,   7,   5,    0,   -6, 0 } /* 0421 */
+,   {  3318,   5,   7,   4,   -1,   -6, 0 } /* 0422 */
+,   {  3325,   5,   7,   6,    0,   -6, 0 } /* 0423 */
+,   {  3332,   5,   7,   6,    0,   -6, 0 } /* 0424 */
+,   {  3339,   5,   7,   6,    0,   -6, 0 } /* 0425 */
+,   {  3346,   6,   9,   6,    0,   -6, 0 } /* 0426 */
+,   {  3355,   5,   7,   6,    0,   -6, 0 } /* 0427 */
+,   {  3362,   7,   7,   8,    0,   -6, 0 } /* 0428 */
+,   {  3369,   8,   9,   8,    0,   -6, 0 } /* 0429 */
+,   {  3378,   6,   7,   7,    0,   -6, 0 } /* 042A */
+,   {  3385,   6,   7,   7,    0,   -6, 0 } /* 042B */
+,   {  3392,   4,   7,   5,    0,   -6, 0 } /* 042C */
+,   {  3399,   4,   7,   5,    0,   -6, 0 } /* 042D */
+,   {  3406,   8,   7,   9,    0,   -6, 0 } /* 042E */
+,   {  3413,   4,   7,   5,    0,   -6, 0 } /* 042F */
+,   {  3420,   4,   5,   5,    0,   -4, 0 } /* 0430 */
+,   {  3425,   4,   7,   5,    0,   -6, 0 } /* 0431 */
+,   {  3432,   4,   5,   5,    0,   -4, 0 } /* 0432 */
+,   {  3437,   3,   5,   4,    0,   -4, 0 } /* 0433 */
+,   {  3442,   5,   7,   5,    0,   -4, 0 } /* 0434 */
+,   {  3449,   4,   5,   5,    0,   -4, 0 } /* 0435 */
+,   {  3454,   5,   5,   6,    0,   -4, 0 } /* 0436 */
+,   {  3459,   3,   5,   4,    0,   -4, 0 } /* 0437 */
+,   {  3464,   4,   5,   5,    0,   -4, 0 } /* 0438 */
+,   {  3469,   4,   8,   5,    0,   -7, 0 } /* 0439 */
+,   {  3477,   4,   5,   5,    0,   -4, 0 } /* 043A */
+,   {  3482,   4,   5,   5,    0,   -4, 0 } /* 043B */
+,   {  3487,   5,   5,   6,    0,   -4, 0 } /* 043C */
+,   {  3492,   4,   5,   5,    0,   -4, 0 } /* 043D */
+,   {  3497,   4,   5,   5,    0,   -4, 0 } /* 043E */
+,   {  3502,   4,   5,   5,    0,   -4, 0 } /* 043F */
+,   {  3507,   4,   7,   5,    0,   -4, 0 } /* 0440 */
+,   {  3514,   3,   5,   4,    0,   -4, 0 } /* 0441 */
+,   {  3519,   3,   5,   4,    0,   -4, 0 } /* 0442 */
+,   {  3524,   4,   7,   5,    0,   -4, 0 } /* 0443 */
+,   {  3531,   5,   9,   6,    0,   -6, 0 } /* 0444 */
+,   {  3540,   5,   5,   6,    0,   -4, 0 } /* 0445 */
+,   {  3545,   5,   7,   5,    0,   -4, 0 } /* 0446 */
+,   {  3552,   4,   5,   5,    0,   -4, 0 } /* 0447 */
+,   {  3557,   7,   5,   8,    0,   -4, 0 } /* 0448 */
+,   {  3562,   8,   7,   8,    0,   -4, 0 } /* 0449 */
+,   {  3569,   6,   5,   6,   -1,   -4, 0 } /* 044A */
+,   {  3574,   6,   5,   7,    0,   -4, 0 } /* 044B */
+,   {  3579,   4,   5,   5,    0,   -4, 0 } /* 044C */
+,   {  3584,   3,   5,   4,    0,   -4, 0 } /* 044D */
+,   {  3589,   6,   5,   7,    0,   -4, 0 } /* 044E */
+,   {  3594,   4,   5,   5,    0,   -4, 0 } /* 044F */
+,   {  3599,   4,   8,   5,    0,   -7, 0 } /* 0450 */
+,   {  3607,   4,   7,   5,    0,   -6, 0 } /* 0451 */
+,   {  3614,   5,   9,   5,   -1,   -6, 0 } /* 0452 */
+,   {  3623,   3,   8,   4,    0,   -7, 0 } /* 0453 */
+,   {  3631,   3,   5,   4,    0,   -4, 0 } /* 0454 */
+,   {  3636,   3,   5,   4,    0,   -4, 0 } /* 0455 */
+,   {  3641,   1,   7,   2,    0,   -6, 0 } /* 0456 */
+,   {  3648,   3,   7,   2,   -1,   -6, 0 } /* 0457 */
+,   {  3655,   2,   9,   2,   -1,   -6, 0 } /* 0458 */
+,   {  3664,   7,   5,   8,    0,   -4, 0 } /* 0459 */
+,   {  3669,   7,   5,   8,    0,   -4, 0 } /* 045A */
+,   {  3674,   5,   7,   5,   -1,   -6, 0 } /* 045B */
+,   {  3681,   4,   8,   5,    0,   -7, 0 } /* 045C */
+,   {  3689,   4,   8,   5,    0,   -7, 0 } /* 045D */
+,   {  3697,   4,  10,   5,    0,   -7, 0 } /* 045E */
+,   {  3707,   4,   7,   5,    0,   -4, 0 } /* 045F */
+,   {  3714,   7,   7,   8,    0,   -6, 0 } /* 0460 */
+,   {  3721,   6,   5,   7,    0,   -4, 0 } /* 0461 */
+,   {  3726,   5,   7,   6,    0,   -6, 0 } /* 0462 */
+,   {  3733,   4,   6,   5,    0,   -5, 0 } /* 0463 */
+,   {  3739,   7,   7,   8,    0,   -6, 0 } /* 0464 */
+,   {  3746,   5,   5,   6,    0,   -4, 0 } /* 0465 */
+,   {  3751,   5,   7,   6,    0,   -6, 0 } /* 0466 */
+,   {  3758,   5,   5,   6,    0,   -4, 0 } /* 0467 */
+,   {  3763,   7,   7,   8,    0,   -6, 0 } /* 0468 */
+,   {  3770,   6,   5,   7,    0,   -4, 0 } /* 0469 */
+,   {  3775,   5,   7,   6,    0,   -6, 0 } /* 046A */
+,   {  3782,   5,   5,   6,    0,   -4, 0 } /* 046B */
+,   {  3787,   7,   7,   8,    0,   -6, 0 } /* 046C */
+,   {  3794,   6,   5,   7,    0,   -4, 0 } /* 046D */
+,   {  3799,   4,  11,   5,    0,   -8, 0 } /* 046E */
+,   {  3810,   3,   9,   4,    0,   -6, 0 } /* 046F */
+,   {  3819,   5,   7,   6,    0,   -6, 0 } /* 0470 */
+,   {  3826,   5,   9,   6,    0,   -6, 0 } /* 0471 */
+,   {  3835,   6,   7,   7,    0,   -6, 0 } /* 0472 */
+,   {  3842,   4,   5,   5,    0,   -4, 0 } /* 0473 */
+,   {  3847,   6,   7,   6,    0,   -6, 0 } /* 0474 */
+,   {  3854,   5,   5,   5,    0,   -4, 0 } /* 0475 */
+,   {  3859,   6,  10,   6,    0,   -9, 0 } /* 0476 */
+,   {  3869,   5,   8,   5,    0,   -7, 0 } /* 0477 */
+,   {  3877,  11,   9,  12,    0,   -6, 0 } /* 0478 */
+,   {  3895,   9,   7,   9,    0,   -4, 0 } /* 0479 */
+,   {  3909,   6,   9,   7,    0,   -7, 0 } /* 047A */
+,   {  3918,   4,   5,   5,    0,   -4, 0 } /* 047B */
+,   {  3923,   7,  10,   8,    0,   -9, 0 } /* 047C */
+,   {  3933,   6,   8,   7,    0,   -7, 0 } /* 047D */
+,   {  3941,   7,   9,   8,    0,   -8, 0 } /* 047E */
+,   {  3950,   6,   8,   7,    0,   -7, 0 } /* 047F */
+,   {  3958,   4,   9,   5,    0,   -6, 0 } /* 0480 */
+,   {  3967,   3,   7,   4,    0,   -4, 0 } /* 0481 */
+,   {  3974,   4,   7,   5,    0,   -6, 0 } /* 0482 */
+,   {  3981,   4,   3,   5,    0,   -7, 0 } /* 0483 */
+,   {  3984,   4,   2,   5,    0,   -7, 0 } /* 0484 */
+,   {  3986,   1,   2,   5,    2,   -6, 0 } /* 0485 */
+,   {  3988,   1,   2,   5,    2,   -6, 0 } /* 0486 */
+,   {  3990,   9,   7,   9,    0,   -5, 0 } /* 0488 */
+,   {  4004,   8,   9,   9,    0,   -6, 0 } /* 0489 */
+,   {  4013,   6,  12,   6,    0,   -9, 0 } /* 048A */
+,   {  4025,   5,  10,   5,    0,   -7, 0 } /* 048B */
+,   {  4035,   4,   7,   5,    0,   -6, 0 } /* 048C */
+,   {  4042,   5,   7,   5,   -1,   -6, 0 } /* 048D */
+,   {  4049,   4,   7,   5,    0,   -6, 0 } /* 048E */
+,   {  4056,   4,   7,   5,    0,   -4, 0 } /* 048F */
+,   {  4063,   4,   8,   5,    0,   -7, 0 } /* 0490 */
+,   {  4071,   3,   6,   4,    0,   -5, 0 } /* 0491 */
+,   {  4077,   5,   7,   5,   -1,   -6, 0 } /* 0492 */
+,   {  4084,   4,   5,   4,   -1,   -4, 0 } /* 0493 */
+,   {  4089,   4,   9,   5,    0,   -6, 0 } /* 0494 */
+,   {  4098,   4,   7,   5,    0,   -4, 0 } /* 0495 */
+,   {  4105,   7,   9,   8,    0,   -6, 0 } /* 0496 */
+,   {  4114,   5,   7,   6,    0,   -4, 0 } /* 0497 */
+,   {  4121,   4,   9,   5,    0,   -6, 0 } /* 0498 */
+,   {  4130,   3,   7,   4,    0,   -4, 0 } /* 0499 */
+,   {  4137,   6,   9,   6,    0,   -6, 0 } /* 049A */
+,   {  4146,   4,   7,   5,    0,   -4, 0 } /* 049B */
+,   {  4153,   5,   7,   5,    0,   -6, 0 } /* 049C */
+,   {  4160,   4,   5,   5,    0,   -4, 0 } /* 049D */
+,   {  4165,   6,   7,   5,   -1,   -6, 0 } /* 049E */
+,   {  4172,   5,   7,   5,   -1,   -6, 0 } /* 049F */
+,   {  4179,   6,   7,   6,    0,   -6, 0 } /* 04A0 */
+,   {  4186,   5,   5,   6,    0,   -4, 0 } /* 04A1 */
+,   {  4191,   6,   9,   6,    0,   -6, 0 } /* 04A2 */
+,   {  4200,   5,   7,   5,    0,   -4, 0 } /* 04A3 */
+,   {  4207,   6,   7,   6,    0,   -6, 0 } /* 04A4 */
+,   {  4214,   5,   5,   5,    0,   -4, 0 } /* 04A5 */
+,   {  4219,   8,   9,   9,    0,   -6, 0 } /* 04A6 */
+,   {  4228,   7,   7,   8,    0,   -4, 0 } /* 04A7 */
+,   {  4235,   6,   7,   7,    0,   -6, 0 } /* 04A8 */
+,   {  4242,   5,   5,   6,    0,   -4, 0 } /* 04A9 */
+,   {  4247,   4,   9,   5,    0,   -6, 0 } /* 04AA */
+,   {  4256,   3,   7,   4,    0,   -4, 0 } /* 04AB */
+,   {  4263,   5,   9,   4,   -1,   -6, 0 } /* 04AC */
+,   {  4272,   3,   7,   4,    0,   -4, 0 } /* 04AD */
+,   {  4279,   5,   7,   6,    0,   -6, 0 } /* 04AE */
+,   {  4286,   3,   7,   4,    0,   -4, 0 } /* 04AF */
+,   {  4293,   5,   7,   6,    0,   -6, 0 } /* 04B0 */
+,   {  4300,   3,   7,   4,    0,   -4, 0 } /* 04B1 */
+,   {  4307,   6,   9,   6,    0,   -6, 0 } /* 04B2 */
+,   {  4316,   4,   7,   5,    0,   -4, 0 } /* 04B3 */
+,   {  4323,   7,   9,   8,    0,   -6, 0 } /* 04B4 */
+,   {  4332,   6,   7,   7,    0,   -4, 0 } /* 04B5 */
+,   {  4339,   6,   9,   7,    0,   -6, 0 } /* 04B6 */
+,   {  4348,   5,   7,   6,    0,   -4, 0 } /* 04B7 */
+,   {  4355,   5,   7,   6,    0,   -6, 0 } /* 04B8 */
+,   {  4362,   4,   5,   5,    0,   -4, 0 } /* 04B9 */
+,   {  4367,   5,   7,   6,    0,   -6, 0 } /* 04BA */
+,   {  4374,   4,   5,   5,    0,   -4, 0 } /* 04BB */
+,   {  4379,   6,   7,   8,    1,   -6, 0 } /* 04BC */
+,   {  4386,   5,   5,   6,    0,   -4, 0 } /* 04BD */
+,   {  4391,   6,   9,   8,    1,   -6, 0 } /* 04BE */
+,   {  4400,   5,   7,   6,    0,   -4, 0 } /* 04BF */
+,   {  4407,   3,   7,   4,    0,   -6, 0 } /* 04C0 */
+,   {  4414,   7,  10,   8,    0,   -9, 0 } /* 04C1 */
+,   {  4424,   5,   8,   6,    0,   -7, 0 } /* 04C2 */
+,   {  4432,   5,   9,   6,    0,   -6, 0 } /* 04C3 */
+,   {  4441,   4,   7,   5,    0,   -4, 0 } /* 04C4 */
+,   {  4448,   7,   9,   7,    0,   -6, 0 } /* 04C5 */
+,   {  4457,   5,   7,   5,    0,   -4, 0 } /* 04C6 */
+,   {  4464,   5,   9,   6,    0,   -6, 0 } /* 04C7 */
+,   {  4473,   4,   7,   5,    0,   -4, 0 } /* 04C8 */
+,   {  4480,   6,   9,   6,    0,   -6, 0 } /* 04C9 */
+,   {  4489,   5,   7,   5,    0,   -4, 0 } /* 04CA */
+,   {  4496,   5,   9,   6,    0,   -6, 0 } /* 04CB */
+,   {  4505,   4,   7,   5,    0,   -4, 0 } /* 04CC */
+,   {  4512,   8,   9,   8,    0,   -6, 0 } /* 04CD */
+,   {  4521,   6,   7,   6,    0,   -4, 0 } /* 04CE */
+,   {  4528,   3,   7,   4,    0,   -6, 0 } /* 04CF */
+,   {  4535,   5,  10,   6,    0,   -9, 0 } /* 04D0 */
+,   {  4545,   4,   8,   5,    0,   -7, 0 } /* 04D1 */
+,   {  4553,   5,   9,   6,    0,   -8, 0 } /* 04D2 */
+,   {  4562,   4,   7,   5,    0,   -6, 0 } /* 04D3 */
+,   {  4569,   7,   7,   8,    0,   -6, 0 } /* 04D4 */
+,   {  4576,   7,   5,   8,    0,   -4, 0 } /* 04D5 */
+,   {  4581,   4,  10,   5,    0,   -9, 0 } /* 04D6 */
+,   {  4591,   4,   8,   5,    0,   -7, 0 } /* 04D7 */
+,   {  4599,   6,   7,   7,    0,   -6, 0 } /* 04D8 */
+,   {  4606,   4,   5,   5,    0,   -4, 0 } /* 04D9 */
+,   {  4611,   6,   9,   7,    0,   -8, 0 } /* 04DA */
+,   {  4620,   4,   7,   5,    0,   -6, 0 } /* 04DB */
+,   {  4627,   7,   9,   8,    0,   -8, 0 } /* 04DC */
+,   {  4636,   5,   7,   6,    0,   -6, 0 } /* 04DD */
+,   {  4643,   4,   9,   5,    0,   -8, 0 } /* 04DE */
+,   {  4652,   3,   7,   4,    0,   -6, 0 } /* 04DF */
+,   {  4659,   4,   7,   5,    0,   -6, 0 } /* 04E0 */
+,   {  4666,   3,   7,   4,    0,   -4, 0 } /* 04E1 */
+,   {  4673,   5,   9,   6,    0,   -8, 0 } /* 04E2 */
+,   {  4682,   4,   7,   5,    0,   -6, 0 } /* 04E3 */
+,   {  4689,   5,   9,   6,    0,   -8, 0 } /* 04E4 */
+,   {  4698,   4,   7,   5,    0,   -6, 0 } /* 04E5 */
+,   {  4705,   6,   9,   7,    0,   -8, 0 } /* 04E6 */
+,   {  4714,   4,   7,   5,    0,   -6, 0 } /* 04E7 */
+,   {  4721,   6,   7,   7,    0,   -6, 0 } /* 04E8 */
+,   {  4728,   4,   5,   5,    0,   -4, 0 } /* 04E9 */
+,   {  4733,   6,   9,   7,    0,   -8, 0 } /* 04EA */
+,   {  4742,   4,   7,   5,    0,   -6, 0 } /* 04EB */
+,   {  4749,   4,   9,   5,    0,   -8, 0 } /* 04EC */
+,   {  4758,   3,   7,   4,    0,   -6, 0 } /* 04ED */
+,   {  4765,   5,   9,   6,    0,   -8, 0 } /* 04EE */
+,   {  4774,   4,   9,   5,    0,   -6, 0 } /* 04EF */
+,   {  4783,   5,   9,   6,    0,   -8, 0 } /* 04F0 */
+,   {  4792,   4,   9,   5,    0,   -6, 0 } /* 04F1 */
+,   {  4801,   5,  10,   6,    0,   -9, 0 } /* 04F2 */
+,   {  4811,   5,  10,   5,    0,   -7, 0 } /* 04F3 */
+,   {  4821,   5,   9,   6,    0,   -8, 0 } /* 04F4 */
+,   {  4830,   4,   7,   5,    0,   -6, 0 } /* 04F5 */
+,   {  4837,   4,   9,   5,    0,   -6, 0 } /* 04F6 */
+,   {  4846,   3,   7,   4,    0,   -4, 0 } /* 04F7 */
+,   {  4853,   6,   9,   7,    0,   -8, 0 } /* 04F8 */
+,   {  4862,   6,   7,   7,    0,   -6, 0 } /* 04F9 */
+,   {  4869,   5,   9,   5,   -1,   -6, 0 } /* 04FA */
+,   {  4878,   4,   7,   4,   -1,   -4, 0 } /* 04FB */
+,   {  4885,   6,   9,   5,    0,   -6, 0 } /* 04FC */
+,   {  4894,   5,   7,   5,    0,   -4, 0 } /* 04FD */
+,   {  4901,   5,   7,   6,    0,   -6, 0 } /* 04FE */
+,   {  4908,   4,   5,   5,    0,   -4, 0 } /* 04FF */
+,   {  4913,   4,   7,   5,    0,   -6, 0 } /* 0500 */
+,   {  4920,   4,   7,   5,    0,   -6, 0 } /* 0501 */
+,   {  4927,   7,   7,   8,    0,   -6, 0 } /* 0502 */
+,   {  4934,   7,   7,   8,    0,   -6, 0 } /* 0503 */
+,   {  4941,   7,   7,   8,    0,   -6, 0 } /* 0504 */
+,   {  4948,   6,   5,   7,    0,   -4, 0 } /* 0505 */
+,   {  4953,   5,   9,   5,    0,   -6, 0 } /* 0506 */
+,   {  4962,   4,   7,   5,    0,   -4, 0 } /* 0507 */
+,   {  4969,   9,   7,  10,    0,   -6, 0 } /* 0508 */
+,   {  4983,   6,   5,   7,    0,   -4, 0 } /* 0509 */
+,   {  4988,   8,   7,   9,    0,   -6, 0 } /* 050A */
+,   {  4995,   7,   5,   8,    0,   -4, 0 } /* 050B */
+,   {  5000,   5,   7,   6,    0,   -6, 0 } /* 050C */
+,   {  5007,   4,   5,   5,    0,   -4, 0 } /* 050D */
+,   {  5012,   6,   7,   6,   -1,   -6, 0 } /* 050E */
+,   {  5019,   4,   5,   5,    0,   -4, 0 } /* 050F */
+,   {  5024,   4,   7,   5,    0,   -6, 0 } /* 0510 */
+,   {  5031,   3,   5,   4,    0,   -4, 0 } /* 0511 */
+,   {  5036,   7,   9,   7,    0,   -6, 0 } /* 0512 */
+,   {  5045,   5,   7,   5,    0,   -4, 0 } /* 0513 */
 };
 static const dgx_glyph_array_t glyph_ranges[] = {
-   {0x20  , 0x5f  , glyphs + 0 }
-, {0xa0  , 0xe0  , glyphs + 95 }
-, {0x192 , 0x1   , glyphs + 319 }
-, {0x1a0 , 0x2   , glyphs + 320 }
-, {0x1af , 0x2   , glyphs + 322 }
-, {0x1f0 , 0x1   , glyphs + 324 }
-, {0x1fa , 0x6   , glyphs + 325 }
-, {0x218 , 0x4   , glyphs + 331 }
-, {0x2bc , 0x1   , glyphs + 335 }
-, {0x2c6 , 0x2   , glyphs + 336 }
-, {0x2c9 , 0x1   , glyphs + 338 }
-, {0x2d8 , 0x6   , glyphs + 339 }
-, {0x2f3 , 0x1   , glyphs + 345 }
-, {0x300 , 0x2   , glyphs + 346 }
-, {0x303 , 0x1   , glyphs + 348 }
-, {0x309 , 0x1   , glyphs + 349 }
-, {0x30f , 0x1   , glyphs + 350 }
-, {0x323 , 0x1   , glyphs + 351 }
-, {0x384 , 0x7   , glyphs + 352 }
-, {0x38c , 0x1   , glyphs + 359 }
-, {0x38e , 0x14  , glyphs + 360 }
-, {0x3a3 , 0x2c  , glyphs + 380 }
-, {0x3d1 , 0x2   , glyphs + 424 }
-, {0x3d6 , 0x1   , glyphs + 426 }
-, {0x400 , 0x87  , glyphs + 427 }
-, {0x488 , 0x8c  , glyphs + 562 }
+   {0x20  , 0x5f  , 0 }
+, {0xa0  , 0xe0  , 95 }
+, {0x192 , 0x1   , 319 }
+, {0x1a0 , 0x2   , 320 }
+, {0x1af , 0x2   , 322 }
+, {0x1f0 , 0x1   , 324 }
+, {0x1fa , 0x6   , 325 }
+, {0x218 , 0x4   , 331 }
+, {0x2bc , 0x1   , 335 }
+, {0x2c6 , 0x2   , 336 }
+, {0x2c9 , 0x1   , 338 }
+, {0x2d8 , 0x6   , 339 }
+, {0x2f3 , 0x1   , 345 }
+, {0x300 , 0x2   , 346 }
+, {0x303 , 0x1   , 348 }
+, {0x309 , 0x1   , 349 }
+, {0x30f , 0x1   , 350 }
+, {0x323 , 0x1   , 351 }
+, {0x384 , 0x7   , 352 }
+, {0x38c , 0x1   , 359 }
+, {0x38e , 0x14  , 360 }
+, {0x3a3 , 0x2c  , 380 }
+, {0x3d1 , 0x2   , 424 }
+, {0x3d6 , 0x1   , 426 }
+, {0x400 , 0x87  , 427 }
+, {0x488 , 0x8c  , 562 }
 , {0x0   , 0x0   , 0 }
 };
 // Bitmap size: 5052
@@ -7181,10 +7181,12 @@ const dgx_font_t DroidSansRegular9 = {
     .y_advance = 10,
     .y_offset_lowest = -10,
     .x_widest = 11,
-    .x_width_average = 4.425926,
+    .x_width_average = 4,
     .f_type = DGX_FONT_BITMAP_LINES,
     .y_bottom_max = 5,
     .x_offset_lowest = -5,
     .x_right_max = 11,
-    .number_of_ranges = 26
+    .number_of_ranges = 26,
+    .glyphs = glyphs,
+    .data = bitmaps,
 };

@@ -21,6 +21,10 @@ dgx_font_need() from DGX's project_include.cmake; at the end of the configure st
         the characters found in the texts, on one line
     dgx_fonts.py json FONT.c [OUT.json] [--font NAME]
         a DGX bitmap font as JSON for editors: a .c written by font2c, or one font of dgx_fonts.c by function name
+    dgx_fonts.py upgrade FONT.c...
+        a font of C written before DGX 0.12.1, when a glyph held a pointer to its data, rewritten in place in the
+        form of now, and the header beside it: the glyphs give the offsets of their data, the pictures in the
+        comments stay as they are. A font of DGX 0.12.1 and later is left as it is
 
 The needs file (# starts a comment; relative paths are resolved from the file's directory; a keyword given twice
 is an error):
@@ -30,6 +34,10 @@ is an error):
     board pixels 1280 800                the display (for sizes in mm)
     board mm 217 136
     rules /path/fonts.rules              how faces are picked for needs declared by family: the rules, see below
+    files                                every font also as a file of bytes, <name>.dgxf, beside dgx_fonts.c, and
+                                         dgx_fonts-files.txt naming the file of every name of a font (CMake:
+                                         dgx_fonts_files()); the fonts of DGX and of C of the program are compiled
+                                         on the host to be written
     need text /abs/main/CMakeLists.txt   a need; its keywords follow, up to the next need; after the name, where
                                          it was declared (CMake writes it), for the message when a name is
                                          declared twice
@@ -45,7 +53,8 @@ is an error):
     except {}                            characters of the texts the font need not contain: the braces of
                                          placeholders, for example
     dgx font0ss                          one of DGX's own fonts, used as is
-    file /abs/main/fonts/PxCgaThin8.c    a font of the program, used as is (the program compiles it)
+    file /abs/main/fonts/PxCgaThin8.c    a font of the program, used as is (the program compiles it); one whose glyphs
+                                         hold pointers, made before DGX 0.12.1, is refused: dgx_fonts.py upgrade it
     source /abs/font.ttf                 a font file to render at the size; or a handwritten font's JSON, which
                                          has no size. Any font file font2c reads: a bitmap font such as a BDF
                                          only at a size it has
@@ -672,19 +681,115 @@ def depfile_text(target, files):
     return word(target) + ":" + "".join(f" \\\n  {word(f)}" for f in sorted(files)) + "\n"
 
 
+def host_compiler():
+    """The host's C compiler and the environment to run it in: inside an ESP-IDF build the PATH leads to the chips'
+    tools first, and its CC is of a chip."""
+    env = dict(os.environ, PATH=os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep) if ".espressif" not in p))
+    compiler = os.environ.get("CC", "")
+    if not compiler or ".espressif" in compiler or "-esp" in os.path.basename(compiler):  # a CC of the chip is no use here
+        compiler = "gcc" if os.name == "nt" else "cc"  # MSYS2 and MinGW have gcc, not cc
+    return compiler, env
+
+
+FILES_INDEX = "dgx_fonts-files.txt"
+
+
+def c_string(text):
+    """A text as a literal of C: its bytes as they are, those a literal cannot hold by octal escapes."""
+    out = []
+    for b in text.encode("utf-8"):
+        out.append("\\" + format(b, "03o") if b < 0x20 or b in (0x22, 0x5C, 0x3F, 0x7F) else chr(b) if b < 0x80 else "\\" + format(b, "03o"))
+    return '"' + "".join(out) + '"'
+
+
+def drop_files(outdir, keep):
+    """The files of bytes of fonts of a build before that this one has not, and its index when it has none."""
+    for name in os.listdir(outdir) if os.path.isdir(outdir) else []:
+        if (name.endswith(".dgxf") or name == FILES_INDEX) and name not in keep:
+            os.remove(os.path.join(outdir, name))
+
+
+def write_files(dgx, outdir, work, wants, made_names, cache):
+    """Every font of the program as a file of bytes beside dgx_fonts.c: those font2c made, from work/bin; the fonts of
+    DGX, every one, as a program may include any; the fonts of C of the program. The last two are compiled on the host
+    with a program that writes their files by font2c/dgxf_font.h. Then dgx_fonts-files.txt: every name a font is taken
+    by, and its file. A file that is as it was is not written again."""
+    index, made = {}, os.path.join(work, "bin")
+    for name, of in made_names.items():
+        index[name] = of + ".dgxf"
+    # the fonts of C: the program's, then those of DGX it does not shadow
+    as_is = {}
+    for w in wants:
+        if isinstance(w, AsIs) and w.how == "file":
+            as_is.setdefault(w.function, (w.path, f"name: {w.function}\nsource: {os.path.basename(w.path)}\n"))
+    origins = dgx_origins(dgx, cache)
+    for f in sorted(os.listdir(os.path.join(dgx, "src", "fonts"))):
+        if not f.endswith(".c"):
+            continue
+        path = os.path.join(dgx, "src", "fonts", f)
+        function = accessor(open(path, encoding="utf-8", errors="replace").read(), path)
+        o = origins.get(function)
+        about = f"name: {function}\nmade-by: DGX\nsource: src/fonts/{f}\n" + (f"family: {o.family}\nlicense: {o.license}\n" if o else "")
+        as_is.setdefault(function, (path, about))
+    for w in wants:
+        if isinstance(w, AsIs):
+            index[f"dgx_font_{w.need.name}"] = w.function + ".dgxf"
+    for function in as_is:
+        index[function] = function + ".dgxf"
+    main = ['#include "dgxf_font.h"']
+    main += [f"extern const dgx_font_t {f};" for f in as_is]
+    main += ["int main(void)", "{", "    static const struct { const dgx_font_t *font; const char *out, *about; } all[] = {"]
+    main += [f"        {{&{f}, {c_string(os.path.join(made, f + '.dgxf'))}, {c_string(about)}}}," for f, (_, about) in as_is.items()]
+    main += ["    };",
+             "    for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); ++i) {",
+             "        char  why[160];",
+             "        FILE *out = fopen(all[i].out, \"wb\");",
+             "        if (!out) return fprintf(stderr, \"%s cannot be written\\n\", all[i].out), 1;",
+             "        const int failed = dgxf_of_font(all[i].font, all[i].about, out, why, sizeof(why));",
+             "        if (fclose(out) || failed) return fprintf(stderr, \"%s: %s\\n\", all[i].out, failed ? why : \"not written\"), 1;",
+             "    }",
+             "    return 0;",
+             "}", ""]
+    os.makedirs(made, exist_ok=True)
+    source = os.path.join(work, "files.c")
+    with open(source, "w", encoding="utf-8") as f:
+        f.write("\n".join(main))
+    program = os.path.join(work, "files.exe" if os.name == "nt" else "files")
+    compiler, env = host_compiler()
+    stubs = os.path.join(dgx, "host", "stubs")
+    command = [compiler, "-std=gnu11", "-O0", "-w", "-I" + os.path.join(dgx, "include"), "-I" + stubs, "-include", os.path.join(stubs, "esp_log.h"),
+               "-I" + os.path.join(dgx, "font2c"), source] + [path for path, _ in as_is.values()] + ["-o", program]
+    try:
+        run = subprocess.run(command, capture_output=True, text=True, env=env)
+    except OSError:
+        raise FontsError(f"no host C compiler ({compiler}; set CC to another) to write the fonts of C as files")
+    if run.returncode:
+        raise FontsError("the program that writes the fonts of C as files failed to build:\n" + run.stderr.strip())
+    run = subprocess.run([program], capture_output=True, text=True)
+    if run.returncode:
+        raise FontsError("the fonts of C were not written as files: " + (run.stderr.strip() or run.stdout.strip()))
+    for name in sorted(os.listdir(made)):
+        with open(os.path.join(made, name), "rb") as f:
+            data = f.read()
+        target = os.path.join(outdir, name)
+        if not os.path.exists(target) or open(target, "rb").read() != data:
+            with open(target, "wb") as f:
+                f.write(data)
+    write_if_changed(os.path.join(outdir, FILES_INDEX), "".join(f"{name} {file}\n" for name, file in sorted(index.items())))
+    drop_files(outdir, set(index.values()) | {FILES_INDEX})
+
+
 def font2c_binary(dgx, outdir):
     """DGX's font2c, built from its source into outdir when the source is newer (FreeType needed)."""
     source = os.path.join(dgx, "font2c", "font2c.c")
     built = os.path.join(outdir, "font2c.exe" if os.name == "nt" else "font2c")
     if not os.path.exists(source):
         raise FontsError(f"no font2c source in {dgx}: not a DGX component")
-    if os.path.exists(built) and os.path.getmtime(built) >= os.path.getmtime(source):
+    writer = os.path.join(dgx, "font2c", "dgxf_write.h")
+    newest = max(os.path.getmtime(source), os.path.getmtime(writer) if os.path.exists(writer) else 0)
+    if os.path.exists(built) and os.path.getmtime(built) >= newest:
         return built
-    # the host's compiler with the host's tools: inside an ESP-IDF build the PATH leads to the chips' tools first
-    env = dict(os.environ, PATH=os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep) if ".espressif" not in p))
-    compiler = os.environ.get("CC", "")
-    if not compiler or ".espressif" in compiler or "-esp" in os.path.basename(compiler):  # a CC of the chip is no use here
-        compiler = "gcc" if os.name == "nt" else "cc"  # MSYS2 and MinGW have gcc, not cc
+    compiler, env = host_compiler()
     try:
         flags = subprocess.run(["pkg-config", "--cflags", "--libs", "freetype2"], capture_output=True, text=True, env=env)
     except OSError:
@@ -710,7 +815,7 @@ Board = namedtuple("Board", "scale pixels mm")
 
 def parse_needs(text, name="needs", base=None):
     """The needs file: the DGX directory, the board, the rules file and the needs. A relative path is taken from `base`."""
-    dgx, rules, scale, pixels, mm, needs, current, lists = None, None, None, None, None, [], None, []
+    dgx, rules, scale, pixels, mm, needs, current, lists, files = None, None, None, None, None, [], None, [], False
 
     def path_of(value):
         return os.path.normpath(os.path.join(base, os.path.expanduser(value))) if base and not os.path.isabs(os.path.expanduser(value)) else value
@@ -742,6 +847,10 @@ def parse_needs(text, name="needs", base=None):
             rules = path_of(value)
         elif key == "list":
             lists.append(path_of(value))
+        elif key == "files":
+            if value:
+                raise FontsError(f"{where}: files takes nothing after it")
+            files = True
         elif key == "scale":
             try:
                 if scale is not None and scale != float(value):
@@ -779,7 +888,7 @@ def parse_needs(text, name="needs", base=None):
             current.words.append((key, value, where))
     if not dgx:
         dgx = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-    return dgx, rules, Board(scale if scale is not None else 1.0, pixels, mm), needs, lists
+    return dgx, rules, Board(scale if scale is not None else 1.0, pixels, mm), needs, lists, files
 
 
 # what a need comes to
@@ -917,6 +1026,10 @@ def resolve(declared, board, rules, dgx, cache):
         except OSError as e:
             raise FontsError(f"{where}: {path}: {e.strerror}")
         function = accessor(c_text, f"{where}: {path}")
+        if not is_upgraded(c_text):
+            # the program compiles the file itself: it is not rewritten here, the program is told how
+            raise FontsError(f"{where}: {path}: its glyphs hold pointers, as fonts did before DGX 0.12.1, and it does not build with this "
+                             f"DGX; rewrite it with: dgx_fonts.py upgrade {path} (from font2c of DGX), or make it again with font2c")
         check_letters(glyph_ranges(c_text, f"{where}: {path}"), letters, f"{where}: {path}")
         admit(rules, f"{need.place}: {need.name} asks for {function} of {path}", names=[function])
         return AsIs(need, path, function, "file", letters)
@@ -1028,6 +1141,287 @@ def font_points(c_text):
     return points
 
 
+# ----------------------------------------------------------------------------------------------------------------
+# A font of C written before DGX 0.12.1, when a glyph held a pointer to its data, in the form of now: the glyph
+# gives the offset of its data from font->data, a range the index of its first glyph in font->glyphs.
+
+CAMEL_MEASURES = {"yAdvance": "y_advance", "yOffsetLowest": "y_offset_lowest", "xWidest": "x_widest", "xWidthAverage": "x_width_average",
+                  "yBottomMax": "y_bottom_max", "xOffsetLowest": "x_offset_lowest", "xRightMax": "x_right_max"}
+HW_ELEMENT_BYTES = 14  # sizeof(dgx_hw_element_t) on every target
+NUMBER = r"(?:0[xX][0-9a-fA-F]+|-?\d+)"
+
+
+def array_bodies(c_text, type_pattern):
+    """The arrays of a type in a C text: [(name, start of the body, end of the body)], the body between the braces."""
+    found = []
+    for m in re.finditer(r"\b(?:" + type_pattern + r")\s+(\w+)\s*\[\s*\](?:\s*/\*.*?\*/)*\s*=\s*\{", c_text):
+        found.append((m.group(1), m.end(), closing_brace(c_text, m.end())))
+    return found
+
+
+def closing_brace(c_text, at):
+    """Where the brace closes that was opened just before at: comments, strings and characters skipped."""
+    depth, i, n = 1, at, len(c_text)
+    while i < n:
+        c = c_text[i]
+        if c_text.startswith("/*", i):
+            i = c_text.find("*/", i + 2)
+            i = n if i < 0 else i + 2
+            continue
+        if c_text.startswith("//", i):
+            i = c_text.find("\n", i)
+            i = n if i < 0 else i
+            continue
+        if c in "\"'":
+            j = i + 1
+            while j < n and c_text[j] != c:
+                j += 2 if c_text[j] == "\\" else 1
+            i = j + 1
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if not depth:
+                return i
+        i += 1
+    raise FontsError("a brace of the font's C is never closed")
+
+
+def entry_count(body, pattern):
+    """How many entries of the pattern a body of an array has, comments left out."""
+    return len(re.findall(pattern, strip_comments(body)))
+
+
+DOT_ENTRY = r"\{\s*-?\d+\s*,\s*-?\d+\s*\}"
+GLYPH_ENTRY = re.compile(r"\{\s*\{[^{}]*\}\s*,[^{}]*?\}(?:[ \t]*,)?(?:[ \t]*(?://[^\n]*|/\*.*?\*/))?", re.S)
+
+
+def definition_span(c_text, start, end):
+    """Where the whole definition of an array lies, its declaration and its ending ';' with them, by its body."""
+    begin = c_text.rfind("\n", 0, c_text.rfind("static", 0, start)) + 1
+    close = c_text.find(";", end) + 1
+    line_end = c_text.find("\n", close)
+    return begin, len(c_text) if line_end < 0 else line_end + 1
+
+
+def merge_dots(text, where):
+    """A font of dots written by hand: the dots of every glyph in one array, the glyphs of every range in one table."""
+    dot_arrays = array_bodies(text, r"dgx_font_dot_t")
+    tables = array_bodies(text, r"dgx_glyph_t")
+    ranges = array_bodies(text, r"dgx_glyph_array_t")
+    if len(dot_arrays) < 2 and len(tables) < 2:
+        return text
+    if len(ranges) != 1:
+        raise FontsError(f"{where}: a font of dots written by hand is read with one glyph_ranges[] in its file")
+    counts, offsets, merged, total = {}, {}, [], 0
+    for name, start, end in dot_arrays:
+        body = text[start:end]
+        counts[name], offsets[name] = entry_count(body, DOT_ENTRY), total
+        total += counts[name]
+        last = list(re.finditer(DOT_ENTRY, body))
+        if last and not re.match(r"\s*,", body[last[-1].end():]):
+            body = body[:last[-1].end()] + "," + body[last[-1].end():]
+        merged.append(f"    /* {name} */" + body.rstrip() + "\n")
+    entries = {name: [m.group(0) for m in GLYPH_ENTRY.finditer(text[start:end])] for name, start, end in tables}
+
+    def dots_of(m):
+        name, plus, count = m.group(1), m.group(2), m.group(3)
+        if name == "NULL":
+            return m.group(0)
+        if name not in offsets:
+            raise FontsError(f"{where}: the dots {name} of a glyph are not an array of the file")
+        c = re.fullmatch(r"COUNT_OF\s*\(\s*(\w+)\s*\)", count.strip())
+        number = counts[c.group(1)] if c else int(count)
+        return f".dots = dots + {offsets[name] + int(plus or 0)}, .number_of_dots = {number}"
+
+    glyphs, new_ranges = [], []
+    r_name, r_start, r_end = ranges[0]
+    for m in re.finditer(r"\{\s*(" + NUMBER + r")\s*,\s*(" + NUMBER + r")\s*,\s*(\w+)(?:\s*\+\s*(\d+))?\s*\}", strip_comments(text[r_start:r_end])):
+        first, number, table, k = m.group(1), int(m.group(2), 0), m.group(3), int(m.group(4) or 0)
+        if number == 0:
+            continue
+        if table not in entries or k + number > len(entries[table]):
+            raise FontsError(f"{where}: the range {first} takes glyphs {table} + {k} the file does not have")
+        new_ranges.append(f"    {{{first}, {number}, glyphs + {len(glyphs)}}},\n")
+        for e in entries[table][k:k + number]:
+            e = re.sub(r"\.dots\s*=\s*(\w+)(?:\s*\+\s*(\d+))?\s*,\s*\.number_of_dots\s*=\s*([^}]+?)\s*(?=\})", dots_of, e)
+            e = e.rstrip()
+            comment = re.search(r"(//[^\n]*|/\*.*?\*/)$", e, re.S)
+            body = e[:comment.start()].rstrip() if comment else e
+            body = body.rstrip(",").rstrip()
+            glyphs.append("    " + body + "," + (" " + comment.group(1) if comment else "") + "\n")
+    spans = sorted([definition_span(text, s0, e0) for _, s0, e0 in dot_arrays + tables + ranges])
+    pieces = ("static const dgx_font_dot_t dots[] = {\n" + "".join(merged) + "};\n\n"
+              + "static const dgx_glyph_t glyphs[] = {\n" + "".join(glyphs) + "};\n\n"
+              + f"static const dgx_glyph_array_t {r_name}[] = {{\n" + "".join(new_ranges) + "    {0x0, 0x0, 0},\n};\n")
+    # what lay between the arrays, their comments, goes with them: the merged arrays name the parts
+    after = spans[-1][1]
+    line_end = text.find("\n", after)
+    while line_end >= 0 and re.fullmatch(r"[ \t]*//[^\n]*", text[after:line_end]):
+        after = line_end + 1
+        line_end = text.find("\n", after)
+    return text[:spans[0][0]] + pieces + "\n" + text[after:].lstrip("\n")
+
+
+def is_upgraded(c_text):
+    """Whether a font's C is of the form since DGX 0.12.1: its glyphs hold offsets, not pointers."""
+    code = strip_comments(c_text)
+    return (re.search(r"\.(?:bitmap|elements|dots)\s*=", code) is None and re.search(r"\.glyphs\s*=", code) is not None
+            and re.search(r"glyph_array_t\s+\w+\s*\[\s*\]\s*=\s*\{[^;]*\w+\s*\+\s*\d+", code) is None)
+
+
+def upgrade_c(c_text, where):
+    """A font's C of a form before DGX 0.12.1 in the form of now. Raises FontsError for what it cannot read."""
+    text = re.sub(r"\bglyph_array_t\b", "dgx_glyph_array_t", c_text)
+    text = re.sub(r"\bglyph_t\b", "dgx_glyph_t", text)
+    if re.search(r"\bDGX_FONT_DOTS\b", strip_comments(text)):
+        text = merge_dots(text, where)
+    # the parts of the symbols of a handwritten font, for the elements of each glyph
+    symbol_parts = {}
+    for name, start, end in array_bodies(text, r"dgx_hw_symbol_t"):
+        rows = re.findall(r"\{\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,", strip_comments(text[start:end]))
+        symbol_parts[name] = [sum(int(v) for v in r) for r in rows]
+    data_of, symbols_of, out, at = {}, {}, [], 0
+    for name, start, end in array_bodies(text, r"dgx_glyph_t"):
+        body, datas, index = text[start:end], set(), [0]
+
+        def glyph(m, datas=datas, index=index, name=name):
+            inner, rest = m.group(1), m.group(2)
+            bitmap = re.fullmatch(r"\s*(?:\.bitmap\s*=\s*)?(\w+)(?:\s*\+\s*(\d+))?\s*", inner)
+            hw = re.fullmatch(r"\s*\.elements\s*=\s*(\w+)\s*\+\s*(\d+)\s*,\s*\.hw\s*=\s*(\w+)\s*\+\s*(\d+)\s*", inner)
+            dots = re.fullmatch(r"\s*\.dots\s*=\s*(\w+)(?:\s*\+\s*(\d+))?\s*,\s*\.number_of_dots\s*=\s*(\d+)\s*", inner)
+            if hw:
+                parts = symbol_parts.get(hw.group(3))
+                symbol = int(hw.group(4))
+                if parts is None or symbol >= len(parts):
+                    raise FontsError(f"{where}: {name}: the symbol {hw.group(3)} + {symbol} is not in the file")
+                if symbol != index[0]:
+                    raise FontsError(f"{where}: {name}: glyph {index[0]} has symbol {symbol}; the symbols must go in the order of the glyphs")
+                datas.add(hw.group(1))
+                symbols_of[name] = hw.group(3)
+                offset, count = int(hw.group(2)) * HW_ELEMENT_BYTES, parts[symbol]
+            elif dots:
+                if dots.group(1) == "NULL":
+                    offset = 0
+                else:
+                    datas.add(dots.group(1))
+                    offset = int(dots.group(2) or 0) * 2
+                count = int(dots.group(3))
+            elif bitmap:
+                datas.add(bitmap.group(1))
+                offset, count = int(bitmap.group(2) or 0), 0
+            else:
+                raise FontsError(f"{where}: {name}: a glyph begins with {{{inner.strip()}}}, which is not read")
+            index[0] += 1
+            return "{" + f"{offset:6d}," + rest.rstrip() + f", {count}" + " }"
+
+        new_body = re.sub(r"\{\s*\{([^{}]*)\}\s*,([^{}]*?)\}", glyph, body)
+        if len(datas) > 1:
+            raise FontsError(f"{where}: the glyphs of {name} take their data from {', '.join(sorted(datas))}; one array is needed")
+        if datas:
+            data_of[name] = datas.pop()
+        out.append(text[at:start] + new_body)
+        at = end
+    out.append(text[at:])
+    text = "".join(out)
+    # the ranges: the index of the first glyph in place of a pointer
+    glyphs_of, out, at = {}, [], 0
+    for name, start, end in array_bodies(text, r"dgx_glyph_array_t"):
+        body, tables = text[start:end], set()
+
+        def one_range(m, tables=tables):
+            if m.group(2).isdigit() and not m.group(3):
+                return m.group(0)
+            tables.add(m.group(2))
+            return m.group(1) + str(int(m.group(3) or 0)) + m.group(4)
+
+        new_body = re.sub(r"(\{\s*" + NUMBER + r"\s*,\s*" + NUMBER + r"\s*,\s*)(\w+)(?:\s*\+\s*(\d+))?(\s*\})", one_range, body)
+        if len(tables) > 1:
+            raise FontsError(f"{where}: the ranges of {name} point into {', '.join(sorted(tables))}; the glyphs of a font must be one table")
+        if tables:
+            glyphs_of[name] = tables.pop()
+        out.append(text[at:start] + new_body)
+        at = end
+    out.append(text[at:])
+    text = "".join(out)
+    # a font given by a function before DGX 0.12 is a constant
+    text = re.sub(r"\bdgx_font_t\s*\*\s*(\w+)\s*\(\s*(?:void)?\s*\)\s*\{\s*static\s+(?:const\s+)?dgx_font_t\s+\w+\s*=\s*\{(.*?)\};\s*return\s*&\s*\w+\s*;\s*\}",
+                  lambda m: f"const dgx_font_t {m.group(1)} = {{{m.group(2)}}};", text, flags=re.S)
+    aliases = dict(re.findall(r"\bdgx_font_t\s*\*\s*(\w+)\s*\(\s*(?:void)?\s*\)\s*\{\s*return\s+(\w+)\s*\(\s*\)\s*;\s*\}", text))
+    text = re.sub(r"\n?\bdgx_font_t\s*\*\s*(\w+)\s*\(\s*(?:void)?\s*\)\s*\{\s*return\s+(\w+)\s*\(\s*\)\s*;\s*\}\n?", "\n", text)
+
+    def font(m):
+        kind, name, body = m.group(1), m.group(2), m.group(3)
+        body = re.sub(r"\.(\w+)(\s*=)", lambda f: "." + CAMEL_MEASURES.get(f.group(1), f.group(1)) + f.group(2), body)
+        body = re.sub(r"(\.x_width_average\s*=\s*)(-?\d+\.\d*)", lambda f: f.group(1) + str(int(float(f.group(2)))), body)
+        if re.search(r"\.glyphs\s*=", body):
+            return m.group(0)
+        r = re.search(r"\.glyph_ranges\s*=\s*(\w+)", body)
+        if not r or r.group(1) not in glyphs_of:
+            raise FontsError(f"{where}: {name}: its glyph_ranges are not found in the file")
+        table = glyphs_of[r.group(1)]
+        data = data_of.get(table)
+        hw = re.search(r"\.hw\s*=\s*&\s*(\w+)", body)
+        body = body.rstrip()
+        if not body.endswith(","):
+            body += ","
+        body += f"\n    .glyphs = {table},\n"
+        if data:
+            bitmap = re.search(r"\buint8_t\s+" + re.escape(data) + r"\s*\[", text)
+            body += f"    .data = {data},\n" if bitmap else f"    .data = (const uint8_t *){data},\n"
+        return f"{kind}dgx_font_t {name} = {{{body}}};"
+
+    text = re.sub(r"((?:static\s+)?(?:const\s+)?)dgx_font_t\s+(\w+)\s*=\s*\{(.*?)\n?\};", font, text, flags=re.S)
+    # the symbols of a handwritten font: one for each of its glyphs
+    for table, symbols in symbols_of.items():
+        def hw_font(m, symbols=symbols):
+            body = m.group(2)
+            if re.search(r"\.symbols\s*=", body):
+                return m.group(0)
+            body = body.rstrip()
+            if not body.endswith(","):
+                body += ","
+            return f"{m.group(1)}{body}\n    .symbols = {symbols},\n}};"
+        text = re.sub(r"(static\s+const\s+dgx_hw_font_t\s+\w+\s*=\s*\{)(.*?)\n?\};", hw_font, text, flags=re.S)
+    return text, aliases
+
+
+def upgrade_h(h_text, constants, aliases):
+    """The header of a font made by font2c before DGX 0.12: the declaration of a function as the constant of now."""
+    def one(m):
+        name = m.group(1)
+        if name in aliases:
+            return f"#define {name} {aliases[name]}"
+        return f"extern const dgx_font_t {name};\n#define {name}() DGX_FONT_CALLED({name})"
+    return re.sub(r"^\s*(?:const\s+)?dgx_font_t\s*\*\s*(\w+)\s*\(\s*(?:void)?\s*\)\s*;[^\n]*$", one, h_text, flags=re.M)
+
+
+def upgrade(paths):
+    """dgx_fonts.py upgrade FONT.c...: each font of C of a form before DGX 0.12.1 rewritten in place, its header beside it too."""
+    told = []
+    for path in paths:
+        c_text = open(path, encoding="utf-8").read()
+        if not font_blocks(c_text):
+            raise FontsError(f"{path}: no font of DGX in it")
+        if is_upgraded(c_text):
+            told.append(f"{path}: already of the form of DGX 0.12.1")
+            continue
+        new, aliases = upgrade_c(c_text, path)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(new)
+        told.append(f"{path}: rewritten")
+        header = os.path.splitext(path)[0] + ".h"
+        if os.path.exists(header):
+            h_text = open(header, encoding="utf-8").read()
+            h_new = upgrade_h(h_text, [n for n, _ in font_blocks(new)], aliases)
+            if h_new != h_text:
+                with open(header, "w", encoding="utf-8") as f:
+                    f.write(h_new)
+                told.append(f"{header}: rewritten")
+    return told
+
+
 def same_font(a, b):
     """Whether two needs came to one font."""
     if type(a) is not type(b):
@@ -1134,16 +1528,18 @@ def fonts_used(resolved, listed, dgx, cache):
     return "\n".join(out)
 
 
-def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, component=None, depfile=None):
+def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, component=None, depfile=None, files=False):
     """The fonts of a needs file into outdir; the board and the rules may come as arguments, for a host build, and win.
     With depfile, the files the fonts were made of are written there for the build, the faces fontconfig and the
-    rules found among them."""
+    rules found among them. With files, or a files line in the needs, every font of the program is also written
+    beside them as a file of bytes, with dgx_fonts-files.txt naming the file of every name of a font."""
     outdir = os.path.abspath(outdir)
     try:
         text = open(needs_path, encoding="utf-8-sig").read()
     except OSError as e:
         raise FontsError(f"{needs_path}: {e.strerror}")
-    dgx, rules_path, board, needs, lists = parse_needs(text, needs_path, os.path.dirname(os.path.abspath(needs_path)))
+    dgx, rules_path, board, needs, lists, files_asked = parse_needs(text, needs_path, os.path.dirname(os.path.abspath(needs_path)))
+    files = files or files_asked
     if scale is not None or pixels or mm:
         board = Board(scale if scale is not None else board.scale, tuple(pixels) if pixels else board.pixels, tuple(mm) if mm else board.mm)
     if rules:
@@ -1211,6 +1607,9 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
         # the fixes DGX keeps for its faces, for every font made, after the directories of a need or a line
         command += ["-P", os.path.join(dgx, "src", "fonts")]
         command += ["-o", os.path.join(work, "dgx_fonts")]
+        if files:
+            os.makedirs(os.path.join(work, "bin"))
+            command += ["-bin", os.path.join(work, "bin")]
         run = subprocess.run(command, capture_output=True, text=True)
         if run.returncode:
             raise FontsError(f"font2c failed: {run.stderr.strip() or run.stdout.strip()}")
@@ -1310,6 +1709,13 @@ def build(needs_path, outdir, scale=None, pixels=None, mm=None, rules=None, comp
             h.append(f"#define DGX_FONTS_BOARD_WIDTH_MM {board.mm[0]:g}")
             h.append(f"#define DGX_FONTS_BOARD_HEIGHT_MM {board.mm[1]:g}")
     h += ["", "#ifdef __cplusplus", "}", "#endif", ""]
+    if files:
+        made_names = {n: n for n in constants}
+        made_names.update(aliases)
+        write_files(dgx, outdir, work, wants, made_names, cache)
+        told.append(f"the fonts as files of bytes: {os.path.join(outdir, FILES_INDEX)}")
+    else:
+        drop_files(outdir, set())
     shutil.rmtree(work, ignore_errors=True)
     write_if_changed(report, fonts_used(resolved, listed, dgx, cache))
     told.append(f"the fonts used and their licenses: {report}; make sure you may use every one of them")
@@ -1364,14 +1770,16 @@ def read_font(path, name=None):
     m = re.search(r"glyph_t\s+" + re.escape(prefix) + r"glyphs\s*\[\s*\]\s*=\s*\{(.*?)\};", text, re.S)
     if not m:
         raise FontsError(f"{path}: {name} has no glyphs")
-    glyphs = [tuple(int(v) for v in g) for g in
-              re.findall(r"\{\s*\{\s*(?:\.bitmap\s*=\s*)?\w*bitmaps\s*\+\s*(\d+)\s*\}\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\}",
-                         strip_comments(m.group(1)))]
+    # a glyph gives the offset of its rows since DGX 0.12.1, a pointer into bitmaps[] before
+    glyphs = [tuple(int(v) for v in ((g[0] or g[1]),) + g[2:]) for g in
+              re.findall(r"\{\s*(?:\{\s*(?:\.bitmap\s*=\s*)?\w*bitmaps\s*\+\s*(\d+)\s*\}|(\d+))\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,"
+                         r"\s*(-?\d+)\s*(?:,\s*\d+\s*)?\}", strip_comments(m.group(1)))]
     m = re.search(r"glyph_array_t\s+" + re.escape(prefix) + r"glyph_ranges\s*\[\s*\]\s*=\s*\{(.*?)\};", text, re.S)
     if not m:
         raise FontsError(f"{path}: {name} has no glyph_ranges")
     ranges = [(int(a, 0), int(n, 0), int(k)) for a, n, k in
-              re.findall(r"\{\s*(0[xX][0-9A-Fa-f]+|\d+)\s*,\s*(0[xX][0-9A-Fa-f]+|\d+)\s*,\s*\w*glyphs\s*\+\s*(\d+)\s*\}", strip_comments(m.group(1)))]
+              re.findall(r"\{\s*(0[xX][0-9A-Fa-f]+|\d+)\s*,\s*(0[xX][0-9A-Fa-f]+|\d+)\s*,\s*(?:\w*glyphs\s*\+\s*)?(\d+)\s*\}", strip_comments(m.group(1)))
+              if not (int(a, 0) == 0 and int(n, 0) == 0)]
     fields = dict(re.findall(r"\.(\w+)\s*=\s*([-\w.]+)", text[text.rindex("dgx_font_t"):]))
     f_type = fields.get("f_type", "DGX_FONT_BITMAP_LINES")
     if f_type in ("DGX_FONT_BITMAP_DEPTH2", "DGX_FONT_BITMAP_DEPTH4"):
@@ -1400,7 +1808,7 @@ def read_font(path, name=None):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="The fonts of a program of DGX by its needs (font2c)")
-    ap.add_argument("what", choices=("build", "pick", "list", "letters", "json"))
+    ap.add_argument("what", choices=("build", "pick", "list", "letters", "json", "upgrade"))
     ap.add_argument("args", nargs="*")
     ap.add_argument("--mono", action="store_true", help="pick, list: every letter as wide")
     ap.add_argument("--family", help="pick, list: only this family (a pattern, as in the rules)")
@@ -1412,15 +1820,22 @@ def main(argv=None):
     ap.add_argument("--rules", help="build: the rules faces are picked by")
     ap.add_argument("--component", help="build: the DGX component, when not the one this script is in")
     ap.add_argument("--depfile", help="build: write the files the fonts were made of there, as a depfile for the build")
+    ap.add_argument("--files", action="store_true", help="build: every font also as a file of bytes, as a files line in the needs asks")
     a = ap.parse_args(argv)
     try:
         if a.what == "build":
             if len(a.args) != 2:
                 raise FontsError("build NEEDS OUTDIR")
-            told, changed = build(a.args[0], a.args[1], a.scale, a.pixels, a.mm, a.rules, a.component, a.depfile)
+            told, changed = build(a.args[0], a.args[1], a.scale, a.pixels, a.mm, a.rules, a.component, a.depfile, a.files)
             for line in told:
                 print(line)
             print("dgx_fonts.c and dgx_fonts.h " + ("written" if changed else "as they were"))
+            return 0
+        if a.what == "upgrade":
+            if not a.args:
+                raise FontsError("upgrade FONT.c...")
+            for line in upgrade(a.args):
+                print(line)
             return 0
         if a.what == "letters":
             found = set()

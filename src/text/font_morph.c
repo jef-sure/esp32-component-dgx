@@ -113,10 +113,10 @@ dgx_font_symbol_morph_t *dgx_font_morph_create( //
         max_sym_width  = DGX_MAX(gTo->width, max_sym_width);
     }
     if (font->f_type == DGX_FONT_DOTS) {
-        from_dots           = gFrom ? gFrom->dots : NULL;
-        from_number_of_dots = gFrom ? gFrom->number_of_dots : 0;
-        to_dots             = gTo ? gTo->dots : NULL;
-        to_number_of_dots   = gTo ? gTo->number_of_dots : 0;
+        from_dots           = gFrom ? (const dgx_font_dot_t *)dgx_glyph_bits(font, gFrom) : NULL;
+        from_number_of_dots = from_dots ? gFrom->count : 0;
+        to_dots             = gTo ? (const dgx_font_dot_t *)dgx_glyph_bits(font, gTo) : NULL;
+        to_number_of_dots   = to_dots ? gTo->count : 0;
     } else {
         from_dots_tmp = _dgx_dots_from_bitmap(font, gFrom, &from_number_of_dots);
         to_dots_tmp   = _dgx_dots_from_bitmap(font, gTo, &to_number_of_dots);

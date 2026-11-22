@@ -43,13 +43,14 @@
 #include "fonts/TerminusTTFMedium12.h"
 
 /*
- * A font as font2c made it before 0.12: the glyphs by place, the font by the names of its measures then. A font is a
- * C file: as C++ its average width, a fraction, narrows, as it did before 0.12.
+ * A font by the names of before 0.12: the types of its tables and its measures named as then. Its glyphs give the
+ * offsets of their data, as every font since 0.12.1 does: a font font2c made before it is made again or upgraded by
+ * dgx_fonts.py. A font is a C file: as C++ its average width, a fraction, narrows, as it did before 0.12.
  */
 #ifndef __cplusplus
 static const uint8_t       old_bitmaps[] = {0xa0, 0x40};
-static const glyph_t       old_glyphs[]  = {{{old_bitmaps + 0}, 3, 2, 4, 0, -2}}; // deprecated in C
-static const glyph_array_t old_ranges[]  = {{0x41, 1, old_glyphs + 0}, {0, 0, 0}}; // deprecated in C
+static const glyph_t       old_glyphs[]  = {{0, 3, 2, 4, 0, -2, 0}}; // deprecated in C
+static const glyph_array_t old_ranges[]  = {{0x41, 1, 0}, {0, 0, 0}}; // deprecated in C
 dgx_font_t *OldFont(void);
 dgx_font_t *OldFont(void)
 {
@@ -62,7 +63,9 @@ dgx_font_t *OldFont(void)
         .f_type        = DGX_FONT_BITMAP_LINES,
         .yBottomMax    = 0,
         .xOffsetLowest = 0,
-        .xRightMax     = 3
+        .xRightMax     = 3,
+        .glyphs        = old_glyphs,
+        .data          = old_bitmaps
     };
     return &rval;
 }

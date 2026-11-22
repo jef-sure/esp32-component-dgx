@@ -28,8 +28,8 @@ static void check_metrics(const char *name, const dgx_font_t *font)
     int left = 0, top = 0, right = 0, bottom = 0;
     bool any = false;
     for (const dgx_glyph_array_t *r = font->glyph_ranges; r && r->number; ++r) {
-        for (int i = 0; i < r->number; ++i) {
-            const dgx_glyph_t *g = &r->glyphs[i];
+        for (uint32_t i = 0; i < r->number; ++i) {
+            const dgx_glyph_t *g = &font->glyphs[r->glyph + i];
             if (g->width <= 0 || g->height <= 0) continue;
             int l = g->x_offset, t = g->y_offset, rr = l + g->width, b = t + g->height;
             if (!any || l < left) left = l;

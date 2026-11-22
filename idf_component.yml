@@ -1,5 +1,5 @@
 ## IDF Component Manager Manifest File
-version: "0.12.0"
+version: "0.12.1"
 description: "Display and graphics component for ESP32 with SPI, QSPI, I2C, parallel, RGB and MIPI-DSI display buses, virtual screens, drawing primitives, fonts with anti-aliased edges, handwritten text and morphing"
 url: https://github.com/jef-sure/esp32-component-dgx
 repository: https://github.com/jef-sure/esp32-component-dgx.git
@@ -82,6 +82,8 @@ files:
     # the texts of the licenses that go with the fonts of DGX
     - "src/fonts/licenses/*.txt"
     - "font2c/*.c"
+    # the writer of a font as a file of bytes, which font2c and font2bin.c share
+    - "font2c/*.h"
     - "font2c/*.py"
     - "font2c/README.md"
     - "font-editor/*.js"

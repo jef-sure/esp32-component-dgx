@@ -193,7 +193,7 @@ static int reference_char(dgx_screen_t *scr, int x, int y, uint32_t cp, dgx_outp
     int16_t           advance;
     const dgx_glyph_t    *g = dgx_font_glyph(font, cp, &advance);
     if (!g) return advance;
-    dgx_bw_bitmap_t bmap   = dgx_bw_bitmap_make_of((uint8_t *)g->bitmap, g->width, g->height, font->f_type == DGX_FONT_BITMAP_STREAM);
+    dgx_bw_bitmap_t bmap   = dgx_bw_bitmap_make_of((uint8_t *)dgx_font_glyph_data(font, g), g->width, g->height, font->f_type == DGX_FONT_BITMAP_STREAM);
     int             right  = g->width - 1, bottom = g->height - 1;
     int             x_shift = g->x_offset * scale, y_shift = g->y_offset * scale;
     if (swap) {

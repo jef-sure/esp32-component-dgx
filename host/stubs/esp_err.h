@@ -9,8 +9,14 @@ typedef int esp_err_t;
 #ifndef ESP_ERR_INVALID_STATE
 #define ESP_ERR_INVALID_STATE 0x103
 #endif
+#ifndef ESP_ERR_INVALID_SIZE
+#define ESP_ERR_INVALID_SIZE 0x104
+#endif
 #ifndef ESP_ERR_NOT_FOUND
 #define ESP_ERR_NOT_FOUND 0x105
 #endif
 #define ESP_ERR_NOT_SUPPORTED 0x106
+#ifndef ESP_ERR_INVALID_VERSION
+#define ESP_ERR_INVALID_VERSION 0x10A
+#endif
 static inline const char *esp_err_to_name(esp_err_t code) { return code == ESP_OK ? "ESP_OK" : "error"; }

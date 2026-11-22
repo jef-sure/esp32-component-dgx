@@ -22,7 +22,7 @@ DGX_HOST_SRCS_DRAW    := $(addprefix $(DGX_ROOT)/src/draw/, draw.c lines.c circl
 # virtual screens and their transfers, scaling and smoothing, the overlay, sprites, tables of colors, the page screen
 DGX_HOST_SRCS_VSCREEN := $(addprefix $(DGX_ROOT)/src/vscreen/, vscreen.c transfer.c alpha.c bw_screen.c image.c lut.c scale.c overlay.c)
 # bitmap and dot fonts, handwritten text and its morphs
-DGX_HOST_SRCS_TEXT    := $(addprefix $(DGX_ROOT)/src/text/, font.c font_morph.c hw_font.c hw_morph.c)
+DGX_HOST_SRCS_TEXT    := $(addprefix $(DGX_ROOT)/src/text/, font.c font_morph.c hw_font.c hw_morph.c font_file.c)
 # the dot morphing framework and its renderers
 DGX_HOST_SRCS_MORPH   := $(addprefix $(DGX_ROOT)/src/morph/, matrix.c morph.c morph_sources.c morph_render.c)
 # the frame buffer of a DSI display: dirty areas, tiles, the flip of two buffers

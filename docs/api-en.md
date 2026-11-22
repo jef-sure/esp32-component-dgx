@@ -188,6 +188,8 @@ Declared in [include/dgx_font.h](../include/dgx_font.h):
 | `dgx_font_bounds(ctx, str, top, height)` | Measure a text as `dgx_font_draw()` draws it, scale counted: returns its length along the line, fills the top from the base line and the height. |
 | `DGX_FONT_BG`, `DGX_FONT_FILL`, `DGX_FONT_MONO`, `DGX_FONT_HARD` | The flags of a context: mix soft edges with `bg`; fill the cell with `bg` too; draw a soft font cut to one bit; draw every pixel a letter touches in full. |
 | `dgx_font_glyph(font, code_point, &advance)` | Look up a single glyph and its advance. |
+| `dgx_font_glyph_data(font, glyph)` | The data of a glyph: the rows of its picture, its dots, or the pen path of a handwritten symbol. A glyph gives its data as an offset from `font->data`, and a range of `glyph_ranges` the number of its first glyph in `font->glyphs`, so that the tables hold no pointer. |
+| `dgx_font_file_memory(bytes, length, &memory)`, `dgx_font_file_load(bytes, length, memory, size, &font)` | From [include/dgx_font_file.h](../include/dgx_font_file.h): a font of the bytes of a `.dgxf` file, which `font2c -bin` and `dgx_fonts_files()` make; the first tells the memory the second needs. See [Fonts as files of bytes](fonts-en.md#fonts-as-files-of-bytes). |
 | `dgx_utf8_next(str, idx)` | Decode the next UTF-8 code point and move the byte index `idx` past it: `for (size_t i = 0; str[i];) cp = dgx_utf8_next(str, &i);` walks a string. A byte that begins no valid sequence gives U+FFFD. |
 | `dgx_utf8_length(str)` | The number of code points in a UTF-8 string; 0 for `NULL`. |
 | `dgx_font_morph_create(font, from_cp, to_cp, from_x, from_y, to_x, to_y, scale)` / `dgx_font_morph_destroy(&ms)` | Build/free a glyph-to-glyph morph descriptor for animation, dot i to dot i; drawn by `dgx_morph_symbol_draw()`. |
@@ -298,6 +300,7 @@ thickness of the pen are chosen at drawing, and letters are joined.
 | `dgx_hw_text_box(font, text, left, top, right, bottom)`, `dgx_hw_morph_box(morph, left, top, right, bottom)` | The same boxes in cells of the grid, before any size is chosen: for laying out in cells. |
 | `dgx_hw_writer_begin(writer, font, text, joined)` / `dgx_hw_writer_next(writer, stroke)` | The strokes of a text one by one in the order of writing, in cells: for a drawing of your own. |
 | `dgx_hw_line_begin(line, font)` / `dgx_hw_line_place(line, code_point, shift)` | Where each next symbol of a line stands. |
+| `dgx_hw_glyph_symbol(font, glyph)`, `dgx_hw_glyph_elements(font, glyph)` | The symbol of a glyph, its segments and measures, `font->hw->symbols` of the same number as the glyph; and its pen path, `glyph->count` elements. |
 | `dgx_hw_draw_text(scr, x, y, font, text, scale, width, color, joined)`, `dgx_hw_writing_begin(writing, scr, x, y, font, text, scale, width, color, joined, pace)`, `dgx_hw_morph_draw(morph, t, scr, x, y, scale, width, color)` and their `_xy` twins with `scale_x, scale_y` | Deprecated: the earlier form of the three drawing calls, with every setting as an argument; they draw the same. A scale or a width of 0 draws nothing there. |
 
 ```c

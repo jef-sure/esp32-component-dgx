@@ -33,7 +33,7 @@ const dgx_glyph_t *dgx_hw_line_place(dgx_hw_line_t *line, uint32_t code_point, i
         line->has_up = false;
         return 0;
     }
-    const dgx_hw_symbol_t *s = g->hw;
+    const dgx_hw_symbol_t *s = dgx_hw_glyph_symbol(line->font, g);
     /* the left edge of the drawing; the first symbol of a line is written whole from its start */
     int32_t left = first ? line->pen : line->pen + g->x_offset;
     if (s->up_left != DGX_HW_NONE) {
@@ -68,8 +68,9 @@ bool dgx_hw_text_box(const dgx_font_t *font, const char *text, int *left, int *t
         }
         const dgx_glyph_t *g = dgx_hw_line_place(&line, cp, &shift);
         if (!g) continue;
-        int gl = shift + font->hw->symbol_offset_x + g->hw->left, gt = line_y + g->hw->top;
-        int gr = shift + font->hw->symbol_offset_x + g->hw->right, gb = line_y + g->hw->bottom;
+        const dgx_hw_symbol_t *s = dgx_hw_glyph_symbol(font, g);
+        int gl = shift + font->hw->symbol_offset_x + s->left, gt = line_y + s->top;
+        int gr = shift + font->hw->symbol_offset_x + s->right, gb = line_y + s->bottom;
         if (!any || gl < l) l = gl;
         if (!any || gt < t) t = gt;
         if (!any || gr > r) r = gr;
@@ -90,9 +91,11 @@ dgx_hw_pace_t dgx_hw_pace(const dgx_font_t *font, float k)
     if (hyphen) {
         /* the efforts of its strokes as they are: with the least being summed up each would be taken as at least the strokes before it */
         const dgx_hw_pace_t as_is = {.piece = k, .least = 0};
-        for (int i = 0; i < hyphen->hw->main_segments + hyphen->hw->post_segments; ++i) {
-            int at = i < hyphen->hw->main_segments ? hyphen->hw->begin_connection : hyphen->hw->begin_connection + hyphen->hw->end_connection;
-            pace.least += dgx_hw_element_effort(&hyphen->elements[at + i], &as_is);
+        const dgx_hw_symbol_t  *s = dgx_hw_glyph_symbol(font, hyphen);
+        const dgx_hw_element_t *e = dgx_hw_glyph_elements(font, hyphen);
+        for (int i = 0; i < s->main_segments + s->post_segments; ++i) {
+            int at = i < s->main_segments ? s->begin_connection : s->begin_connection + s->end_connection;
+            pace.least += dgx_hw_element_effort(&e[at + i], &as_is);
         }
     }
     if (!(pace.least > 0)) pace.least = font->hw->x_height * 2 / 3.0f;
@@ -254,10 +257,10 @@ bool dgx_hw_writer_next(dgx_hw_writer_t *w, dgx_hw_stroke_t *stroke)
     if (!w->font || w->font->f_type != DGX_FONT_HW || !w->font->hw) return false;
     for (;;) {
         if (w->posting) {
-            if (w->post_g && w->post_k < w->post_g->hw->post_segments) {
-                const dgx_hw_symbol_t *s = w->post_g->hw;
+            if (w->post_g && w->post_k < dgx_hw_glyph_symbol(w->font, w->post_g)->post_segments) {
+                const dgx_hw_symbol_t *s = dgx_hw_glyph_symbol(w->font, w->post_g);
                 int                    at = s->begin_connection + s->main_segments + s->end_connection + w->post_k++;
-                return dgx_hw_stroke_of(w, &w->post_g->elements[at], w->post_shift, w->post_number - 1, stroke);
+                return dgx_hw_stroke_of(w, &dgx_hw_glyph_elements(w->font, w->post_g)[at], w->post_shift, w->post_number - 1, stroke);
             }
             if (w->post_idx >= w->run_end) {
                 w->posting = false;
@@ -271,8 +274,8 @@ bool dgx_hw_writer_next(dgx_hw_writer_t *w, dgx_hw_stroke_t *stroke)
             continue;
         }
         if (w->g) {
-            const dgx_hw_symbol_t  *s = w->g->hw;
-            const dgx_hw_element_t *e = w->g->elements;
+            const dgx_hw_symbol_t  *s = dgx_hw_glyph_symbol(w->font, w->g);
+            const dgx_hw_element_t *e = dgx_hw_glyph_elements(w->font, w->g);
             if (w->phase == DGX_HW_WRITE_JOINT) {
                 /* the pen comes from the symbol before by one curve, then the rest of the begin connection */
                 float bx[4], by[4];
@@ -318,7 +321,8 @@ bool dgx_hw_writer_next(dgx_hw_writer_t *w, dgx_hw_stroke_t *stroke)
         int16_t        advance;
         const dgx_glyph_t *g = cp == '\n' ? 0 : dgx_font_glyph(w->font, cp, &advance);
         /* two symbols are joined only when the first has an end connection and the second a begin connection */
-        bool joined_prev = w->joined && g && w->prev && w->prev->hw->end_connection && g->hw->begin_connection;
+        bool joined_prev = w->joined && g && w->prev && dgx_hw_glyph_symbol(w->font, w->prev)->end_connection &&
+                           dgx_hw_glyph_symbol(w->font, g)->begin_connection;
         if (!joined_prev && w->run) {
             /* the pen is taken off the paper: first the postponed strokes of what is written */
             dgx_hw_post(w);
@@ -347,11 +351,11 @@ bool dgx_hw_writer_next(dgx_hw_writer_t *w, dgx_hw_stroke_t *stroke)
         }
         w->run_end = w->idx;
         w->joined_next = false;
-        if (w->joined && g->hw->end_connection && w->text[w->idx]) {
+        if (w->joined && dgx_hw_glyph_symbol(w->font, g)->end_connection && w->text[w->idx]) {
             size_t         after = w->idx;
             uint32_t       cp_next = dgx_utf8_next(w->text, &after);
             const dgx_glyph_t *g_next = cp_next == '\n' ? 0 : dgx_font_glyph(w->font, cp_next, &advance);
-            w->joined_next = g_next && g_next->hw->begin_connection;
+            w->joined_next = g_next && dgx_hw_glyph_symbol(w->font, g_next)->begin_connection;
         }
         /*
          * A connection which joins nothing is not written. The only exception is a
@@ -359,7 +363,8 @@ bool dgx_hw_writer_next(dgx_hw_writer_t *w, dgx_hw_stroke_t *stroke)
          * pen cannot come out of that one, so this one is begun with its whole
          * begin connection.
          */
-        bool dead_end = w->joined && w->prev && w->prev->hw->begin_connection && !w->prev->hw->end_connection;
+        const dgx_hw_symbol_t *ps = w->prev ? dgx_hw_glyph_symbol(w->font, w->prev) : 0;
+        bool dead_end = w->joined && ps && ps->begin_connection && !ps->end_connection;
         w->phase = joined_prev ? DGX_HW_WRITE_JOINT : dead_end ? DGX_HW_WRITE_BEGIN : DGX_HW_WRITE_MAIN;
         w->k = 0;
         w->g = g;

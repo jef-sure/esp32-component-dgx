@@ -61,40 +61,34 @@ typedef enum {                   //
     DGX_FONT_BITMAP_DEPTH4 = 6
 } dgx_font_model_t;
 
-struct dgx_hw_element_;
-struct dgx_hw_symbol_;
 struct dgx_hw_font_;
 
 /**
- * A glyph of a font. A font made by font2c gives its glyphs in this order,
- * the members after the first by place, not by name.
+ * A glyph of a font. Its data lies at font->data + offset, as
+ * dgx_font_glyph_data() gives it: the rows of its picture in a bitmap font,
+ * `count` dgx_font_dot_t of a dot font, `count` dgx_hw_element_t, the pen
+ * path of the symbol, of a handwritten one. The table has no pointer, so a
+ * font of bytes (dgx_font_file.h) is read where it lies; 16 bytes a glyph on
+ * every target. A font made by font2c gives its glyphs in this order, by
+ * place.
  */
 typedef struct dgx_glyph_t {
-    union {
-        const uint8_t *bitmap;  ///< Pointer into GFXfont->bitmap
-        struct {
-            const dgx_font_dot_t *dots;
-            size_t number_of_dots;
-        };
-        struct {                                   ///< DGX_FONT_HW
-            const struct dgx_hw_element_ *elements; ///< The pen path of the symbol
-            const struct dgx_hw_symbol_ *hw;        ///< Its segments and the rest of its measures
-        };
-    };
-    int16_t width;      ///< Bitmap dimensions in pixels; DGX_FONT_HW: of the drawing in cells of its grid, as all below
-    int16_t height;     ///< Bitmap dimensions in pixels
-    int16_t x_advance;  ///< Distance to advance cursor (x axis); xAdvance before 0.12
-    int16_t x_offset;   ///< xOffset before 0.12
-    int16_t y_offset;   ///< yOffset before 0.12
+    uint32_t offset;    ///< Of its data from font->data, in bytes
+    int16_t  width;     ///< Bitmap dimensions in pixels; DGX_FONT_HW: of the drawing in cells of its grid, as all below
+    int16_t  height;    ///< Bitmap dimensions in pixels
+    int16_t  x_advance; ///< Distance to advance cursor (x axis); xAdvance before 0.12
+    int16_t  x_offset;  ///< xOffset before 0.12
+    int16_t  y_offset;  ///< yOffset before 0.12
+    uint16_t count;     ///< DGX_FONT_DOTS: its dots; DGX_FONT_HW: the elements of its pen path; 0 for a bitmap
 } dgx_glyph_t;
 
-/** A run of glyphs of consecutive code points, from `first`. */
+/** A run of glyphs of consecutive code points, from `first`: the glyph of `first` is font->glyphs[glyph]. */
 typedef struct dgx_glyph_array_t {
-    int first, number;
-    const dgx_glyph_t *glyphs;
+    uint32_t first, number;
+    uint32_t glyph;
 } dgx_glyph_array_t;
 
-/** The names the two types had before 0.12, which a font made by an older font2c uses. */
+/** The names the two types had before 0.12. */
 typedef dgx_glyph_t       glyph_t DGX_DEPRECATED("use dgx_glyph_t");
 typedef dgx_glyph_array_t glyph_array_t DGX_DEPRECATED("use dgx_glyph_array_t");
 
@@ -167,7 +161,15 @@ typedef struct dgx_font_ {
     };
     int16_t number_of_ranges;       ///< Ranges in glyph_ranges, ascending, for a search by halving; 0: not told, they are tried in order
     const struct dgx_hw_font_ *hw;  ///< DGX_FONT_HW: what the font has besides its glyphs
+    const dgx_glyph_t *glyphs;      ///< The glyphs; glyph_ranges give the place of each in this table
+    const uint8_t     *data;        ///< Where the offsets of the glyphs count from
 } dgx_font_t;
+
+/**
+ * @brief The data of a glyph: the rows of its picture, its dots or its pen
+ * path, as the model of the font has them (see dgx_glyph_t).
+ */
+static inline const void *dgx_font_glyph_data(const dgx_font_t *font, const dgx_glyph_t *glyph) { return font->data + glyph->offset; }
 
 /*
  * A font is a constant since DGX 0.12: `extern const dgx_font_t Name;` in

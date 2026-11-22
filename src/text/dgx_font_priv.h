@@ -17,6 +17,12 @@ extern "C" {
 // @formatter:on
 #endif
 
+/* the data of a glyph, as dgx_font_glyph_data() gives it, or NULL when its font has none */
+static inline const uint8_t *dgx_glyph_bits(const dgx_font_t *font, const dgx_glyph_t *g)
+{
+    return font->data ? font->data + g->offset : NULL;
+}
+
 /*
  * Every pixel of ink of a bitmap glyph, as dgx_bw_bitmap_foreach_set() gives the set pixels of a bitmap: in scan order,
  * func NULL to count them, func returning false to stop. Ink is a set pixel of a font of one bit, and a pixel covered

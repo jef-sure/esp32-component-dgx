@@ -1,5 +1,97 @@
 # Changes
 
+## 0.12.1 - 2026-11-22
+
+A font as a file of bytes, which a program reads while it runs, and the
+glyphs of a font by offsets, so that the tables of such a file are read
+where they lie. Checked by host tests and builds for ESP32, ESP32-S3 and
+ESP32-P4 under IDF 5.5.4 and 6.1, and timed on the ILI9341 of a CYD with
+the lines of the table "What it costs in time" of docs/fonts-en.md: on
+virtual screens they take the time of 0.12.0, to 0.6%, and a font read of
+its file in flash the time of its C, to 1%. On the display the lines differ
+from 0.12.0 by up to 10%, and the same code of 0.12.1 moved by 1 KB in
+flash takes one of them from 4.5 to 8.6 ms: there the place of the code in
+the flash cache rules, not the change.
+
+Changes a program may see:
+
+- **A glyph gives its data as an offset, a range the number of its first
+  glyph.** `dgx_glyph_t` is `{offset, width, height, x_advance, x_offset,
+  y_offset, count}`, 16 bytes on every target instead of 20 on an ESP32 and
+  32 on a 64-bit computer; `dgx_glyph_array_t` is `{first, number, glyph}`.
+  `dgx_font_t` gives the table of its glyphs, `glyphs`, and where their
+  offsets count from, `data`; `dgx_hw_font_t` gives the symbols of a
+  handwritten font, `symbols`, one for each glyph.
+  `dgx_font_glyph_data()`, `dgx_hw_glyph_symbol()` and
+  `dgx_hw_glyph_elements()` give what a glyph held pointers to. The tables
+  of a font were never a documented format; the calls, the measures of a
+  font and those of a glyph, `width` to `y_offset`, are as they were. A
+  font of C made before 0.12.1, by font2c or by hand, has pointers in its
+  tables and does not build: `dgx_fonts.py upgrade font.c` rewrites it in
+  place, with its header, the pictures in its comments as they were, and
+  font2c makes the form of now. What 0.12.0 said, that a font made before
+  builds as it did, holds no longer. A need of a program's font (`FILE`)
+  of the form of before is refused by the build, which names that command.
+  Every font of DGX draws pixel for pixel as in 0.12.0, every way, on
+  virtual screens of 8 and 16 bits.
+
+New:
+
+- **A font as a file of bytes, `.dgxf`.** `dgx_font_file_memory()` and
+  `dgx_font_file_load()` of `dgx_font_file.h` give a font of the bytes of
+  a file, from a file system, from the network, embedded in a program, and
+  every call of `dgx_font.h` and `dgx_hw_font.h` draws with it. With the
+  bytes at an address divisible by 4 the tables are read in place, and the
+  memory holds only the `dgx_font_t`: 40 bytes on an ESP32, 72 for a
+  handwritten font; at another address the tables are copied. Every offset
+  and length is held to the bounds of the file before a font is given: a
+  spoiled or cut file is refused with `ESP_ERR_INVALID_ARG` and what is
+  wrong in the log, a file of a later format with
+  `ESP_ERR_INVALID_VERSION`. A program that does not call it does not
+  carry it.
+- `dgx_fonts_files()` in CMake, a `files` line in a needs file, or
+  `dgx_fonts.py build --files`: every font of the program also as a file
+  beside `dgx_fonts.c`, those made for its needs and lists, every font of
+  DGX and its fonts of C, with `dgx_fonts-files.txt`, a line `<name in C>
+  <file>` for every name a font is taken by.
+- `font2c -bin <dir>` writes a font also as a file, of the same numbers and
+  bytes as its C, and a text about the font: its name, family, size, and
+  the copyright and license its face tells, a long text cut at 300
+  characters as in `fonts-used.txt`, the URL of the license whole.
+  `font2c/font2bin.c` writes the file of a font of C already made. Both
+  write through `font2c/dgxf_write.h`, which tells the format.
+- `dgx_fonts.py upgrade` rewrites a font of C of the form before 0.12.1; a
+  font of dots written by hand, an array of dots and a table for each
+  glyph, gets them merged into one. The font editor reads the three forms
+  and writes the tables of now.
+- host/stubs/esp_err.h gives `ESP_ERR_INVALID_SIZE` and
+  `ESP_ERR_INVALID_VERSION`, of the values ESP-IDF has.
+
+Tests:
+
+- test_font_file: every font of DGX written as a file and read at an
+  address divisible by 4, at an even one and at an odd one has the same
+  glyphs as its C and draws pixel for pixel the same, every way. Small
+  files of every model cut at every length are refused, and spoiled byte
+  by byte, four ways a byte, are refused or draw, measure and morph
+  without a fault under AddressSanitizer and UndefinedBehaviorSanitizer.
+- test_fonts: `font2c -bin` of fonts of 1, 2 and 4 bits and of a
+  handwritten one gives the file `font2bin.c` gives of their C compiled,
+  but for the text about the font; a build with `files` writes every font
+  and the index, and without it takes them away; a font of a program of
+  the form before 0.12.1 is refused, upgraded, and then taken with the same
+  glyphs.
+
+Documentation:
+
+- docs/fonts-en.md and docs/fonts-ru.md: "Fonts as files of bytes" and
+  "Fonts of C made before 0.12.1"; docs/api-en.md: the new calls;
+  font2c/README.md: `-bin`, `font2bin.c` and `upgrade`; docs/hw-font-ru.md:
+  where a symbol and its elements lie.
+- README: fonts as files of bytes, in a paragraph; "Text in your own font"
+  gives the font as `&YourFontRegular16`, where it still called it as a
+  function, deprecated since 0.12.0.
+
 ## 0.12.0 - 2026-11-21
 
 On the way to DGX 1.0: every name that 1.0 takes away still builds and does

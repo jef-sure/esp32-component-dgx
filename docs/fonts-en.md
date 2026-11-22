@@ -601,9 +601,9 @@ extern const dgx_font_t dgx_font_keys;
   `dgx_font_hand` *is* `font0ss`. That way the DGX library never references
   code of the program, and link order does not matter; the header declares
   a program's own font (`FILE`) itself. A font a program keeps as `FILE`
-  that font2c made before DGX 0.12 is a function, and its need is taken by
-  `dgx_font_<need>()`, as all of them were before; the build says so, and
-  the font made again is a constant like the rest.
+  whose glyphs hold pointers, as every font font2c made before DGX 0.12.1,
+  does not build with this DGX: the build refuses it and names the command
+  that rewrites it (see [Fonts of C made before 0.12.1](#fonts-of-c-made-before-0121)).
 - `dgx_font_<need>()`, the call of before 0.12, still builds until DGX 1.0,
   with a warning, and gives the font without `const`, as the function did.
 - `DGX_FONT_<NEED>_MADE` is 1 if the font was made for this board (its size
@@ -638,6 +638,94 @@ static const dgx_font_t *const fonts[POP_FONT_COUNT] = {
   `dgx_fonts_scale` and `dgx_fonts_board`, so the scale and the display's
   millimeters are written once in the project: the same numbers go to
   `dgx_di_touch_display()` and `dgx_di_keyboard_open()`.
+
+## Fonts as files of bytes
+
+A font can also be a file of bytes, `.dgxf`, which a program reads while it
+runs: from a file system, from the network, embedded in its image. Every
+call of `dgx_font.h` and `dgx_hw_font.h` draws with a font read so, of any
+kind: bitmap fonts of 1, 2 and 4 bits a pixel, dot fonts, handwritten fonts.
+
+```cmake
+dgx_fonts_files()   # in the program's CMakeLists, once
+```
+
+Beside `dgx_fonts.c` in `build/dgx_fonts/` every font of the program then
+also lies as `<name>.dgxf`: the fonts made for the needs and the lists,
+every font of DGX, as a program may include any of them, and the program's
+fonts of C (`FILE`); the last two are compiled on the computer to be
+written. `dgx_fonts-files.txt` beside them holds a line `<name in C>
+<file>` for every name a font is taken by: its constant, and
+`dgx_font_<need>` of every need. Without `dgx_fonts_files()` no file is
+made, and the files of a build before are taken away. A needs file asks
+for the same with a line `files`, and `dgx_fonts.py build` with
+`--files`.
+
+A font made by hand gets its file with `-bin`: `font2c -bin . font.ttf 16`
+writes `<name>.dgxf` beside `<name>.c`, and `font2c -jo list -bin dir`
+every font of the lists into `dir`, by its first name. The file of a font
+of C made before, or written by hand, is written by
+`font2c/font2bin.c`, compiled with the font on the computer; its head
+comment tells how.
+
+```c
+#include "dgx_font_file.h"
+
+size_t need;
+if (dgx_font_file_memory(bytes, length, &need) == ESP_OK) {
+    void             *memory = malloc(need);
+    const dgx_font_t *font;
+    if (memory && dgx_font_file_load(bytes, length, memory, need, &font) == ESP_OK) {
+        const dgx_font_context_t text = {.scr = scr, .font = font, .color = ink};
+        dgx_font_draw(&text, 10, 40, "Hello");
+    }
+}
+```
+
+The font reads the bytes where they lie: they and the memory live as long
+as the font is used. It is let go by freeing both, when no writing or
+morph of `dgx_hw_font.h` made of it is alive; fonts share nothing, and any
+number of them may be used at once. With the bytes at an address divisible
+by 4 the memory holds only the `dgx_font_t` of the font, 40 bytes on an
+ESP32, 72 for a handwritten font: the tables, the pictures and the pen
+paths are read in place. At another address the tables are copied into
+the memory, 12 bytes a range and 16 a glyph: about 10 KB for
+LiberationSansRegular12, 604 glyphs in 37 ranges. A handwritten font copies
+its symbols too, 30 bytes each, and at an odd address its pen paths: font0ss
+then takes about 7.5 KB, and 17 KB at an odd address. `malloc()` gives an
+address divisible by 4; `EMBED_FILES` of ESP-IDF does not promise one, and
+`target_add_binary_data(... ALIGN 4)` gives it from ESP-IDF 6.0.
+
+The reader holds every offset and length of a file to its bounds before
+it gives a font: a file that is spoiled or cut is refused with
+`ESP_ERR_INVALID_ARG` and what is wrong in the log, never read past its
+end. A file of a format of a later DGX is refused with
+`ESP_ERR_INVALID_VERSION`. Bytes after the file in the buffer are not read.
+The format is told in [font2c/dgxf_write.h](../font2c/dgxf_write.h), the one
+writer of it, which font2c and font2bin.c share: every number of a fixed
+width, little-endian, the tables of ranges and glyphs the same as
+`dgx_glyph_array_t` and `dgx_glyph_t` byte for byte, and last a text about
+the font, its name, family, copyright and license as its face tells them,
+a long text cut at 300 characters as in `fonts-used.txt`, the URL of the
+license whole.
+
+### Fonts of C made before 0.12.1
+
+Since DGX 0.12.1 a glyph gives its data as an offset from `font->data`,
+and a range the number of its first glyph in `font->glyphs`: the tables
+hold no pointer, so a file is read in place, and a glyph takes 16 bytes
+instead of 20 on an ESP32. A font of C written before, by font2c or by
+hand, has pointers there and does not build. It is rewritten in place,
+with its header, the pictures in its comments as they were:
+
+```sh
+python3 font2c/dgx_fonts.py upgrade fonts/PxCgaThin8.c
+```
+
+A font of dots written by hand with an array of dots and a table of glyphs
+of its own for each glyph gets them merged into one. A need of a program's
+font (`FILE`) whose glyphs hold pointers is refused by the build with this
+command; the font made again by font2c is of the form of now as well.
 
 ## What the build machine needs
 
@@ -744,6 +832,7 @@ python3 font2c/dgx_fonts.py pick fonts.rules 48 --mono --letters "Привет" 
 python3 font2c/dgx_fonts.py list fonts.rules 48                            # every allowed face, in order
 python3 font2c/dgx_fonts.py letters assets/ru.po main/keys.json            # the characters the texts yield
 python3 font2c/dgx_fonts.py json build/dgx_fonts/dgx_fonts.c --font dgx_font_keys  # a font as JSON with its glyph pixels, for editors
+python3 font2c/dgx_fonts.py upgrade fonts/PxCgaThin8.c                     # a font of C made before 0.12.1 in the form of now
 ```
 
 `font2c` has these options for it. `-jo <list>` (repeatable) and `-o <name>`
@@ -752,7 +841,9 @@ duplicates and naming the arrays after the fonts so nothing collides. `-n
 <name>` is for a single run: the font and the files take that name, and
 the static arrays get it as a prefix. `-p <file>` and `-P <dir>` apply a
 patch of the font editor (see [Glyphs fixed by hand](#glyphs-fixed-by-hand)).
-Without these options the output is unchanged.
+`-bin <dir>` writes every font also as a file of bytes into `dir` (see
+[Fonts as files of bytes](#fonts-as-files-of-bytes)). Without these
+options the output is unchanged.
 
 ## How it works
 
@@ -761,7 +852,8 @@ For the curious, and for whoever has to fix it.
 1. **`project_include.cmake` of the DGX component.** ESP-IDF includes this
    file of every component before the CMakeLists of any of them. It defines
    `dgx_font_need`, `dgx_font_needs_file`, `dgx_font_list`,
-   `dgx_fonts_scale`, `dgx_fonts_board` and `dgx_fonts_rules`. They run
+   `dgx_fonts_scale`, `dgx_fonts_board`, `dgx_fonts_rules` and
+   `dgx_fonts_files`. They run
    nothing; they only record their arguments in global CMake properties,
    with paths made absolute relative to the CMakeLists that declared the
    need.

@@ -531,9 +531,9 @@ static void test_glyphs(void)
     CHECK(a->height == font->y_bottom_max - font->y_offset_lowest);
 
     for (const dgx_glyph_array_t *r = font->glyph_ranges; r && r->number; ++r) {
-        for (int i = 0; i < r->number; ++i) {
-            dgx_bit_matrix_t *g = dgx_morph_glyph_matrix(font, r->first + (uint32_t)i);
-            CHECK(g && g->number_of_set_cells == r->glyphs[i].number_of_dots);
+        for (uint32_t i = 0; i < r->number; ++i) {
+            dgx_bit_matrix_t *g = dgx_morph_glyph_matrix(font, r->first + i);
+            CHECK(g && g->number_of_set_cells == font->glyphs[r->glyph + i].count);
             dgx_matrix_destroy(&g);
         }
     }
@@ -1023,9 +1023,10 @@ static bool symbol_is_glyph(const symbol_dots_t *d, const dgx_font_t *font, uint
 {
     int16_t        advance;
     const dgx_glyph_t *g = dgx_font_glyph(font, cp, &advance);
-    if (!g || d->count != (int)g->number_of_dots) return false;
-    for (size_t i = 0; i < g->number_of_dots; ++i) {
-        int px = x + (g->x_offset + g->dots[i].x) * scale + scale / 2, py = y + (g->y_offset + g->dots[i].y) * scale + scale / 2;
+    if (!g || d->count != (int)g->count) return false;
+    const dgx_font_dot_t *dots = dgx_font_glyph_data(font, g);
+    for (size_t i = 0; i < g->count; ++i) {
+        int px = x + (g->x_offset + dots[i].x) * scale + scale / 2, py = y + (g->y_offset + dots[i].y) * scale + scale / 2;
         int found = 0;
         for (int k = 0; k < d->count; ++k) found += d->x[k] == px && d->y[k] == py;
         if (found != 1) return false;
@@ -1090,9 +1091,9 @@ static void test_symbol_large(void)
     enum { SIDE = 150, PITCH = (SIDE + 7) / 8 };
     static uint8_t diagonal[SIDE * PITCH];
     for (int i = 0; i < SIDE; ++i) diagonal[i * PITCH + i / 8] |= (uint8_t)(0x80u >> (i % 8));
-    const dgx_glyph_t            glyph[] = { { { .bitmap = diagonal }, SIDE, SIDE, SIDE + 2, 1, 1 - SIDE } };
-    const dgx_glyph_array_t      ranges[] = { { '\\', 1, glyph }, { 0, 0, 0 } };
-    dgx_font_t               font = { .glyph_ranges = ranges, .y_advance = SIDE + 4, .f_type = DGX_FONT_BITMAP_LINES };
+    const dgx_glyph_t            glyph[] = { { 0, SIDE, SIDE, SIDE + 2, 1, 1 - SIDE, 0 } };
+    const dgx_glyph_array_t      ranges[] = { { '\\', 1, 0 }, { 0, 0, 0 } };
+    dgx_font_t               font = { .glyph_ranges = ranges, .y_advance = SIDE + 4, .f_type = DGX_FONT_BITMAP_LINES, .glyphs = glyph, .data = diagonal };
     dgx_font_symbol_morph_t *m = dgx_font_morph_create(&font, '\\', '\\', 20, 400, 30, 410, 2);
     bool                     placed = m && m->number_of_dots == SIDE;
     for (int i = 0; placed && i < SIDE; ++i) {

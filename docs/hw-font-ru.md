@@ -153,9 +153,9 @@ font0ss: 8 symbols with parts of their own closer than 16 cells:
 | --- | --- |
 | поля шрифта, кроме `codePoints` и `auxilarySegments` | `dgx_hw_font_t`, на него указывает `hw` в `dgx_font_t` |
 | коды символов | диапазоны `glyph_ranges`, как у всех шрифтов |
-| размеры символа, `spaceBefore`, `spaceAfter` | `dgx_hw_symbol_t`, на него указывает `hw` в глифе |
-| число элементов в каждом из четырёх сегментов | там же |
-| элементы: `type`, `points`, `length`, `pieces`, `pixels` | массив `dgx_hw_element_t`, на первый элемент символа указывает `elements` в глифе |
+| размеры символа, `spaceBefore`, `spaceAfter` | `dgx_hw_symbol_t` в таблице `symbols` шрифта, под тем же номером, что и глиф; его даёт `dgx_hw_glyph_symbol()` |
+| число элементов в каждом из четырёх сегментов | там же; всего их `count` глифа |
+| элементы: `type`, `points`, `length`, `pieces`, `pixels` | массив `dgx_hw_element_t`; элементы символа лежат с `offset` глифа от `data` шрифта, их даёт `dgx_hw_glyph_elements()` |
 
 Мелочи, в которых таблицы отличаются от файла:
 

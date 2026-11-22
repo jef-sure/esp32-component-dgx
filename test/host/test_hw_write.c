@@ -30,7 +30,7 @@ static int strokes_of(const dgx_font_t *font, const char *text, bool joined, dgx
 static const dgx_hw_symbol_t *symbol(uint32_t cp)
 {
     int16_t advance;
-    return dgx_font_glyph(&font0ss, cp, &advance)->hw;
+    return dgx_hw_glyph_symbol(&font0ss, dgx_font_glyph(&font0ss, cp, &advance));
 }
 
 /* a small font of its own for what font0-ss has not: a letter with a begin connection and no end one */
@@ -46,12 +46,13 @@ static const dgx_hw_symbol_t tiny_symbols[] = {
     {1, 1, 1, 0, 21, -47, -7, 14, 34, 14, 34, 21, DGX_HW_NONE, DGX_HW_NONE, 37, 0, 16},
 };
 static const dgx_glyph_t tiny_glyphs[] = {
-    {{.elements = tiny_elements + 0, .hw = tiny_symbols + 0}, 1, 41, 17, 0, -47},
-    {{.elements = tiny_elements + 2, .hw = tiny_symbols + 1}, 21, 41, 37, 0, -47},
+    {0, 1, 41, 17, 0, -47, 2},
+    {2 * sizeof(dgx_hw_element_t), 21, 41, 37, 0, -47, 3},
 };
-static const dgx_glyph_array_t tiny_ranges[] = {{'a', 2, tiny_glyphs}, {0, 0, 0}};
-static const dgx_hw_font_t tiny_hw = {"tiny", 1, 139, 58, 16, 40, 66, 48, 100, 202};
-static dgx_font_t          tiny = {.glyph_ranges = tiny_ranges, .y_advance = 202, .f_type = DGX_FONT_HW, .number_of_ranges = 1, .hw = &tiny_hw};
+static const dgx_glyph_array_t tiny_ranges[] = {{'a', 2, 0}, {0, 0, 0}};
+static const dgx_hw_font_t tiny_hw = {"tiny", 1, 139, 58, 16, 40, 66, 48, 100, 202, tiny_symbols};
+static dgx_font_t          tiny = {.glyph_ranges = tiny_ranges, .y_advance = 202, .f_type = DGX_FONT_HW, .number_of_ranges = 1, .hw = &tiny_hw,
+                                   .glyphs = tiny_glyphs, .data = (const uint8_t *)tiny_elements};
 
 static int ink(dgx_screen_t *s)
 {
@@ -133,7 +134,8 @@ int main(void)
     {
         int16_t        adv;
         const dgx_glyph_t *g = dgx_font_glyph(font, '-', &adv);
-        CHECK(fabsf(pace.least - (g->elements[0].length * 0.01f + 5 * g->elements[0].pieces)) < 0.001f);
+        const dgx_hw_element_t *e = dgx_hw_glyph_elements(font, g);
+        CHECK(fabsf(pace.least - (e[0].length * 0.01f + 5 * e[0].pieces)) < 0.001f);
     }
     CHECK(dgx_hw_pace(&tiny, 0).least == 58 * 2 / 3.0f);
     {
@@ -143,9 +145,11 @@ int main(void)
             {DGX_HW_LINE, 1, 1000, 10, {{45, 150}, {55, 150}}},
         };
         static const dgx_hw_symbol_t dash_symbol    = {0, 2, 0, 0, 45, -10, -9, 10, 55, 10, 55, 45, DGX_HW_NONE, DGX_HW_NONE, 50, 0, 5};
-        static const dgx_glyph_t         dash_glyph     = {{.elements = dash_elements, .hw = &dash_symbol}, 1, 45, 50, 0, -10};
-        static const dgx_glyph_array_t   dash_ranges[]  = {{'-', 1, &dash_glyph}, {0, 0, 0}};
-        static dgx_font_t            dash = {.glyph_ranges = dash_ranges, .y_advance = 202, .f_type = DGX_FONT_HW, .number_of_ranges = 1, .hw = &tiny_hw};
+        static const dgx_glyph_t         dash_glyph     = {0, 1, 45, 50, 0, -10, 2};
+        static const dgx_glyph_array_t   dash_ranges[]  = {{'-', 1, 0}, {0, 0, 0}};
+        static const dgx_hw_font_t       dash_hw        = {"tiny", 1, 139, 58, 16, 40, 66, 48, 100, 202, &dash_symbol};
+        static dgx_font_t                dash = {.glyph_ranges = dash_ranges, .y_advance = 202, .f_type = DGX_FONT_HW, .number_of_ranges = 1,
+                                                 .hw = &dash_hw, .glyphs = &dash_glyph, .data = (const uint8_t *)dash_elements};
         CHECK(fabsf(dgx_hw_pace(&dash, 0).least - 40) < 0.001f);
         CHECK(fabsf(dgx_hw_pace(&dash, 2).least - 44) < 0.001f);
     }

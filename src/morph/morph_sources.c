@@ -30,8 +30,8 @@ static bool dgx_morph_font_box(const dgx_font_t *font, int *left, int *top, int 
     }
     bool any = false;
     for (const dgx_glyph_array_t *r = font->glyph_ranges; r && r->number; ++r) {
-        for (int i = 0; i < r->number; ++i) {
-            const dgx_glyph_t *g = &r->glyphs[i];
+        for (uint32_t i = 0; i < r->number; ++i) {
+            const dgx_glyph_t *g = &font->glyphs[r->glyph + i];
             if (g->width <= 0 || g->height <= 0) continue;
             int l = g->x_offset, t = g->y_offset;
             int rr = l + g->width, b = t + g->height;
@@ -62,10 +62,11 @@ dgx_bit_matrix_t *dgx_morph_glyph_matrix(const dgx_font_t *font, uint32_t code_p
         .y0 = g->y_offset - top,
     };
     if (font->f_type == DGX_FONT_DOTS) {
-        for (size_t i = 0; i < g->number_of_dots; ++i) {
-            dgx_morph_glyph_set(&ctx, g->dots[i].x, g->dots[i].y);
+        const dgx_font_dot_t *dots = (const dgx_font_dot_t *)dgx_glyph_bits(font, g);
+        for (int i = 0; dots && i < g->count; ++i) {
+            dgx_morph_glyph_set(&ctx, dots[i].x, dots[i].y);
         }
-    } else if (g->bitmap) {
+    } else if (dgx_glyph_bits(font, g)) {
         /* a font of 2 or 4 bits a pixel gives the pixels DGX_FONT_MONO draws */
         dgx_font_glyph_foreach_ink(font, g, dgx_morph_glyph_set, &ctx);
     }

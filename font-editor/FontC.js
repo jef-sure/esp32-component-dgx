@@ -12,7 +12,10 @@
  * A font is a constant since DGX 0.12, `const dgx_font_t Name = {...};`, and
  * was a function before, `dgx_font_t* Name() { static dgx_font_t rval ...`.
  * Both are read, and a font is written back in the form it was read in, so
- * that it still agrees with its header.
+ * that it still agrees with its header. Its tables are written as DGX has
+ * them since 0.12.1, whatever they were: a glyph gives the offset of its rows
+ * in bitmaps[], a range the number of its first glyph, and the font gives
+ * glyphs[] and bitmaps[] by name; before 0.12.1 the two held pointers.
  */
 
 var FontC = (() => {
@@ -133,10 +136,12 @@ var FontC = (() => {
         const cm = /\w*bitmaps\s*\[\s*\]\s*=\s*\{(.*?)\};/s.exec(clean);
         const bitmaps = [...cm[1].matchAll(/0x([0-9A-Fa-f]+)/g)].map(x => parseInt(x[1], 16));
         const gcl = /glyph_t\s+\w*glyphs\s*\[\s*\]\s*=\s*\{(.*?)\};/s.exec(clean);
-        const glyphs = [...gcl[1].matchAll(/\{\s*\{\s*(?:\.bitmap\s*=\s*)?\w*bitmaps\s*\+\s*(\d+)\s*\}\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\}/g)]
-            .map(g => ({ at: +g[1], w: +g[2], h: +g[3], adv: +g[4], xo: +g[5], yo: +g[6] }));
+        /* a glyph gives the offset of its rows since DGX 0.12.1, a pointer into bitmaps[] before */
+        const glyphs = [...gcl[1].matchAll(/\{\s*(?:\{\s*(?:\.bitmap\s*=\s*)?\w*bitmaps\s*\+\s*(\d+)\s*\}|(\d+))\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*(?:,\s*\d+\s*)?\}/g)]
+            .map(g => ({ at: +(g[1] !== undefined ? g[1] : g[2]), w: +g[3], h: +g[4], adv: +g[5], xo: +g[6], yo: +g[7] }));
         const rcl = /glyph_array_t\s+\w*glyph_ranges\s*\[\s*\]\s*=\s*\{(.*?)\};/s.exec(clean);
-        const ranges = [...rcl[1].matchAll(/\{\s*(0[xX][0-9A-Fa-f]+|\d+)\s*,\s*(0[xX][0-9A-Fa-f]+|\d+)\s*,\s*\w*glyphs\s*\+\s*(\d+)\s*\}/g)]
+        /* a range gives the number of its first glyph since DGX 0.12.1, a pointer into glyphs[] before */
+        const ranges = [...rcl[1].matchAll(/\{\s*(0[xX][0-9A-Fa-f]+|\d+)\s*,\s*(0[xX][0-9A-Fa-f]+|\d+)\s*,\s*(?:\w*glyphs\s*\+\s*)?(\d+)\s*\}/g)]
             .filter(r => !/^0+$/.test(r[1]) || +r[2] > 0) // the {0,0,0} stop
             .filter(r => !(parseInt(r[1], 0) === 0 && parseInt(r[2], 0) === 0))
             .map(r => ({ first: parseInt(r[1], 0), number: parseInt(r[2], 0), k: +r[3] }));
@@ -267,7 +272,7 @@ var FontC = (() => {
         for (const r of ranges) {
             for (let i = 0; i < r.number; ++i) {
                 const cp = r.first + i, g = font.glyphs[cp], gr = glyphRows[cp];
-                out.push(`${gi ? ', ' : ''}  { {.bitmap = ${p}bitmaps + ${String(gr.at).padStart(5)} }, ${String(g.w).padStart(3)}, ${String(g.h).padStart(3)}, ${String(g.xAdvance).padStart(3)}, ${String(g.xOffset).padStart(4)}, ${String(g.yOffset).padStart(4)} } /* ${hex(cp, 4)} */\n`);
+                out.push(`${gi ? ', ' : ''}  { ${String(gr.at).padStart(5)}, ${String(g.w).padStart(3)}, ${String(g.h).padStart(3)}, ${String(g.xAdvance).padStart(3)}, ${String(g.xOffset).padStart(4)}, ${String(g.yOffset).padStart(4)}, 0 } /* ${hex(cp, 4)} */\n`);
                 ++gi;
             }
         }
@@ -275,7 +280,7 @@ var FontC = (() => {
         out.push(`static const ${constant ? 'dgx_glyph_array_t' : 'glyph_array_t'} ${p}glyph_ranges[] = {\n  `);
         let k = 0;
         ranges.forEach((r, ri) => {
-            out.push(`${ri ? ',' : ''} {0x${r.first.toString(16).padEnd(4)}, 0x${r.number.toString(16).padEnd(4)}, ${p}glyphs + ${k} }\n`);
+            out.push(`${ri ? ',' : ''} {0x${r.first.toString(16).padEnd(4)}, 0x${r.number.toString(16).padEnd(4)}, ${k} }\n`);
             k += r.number;
         });
         out.push(', {0x0   , 0x0   , 0 }\n');
@@ -292,7 +297,9 @@ var FontC = (() => {
             out.push(`    .y_bottom_max = ${m.yBottomMax},\n`);
             out.push(`    .x_offset_lowest = ${m.xOffsetLowest},\n`);
             out.push(`    .x_right_max = ${m.xRightMax},\n`);
-            out.push(`    .number_of_ranges = ${ranges.length}\n`);
+            out.push(`    .number_of_ranges = ${ranges.length},\n`);
+            out.push(`    .glyphs = ${p}glyphs,\n`);
+            out.push(`    .data = ${p}bitmaps\n`);
             out.push(`};`);
             return out.join('');
         }
@@ -307,7 +314,9 @@ var FontC = (() => {
         out.push(`.yBottomMax = ${m.yBottomMax},\n\t\t`);
         out.push(`.xOffsetLowest = ${m.xOffsetLowest},\n\t\t`);
         out.push(`.xRightMax = ${m.xRightMax},\n\t\t`);
-        out.push(`.number_of_ranges = ${ranges.length}\n\t`);
+        out.push(`.number_of_ranges = ${ranges.length},\n\t\t`);
+        out.push(`.glyphs = ${p}glyphs,\n\t\t`);
+        out.push(`.data = ${p}bitmaps\n\t`);
         out.push(`};\n\t`);
         out.push(`return &rval;\n}`);
         return out.join('');

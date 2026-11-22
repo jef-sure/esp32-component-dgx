@@ -249,10 +249,10 @@ static void make_soft_font(void)
         const int w = 6 + k, h = 7, pitch = (w * 4 + 7) / 8;
         for (int y = 0; y < h; ++y)
             for (int x = 0; x < w; ++x) soft_bits[k][y * pitch + x / 2] |= (uint8_t)(((x * 5 + y * 3 + k) % 16) << (x & 1 ? 0 : 4));
-        soft_glyphs[k] = (dgx_glyph_t){.bitmap = soft_bits[k], .width = (int16_t)w, .height = (int16_t)h, .x_advance = 8, .x_offset = 0, .y_offset = -7};
+        soft_glyphs[k] = (dgx_glyph_t){.offset = (uint32_t)(k * sizeof soft_bits[0]), .width = (int16_t)w, .height = (int16_t)h, .x_advance = 8, .x_offset = 0, .y_offset = -7};
     }
-    soft_ranges[0] = (dgx_glyph_array_t){.first = 'A', .number = 2, .glyphs = soft_glyphs};
-    soft_font      = (dgx_font_t){.glyph_ranges = soft_ranges, .y_advance = 9, .y_offset_lowest = -7, .x_widest = 7, .x_width_average = 7,
+    soft_ranges[0] = (dgx_glyph_array_t){.first = 'A', .number = 2, .glyph = 0};
+    soft_font      = (dgx_font_t){.glyph_ranges = soft_ranges, .glyphs = soft_glyphs, .data = soft_bits[0], .y_advance = 9, .y_offset_lowest = -7, .x_widest = 7, .x_width_average = 7,
                                   .f_type = DGX_FONT_BITMAP_DEPTH4, .x_right_max = 7, .number_of_ranges = 1};
 }
 

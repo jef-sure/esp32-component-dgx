@@ -18,6 +18,11 @@
 #include FT_MODULE_H
 #include FT_FREETYPE_H
 #include FT_TRUETYPE_DRIVER_H
+#include FT_SFNT_NAMES_H
+#include FT_TRUETYPE_IDS_H
+#include FT_BDF_H
+
+#include "dgxf_write.h"
 
 #ifdef _WIN32
 /* Windows: no realpath(), and rename() does not replace a file that is there */
@@ -168,11 +173,116 @@ void loadCharsetFile(const char *path)
     fclose(f);
 }
 
+/* -bin: the directory each font is also written into as a file of bytes, <name>.dgxf; NULL for none */
+static const char *BinDir = 0;
+
+/* text gathered into one growing string */
+typedef struct {
+    char  *text;
+    size_t length, room;
+} text_t;
+
+static void text_add(text_t *t, const char *s, size_t n)
+{
+    if (t->length + n + 1 > t->room) {
+        t->room = (t->length + n + 1) * 2;
+        t->text = realloc(t->text, t->room);
+    }
+    memcpy(t->text + t->length, s, n);
+    t->length += n;
+    t->text[t->length] = 0;
+}
+
+/* a line "key: value" of the text about a font, its value on one line */
+static void about_line(text_t *t, const char *key, const char *value)
+{
+    if (!value || !*value) return;
+    text_add(t, key, strlen(key));
+    text_add(t, ": ", 2);
+    for (const char *c = value; *c; ++c) text_add(t, (unsigned char)*c < ' ' ? " " : c, 1);
+    text_add(t, "\n", 1);
+}
+
+/* a name of the name table of a face as UTF-8: of the Windows table in UTF-16, else of the Macintosh one in ASCII */
+static char *sfnt_name(FT_Face face, int id)
+{
+    FT_SfntName n;
+    char       *found = 0;
+    for (FT_UInt i = 0, count = FT_Get_Sfnt_Name_Count(face); i < count && !found; ++i) {
+        if (FT_Get_Sfnt_Name(face, i, &n) || n.name_id != id) continue;
+        text_t t = {0};
+        if (n.platform_id == TT_PLATFORM_MICROSOFT && n.encoding_id == TT_MS_ID_UNICODE_CS) {
+            for (FT_UInt k = 0; k + 1 < n.string_len; k += 2) {
+                uint32_t cp = (uint32_t)n.string[k] << 8 | n.string[k + 1];
+                if (cp >= 0xD800 && cp < 0xDC00 && k + 3 < n.string_len) {
+                    const uint32_t low = (uint32_t)n.string[k + 2] << 8 | n.string[k + 3];
+                    cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00), k += 2;
+                }
+                char u[4];
+                int  len = cp < 0x80 ? (u[0] = (char)cp, 1)
+                         : cp < 0x800 ? (u[0] = (char)(0xC0 | cp >> 6), u[1] = (char)(0x80 | (cp & 63)), 2)
+                         : cp < 0x10000 ? (u[0] = (char)(0xE0 | cp >> 12), u[1] = (char)(0x80 | (cp >> 6 & 63)), u[2] = (char)(0x80 | (cp & 63)), 3)
+                         : (u[0] = (char)(0xF0 | cp >> 18), u[1] = (char)(0x80 | (cp >> 12 & 63)), u[2] = (char)(0x80 | (cp >> 6 & 63)),
+                            u[3] = (char)(0x80 | (cp & 63)), 4);
+                text_add(&t, u, len);
+            }
+        } else if (n.platform_id == TT_PLATFORM_MACINTOSH) {
+            for (FT_UInt k = 0; k < n.string_len; ++k) text_add(&t, n.string[k] < 0x80 ? (const char *)&n.string[k] : "?", 1);
+        }
+        found = t.text;
+    }
+    return found;
+}
+
+#define ABOUT_MOST 300 /* bytes of a line of the text about a font, as fonts-used.txt shortens them */
+
+/* what a bitmap font's face says of itself, for the text about the font: its name table, or the properties of a BDF */
+static void about_face(text_t *t, FT_Face face)
+{
+    static const struct {
+        int         id;
+        const char *key, *bdf;
+    } names[] = {{0, "copyright", "COPYRIGHT"}, {5, "version", "FONT_VERSION"}, {13, "license", "NOTICE"}, {14, "license URL", 0}};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+        char *value = sfnt_name(face, names[i].id);
+        if (!value && names[i].bdf) {
+            BDF_PropertyRec p;
+            if (!FT_Get_BDF_Property(face, names[i].bdf, &p) && p.type == BDF_PROPERTY_TYPE_ATOM && p.u.atom) value = strdup(p.u.atom);
+        }
+        /* a long text cut at a word, as fonts-used.txt has it: the URL of the license tells where the whole is */
+        static const char rest[] = " ... (shortened; the whole text is in the file the font was made of)";
+        if (value && strlen(value) > ABOUT_MOST) {
+            size_t cut = ABOUT_MOST;
+            while (cut > 0 && value[cut] != ' ') --cut;
+            char *shorter = malloc(cut + sizeof(rest));
+            memcpy(shorter, value, cut), memcpy(shorter + cut, rest, sizeof(rest));
+            free(value), value = shorter;
+        }
+        about_line(t, names[i].key, value);
+        free(value);
+    }
+}
+
+/* a font as a file of bytes, BinDir/name.dgxf, written aside and put in place when whole */
+static int bin_write(const char *name, const dgxf_font_t *font)
+{
+    char path[1024], aside[1040];
+    snprintf(path, sizeof(path), "%s/%s.dgxf", BinDir ? BinDir : ".", name);
+    snprintf(aside, sizeof(aside), "%s.tmp", path);
+    FILE *out = fopen(aside, "wb");
+    if (!out || dgxf_write(out, font) | fclose(out) || rename(aside, path)) {
+        fprintf(stderr, "Error writing the file of bytes %s: %s\n", path, strerror(errno));
+        remove(aside);
+        return -1;
+    }
+    return 0;
+}
+
 static void show_usage(const char *programName)
 {
     fprintf(stderr,
-            "Usage: %s [-n name] [-f charset_file] [-b bits] [-p patch_file] [-P dir] fontfile size [first last] .. [firstN lastN]\n"
-            "       %s [-n name] [-f charset_file] [-g cells] [-t cells] [-x | -i] fontfile.json [first last] .. [firstN lastN]\n"
+            "Usage: %s [-n name] [-f charset_file] [-b bits] [-p patch_file] [-P dir] [-bin dir] fontfile size [first last] .. [firstN lastN]\n"
+            "       %s [-n name] [-f charset_file] [-g cells] [-t cells] [-x | -i] [-bin dir] fontfile.json [first last] .. [firstN lastN]\n"
             "  -n name: the name of the font: its function, its files name.c and name.h, and its\n"
             "           static arrays named name_bitmaps and so on, so that several fonts made\n"
             "           this way go into one C file; without it the family, the style and the size\n"
@@ -195,7 +305,10 @@ static void show_usage(const char *programName)
             "            font are named\n"
             "  -t cells: how far apart the spaces move such a pair, if further than -g\n"
             "  -x: put those spaces into fontfile.json and convert the font with them\n"
-            "  -i: the same, asking about each space\n",
+            "  -i: the same, asking about each space\n"
+            "  -bin dir: the font also as a file of bytes, dir/name.dgxf, which a program\n"
+            "            reads with dgx_font_file_load() of DGX; with -jo every font of the\n"
+            "            lists into dir, by its first name\n",
             programName, programName);
 }
 
@@ -611,6 +724,10 @@ static const char *const hwParts[4] = {"beginConnection", "mainSegments", "endCo
 static const char *const hwTypes[5] = {0, "dot", "line", "curve3p", "curve"};
 static const char *const hwTypeNames[5] = {0, "DGX_HW_DOT", "DGX_HW_LINE", "DGX_HW_CURVE3P", "DGX_HW_CURVE"};
 
+/* -bin: the elements of a handwritten font as bytes, DGXF_ELEMENT_BYTES each, as dgx_hw_element_t */
+static uint8_t *HwBin;
+static size_t   HwBinLength;
+
 /* the elements of a part of a symbol; returns how many */
 static int hw_elements(FILE *out, json_t *symbol, const char *part)
 {
@@ -629,12 +746,22 @@ static int hw_elements(FILE *out, json_t *symbol, const char *part)
                     type && type->type == 's' ? type->str : "?", np);
             exit(1);
         }
-        fprintf(out, "    {%-14s, %2d, %5d, %3d, {", hwTypeNames[np], hw_number(e, "pieces", 1, 0, 255),
-                hw_number(e, "length", 100, 0, 65535), hw_number(e, "pixels", 1, 0, 65535));
-        for (json_t *p = points->child; p; p = p->next) {
-            fprintf(out, "{%3d, %3d}%s", hw_number(p, "x", 1, 0, 255), hw_number(p, "y", 1, 0, 255), p->next ? ", " : "");
+        const int pieces = hw_number(e, "pieces", 1, 0, 255), length = hw_number(e, "length", 100, 0, 65535);
+        const int pixels = hw_number(e, "pixels", 1, 0, 65535);
+        fprintf(out, "    {%-14s, %2d, %5d, %3d, {", hwTypeNames[np], pieces, length, pixels);
+        uint8_t bytes[DGXF_ELEMENT_BYTES] = {(uint8_t)np, (uint8_t)pieces, (uint8_t)length, (uint8_t)(length >> 8), (uint8_t)pixels, (uint8_t)(pixels >> 8)};
+        int     k = 0;
+        for (json_t *p = points->child; p; p = p->next, ++k) {
+            const int x = hw_number(p, "x", 1, 0, 255), y = hw_number(p, "y", 1, 0, 255);
+            fprintf(out, "{%3d, %3d}%s", x, y, p->next ? ", " : "");
+            bytes[6 + 2 * k] = (uint8_t)x, bytes[7 + 2 * k] = (uint8_t)y;
         }
         fprintf(out, "}},\n");
+        if (BinDir) {
+            HwBin = realloc(HwBin, HwBinLength + DGXF_ELEMENT_BYTES);
+            memcpy(HwBin + HwBinLength, bytes, DGXF_ELEMENT_BYTES);
+            HwBinLength += DGXF_ELEMENT_BYTES;
+        }
     }
     return n;
 }
@@ -662,6 +789,7 @@ typedef struct {
     int    a, b;
 } hw_pair_t;
 
+#define HW_ELEMENT_BYTES 14 /* sizeof(dgx_hw_element_t) on every target: the offsets of the glyphs of a handwritten font count in them */
 #define HW_CURVE_PIECES 32
 #define HW_PAIRS_NAMED  20
 #define HW_ADVICE_NAMED 8
@@ -1158,13 +1286,13 @@ static int hw_font_write(FILE *out, const char *fontFile, json_t *font, json_t *
         }
     }
     /* the name as a C string */
-    char cname[256];
-    int  ci = 0;
+    char cname[256], raw[256]; /* raw: the same as the compiled C has it, for -bin */
+    int  ci = 0, ri = 0;
     for (const char *c = name->str; *c && ci < 250; ++c) {
         if (*c == '"' || *c == '\\') cname[ci++] = '\\';
-        if ((unsigned char)*c >= ' ') cname[ci++] = *c;
+        if ((unsigned char)*c >= ' ') cname[ci++] = *c, raw[ri++] = *c;
     }
-    cname[ci] = 0;
+    cname[ci] = 0, raw[ri] = 0;
     /* the same for a comment, which the name must not close */
     char comment[256];
     snprintf(comment, sizeof(comment), "%s", cname);
@@ -1187,6 +1315,7 @@ static int hw_font_write(FILE *out, const char *fontFile, json_t *font, json_t *
     if (includeLine) fprintf(out, "#include \"dgx_hw_font.h\"\n");
     fprintf(out, "/* %s: made by font2c from a file of format %s, version %d */\n", comment, HW_FORMAT_NAME, HW_FORMAT_VERSION);
     fprintf(out, "static const dgx_hw_element_t %selements[] = {\n", prefix);
+    free(HwBin), HwBin = 0, HwBinLength = 0;
     int   total = 0;
     int (*parts)[4] = calloc(count, sizeof(*parts));
     int  *first = calloc(count, sizeof(int));
@@ -1211,6 +1340,7 @@ static int hw_font_write(FILE *out, const char *fontFile, json_t *font, json_t *
         int width, height, xAdvance, xOffset, yOffset;
     } hw_glyph_t;
     hw_glyph_t *gl = calloc(count, sizeof(hw_glyph_t));
+    uint8_t    *binSymbols = BinDir ? calloc(count, DGXF_SYMBOL_BYTES) : 0; /* -bin: the symbols as dgx_hw_symbol_t */
     fprintf(out, "static const dgx_hw_symbol_t %ssymbols[] = {\n", prefix);
     for (int i = 0; i < count; ++i) {
         json_t *s = symbols[i].symbol;
@@ -1224,12 +1354,24 @@ static int hw_font_write(FILE *out, const char *fontFile, json_t *font, json_t *
         /* the spaces of its own a symbol may have */
         int spaceBefore = json_get(s, "spaceBefore") ? hw_number(s, "spaceBefore", 1, 0, 255) : 0;
         int spaceAfter = json_get(s, "spaceAfter") ? hw_number(s, "spaceAfter", 1, 0, 255) : symbolSpace;
+        const int right = hw_number(s, "right", 1, -255, 255), lineRight = hw_number(s, "lineRight", 1, -255, 255);
+        const int lineWidth = hw_number(s, "lineWidth", 1, 0, 256);
         fprintf(out, "    {%d, %d, %d, %d, %3d, %4d, %4d, %3d, %3d, %3d, %3d, %3d, ", parts[i][0], parts[i][1], parts[i][2], parts[i][3],
-                width, top, bottom, left, hw_number(s, "right", 1, -255, 255), lineLeft, hw_number(s, "lineRight", 1, -255, 255),
-                hw_number(s, "lineWidth", 1, 0, 256));
-        if (hasUp) fprintf(out, "%3d, %3d, ", hw_number(s, "upLeft", 1, -255, 255), hw_number(s, "upRight", 1, -255, 255));
-        else fprintf(out, "DGX_HW_NONE, DGX_HW_NONE, ");
+                width, top, bottom, left, right, lineLeft, lineRight, lineWidth);
+        int upLeft = INT16_MIN, upRight = INT16_MIN; /* DGX_HW_NONE */
+        if (hasUp) {
+            upLeft = hw_number(s, "upLeft", 1, -255, 255), upRight = hw_number(s, "upRight", 1, -255, 255);
+            fprintf(out, "%3d, %3d, ", upLeft, upRight);
+        } else {
+            fprintf(out, "DGX_HW_NONE, DGX_HW_NONE, ");
+        }
         fprintf(out, "%3d, %2d, %2d}, /* %04X */\n", advance, spaceBefore, spaceAfter, symbols[i].codePoint);
+        if (binSymbols) {
+            uint8_t  *b = binSymbols + (size_t)i * DGXF_SYMBOL_BYTES;
+            const int v[13] = {width, top, bottom, left, right, lineLeft, lineRight, lineWidth, upLeft, upRight, advance, spaceBefore, spaceAfter};
+            for (int k = 0; k < 4; ++k) b[k] = (uint8_t)parts[i][k];
+            for (int k = 0; k < 13; ++k) dgxf_put(b + 4 + 2 * k, (uint16_t)(int16_t)v[k], 2);
+        }
         gl[i] = (hw_glyph_t){width, bottom - top + 1, advance, spaceBefore + left - lineLeft, top};
     }
     fprintf(out, "};\n\n");
@@ -1241,9 +1383,9 @@ static int hw_font_write(FILE *out, const char *fontFile, json_t *font, json_t *
     double xWidthAverage = 0;
     fprintf(out, "static const dgx_glyph_t %sglyphs[] = {\n", prefix);
     for (int i = 0; i < count; ++i) {
-        fprintf(out, "    {{.elements = %selements + %4d, .hw = %ssymbols + %3d}, %3d, %3d, %3d, %3d, %4d}, /* %04X */\n", prefix, first[i],
-                prefix, i,
-                gl[i].width, gl[i].height, gl[i].xAdvance, gl[i].xOffset, gl[i].yOffset, symbols[i].codePoint);
+        /* its elements by their offset in elements[], the font's data; its symbol is symbols[] of the same number */
+        fprintf(out, "    {%6d, %3d, %3d, %3d, %3d, %4d, %3d}, /* %04X */\n", first[i] * HW_ELEMENT_BYTES, gl[i].width, gl[i].height,
+                gl[i].xAdvance, gl[i].xOffset, gl[i].yOffset, parts[i][0] + parts[i][1] + parts[i][2] + parts[i][3], symbols[i].codePoint);
         if (yOffsetLowest > gl[i].yOffset) yOffsetLowest = gl[i].yOffset;
         if (yBottomMax < gl[i].yOffset + gl[i].height) yBottomMax = gl[i].yOffset + gl[i].height;
         if (xWidest < gl[i].width) xWidest = gl[i].width;
@@ -1256,7 +1398,7 @@ static int hw_font_write(FILE *out, const char *fontFile, json_t *font, json_t *
     fprintf(out, "static const dgx_glyph_array_t %sglyph_ranges[] = {\n", prefix);
     int numberOfRanges = 0, sidx = 0;
     for (cp_ranges_t *r = SortedCharMap; r; r = r->next, ++numberOfRanges) {
-        fprintf(out, "    {0x%04x, %3d, %sglyphs + %3d},\n", r->first, r->number, prefix, sidx);
+        fprintf(out, "    {0x%04x, %3d, %3d},\n", r->first, r->number, sidx);
         sidx += r->number;
     }
     fprintf(out, "    {0, 0, 0},\n};\n\n");
@@ -1273,9 +1415,10 @@ static int hw_font_write(FILE *out, const char *fontFile, json_t *font, json_t *
             "    .symbol_offset_y = %d,\n"
             "    .symbol_size_x = %d,\n"
             "    .symbol_size_y = %d,\n"
+            "    .symbols = %ssymbols,\n"
             "};\n\n",
             prefix, cname, HW_FORMAT_VERSION, baseLine, xHeight, symbolSpace, spaceWidth, symbolOffsetX, symbolOffsetY, symbolSizeX,
-            symbolSizeY);
+            symbolSizeY, prefix);
     fprintf(out,
             "const dgx_font_t %s = {\n"
             "    .glyph_ranges = %sglyph_ranges,\n"
@@ -1289,13 +1432,52 @@ static int hw_font_write(FILE *out, const char *fontFile, json_t *font, json_t *
             "    .x_right_max = %d,\n"
             "    .number_of_ranges = %d,\n"
             "    .hw = &%shw,\n"
+            "    .glyphs = %sglyphs,\n"
+            "    .data = (const uint8_t *)%selements,\n"
             "};\n",
             funcname, prefix, symbolSizeY, yOffsetLowest, xWidest, (int)(xWidthAverage / count + 0.5), yBottomMax, xOffsetLowest, xRightMax,
-            numberOfRanges, prefix);
+            numberOfRanges, prefix, prefix, prefix);
     (void)aliases, (void)nAliases; /* named in the header */
+    if (BinDir) {
+        dgxf_range_t *ranges = calloc(numberOfRanges + 1, sizeof(dgxf_range_t));
+        dgxf_glyph_t *table  = calloc(count, sizeof(dgxf_glyph_t));
+        int           n = 0, at = 0;
+        for (cp_ranges_t *r = SortedCharMap; r; r = r->next) {
+            ranges[n++] = (dgxf_range_t){(uint32_t)r->first, (uint32_t)r->number, (uint32_t)at};
+            at += r->number;
+        }
+        for (int i = 0; i < count; ++i)
+            table[i] = (dgxf_glyph_t){(uint32_t)(first[i] * DGXF_ELEMENT_BYTES), (int16_t)gl[i].width, (int16_t)gl[i].height, (int16_t)gl[i].xAdvance,
+                                      (int16_t)gl[i].xOffset, (int16_t)gl[i].yOffset, (uint16_t)(parts[i][0] + parts[i][1] + parts[i][2] + parts[i][3])};
+        text_t about = {0};
+        about_line(&about, "name", funcname);
+        about_line(&about, "made-by", "font2c of DGX");
+        about_line(&about, "family", raw);
+        about_line(&about, "source", fontFile);
+        const dgxf_font_t file = {
+            .model            = 4, /* DGX_FONT_HW */
+            .measures         = {(int16_t)symbolSizeY, (int16_t)yOffsetLowest, (int16_t)xWidest, (int16_t)(int)(xWidthAverage / count + 0.5),
+                                 (int16_t)yBottomMax, (int16_t)xOffsetLowest, (int16_t)xRightMax},
+            .number_of_ranges = (uint32_t)numberOfRanges,
+            .number_of_glyphs = (uint32_t)count,
+            .data_length      = (uint32_t)HwBinLength,
+            .ranges           = ranges,
+            .glyphs           = table,
+            .data             = HwBin,
+            .hw               = 1,
+            .hw_fields        = {HW_FORMAT_VERSION, (int16_t)baseLine, (int16_t)xHeight, (int16_t)symbolSpace, (int16_t)spaceWidth,
+                                 (int16_t)symbolOffsetX, (int16_t)symbolOffsetY, (int16_t)symbolSizeX, (int16_t)symbolSizeY},
+            .symbols          = binSymbols,
+            .name             = raw,
+            .about            = about.text,
+        };
+        const int failed = bin_write(funcname, &file);
+        free(ranges), free(table), free(about.text), free(binSymbols), free(HwBin), HwBin = 0, HwBinLength = 0;
+        if (failed) return -1;
+    }
     if (!quiet) {
         printf("%s: %d symbols in %d ranges, %d elements, about %zu bytes on a 32-bit target\n", funcname, count, numberOfRanges, total,
-               total * (size_t)14 + count * (size_t)(30 + 20) + (numberOfRanges + 1) * (size_t)12);
+               total * (size_t)HW_ELEMENT_BYTES + count * (size_t)(30 + 16) + (numberOfRanges + 1) * (size_t)12);
     }
     free(symbols), free(parts), free(first), free(gl);
     return count;
@@ -1735,6 +1917,8 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
                 (1 << depth) - 1);
     }
     fprintf(fontOut, "static const uint8_t %sbitmaps[] = {\n  ", prefix);
+    uint8_t *binData = 0; /* -bin: the same bytes, for the file of bytes */
+    size_t   binLength = 0;
     int     fComma        = 0;
     int32_t yOffsetLowest = 0, yBottomMax = 0, xWidest = 0, xOffsetLowest = 0, xRightMax = 0;
     double  xWidthAverage = 0;
@@ -1830,6 +2014,11 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
             fprintf(fontOut, "0x%02X", ret[m]);
         }
         bitmapOffset += ret_len;
+        if (BinDir) {
+            binData = realloc(binData, binLength + ret_len + 1);
+            memcpy(binData + binLength, ret, ret_len);
+            binLength += ret_len;
+        }
         free(ret);
         fprintf(fontOut, "\n");
         ++j;
@@ -1859,8 +2048,8 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
             if (gidx != 0) fprintf(fontOut, ", ");
             for (int gi = 0; gi < j; ++gi) {
                 if (glyphs[gi].codePoint == cp) {
-                    fprintf(fontOut, "  { {.bitmap = %sbitmaps + %5lu }, %3u, %3d, %3u, %4d, %4d } /* %04X */\n", prefix,
-                            glyphs[gi].ginfo.bitmapOffset,
+                    /* the offset of its rows in bitmaps[], which the font gives as its data */
+                    fprintf(fontOut, "  { %5lu, %3u, %3d, %3u, %4d, %4d, 0 } /* %04X */\n", glyphs[gi].ginfo.bitmapOffset,
                             glyphs[gi].ginfo.width, glyphs[gi].ginfo.height, glyphs[gi].ginfo.xAdvance, glyphs[gi].ginfo.xOffset,
                             glyphs[gi].ginfo.yOffset, cp);
                     gidx++;
@@ -1874,11 +2063,60 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
     int numberOfRanges = 0;
     for (cp_ranges_t *r = SortedCharMap; r; r = r->next, ++numberOfRanges) {
         if (r != SortedCharMap) fprintf(fontOut, ",");
-        fprintf(fontOut, " {0x%-4x, 0x%-4x, %sglyphs + %d }\n", r->first, r->number, prefix, r->gOffset);
+        fprintf(fontOut, " {0x%-4x, 0x%-4x, %d }\n", r->first, r->number, r->gOffset);
     }
     fprintf(fontOut, ", {0x%-4x, 0x%-4x, %d }\n", 0, 0, 0);
     fprintf(fontOut, "};\n");
     fprintf(fontOut, "// Bitmap size: %d\n", bitmapOffset);
+    const long yAdvance = face->size->metrics.height == 0 ? (long)glyphs[0].ginfo.height : face->size->metrics.height >> 6;
+    if (BinDir) {
+        /* the font as the C below gives it: its average width as the compiler takes the number printed there */
+        char average[64];
+        snprintf(average, sizeof(average), "%f", xWidthAverage);
+        dgxf_range_t *ranges = calloc(numberOfRanges + 1, sizeof(dgxf_range_t));
+        dgxf_glyph_t *table  = calloc(j + 1, sizeof(dgxf_glyph_t));
+        int           n = 0, k = 0;
+        for (cp_ranges_t *r = SortedCharMap; r; r = r->next) {
+            ranges[n++] = (dgxf_range_t){(uint32_t)r->first, (uint32_t)r->number, (uint32_t)r->gOffset};
+            for (int cp = r->first; cp < r->first + r->number; ++cp)
+                for (int gi = 0; gi < j; ++gi)
+                    if (glyphs[gi].codePoint == (uint32_t)cp) {
+                        const glyph_t *g = &glyphs[gi].ginfo;
+                        table[k++] = (dgxf_glyph_t){(uint32_t)g->bitmapOffset, (int16_t)g->width, (int16_t)g->height, (int16_t)g->xAdvance,
+                                                    g->xOffset, g->yOffset, 0};
+                        break;
+                    }
+        }
+        text_t about = {0};
+        char   size_px[32], bits[8];
+        snprintf(size_px, sizeof(size_px), "%d px", size), snprintf(bits, sizeof(bits), "%d", depth);
+        about_line(&about, "name", funcname);
+        about_line(&about, "made-by", "font2c of DGX");
+        about_line(&about, "family", face->family_name);
+        about_line(&about, "style", face->style_name);
+        about_line(&about, "size", size_px);
+        about_line(&about, "bits", bits);
+        about_face(&about, face);
+        const dgxf_font_t file = {
+            .model            = depth == 4 ? 6 : depth == 2 ? 5 : 1, /* DGX_FONT_BITMAP_DEPTH4, _DEPTH2, _LINES */
+            .measures         = {(int16_t)yAdvance, (int16_t)yOffsetLowest, (int16_t)xWidest, (int16_t)strtod(average, 0), (int16_t)yBottomMax,
+                                 (int16_t)xOffsetLowest, (int16_t)xRightMax},
+            .number_of_ranges = (uint32_t)numberOfRanges,
+            .number_of_glyphs = (uint32_t)k,
+            .data_length      = (uint32_t)binLength,
+            .ranges           = ranges,
+            .glyphs           = table,
+            .data             = binData,
+            .about            = about.text,
+        };
+        const int failed = bin_write(funcname, &file);
+        free(ranges), free(table), free(about.text), free(binData);
+        if (failed) {
+            free(glyphs);
+            FT_Done_Face(face);
+            return -1;
+        }
+    }
 
     fprintf(fontOut,
             "const dgx_font_t %s = {\n"
@@ -1891,10 +2129,12 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
             "    .y_bottom_max = %d,\n"
             "    .x_offset_lowest = %d,\n"
             "    .x_right_max = %d,\n"
-            "    .number_of_ranges = %d\n"
+            "    .number_of_ranges = %d,\n"
+            "    .glyphs = %sglyphs,\n"
+            "    .data = %sbitmaps\n"
             "};\n",
             funcname, prefix,                                                                                   //
-            (face->size->metrics.height == 0 ? (long)glyphs[0].ginfo.height : face->size->metrics.height >> 6), //
+            yAdvance,                                                                                           //
             yOffsetLowest,                                                                                      //
             xWidest,                                                                                            //
             xWidthAverage,                                                                                      //
@@ -1902,7 +2142,8 @@ static int bitmap_font_write(FILE *fontOut, FT_Library library, const char *font
             yBottomMax,                                                                                         //
             xOffsetLowest,                                                                                      //
             xRightMax,                                                                                          //
-            numberOfRanges                                                                                      //
+            numberOfRanges,                                                                                     //
+            prefix, prefix                                                                                      //
     );
     (void)aliases, (void)nAliases; /* named in the header */
     free(glyphs);
@@ -2311,7 +2552,7 @@ int main(int argc, char *argv[])
     const char *charsetFile = 0, *outName = 0, *patchFile = 0;
     char      **lists = 0;
     int         nLists = 0, opt, depth = 0;
-    static const struct option longOptions[] = {{"jo", required_argument, 0, 'J'}, {0, 0, 0, 0}};
+    static const struct option longOptions[] = {{"jo", required_argument, 0, 'J'}, {"bin", required_argument, 0, 'B'}, {0, 0, 0, 0}};
     while ((opt = getopt_long_only(argc, argv, "b:f:g:t:xin:o:p:P:", longOptions, 0)) != -1) {
         switch (opt) {
         case 'b':
@@ -2350,6 +2591,9 @@ int main(int argc, char *argv[])
         case 'J':
             jo_add_string(&lists, &nLists, optarg);
             break;
+        case 'B':
+            BinDir = optarg;
+            break;
         case 'o':
             outName = optarg;
             break;
@@ -2369,7 +2613,7 @@ int main(int argc, char *argv[])
     if (nLists) {
         /* the lists hold the options of each font; here only the output, and where patches are looked for */
         if (charsetFile || nameOverride || depth || hwPairLimit >= 0 || hwPairApart >= 0 || hwPairFix || patchFile || optind < argc) {
-            fprintf(stderr, "-jo takes the fonts and their options from the lists; with it only -o and -P go on the command line\n");
+            fprintf(stderr, "-jo takes the fonts and their options from the lists; with it only -o, -P and -bin go on the command line\n");
             return 1;
         }
         if (!outName) outName = "fonts";

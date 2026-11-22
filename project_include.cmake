@@ -18,6 +18,7 @@
 #     dgx_fonts_board(PIXELS 1280 800 MM 217 136)   # the display, for sizes in millimeters
 #     dgx_fonts_scale(4)                             # display pixels per point of the frame, for sizes in points; 1 by default
 #     dgx_fonts_rules(fonts.rules)                   # required by any need without an exact face
+#     dgx_fonts_files()                              # every font also as a file of bytes, .dgxf, beside dgx_fonts.c
 #
 # At the end of the configure step one build rule is created for all the needs: font2c/dgx_fonts.py of DGX generates
 # dgx_fonts.c and dgx_fonts.h in the build directory, one font per face and size with the characters of every need
@@ -220,6 +221,17 @@ function(dgx_fonts_scale n)
     set_property(GLOBAL APPEND PROPERTY DGX_FONTS_SETTINGS "scale ${n}")
 endfunction()
 
+# Every font of the program also as a file of bytes, <name>.dgxf, beside dgx_fonts.c, and dgx_fonts-files.txt there,
+# a line "<name in C> <file>" for every name a font is taken by: for a program that reads fonts as bytes
+# (dgx_font_file.h). The fonts font2c makes, every font of DGX and the fonts of C of the program; the last two are
+# compiled on the host to be written. Declared once, by the program; without it no file of bytes is made.
+function(dgx_fonts_files)
+    if(ARGN)
+        message(FATAL_ERROR "dgx_fonts_files: takes nothing, not ${ARGN}")
+    endif()
+    set_property(GLOBAL APPEND PROPERTY DGX_FONTS_SETTINGS "files")
+endfunction()
+
 # The rules that pick faces for needs without an exact face (the file format: font2c/dgx_fonts.py). Declared once.
 function(dgx_fonts_rules path)
     get_property(told GLOBAL PROPERTY DGX_FONTS_RULES)
@@ -411,7 +423,8 @@ function(_dgx_fonts_finish)
     endif()
     add_custom_command(OUTPUT "${out}/dgx_fonts.c" "${out}/dgx_fonts.h" "${out}/fonts-used.txt"
         COMMAND ${python} "${tool}" build "${needs_file}" "${out}" ${depfile_args}
-        DEPENDS "${tool}" "${DGX_FONTS_COMPONENT_DIR}/font2c/font2c.c" "${needs_file}" ${inputs}
+        DEPENDS "${tool}" "${DGX_FONTS_COMPONENT_DIR}/font2c/font2c.c" "${DGX_FONTS_COMPONENT_DIR}/font2c/dgxf_write.h"
+                "${DGX_FONTS_COMPONENT_DIR}/font2c/dgxf_font.h" "${needs_file}" ${inputs}
         ${depfile_option}
         COMMENT "DGX: the fonts of the program by its needs"
         VERBATIM)

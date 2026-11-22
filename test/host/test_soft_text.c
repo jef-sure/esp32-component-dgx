@@ -70,15 +70,17 @@ static void make_font(test_font_t *f, kind_t kind)
                 const unsigned bit = (unsigned)x * depth;
                 f->bits[k][y * pitch + bit / 8] |= (uint8_t)(kind_level(kind, level_of(k, x, y)) << (8 - depth - bit % 8));
             }
-        f->glyphs[k].bitmap   = f->bits[k];
+        f->glyphs[k].offset    = (uint32_t)(k * sizeof f->bits[0]);
         f->glyphs[k].width    = (int16_t)w;
         f->glyphs[k].height   = (int16_t)h;
         f->glyphs[k].x_advance = k ? 3 : 7;
         f->glyphs[k].x_offset  = k ? -1 : 1;
         f->glyphs[k].y_offset  = k ? -3 : -4;
     }
-    f->ranges[0] = (dgx_glyph_array_t){.first = 'A', .number = 2, .glyphs = f->glyphs};
+    f->ranges[0] = (dgx_glyph_array_t){.first = 'A', .number = 2, .glyph = 0};
     f->font      = (dgx_font_t){.glyph_ranges     = f->ranges,
+                                .glyphs           = f->glyphs,
+                                .data             = f->bits[0],
                                 .y_advance         = 8,
                                 .y_offset_lowest    = -4,
                                 .x_widest          = BW,

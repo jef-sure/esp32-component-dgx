@@ -29,15 +29,15 @@ static const dgx_hw_symbol_t symbols[] = {
 };
 
 static const dgx_glyph_t glyphs[] = {
-    {{.elements = elements + 0, .hw = symbols + 0}, 1, 121, 17, 0, -120},
-    {{.elements = elements + 1, .hw = symbols + 1}, 51, 122, 51, -12, -121},
-    {{.elements = elements + 3, .hw = symbols + 2}, 40, 59, 56, 0, -58},
+    {     0, 1, 121, 17, 0, -120, 1 },
+    {    14, 51, 122, 51, -12, -121, 2 },
+    {    42, 40, 59, 56, 0, -58, 4 },
 };
 
 static const dgx_glyph_array_t glyph_ranges[] = {
-    {0x31, 1, glyphs + 0},
-    {0x37, 1, glyphs + 1},
-    {0x430, 1, glyphs + 2},
+    {0x31, 1, 0},
+    {0x37, 1, 1},
+    {0x430, 1, 2},
     {0, 0, 0},
 };
 
@@ -52,6 +52,7 @@ static const dgx_hw_font_t hw = {
     .symbol_offset_y = 48,
     .symbol_size_x = 100,
     .symbol_size_y = 202,
+    .symbols = symbols,
 };
 
 static dgx_font_t font = {
@@ -66,6 +67,8 @@ static dgx_font_t font = {
     .x_right_max = 40,
     .number_of_ranges = 3,
     .hw = &hw,
+    .glyphs = glyphs,
+    .data = (const uint8_t *)elements,
 };
 
 int main(void)
@@ -74,15 +77,15 @@ int main(void)
     int16_t        advance = 0;
     const dgx_glyph_t *g = dgx_font_glyph(&font, 0x430, &advance);
     CHECK(g == glyphs + 2 && advance == 56);
-    CHECK(g->hw->begin_connection == 1 && g->hw->main_segments == 2 && g->hw->end_connection == 1 && g->hw->post_segments == 0);
-    CHECK(g->elements[0].type == DGX_HW_CURVE3P && g->elements[1].points[3].y == 187 && g->elements[2].type == DGX_HW_DOT);
-    CHECK(g->hw->up_left == DGX_HW_NONE && g->x_offset == g->hw->left - g->hw->line_left && g->y_offset == g->hw->top);
-    CHECK(g->hw->space_before == 0 && g->hw->space_after == font.hw->symbol_space);
-    CHECK(g->x_advance == g->hw->line_width + g->hw->space_after);
+    CHECK(dgx_hw_glyph_symbol(&font, g)->begin_connection == 1 && dgx_hw_glyph_symbol(&font, g)->main_segments == 2 && dgx_hw_glyph_symbol(&font, g)->end_connection == 1 && dgx_hw_glyph_symbol(&font, g)->post_segments == 0);
+    CHECK(dgx_hw_glyph_elements(&font, g)[0].type == DGX_HW_CURVE3P && dgx_hw_glyph_elements(&font, g)[1].points[3].y == 187 && dgx_hw_glyph_elements(&font, g)[2].type == DGX_HW_DOT);
+    CHECK(dgx_hw_glyph_symbol(&font, g)->up_left == DGX_HW_NONE && g->x_offset == dgx_hw_glyph_symbol(&font, g)->left - dgx_hw_glyph_symbol(&font, g)->line_left && g->y_offset == dgx_hw_glyph_symbol(&font, g)->top);
+    CHECK(dgx_hw_glyph_symbol(&font, g)->space_before == 0 && dgx_hw_glyph_symbol(&font, g)->space_after == font.hw->symbol_space);
+    CHECK(g->x_advance == dgx_hw_glyph_symbol(&font, g)->line_width + dgx_hw_glyph_symbol(&font, g)->space_after);
     g = dgx_font_glyph(&font, 0x37, &advance);
-    CHECK(g == glyphs + 1 && g->hw->post_segments == 1 && g->height == g->hw->bottom - g->hw->top + 1);
-    CHECK(g->x_offset == g->hw->space_before + g->hw->left - g->hw->line_left);
-    CHECK(g->x_advance == g->hw->space_before + g->hw->line_width + g->hw->space_after);
+    CHECK(g == glyphs + 1 && dgx_hw_glyph_symbol(&font, g)->post_segments == 1 && g->height == dgx_hw_glyph_symbol(&font, g)->bottom - dgx_hw_glyph_symbol(&font, g)->top + 1);
+    CHECK(g->x_offset == dgx_hw_glyph_symbol(&font, g)->space_before + dgx_hw_glyph_symbol(&font, g)->left - dgx_hw_glyph_symbol(&font, g)->line_left);
+    CHECK(g->x_advance == dgx_hw_glyph_symbol(&font, g)->space_before + dgx_hw_glyph_symbol(&font, g)->line_width + dgx_hw_glyph_symbol(&font, g)->space_after);
     CHECK(font.hw->base_line == 139 && font.hw->format_version == 1);
 
     /* the effort of an element is length + k * pieces in cells; a dot takes the least one, nothing takes less */

@@ -90,27 +90,26 @@ size_t dgx_utf8_length(const char *str)
 const dgx_glyph_t *dgx_font_glyph(const dgx_font_t *font, uint32_t codePoint, int16_t *xAdvance)
 {
     const dgx_glyph_t *g = 0, *fg = 0;
+    if (font->glyph_ranges[0].number) fg = font->glyphs + font->glyph_ranges[0].glyph;
     if (font->number_of_ranges > 0) {
         /* the ranges are told to be ascending: found by halving */
         int lo = 0, hi = font->number_of_ranges - 1;
-        fg = font->glyph_ranges[0].glyphs;
         while (lo <= hi) {
-            int                  mid = (lo + hi) / 2;
-            const dgx_glyph_array_t *r = font->glyph_ranges + mid;
-            if (codePoint < (uint32_t)r->first) {
+            int                      mid = (lo + hi) / 2;
+            const dgx_glyph_array_t *r   = font->glyph_ranges + mid;
+            if (codePoint < r->first) {
                 hi = mid - 1;
-            } else if (codePoint >= (uint32_t)r->first + r->number) {
+            } else if (codePoint - r->first >= r->number) {
                 lo = mid + 1;
             } else {
-                g = r->glyphs + (codePoint - r->first);
+                g = font->glyphs + r->glyph + (codePoint - r->first);
                 break;
             }
         }
     } else {
         for (const dgx_glyph_array_t *r = font->glyph_ranges; r->number; ++r) {
-            if (!fg) fg = r->glyphs;
-            if (codePoint >= r->first && codePoint < r->first + r->number) {
-                g = r->glyphs + (codePoint - r->first);
+            if (codePoint >= r->first && codePoint - r->first < r->number) {
+                g = font->glyphs + r->glyph + (codePoint - r->first);
                 break;
             }
         }
@@ -248,10 +247,11 @@ static const uint32_t *soft_table(const dgx_font_context_t *ctx, uint32_t table[
 
 int dgx_font_glyph_foreach_ink(const dgx_font_t *font, const dgx_glyph_t *g, dgx_bw_bitmap_pixel_func_t func, void *user_data)
 {
-    if (!font || !g || !g->bitmap) return 0;
+    const uint8_t *bits = font && g ? dgx_glyph_bits(font, g) : NULL;
+    if (!bits) return 0;
     const int depth = font_depth(font);
     if (depth == 1) {
-        dgx_bw_bitmap_t bmap = dgx_bw_bitmap_make_of((uint8_t *)g->bitmap, g->width, g->height, font->f_type == DGX_FONT_BITMAP_STREAM);
+        dgx_bw_bitmap_t bmap = dgx_bw_bitmap_make_of((uint8_t *)bits, g->width, g->height, font->f_type == DGX_FONT_BITMAP_STREAM);
         return dgx_bw_bitmap_foreach_set(&bmap, func, user_data);
     }
     const int top = (1 << depth) - 1, unit = 255 / top, pitch = (g->width * depth + 7) / 8;
@@ -259,7 +259,7 @@ int dgx_font_glyph_foreach_ink(const dgx_font_t *font, const dgx_glyph_t *g, dgx
     for (int y = 0; y < g->height; ++y)
         for (int x = 0; x < g->width; ++x) {
             const unsigned bit = (unsigned)x * depth;
-            if (((g->bitmap[y * pitch + (bit >> 3)] >> (8 - depth - (bit & 7))) & top) * unit < DGX_FONT_INK_THRESHOLD) continue;
+            if (((bits[y * pitch + (bit >> 3)] >> (8 - depth - (bit & 7))) & top) * unit < DGX_FONT_INK_THRESHOLD) continue;
             ++visited;
             if (func && !func(user_data, x, y)) return visited;
         }
@@ -387,8 +387,9 @@ static void soft_glyph_memory(const dgx_font_context_t *ctx, const dgx_glyph_t *
     const uint8_t *alpha = depth == 4 ? soft_alpha4 : soft_alpha2;
     uint8_t       *memory = ((dgx_vscreen_t *)scr)->v_array;
     const uint32_t color  = ctx->color;
+    const uint8_t *data = dgx_glyph_bits(ctx->font, g);
     for (int by = 0; by < g->height; ++by) {
-        const uint8_t *row = g->bitmap + by * pitch;
+        const uint8_t *row = data + by * pitch;
         for (int bx = 0; bx < g->width; ++bx) {
             const int level = glyph_level(row, bx, depth, top);
             if (!level || (cut && level < cut)) continue;
@@ -434,8 +435,9 @@ static void soft_glyph(const dgx_font_context_t *ctx, const dgx_glyph_t *g, cons
     /* whole bytes a pixel, as a window of a display takes a row of them */
     const bool spans = table && !cut && scr->screen_subtype == DgxPhysicalScreenWithBus && scr->set_area && scr->write_area && scr->draw_buffer &&
                        (bits == 8 || bits == 16 || bits == 18 || bits == 24);
+    const uint8_t *data = dgx_glyph_bits(ctx->font, g);
     for (int by = 0; by < g->height; ++by) {
-        const uint8_t *row       = g->bitmap + by * pitch;
+        const uint8_t *row       = data + by * pitch;
         int            run_start = -1;
         uint32_t       run_color = 0;
         int            sent_to   = -1; /* the last column a span has sent */
@@ -534,7 +536,8 @@ static int font_char(const dgx_font_context_t *ctx, int x, int y, uint32_t codeP
             dgx_screen_batch_end(scr);
             return xAdvance * scale;
         }
-        dgx_bw_bitmap_t bmap = dgx_bw_bitmap_make_of((uint8_t *)g->bitmap, g->width, g->height, font->f_type == DGX_FONT_BITMAP_STREAM);
+        const uint8_t  *data = dgx_glyph_bits(font, g);
+        dgx_bw_bitmap_t bmap = dgx_bw_bitmap_make_of((uint8_t *)data, g->width, g->height, font->f_type == DGX_FONT_BITMAP_STREAM);
         /*
          * Fast path: stamp a non-stream glyph into a 1-bpp linear virtual
          * screen via packed OR-blit. ~5-8x fewer writes than the per-pixel
@@ -576,7 +579,7 @@ static int font_char(const dgx_font_context_t *ctx, int x, int y, uint32_t codeP
         const int  pitch    = (g->width + 7) / 8;
         dgx_screen_batch_begin(scr);
         for (int by = 0; by < g->height; ++by) {
-            const uint8_t *row = (const uint8_t *)g->bitmap + by * pitch;
+            const uint8_t *row = data + by * pitch;
             for (int bx = 0; bx < g->width; ++bx) {
                 if (is_lines) {
                     if ((bx & 7) == 0 && row[bx >> 3] == 0) { // whole byte empty: skip 8 pixels
@@ -602,9 +605,10 @@ static int font_char(const dgx_font_context_t *ctx, int x, int y, uint32_t codeP
     } else {
         int x_shift = g->x_offset * scale;
         int y_shift = g->y_offset * scale;
-        for (int i = 0; i < g->number_of_dots; i++) {
-            int px = g->dots[i].x * scale + x_shift;
-            int py = g->dots[i].y * scale + y_shift;
+        const dgx_font_dot_t *dots = (const dgx_font_dot_t *)dgx_glyph_bits(font, g);
+        for (int i = 0; dots && i < g->count; i++) {
+            int px = dots[i].x * scale + x_shift;
+            int py = dots[i].y * scale + y_shift;
             if (swap_xy) {
                 int t = px;
                 px    = py;
@@ -869,20 +873,21 @@ static bool fill_in_one_pass(const dgx_font_context_t *ctx, int x, int y, const 
         while (str[idx]) {
             int16_t        step;
             const dgx_glyph_t *g = dgx_font_glyph(font, dgx_utf8_next(str, &idx), &step);
-            if (g && g->width > 0 && g->bitmap) {
+            const uint8_t *data = g ? dgx_glyph_bits(font, g) : NULL;
+            if (g && g->width > 0 && data) {
                 b.x0 = at + g->x_offset - left;
                 b.y0 = g->y_offset - font->y_offset_lowest;
                 /* the rows of the glyph in this band */
                 const int from = b.first - b.y0 > 0 ? b.first - b.y0 : 0, to = b.first + n - b.y0 < g->height ? b.first + n - b.y0 : g->height;
                 if (from < to) {
                     if (depth == 1) {
-                        dgx_bw_bitmap_t bmap = dgx_bw_bitmap_make_of((uint8_t *)g->bitmap, g->width, g->height, font->f_type == DGX_FONT_BITMAP_STREAM);
+                        dgx_bw_bitmap_t bmap = dgx_bw_bitmap_make_of((uint8_t *)data, g->width, g->height, font->f_type == DGX_FONT_BITMAP_STREAM);
                         b.level              = 1;
                         dgx_bw_bitmap_foreach_set(&bmap, band_ink, &b);
                     } else {
                         const int pitch = (g->width * depth + 7) / 8;
                         for (int gy = from; gy < to; ++gy) {
-                            const uint8_t *row = g->bitmap + gy * pitch;
+                            const uint8_t *row = data + gy * pitch;
                             for (int gx = 0; gx < g->width; ++gx) {
                                 const int level = glyph_level(row, gx, depth, top);
                                 if (level) band_put(&b, gx, gy, level);

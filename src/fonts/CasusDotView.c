@@ -6,6 +6,7 @@
 #include "dgx_font.h"
 
 static const dgx_font_dot_t dots[] = {
+    /* dots */
     {2, 2 },
     {1, 3 },
     {1, 4 },
@@ -219,17 +220,13 @@ static const dgx_font_dot_t dots[] = {
     {3, 12},
     {2, 12},
     {1, 11}, // '9'
-};
-
-static const dgx_font_dot_t minus_dots[] = {
+    /* minus_dots */
     {1, 7},
     {2, 7},
     {3, 7},
     {4, 7},
     {5, 7}, // '-'
-};
-
-static const dgx_font_dot_t degree_dots[] = {
+    /* degree_dots */
     {2, 2},
     {3, 2},
     {4, 3},
@@ -238,16 +235,12 @@ static const dgx_font_dot_t degree_dots[] = {
     {2, 5},
     {1, 4},
     {1, 3}, // '°'
-};
-
-static const dgx_font_dot_t colon_dots[] = {
+    /* colon_dots */
     {3, 4},
     {3, 5},
     {3, 8},
     {3, 9}, // ':'
-};
-
-static const dgx_font_dot_t capital_r_dots[] = {
+    /* capital_r_dots */
     // Left vertical stem (Rows 2 to 12)
     {1, 2 },
     {1, 3 },
@@ -279,9 +272,7 @@ static const dgx_font_dot_t capital_r_dots[] = {
     {5, 10},
     {5, 11},
     {5, 12}, // 'R'
-};
-
-static const dgx_font_dot_t capital_h_dots[] = {
+    /* capital_h_dots */
     // Left vertical stem (Rows 2 to 12)
     {1, 2 },
     {1, 3 },
@@ -310,9 +301,7 @@ static const dgx_font_dot_t capital_h_dots[] = {
     {5, 10},
     {5, 11},
     {5, 12}, // 'H'
-};
-
-static const dgx_font_dot_t percent_dots[] = {
+    /* percent_dots */
     // Upper-left loop block
     {1, 3 },
     {2, 3 },
@@ -332,17 +321,13 @@ static const dgx_font_dot_t percent_dots[] = {
     {4, 10},
     {5, 10},
     {4, 11},
-    {5, 11}  // '%'
-};
-
-static const dgx_font_dot_t dot_dots[] = {
+    {5, 11},  // '%'
+    /* dot_dots */
     {1, 11},
     {2, 11},
     {1, 12},
-    {2, 12}  // '.'
-};
-
-static const dgx_font_dot_t celsius_dots[] = {
+    {2, 12},  // '.'
+    /* celsius_dots */
     // STROKE 1: Serif 'C' (Counter-clockwise flow)
     {6, 4 }, // Start at top-right serif tip
     {5, 3 },
@@ -362,70 +347,43 @@ static const dgx_font_dot_t celsius_dots[] = {
     {1, 1 }, // Top peak
     {2, 2 }, // Right peak
     {1, 3 }, // Bottom peak
-    {0, 2 }  // Left peak
-};
-
-static const dgx_glyph_t space_glyph[] = {
-    {{.dots = NULL, .number_of_dots = 0}, 7, 14, 7, 0, -12}, /* ' ' */
-};
-
-static const dgx_glyph_t minus_glyph[] = {
-    {{.dots = minus_dots, .number_of_dots = 5}, 7, 14, 7, 0, -12}, /* '-' */
-};
-
-static const dgx_glyph_t degree_glyph[] = {
-    {{.dots = degree_dots, .number_of_dots = 8}, 7, 14, 7, 0, -12}, /* '°' */
-};
-
-static const dgx_glyph_t colon_glyph[] = {
-    {{.dots = colon_dots, .number_of_dots = 4}, 7, 14, 7, 0, -12}, /* ':' */
-};
-
-static const dgx_glyph_t capital_r_glyph[] = {
-    {{.dots = capital_r_dots, .number_of_dots = 26}, 7, 14, 7, 0, -12}, /* 'R' */
-};
-
-static const dgx_glyph_t capital_h_glyph[] = {
-    {{.dots = capital_h_dots, .number_of_dots = 25}, 7, 14, 7, 0, -12}, /* 'H' */
-};
-
-static const dgx_glyph_t percent_glyph[] = {
-    {{.dots = percent_dots, .number_of_dots = 17}, 7, 14, 7, 0, -12}, /* '%' */
-};
-
-static const dgx_glyph_t dot_glyph[] = {
-    {{.dots = dot_dots, .number_of_dots = 4}, 4, 14, 4, 0, -12}, /* '.' */
-};
-
-static const dgx_glyph_t celsius_glyph[] = {
-    {{.dots = celsius_dots, .number_of_dots = 18}, 7, 14, 7, 0, -12}, /* '℃' */
+    {0, 2 },  // Left peak
 };
 
 static const dgx_glyph_t glyphs[] = {
-    {{.dots = dots + 0, .number_of_dots = 27},   7, 14, 7, 0, -12}, /* '0' */
-    {{.dots = dots + 27, .number_of_dots = 17},  7, 14, 7, 0, -12}, /* '1' */
-    {{.dots = dots + 44, .number_of_dots = 19},  7, 14, 7, 0, -12}, /* '2' */
-    {{.dots = dots + 63, .number_of_dots = 20},  7, 14, 7, 0, -12}, /* '3' */
-    {{.dots = dots + 83, .number_of_dots = 20},  7, 14, 7, 0, -12}, /* '4' */
-    {{.dots = dots + 103, .number_of_dots = 22}, 7, 14, 7, 0, -12}, /* '5' */
-    {{.dots = dots + 125, .number_of_dots = 24}, 7, 14, 7, 0, -12}, /* '6' */
-    {{.dots = dots + 149, .number_of_dots = 16}, 7, 14, 7, 0, -12}, /* '7' */
-    {{.dots = dots + 165, .number_of_dots = 25}, 7, 14, 7, 0, -12}, /* '8' */
-    {{.dots = dots + 190, .number_of_dots = 23}, 7, 14, 7, 0, -12}, /* '9' */
+    {     0, 7, 14, 7, 0, -12, 0 }, /* ' ' */
+    {   562, 7, 14, 7, 0, -12, 17 }, /* '%' */
+    {   426, 7, 14, 7, 0, -12, 5 }, /* '-' */
+    {   596, 4, 14, 4, 0, -12, 4 }, /* '.' */
+    {     0,   7, 14, 7, 0, -12, 27 }, /* '0' */
+    {    54,  7, 14, 7, 0, -12, 17 }, /* '1' */
+    {    88,  7, 14, 7, 0, -12, 19 }, /* '2' */
+    {   126,  7, 14, 7, 0, -12, 20 }, /* '3' */
+    {   166,  7, 14, 7, 0, -12, 20 }, /* '4' */
+    {   206, 7, 14, 7, 0, -12, 22 }, /* '5' */
+    {   250, 7, 14, 7, 0, -12, 24 }, /* '6' */
+    {   298, 7, 14, 7, 0, -12, 16 }, /* '7' */
+    {   330, 7, 14, 7, 0, -12, 25 }, /* '8' */
+    {   380, 7, 14, 7, 0, -12, 23 }, /* '9' */
+    {   452, 7, 14, 7, 0, -12, 4 }, /* ':' */
+    {   512, 7, 14, 7, 0, -12, 25 }, /* 'H' */
+    {   460, 7, 14, 7, 0, -12, 26 }, /* 'R' */
+    {   436, 7, 14, 7, 0, -12, 8 }, /* '°' */
+    {   604, 7, 14, 7, 0, -12, 18 }, /* '℃' */
 };
 
 static const dgx_glyph_array_t glyph_ranges[] = {
-    {0x0020, 1,   space_glyph    }, //
-    {0x0025, 1,   percent_glyph  }, //
-    {0x002D, 1,   minus_glyph    }, //
-    {0x002E, 1,   dot_glyph      }, //
-    {0x0030, 10,  glyphs + 0     }, //
-    {0x003A, 1,   colon_glyph    }, //
-    {0x0048, 1,   capital_h_glyph}, //
-    {0x0052, 1,   capital_r_glyph}, //
-    {0x00B0, 1,   degree_glyph   }, //
-    {0x2103, 1,   celsius_glyph  }, //
-    {0x0,    0x0, 0              }  //
+    {0x0020, 1, 0},
+    {0x0025, 1, 1},
+    {0x002D, 1, 2},
+    {0x002E, 1, 3},
+    {0x0030, 10, 4},
+    {0x003A, 1, 14},
+    {0x0048, 1, 15},
+    {0x0052, 1, 16},
+    {0x00B0, 1, 17},
+    {0x2103, 1, 18},
+    {0x0, 0x0, 0},
 };
 
 const dgx_font_t CasusDotView = {
@@ -433,9 +391,11 @@ const dgx_font_t CasusDotView = {
     .y_advance = 14,
     .y_offset_lowest = -12,
     .x_widest = 7,
-    .x_width_average = 7.000000,
+    .x_width_average = 7,
     .f_type = DGX_FONT_DOTS,
     .y_bottom_max = 2,
     .x_offset_lowest = 0,
-    .x_right_max = 7
+    .x_right_max = 7,
+    .glyphs = glyphs,
+    .data = (const uint8_t *)dots,
 };
