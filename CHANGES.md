@@ -1,5 +1,49 @@
 # Changes
 
+## Unreleased
+
+A picture on four corners that lie between pixels, and an arc gauge with
+soft edges. Checked by host tests and on the Waveshare
+ESP32-S3-Touch-AMOLED-1.32.
+
+New:
+
+- **`dgx_draw_texture_quad_with()`** puts a region of a virtual screen on a
+  convex quadrilateral that `dgx_texture_quad_t` describes, for motion slower
+  than a pixel a frame.
+  - The corners are in sixteenths of a pixel, `DGX_SUBPIXEL`. A
+    parallelogram is mapped affine, and so are corners rounded each from
+    those of one; any other quad is mapped in perspective.
+  - `DGX_TEXTURE_BILINEAR` mixes the four texels around a point,
+    `DGX_TEXTURE_SOFT` gives a pixel on an edge the share of it the quad
+    covers.
+  - A texture of 8 bits is indices into `lut`, with an opacity for each in
+    `alpha`; `DGX_TEXTURE_KEY` leaves out one color of a 16-bit texture.
+  - Soft edges and translucent texels are mixed with what the screen has
+    where it can be read, or with `paper` (`DGX_TEXTURE_PAPER`) on a display
+    behind a bus.
+  - The quad moved by whole pixels has the same pixels, moved, so strips of
+    rows and a clip leave no seams.
+  - On that board a turned picture takes 0.18 µs a pixel with the nearest
+    texel, where `dgx_draw_texture_quad()` takes 0.16, and 0.57 µs bilinear.
+- **`dgx_gauge_init_soft()`**: the arc gauge with soft edges. The color
+  around the ring comes after the background color; the edges of the ring
+  are mixed with it, and the edge between two steps of different colors
+  with both. Every color mixed is one the gauge knows, so the ring is soft
+  on a display behind a bus too. `dgx_gauge_t` has two members more for it.
+
+Tests:
+
+- test_texture_quad: whole and half pixels, a quarter turn, perspective,
+  soft edges over the screen and over paper, the key color, an 8-bit texture
+  with opacities, the clip, and a display behind a bus. The loop that fills
+  the inside of a quad gives the pixels the pixel-by-pixel way gives; a
+  virtual screen and a display behind a bus show the same; the quad moved,
+  drawn into strips and clipped keeps its pixels.
+- test_gauge: the soft ring has as much ink as its band has area, within 3
+  pixels of 1626; each pixel is written once by a redraw, and a value looks
+  the same however the gauge came to it.
+
 ## 0.12.5 - 2026-11-24
 
 Frames without tearing on the CO5300. Checked by host tests, builds for

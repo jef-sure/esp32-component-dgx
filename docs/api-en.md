@@ -65,6 +65,7 @@ Declared in [include/dgx_draw.h](../include/dgx_draw.h):
 | `dgx_fill_polygon4(scr, x0..y3, color)` | Filled simple quadrilateral (convex or concave). |
 | `dgx_draw_texture_quad(scr, quad, texture, tx, ty, tw, th)` | Stretch a region of a virtual screen onto a convex quadrilateral (affine, nearest texel). Returns `ESP_OK`, or why nothing was drawn: a texture of another depth or a region outside it, a screen without windows, no memory for a row. |
 | `dgx_draw_texture_rect(scr, x, y, w, h, texture, tx, ty, tw, th)` | Scale a region of a virtual screen into a rectangle; returns as the quad does. |
+| `dgx_draw_texture_quad_with(scr, &quad)` | Put a region of a virtual screen on a convex quadrilateral whose corners lie between pixels, as `dgx_texture_quad_t` describes it: a texture of 16 bits, or of 8 bits through a table of colors with an opacity for each index; the nearest texel or four mixed; hard or soft edges. For a screen of 16 bits; see below the table. |
 
 Lines, circles, ellipses and sectors are one code for every screen, made of
 the pixels and the rectangles a screen draws itself: a figure has the same
@@ -176,6 +177,40 @@ top-left, top-right, bottom-right, bottom-left. The texture needs the same
 color depth as the target screen; see
 [A picture at any size and angle](../README.md#a-picture-at-any-size-and-angle), and
 `examples/flip_clock_demo` uses both functions.
+
+`dgx_draw_texture_quad_with()` is the quad for motion slower than a pixel a
+frame. Its corners are in sixteenths of a pixel, `DGX_SUBPIXEL`, from the
+top-left corner of pixel (0, 0): the centre of pixel x is
+`x * DGX_SUBPIXEL + 8`. A parallelogram is mapped affine, and so are corners
+rounded each from those of a parallelogram, off it by up to two sixteenths;
+any other convex quad is mapped in perspective, a plane seen at an angle. A
+pixel is sampled at its centre. The flags of the quad:
+
+- `DGX_TEXTURE_BILINEAR`: a pixel mixes the four texels around its point by
+  distance, instead of taking the one it falls in.
+- `DGX_TEXTURE_SOFT`: a pixel the edge crosses takes the texture by the share
+  of it the quad covers.
+- `DGX_TEXTURE_KEY`: a texel of a 16-bit texture of the color `key` is not
+  drawn.
+- `DGX_TEXTURE_PAPER`: soft edges and translucent texels are mixed with
+  `paper` instead of with what the screen has.
+
+An 8-bit texture is indices: `lut` gives each its RGB565 color and `alpha` its
+opacity, 0 to 255, or `NULL` for all opaque. Soft edges and translucent
+texels are mixed in 32 steps with what the screen has where it can be read,
+as soft text is: a virtual screen, a display drawn through a virtual back
+screen such as the CO5300, a DSI or an RGB display. On a display behind a bus
+they are mixed with `paper`; without `DGX_TEXTURE_PAPER` a pixel there is
+drawn whole from half on, and not at all below. A virtual screen of 16 bits
+is written in its memory. The quad moved by whole pixels has the same
+pixels, moved: a picture drawn into strips of rows, or under a clip, has no
+seams.
+
+On the Waveshare ESP32-S3-Touch-AMOLED-1.32 at 240 MHz, a turned picture
+drawn into the memory of the screen takes 0.18 µs a pixel with the nearest
+texel, where `dgx_draw_texture_quad()` takes 0.16, and 0.57 µs bilinear; soft
+edges add about 0.05 µs. An 8-bit texture with opacities takes 0.45 µs, and
+0.93 µs bilinear. In perspective a pixel costs a division of floats more.
 
 ### Text and fonts
 
@@ -581,7 +616,8 @@ Declared in [include/dgx_gauge.h](../include/dgx_gauge.h):
 
 | Function | Description |
 | --- | --- |
-| `dgx_gauge_init_with(gauge, scr, cx, cy, inner_radius, width, start_angle, sweep_degrees, min, max, bg_color, color, user_data)` | Configure a ring gauge and draw its empty ring. `color_fn` maps a value to a step color. |
+| `dgx_gauge_init_with(gauge, scr, cx, cy, inner_radius, width, start_angle, sweep_degrees, min, max, bg_color, color, user_data)` | Configure a ring gauge and draw its empty ring. `color` maps a value to a step color. |
+| `dgx_gauge_init_soft(gauge, scr, cx, cy, inner_radius, width, start_angle, sweep_degrees, min, max, bg_color, around_color, color, user_data)` | The same gauge with soft edges, mixed with `around_color`, the color around the ring. |
 | `dgx_gauge_set_value(gauge, value)` | Update the value, redrawing only changed steps. |
 | `dgx_gauge_redraw(gauge)` | Redraw the whole gauge. |
 
@@ -589,6 +625,18 @@ A pixel of the ring is of one step: the step whose degree holds its centre,
 from `inner_radius - 1/2` to `inner_radius + width - 1/2` from the centre of
 the ring. A change of the value writes each pixel of the steps that change
 once, and a value looks the same whatever value the gauge came from.
+
+A gauge of `dgx_gauge_init_soft()` takes the pixels half a pixel past the
+band too, and half a pixel past the ends of a sweep shorter than a circle.
+A pixel is mixed, in 32 steps, with `around_color` by the share of it the
+ring does not cover, and with the step beyond the nearer edge of its step by
+the share of it that lies there. Every color mixed is one the gauge knows, so
+the ring is soft on a display behind a bus as well, and each pixel is still
+written once. A change of the value draws one step more on either side of
+the steps that change, for their edges. On the Waveshare
+ESP32-S3-Touch-AMOLED-1.32 a ring 20 pixels wide from a radius of 66, over
+270 degrees, is drawn whole into the memory of the screen in 22.9 ms soft and
+15.5 ms hard.
 
 ### Bus backends
 

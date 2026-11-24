@@ -88,9 +88,106 @@ static void test_user_data(void)
     dgx_screen_destroy(&a), dgx_screen_destroy(&b);
 }
 
+static uint32_t all_low(int value, void *user_data)
+{
+    (void)value, (void)user_data;
+    return LOW;
+}
+
+/* the green of a screen of RGB565 over all its pixels, in pixels of full green */
+static double green_of(dgx_screen_t *scr)
+{
+    double g = 0;
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < W; ++x) g += (double)((dgx_get_pixel(scr, x, y) >> 5) & 63) / 63.0;
+    return g;
+}
+
+/*
+ * dgx_gauge_init_soft(): the edges of the ring mixed with the color around it.
+ * Its ink is the area of the ring to a fraction of a pixel, the edge between
+ * two colors of the value is mixed of both, and each pixel is still written
+ * once and is the same whichever value the gauge came from.
+ */
+static void test_soft(void)
+{
+    dgx_screen_t *scr = dgx_vscreen_init(W, H, 16, DgxScreenRGB), *again = dgx_vscreen_init(W, H, 16, DgxScreenRGB);
+    dgx_gauge_t   gauge, other;
+    const double  pi = 3.14159265358979;
+
+    /* a full value of one color on black: the green is the area of the band, 29.5 to 39.5 from the centre over 270 degrees */
+    dgx_gauge_init_soft(&gauge, scr, W / 2, H / 2, 30, 10, 225.0f, 270, 0, 100, BACK, 0, all_low, NULL);
+    dgx_gauge_set_value(&gauge, 100);
+    const double area = pi * (39.5 * 39.5 - 29.5 * 29.5) * 270.0 / 360.0;
+    const double soft = green_of(scr);
+    CHECK(soft > area - 3 && soft < area + 3);
+    int partial = 0;
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < W; ++x) {
+            const uint32_t c = dgx_get_pixel(scr, x, y);
+            partial += c && c != LOW;
+        }
+    CHECK(partial > 200); /* both circles and both ends */
+    /* the inside is the color itself, as hard */
+    CHECK(dgx_get_pixel(scr, W / 2, H / 2 - 35) == LOW && dgx_get_pixel(scr, W / 2, H / 2) == 0);
+    /* the hard ring has the same area to a few pixels more or less */
+    dgx_fill_rectangle(again, 0, 0, W, H, 0);
+    dgx_gauge_init_with(&other, again, W / 2, H / 2, 30, 10, 225.0f, 270, 0, 100, BACK, all_low, NULL);
+    dgx_gauge_set_value(&other, 100);
+    CHECK(green_of(again) > area - 30 && green_of(again) < area + 30);
+
+    /* the edge between two colors of the value: pixels with red and green both, which a hard ring has none of */
+    dgx_fill_rectangle(scr, 0, 0, W, H, 0);
+    dgx_gauge_init_soft(&gauge, scr, W / 2, H / 2, 30, 10, 225.0f, 270, 0, 100, BACK, 0, gauge_color, NULL);
+    dgx_gauge_set_value(&gauge, 100);
+    int both = 0;
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < W; ++x) {
+            const uint32_t c = dgx_get_pixel(scr, x, y);
+            both += (c >> 11) && ((c >> 5) & 63) && c != LOW && c != HIGH;
+        }
+    CHECK(both >= 10);
+
+    /* each pixel once in a redraw, and every value the same stepped up to it, stepped down to it and drawn at once */
+    static const int rings[][3] = {{30, 10, 270}, {20, 4, -270}, {10, 14, 360}, {44, 1, 90}, {0, 6, 180}, {40, 8, -360}};
+    plain_fill = scr->fill_rectangle;
+    for (unsigned r = 0; r < sizeof(rings) / sizeof(rings[0]); ++r) {
+        const int inner = rings[r][0], width = rings[r][1], sweep = rings[r][2], steps = sweep < 0 ? -sweep : sweep;
+        dgx_fill_rectangle(scr, 0, 0, W, H, 0);
+        dgx_gauge_init_soft(&gauge, scr, W / 2, H / 2, inner, width, 225.0f, sweep, 0, steps, BACK, 0, value_color, NULL);
+        dgx_gauge_set_value(&gauge, steps / 2);
+        memset(writes, 0, sizeof(writes));
+        scr->fill_rectangle = counting_fill;
+        dgx_gauge_redraw(&gauge);
+        scr->fill_rectangle = plain_fill;
+        int twice = 0, once = 0;
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x) twice += writes[y][x] > 1, once += writes[y][x] == 1;
+        CHECK(twice == 0 && once > 0);
+        int differ = 0;
+        for (int value = 0; value <= steps; value += 11) {
+            dgx_gauge_set_value(&gauge, 0);
+            for (int v = 0; v <= value; v += 3) dgx_gauge_set_value(&gauge, v);
+            dgx_gauge_set_value(&gauge, value);
+            dgx_fill_rectangle(again, 0, 0, W, H, 0);
+            dgx_gauge_init_soft(&other, again, W / 2, H / 2, inner, width, 225.0f, sweep, 0, steps, BACK, 0, value_color, NULL);
+            dgx_gauge_set_value(&other, value);
+            for (int y = 0; y < H; ++y)
+                for (int x = 0; x < W; ++x) differ += dgx_get_pixel(scr, x, y) != dgx_get_pixel(again, x, y);
+            for (int v = steps; v > value; v -= 5) dgx_gauge_set_value(&gauge, v);
+            dgx_gauge_set_value(&gauge, value);
+            for (int y = 0; y < H; ++y)
+                for (int x = 0; x < W; ++x) differ += dgx_get_pixel(scr, x, y) != dgx_get_pixel(again, x, y);
+        }
+        CHECK(differ == 0);
+    }
+    dgx_screen_destroy(&scr), dgx_screen_destroy(&again);
+}
+
 int main(void)
 {
     test_user_data();
+    test_soft();
     dgx_screen_t *scr = dgx_vscreen_init(W, H, 16, DgxScreenRGB);
     scr->update_screen = count_update;
     dgx_gauge_t gauge;

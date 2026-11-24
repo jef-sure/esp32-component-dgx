@@ -411,6 +411,9 @@ dgx_gauge_init_with(&gauge, scr,
 dgx_gauge_set_value(&gauge, 42);                // redraws only the steps that changed
 ```
 
+`dgx_gauge_init_soft()` takes one color more after the background: the color
+around the ring. The ring then has soft edges, mixed with it.
+
 ### A pie chart, arcs, a Wi-Fi icon
 
 Angles are in degrees, counter-clockwise, and 0 points to the right. With
@@ -551,6 +554,26 @@ frame. The quad must be convex; the mapping is affine, without perspective.
 For a whole number of times larger, a quarter turn or a mirror image, the
 flags of a transfer do the same pixel for pixel, faster and with smoothing:
 see [Pixel art made larger](#pixel-art-made-larger).
+
+For motion slower than a pixel a frame, `dgx_draw_texture_quad_with()` takes
+the corners in sixteenths of a pixel, mixes the four texels around each
+point and makes the edges soft; a quad that is not a parallelogram it maps
+in perspective:
+
+```c
+// x[], y[]: the corners as floats, top-left, top-right, bottom-right, bottom-left
+dgx_texture_quad_t q = {.texture = tex, .tw = tex->width, .th = tex->height,
+                        .flags = DGX_TEXTURE_BILINEAR | DGX_TEXTURE_SOFT};
+for (int i = 0; i < 4; ++i) q.x[i] = lroundf(x[i] * DGX_SUBPIXEL), q.y[i] = lroundf(y[i] * DGX_SUBPIXEL);
+dgx_draw_texture_quad_with(scr, &q);
+```
+
+Its texture may also be of 8 bits, indices into `lut` with an opacity for
+each in `alpha`: a sprite with parts one sees through. Soft edges and those
+parts are mixed with what the screen has; on a display behind a bus, which
+cannot be read, give `DGX_TEXTURE_PAPER` and the color under the picture in
+`paper`. The rules and the speed:
+[Drawing primitives](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#drawing-primitives).
 Examples: [examples/texture_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/texture_demo) scales, rotates and
 wobbles a card (`card_corners()`),
 [examples/flip_clock_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/flip_clock_demo) folds the digits of a
@@ -1417,7 +1440,9 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
 - Drawing primitives — pixels, lines, lines through a list of points by a
   pen, rectangles with square or round corners, circles, ellipses, their arcs
   and sectors, triangles, filled and textured quads, a rectangle scrolled any
-  way — and an arc gauge helper.
+  way — and an arc gauge helper, its edges hard or soft. A textured quad may
+  have its corners between pixels, its texels mixed and its edges soft, in
+  perspective, from a texture of 8 bits with parts one sees through.
 - The same calls for every display to turn it, switch its backlight, turn
   its picture off and on, and set the brightness of an OLED.
 - UTF-8 text rendering with 8-way orientation, glyph lookup, layout and bounds

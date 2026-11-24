@@ -812,6 +812,80 @@ esp_err_t dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4],
  */
 esp_err_t dgx_draw_texture_rect(dgx_screen_t *scr, int x, int y, int w, int h, dgx_screen_t *texture, int tx, int ty, int tw, int th);
 
+/** The unit of the corners of dgx_texture_quad_t: a sixteenth of a pixel. A corner at pixel x is `x * DGX_SUBPIXEL`. */
+#define DGX_SUBPIXEL 16
+
+/** Each pixel takes the four texels nearest the point it maps to, mixed by distance, instead of the one it falls in. */
+#define DGX_TEXTURE_BILINEAR 0x1u
+/** The edges of the quad are soft: a pixel the edge crosses takes the texture by the share of it the quad covers. */
+#define DGX_TEXTURE_SOFT 0x2u
+/** A texel of a 16-bit texture of the color dgx_texture_quad_t::key is not drawn. */
+#define DGX_TEXTURE_KEY 0x4u
+/**
+ * A soft edge and a translucent texel are mixed with dgx_texture_quad_t::paper
+ * instead of with what lies on the screen, as the text of DGX_FONT_BG is: for a
+ * display behind a bus, which cannot be read.
+ */
+#define DGX_TEXTURE_PAPER 0x8u
+
+/**
+ * @brief A texture put on a quadrilateral, for dgx_draw_texture_quad_with().
+ * Zero is the default of every member but the corners and the texture.
+ */
+typedef struct dgx_texture_quad_t {
+    /**
+     * The corners the corners of the texture region go to, top-left, top-right,
+     * bottom-right and bottom-left, in sixteenths of a pixel: (0, 0) is the top
+     * left corner of the pixel (0, 0), and its centre is (8, 8).
+     */
+    int x[4], y[4];
+    /** A virtual screen of 16 bits, RGB565, or of 8 bits, indices into @c lut; its pixels as rows of memory. */
+    dgx_screen_t *texture;
+    int           tx, ty, tw, th; /**< The region of the texture; it must lie inside it. */
+    const uint16_t *lut;           /**< For an 8-bit texture: its 256 colors, RGB565. */
+    const uint8_t  *alpha;         /**< For an 8-bit texture: the opacity of each index, 0 to 255; NULL for all opaque. */
+    uint32_t        key;           /**< With DGX_TEXTURE_KEY: the color of a 16-bit texture that is not drawn. */
+    uint32_t        paper;         /**< With DGX_TEXTURE_PAPER: what soft edges and translucent texels are mixed with. */
+    uint32_t        flags;         /**< DGX_TEXTURE_BILINEAR, DGX_TEXTURE_SOFT, DGX_TEXTURE_KEY, DGX_TEXTURE_PAPER. */
+} dgx_texture_quad_t;
+
+/**
+ * @brief Puts a region of a texture on a convex quadrilateral whose corners lie
+ * between pixels, for motion slower than a pixel a frame.
+ *
+ * A quad that is a parallelogram (a rectangle moved, turned, scaled or
+ * slanted) takes the texture by an affine map, exactly; so does one whose
+ * corners are a parallelogram's rounded each to 1/16 px, off one by up to two
+ * sixteenths, mapped as the parallelogram between them. Any other convex quad
+ * takes it as a plane seen in perspective: every straight line of the texture
+ * stays straight, and the quad has no fold along a diagonal. A pixel is
+ * sampled at its centre: the texel it falls in, or with DGX_TEXTURE_BILINEAR
+ * the four nearest mixed by distance, the region's border texels repeated past
+ * its edges. A pixel is in the quad when its centre is; with DGX_TEXTURE_SOFT
+ * it takes the texture by its distance from the nearest side, wholly half a
+ * pixel inside, not at all half a pixel outside.
+ *
+ * Translucent texels (the opacities of an 8-bit texture, the key color of a
+ * 16-bit one with DGX_TEXTURE_KEY) and soft edges are mixed, in 32 steps, with
+ * what lies on the screen where it can be read: a virtual screen, a display
+ * drawn into a virtual screen first, a DSI or RGB display. With
+ * DGX_TEXTURE_PAPER they are mixed with @c paper instead. On a display behind
+ * a bus without it, a pixel is drawn whole from half on and not at all below.
+ * Mixed texels of a bilinear sample are weighted by their opacities, so a
+ * transparent texel lends a translucent one no color.
+ *
+ * The quad moved by whole pixels has the same pixels, moved, so a picture
+ * drawn into strips of rows, or under a clip, has no seams.
+ *
+ * @param scr  The screen to draw on, of 16 bits a pixel.
+ * @param quad The quad, the texture and the choices.
+ * @return ESP_OK, also when nothing of it falls on the screen; ESP_ERR_INVALID_ARG for a region outside the texture, an
+ *         8-bit texture without @c lut or a quad wider than 32767 pixels; ESP_ERR_NOT_SUPPORTED for a screen of another depth
+ *         or without windows, and a texture that is not a virtual screen of 16 or 8 bits; ESP_ERR_NO_MEM when a screen
+ *         without a buffer of its bus gets no memory for a row.
+ */
+esp_err_t dgx_draw_texture_quad_with(dgx_screen_t *scr, const dgx_texture_quad_t *quad);
+
 /*
  * Deprecated names, gone in DGX 1.0. Filled figures used to be named three
  * ways, dgx_fill_*, dgx_solid_* and dgx_draw_*_solid, and are all dgx_fill_*

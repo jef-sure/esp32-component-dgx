@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "dgx_deprecated.h"
@@ -35,6 +36,8 @@ typedef struct {
     DGX_DEPRECATED_USE_END
     dgx_gauge_color_with_fn_t color_with;
     void                     *user_data;
+    bool                      soft;         /* of dgx_gauge_init_soft(): soft edges, mixed with around_color */
+    uint32_t                  around_color; /* what lies around the ring, for its soft edges */
 } dgx_gauge_t;
 
 /**
@@ -67,6 +70,24 @@ typedef struct {
 void dgx_gauge_init_with(dgx_gauge_t *gauge, dgx_screen_t *scr, int center_x, int center_y, int inner_radius, int width,
                          float start_angle, int sweep_degrees, int min_value, int max_value, uint32_t background_color,
                          dgx_gauge_color_with_fn_t color, void *user_data);
+
+/**
+ * @brief dgx_gauge_init_with() with soft edges.
+ *
+ * The outer and the inner edge of the ring, and the ends of a sweep shorter
+ * than a circle, are mixed with @p around_color, the color around the ring,
+ * by the share of a pixel the ring covers. Where two steps of different
+ * colors meet, a pixel is mixed from both by its distance from the edge
+ * between them. Every color mixed is one the gauge knows, so the ring is soft
+ * on a display behind a bus as well, and drawn again it is the same. The
+ * mixing is in 32 steps; a screen of 1 bit takes the nearer color.
+ *
+ * @param around_color The color around the ring: of the screen under it where it is drawn.
+ * Every other parameter is that of dgx_gauge_init_with().
+ */
+void dgx_gauge_init_soft(dgx_gauge_t *gauge, dgx_screen_t *scr, int center_x, int center_y, int inner_radius, int width,
+                         float start_angle, int sweep_degrees, int min_value, int max_value, uint32_t background_color,
+                         uint32_t around_color, dgx_gauge_color_with_fn_t color, void *user_data);
 
 /**
  * @brief dgx_gauge_init_with() with a color function that takes no user_data.
