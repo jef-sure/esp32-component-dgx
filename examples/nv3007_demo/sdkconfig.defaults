@@ -1,0 +1,4 @@
+CONFIG_DGX_ENABLE_SPI=y
+CONFIG_DGX_ENABLE_NV3007=y
+# the labels of the orientation pictures are drawn on a 1-bit screen first
+CONFIG_DGX_ENABLE_V_BW_SCREEN=y
