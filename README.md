@@ -1393,8 +1393,9 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
 ## What's in the box
 
 - Panel drivers for ST7735, ST7789, ILI9341, NV3041A, ST77916, GC9A01, SSD1351, SSD1306,
-  SSD1309, SH1106, ST7565R, ST7920, SSD1322, JD9165, JD9365 and ST7701S, and SSD1680 for
-  e-paper of black, white and red; glasses on parallel RGB described by their timing.
+  SSD1309, SH1106, ST7565R, ST7920, SSD1322, JD9165, JD9365 and ST7701S, CO5300 for
+  AMOLED, and SSD1680 for e-paper of black, white and red; glasses on parallel RGB
+  described by their timing.
 - SPI, QSPI, I2C and 8-bit parallel (I80) transports for ESP32, MIPI-DSI
   for ESP32-P4, and parallel RGB for ESP32-S3 and ESP32-P4.
 - A color RAM-backed virtual screen and a 1-bit monochrome virtual screen.

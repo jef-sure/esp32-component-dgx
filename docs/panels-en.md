@@ -17,6 +17,7 @@ board does not wire.
 | ILI9341 | color TFT | SPI, P8 | `dgx_ili9341_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ILI_9341` |
 | NV3041A | color TFT, 480x272 | QSPI | `dgx_nv3041a_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_NV3041A` |
 | ST77916 | round color TFT, 360x360 | QSPI, SPI | `dgx_st77916_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_ST77916` |
+| CO5300 | color AMOLED, round 466x466; 480x480, 368x448 and 280x456 described | QSPI | `dgx_co5300_init(bus, rst, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_CO5300` |
 | GC9A01 | round color TFT | SPI, P8 | `dgx_gc9a01_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_GC9A01` |
 | SSD1351 | color OLED | SPI, P8 | `dgx_ssd1351_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SSD1351` |
 | SSD1322 | 16-gray OLED, 256x64, 240x128, 128x64 | P8, SPI | `dgx_ssd1322_init(bus, rst, resolution)` | `CONFIG_DGX_ENABLE_SSD1322` |
@@ -72,6 +73,11 @@ Common parameters:
   that shows cyan for red and noise along two edges is of the other kind,
   see [A panel of your own module](#a-panel-of-your-own-module). Before 0.11
   the constructor had no such argument and made the 128x160.
+- `resolution` (CO5300) — the glass: `DGX_CO5300_466X466`, the round glass
+  of the Waveshare ESP32-S3-Touch-AMOLED-1.32 and 1.75; `DGX_CO5300_480X480`
+  (Waveshare 2.16"), `DGX_CO5300_368X448` (Waveshare 1.8" of the second
+  revision) and `DGX_CO5300_280X456` (Waveshare and LilyGO 1.64"), described
+  from the code of their vendors and not yet tried on a module.
 
 Every display is turned, lit and dimmed by the same calls, whatever its
 driver: `dgx_screen_orientation()`, `dgx_screen_backlight()`,
@@ -179,6 +185,39 @@ scrolls by its own hardware. An init table belongs to its glass: with the table 
 another one the picture comes out as stripes, so a module of another glass
 takes its own, see [A panel of your own module](#a-panel-of-your-own-module).
 
+CO5300 is the controller of AMOLED panels on QSPI, round ones among them,
+with the same commands and pixels on that bus as NV3041A. It does not draw
+every window right: a window one column wide or one row high draws nothing,
+and in one whose first and last columns are both odd the rows slip. The
+code of its vendors sends only windows from an even column and row to odd
+ones, and so does DGX. The screen of `dgx_co5300_init()` keeps its picture in
+a 16-bit virtual screen, 434 KB for 466x466, from PSRAM on a board that has
+it, and sends what a drawing call has changed widened to whole pairs of
+columns and rows, as the monochrome displays send whole pages. A pixel can
+be read back, and soft text mixes with what lies under it. What is drawn in
+a batch (`dgx_screen_batch_begin()`) goes out once, at its end. A fill on
+pairs of columns and rows goes to the panel by its color: on the Waveshare
+ESP32-S3-Touch-AMOLED-1.32 at 40 MHz a fill of the whole 466x466 takes
+22.3 ms, as long as the pixels take on the wire, and the whole picture sent
+from PSRAM takes 22.9 ms. The panel turns the picture by MADCTL in all eight
+orientations. A turn sends nothing: the picture in memory is turned with the
+screen, so the glass keeps what it shows, as on a panel without memory of
+its own. There is no backlight; `dgx_screen_brightness()` sets the
+brightness of the panel, 0 to 255. On that board:
+
+```c
+dgx_bus_protocols_t *bus = dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_12, GPIO_NUM_13, GPIO_NUM_14,
+                                         GPIO_NUM_15, GPIO_NUM_11 /* sclk */, GPIO_NUM_10 /* cs */, 40 * 1000 * 1000, 0);
+dgx_screen_t *scr = dgx_co5300_init(bus, GPIO_NUM_8, 16, DgxScreenRGB, DGX_CO5300_466X466);
+```
+
+The memory of the controller has 480 columns whatever the glass, and the
+rows of the glass. The 466x466 glass of that board lies at column 6 the way
+its vendor's examples turn it upright, and at column 8 with the columns
+counted the other way; both were measured. The other glasses take the
+offsets and the upright MADCTL from the code Waveshare and Arduino_GFX have
+for their boards.
+
 ## Color depths
 
 The depths each driver sets up, in bits a pixel, and the depths its
@@ -191,6 +230,7 @@ controller takes over that bus but DGX does not set up, where they are known:
 | GC9A01 | SPI, P8 | 12, 16, 18 | |
 | ILI9341 | SPI, P8 | 16, 18 | |
 | ST77916 | QSPI, SPI | 16, 18 | |
+| CO5300 | QSPI | 16 | |
 | NV3041A | QSPI | 16, 18 | |
 | SSD1351 | SPI, P8 | 16, 18 | |
 | SSD1322 | P8, SPI | 4: 16 grays | |

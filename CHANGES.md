@@ -1,5 +1,44 @@
 # Changes
 
+## 0.12.4 - 2026-11-24
+
+A driver for the CO5300, the controller of AMOLED panels on QSPI, worked out
+on the round 466x466 glass of the Waveshare ESP32-S3-Touch-AMOLED-1.32.
+Checked by host tests, builds for ESP32, ESP32-S3 and ESP32-P4 under IDF
+5.5.4 and 6.1, and on that board.
+
+New:
+
+- **The CO5300**: `dgx_co5300_init(bus, rst, color_bits, cbo, resolution)`
+  on the bus of `dgx_qspi_init()`, enabled by `CONFIG_DGX_ENABLE_CO5300`.
+  The controller draws a window right only from an even column and row to
+  odd ones: a window one column wide or one row high draws nothing, and in
+  one whose first and last columns are both odd the rows slip. So the screen
+  keeps its picture in a 16-bit virtual screen, 434 KB for 466x466 (PSRAM on
+  a board that has it), and sends what a drawing call has changed widened to
+  whole pairs of columns and rows. Pixels can be read back.
+  - A fill on pairs of columns and rows goes to the panel by its color while
+    the same rows are filled in memory: on that board at 40 MHz a fill of the
+    whole screen takes 22.3 ms, as long as the pixels take on the wire, and
+    the whole picture sent from PSRAM takes 22.9 ms.
+  - The panel turns the picture in all eight orientations. A turn sends
+    nothing: the picture in memory is turned so that the glass keeps what it
+    shows.
+  - There is no backlight; `dgx_screen_brightness()` sets the brightness of
+    the panel.
+- **Four glasses**: `DGX_CO5300_466X466`, tried on the Waveshare
+  ESP32-S3-Touch-AMOLED-1.32; `DGX_CO5300_480X480`, `DGX_CO5300_368X448`
+  and `DGX_CO5300_280X456`, with the offsets and the upright orientation of
+  the code Waveshare and Arduino_GFX have for their boards, not yet tried on
+  a module.
+
+Tests:
+
+- test_co5300 runs the driver against a model of the controller: every
+  window goes from an even column and row to odd ones whatever is drawn, the
+  glass shows what the picture in memory has, and a turn leaves the glass as
+  it was, on all four glasses.
+
 ## 0.12.3 - 2026-11-22
 
 The colors by the names of CSS, all of them, with the values of CSS, and a

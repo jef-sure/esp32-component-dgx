@@ -168,6 +168,17 @@ config DGX_ENABLE_ST77916
         The 360x360 controller of round panels, on the bus of dgx_qspi_init(),
         or of dgx_spi_init() for a panel of one data line.
 
+config DGX_ENABLE_CO5300
+    bool "Enable CO5300 AMOLED driver"
+    depends on DGX_ENABLE_SPI
+    select DGX_ENABLE_VSCREEN
+    default n
+    help
+        The controller of round AMOLED panels, 466x466, on the bus of
+        dgx_qspi_init(). The driver keeps the picture in a 16-bit RAM
+        buffer, 434 KB for 466x466 (PSRAM on a board that has it), and
+        sends what has changed in windows of whole pairs of columns and rows.
+
 config DGX_ENABLE_JD9165
     bool "Enable JD9165 panel driver"
     depends on DGX_ENABLE_DSI
