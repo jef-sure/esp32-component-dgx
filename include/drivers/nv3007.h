@@ -25,7 +25,7 @@ extern "C" {
  * two values below are the same panel, portrait or landscape.
  */
 typedef enum dgx_nv3007_resolution_t {
-    DGX_NV3007_142X428 = 1, /**< portrait, MADCTL 00h as Arduino_GFX starts it */
+    DGX_NV3007_142X428 = 1, /**< portrait, MADCTL 00h as Arduino_GFX starts it; the init table of the 2.79" module */
     DGX_NV3007_428X142 = 2, /**< 142x428 turned by dgx_screen_orientation(scr, DgxScreenRightLeft, DgxScreenTopBottom, true) */
 } dgx_nv3007_resolution_t;
 

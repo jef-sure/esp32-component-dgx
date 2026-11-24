@@ -32,14 +32,18 @@ static const char *TAG = "nv3007_demo";
 
 #define DEMO_LCD_HOST SPI2_HOST
 
-/* GPIOs an ESP32 and an ESP32-S3 both have, away from the flash, the PSRAM and USB */
+/*
+ * GPIOs of an ESP32-C3: the SPI pins of its IO MUX (6, 7, 10) and three free
+ * ones, away from the flash (11-17), USB (18, 19), the console (20, 21) and
+ * the strapping pins (2, 8, 9).
+ */
 enum {
-    DEMO_PIN_MOSI      = 13, /* SDA, SDI or DIN of the module */
-    DEMO_PIN_SCLK      = 14, /* SCL or CLK */
-    DEMO_PIN_CS        = 15,
-    DEMO_PIN_DC        = 2,  /* DC or RS */
+    DEMO_PIN_MOSI      = 7,  /* SDA, SDI or DIN of the module */
+    DEMO_PIN_SCLK      = 6,  /* SCL or CLK */
+    DEMO_PIN_CS        = 10,
+    DEMO_PIN_DC        = 3,  /* DC or RS */
     DEMO_PIN_RST       = 4,  /* RES or RST; GPIO_NUM_NC if it is tied to 3.3V or EN */
-    DEMO_PIN_BACKLIGHT = 21, /* BLK or BL; GPIO_NUM_NC if it is tied to 3.3V */
+    DEMO_PIN_BACKLIGHT = 5,  /* BLK or BL; GPIO_NUM_NC if it is tied to 3.3V */
     DEMO_SPI_MHZ       = 20, /* 40 may work as well: try it once the pictures are right */
 };
 
@@ -49,57 +53,137 @@ enum {
 /* 1 if the colors come out inverted, like a photo negative: the panel is then told INVON */
 #define DEMO_INVERT 0
 
-/* 1 to start the panel with the other table of Arduino_GFX, the one it has for a 2.79" module */
-#define DEMO_TABLE_279 0
+/* 1 to start the panel with the other table of Arduino_GFX, nv3007_init_operations, instead of the driver's one for a 2.79" module */
+#define DEMO_TABLE_MAIN 0
 
-#if DEMO_TABLE_279
-/* nv3007_279_init_operations of Arduino_GFX, with the pixel format and MADCTL of the screen */
-static const dgx_lcd_init_cmd_t table_279[] = {
-    {0xFF, 0, 1, 0, {0xA5}},       {0x9A, 0, 1, 0, {0x08}},       {0x9B, 0, 1, 0, {0x08}},       {0x9C, 0, 1, 0, {0xB0}},
-    {0x9D, 0, 1, 0, {0x16}},       {0x9E, 0, 1, 0, {0xC4}},       {0x8F, 0, 2, 0, {0x55, 0x04}}, {0x84, 0, 1, 0, {0x90}},
-    {0x83, 0, 1, 0, {0x7B}},       {0x85, 0, 1, 0, {0x33}},       {0x60, 0, 1, 0, {0x00}},       {0x70, 0, 1, 0, {0x00}},
-    {0x61, 0, 1, 0, {0x02}},       {0x71, 0, 1, 0, {0x02}},       {0x62, 0, 1, 0, {0x04}},       {0x72, 0, 1, 0, {0x04}},
-    {0x6C, 0, 1, 0, {0x29}},       {0x7C, 0, 1, 0, {0x29}},       {0x6D, 0, 1, 0, {0x31}},       {0x7D, 0, 1, 0, {0x31}},
-    {0x6E, 0, 1, 0, {0x0F}},       {0x7E, 0, 1, 0, {0x0F}},       {0x66, 0, 1, 0, {0x21}},       {0x76, 0, 1, 0, {0x21}},
-    {0x68, 0, 1, 0, {0x3A}},       {0x78, 0, 1, 0, {0x3A}},       {0x63, 0, 1, 0, {0x07}},       {0x73, 0, 1, 0, {0x07}},
-    {0x64, 0, 1, 0, {0x05}},       {0x74, 0, 1, 0, {0x05}},       {0x65, 0, 1, 0, {0x02}},       {0x75, 0, 1, 0, {0x02}},
-    {0x67, 0, 1, 0, {0x23}},       {0x77, 0, 1, 0, {0x23}},       {0x69, 0, 1, 0, {0x08}},       {0x79, 0, 1, 0, {0x08}},
-    {0x6A, 0, 1, 0, {0x13}},       {0x7A, 0, 1, 0, {0x13}},       {0x6B, 0, 1, 0, {0x13}},       {0x7B, 0, 1, 0, {0x13}},
-    {0x6F, 0, 1, 0, {0x00}},       {0x7F, 0, 1, 0, {0x00}},       {0x50, 0, 1, 0, {0x00}},       {0x52, 0, 1, 0, {0xD6}},
-    {0x53, 0, 1, 0, {0x08}},       {0x54, 0, 1, 0, {0x08}},       {0x55, 0, 1, 0, {0x1E}},       {0x56, 0, 1, 0, {0x1C}},
-    {0xA0, 0, 3, 0, {0x2B, 0x24, 0x00}},
-    {0xA1, 0, 1, 0, {0x87}},       {0xA2, 0, 1, 0, {0x86}},       {0xA5, 0, 1, 0, {0x00}},       {0xA6, 0, 1, 0, {0x00}},
-    {0xA7, 0, 1, 0, {0x00}},       {0xA8, 0, 1, 0, {0x36}},       {0xA9, 0, 1, 0, {0x7E}},       {0xAA, 0, 1, 0, {0x7E}},
-    {0xB9, 0, 1, 0, {0x85}},       {0xBA, 0, 1, 0, {0x84}},       {0xBB, 0, 1, 0, {0x83}},       {0xBC, 0, 1, 0, {0x82}},
-    {0xBD, 0, 1, 0, {0x81}},       {0xBE, 0, 1, 0, {0x80}},       {0xBF, 0, 1, 0, {0x01}},       {0xC0, 0, 1, 0, {0x02}},
-    {0xC1, 0, 1, 0, {0x00}},       {0xC2, 0, 1, 0, {0x00}},       {0xC3, 0, 1, 0, {0x00}},       {0xC4, 0, 1, 0, {0x33}},
-    {0xC5, 0, 1, 0, {0x7E}},       {0xC6, 0, 1, 0, {0x7E}},       {0xC8, 0, 2, 0, {0x33, 0x33}}, {0xC9, 0, 1, 0, {0x68}},
-    {0xCA, 0, 1, 0, {0x69}},       {0xCB, 0, 1, 0, {0x6A}},       {0xCC, 0, 1, 0, {0x6B}},       {0xCD, 0, 2, 0, {0x33, 0x33}},
-    {0xCE, 0, 1, 0, {0x6C}},       {0xCF, 0, 1, 0, {0x6D}},       {0xD0, 0, 1, 0, {0x6E}},       {0xD1, 0, 1, 0, {0x6F}},
-    {0xAB, 0, 2, 0, {0x03, 0x67}}, {0xAC, 0, 2, 0, {0x03, 0x6B}}, {0xAD, 0, 2, 0, {0x03, 0x68}}, {0xAE, 0, 2, 0, {0x03, 0x6C}},
-    {0xB3, 0, 1, 0, {0x00}},       {0xB4, 0, 1, 0, {0x00}},       {0xB5, 0, 1, 0, {0x00}},       {0xB6, 0, 1, 0, {0x32}},
-    {0xB7, 0, 1, 0, {0x7E}},       {0xB8, 0, 1, 0, {0x7E}},       {0xE0, 0, 1, 0, {0x00}},       {0xE1, 0, 2, 0, {0x03, 0x0F}},
-    {0xE2, 0, 1, 0, {0x04}},       {0xE3, 0, 1, 0, {0x01}},       {0xE4, 0, 1, 0, {0x0E}},       {0xE5, 0, 1, 0, {0x01}},
-    {0xE6, 0, 1, 0, {0x19}},       {0xE7, 0, 1, 0, {0x10}},       {0xE8, 0, 1, 0, {0x10}},       {0xEA, 0, 1, 0, {0x12}},
-    {0xEB, 0, 1, 0, {0xD0}},       {0xEC, 0, 1, 0, {0x04}},       {0xED, 0, 1, 0, {0x07}},       {0xEE, 0, 1, 0, {0x07}},
-    {0xEF, 0, 1, 0, {0x09}},       {0xF0, 0, 1, 0, {0xD0}},       {0xF1, 0, 1, 0, {0x0E}},       {0xF9, 0, 1, 0, {0x17}},
-    {0xF2, 0, 4, 0, {0x2C, 0x1B, 0x0B, 0x20}},
-    {0xE9, 0, 1, 0, {0x29}},       {0xEC, 0, 1, 0, {0x04}},       {0x35, 0, 1, 0, {0x00}},       {0x44, 0, 2, 0, {0x00, 0x10}},
-    {0x46, 0, 1, 0, {0x10}},       {0xFF, 0, 1, 0, {0x00}},
-    {0x3A, dgx_panel_adj_colmod, 1, 0, {0x05}},
-    {0x36, dgx_panel_adj_madctl, 1, 0, {0}},
-    {0x20, 0, 0, 0, {0}},
-    {0x11, 0, 0, 120, {0}},
-    {0, 0, 0xff, 0, {0}},
+#if DEMO_TABLE_MAIN
+/* nv3007_init_operations of Arduino_GFX, with the pixel format and MADCTL of the screen */
+static const dgx_lcd_init_cmd_t table_main[] = {
+    {0xFF,   0,                    1,    0,   {0xA5}                  }, //
+    {0x11, 0,                    0,    120, {0}                     }, //
+    {0xFF,   0,                    1,    0,   {0xA5}                  }, // the registers of the vendor
+    {0x9A,          0,                    1,    0,   {0x08}                  }, //
+    {0x9B,          0,                    1,    0,   {0x08}                  }, //
+    {0x9C,          0,                    1,    0,   {0xB0}                  }, //
+    {0x9D,          0,                    1,    0,   {0x17}                  }, //
+    {0x9E,          0,                    1,    0,   {0xC2}                  }, //
+    {0x8F,          0,                    2,    0,   {0x22, 0x04}            }, //
+    {0x84,          0,                    1,    0,   {0x90}                  }, //
+    {0x83,          0,                    1,    0,   {0x7B}                  }, //
+    {0x85,          0,                    1,    0,   {0x4F}                  }, //
+    {0x6E,          0,                    1,    0,   {0x0F}                  }, // gamma: V0
+    {0x7E,          0,                    1,    0,   {0x0F}                  }, //
+    {0x60,          0,                    1,    0,   {0x00}                  }, // V63
+    {0x70,          0,                    1,    0,   {0x00}                  }, //
+    {0x6D,          0,                    1,    0,   {0x39}                  }, // V1
+    {0x7D,          0,                    1,    0,   {0x31}                  }, //
+    {0x61,          0,                    1,    0,   {0x0A}                  }, // V62
+    {0x71,          0,                    1,    0,   {0x0A}                  }, //
+    {0x6C,          0,                    1,    0,   {0x35}                  }, // V2
+    {0x7C,          0,                    1,    0,   {0x29}                  }, //
+    {0x62,          0,                    1,    0,   {0x0F}                  }, // V61
+    {0x72,          0,                    1,    0,   {0x0F}                  }, //
+    {0x68,          0,                    1,    0,   {0x4F}                  }, // V20
+    {0x78,          0,                    1,    0,   {0x45}                  }, //
+    {0x66,          0,                    1,    0,   {0x33}                  }, // V43
+    {0x76,          0,                    1,    0,   {0x33}                  }, //
+    {0x6B,          0,                    1,    0,   {0x14}                  }, // V4
+    {0x7B,          0,                    1,    0,   {0x14}                  }, //
+    {0x63,          0,                    1,    0,   {0x09}                  }, // V59
+    {0x73,          0,                    1,    0,   {0x09}                  }, //
+    {0x6A,          0,                    1,    0,   {0x13}                  }, // V6
+    {0x7A,          0,                    1,    0,   {0x16}                  }, //
+    {0x64,          0,                    1,    0,   {0x08}                  }, // V57
+    {0x74,          0,                    1,    0,   {0x08}                  }, //
+    {0x69,          0,                    1,    0,   {0x07}                  }, //
+    {0x79,          0,                    1,    0,   {0x0D}                  }, //
+    {0x65,          0,                    1,    0,   {0x05}                  }, //
+    {0x75,          0,                    1,    0,   {0x05}                  }, //
+    {0x67,          0,                    1,    0,   {0x33}                  }, //
+    {0x77,          0,                    1,    0,   {0x33}                  }, //
+    {0x6F,          0,                    1,    0,   {0x00}                  }, //
+    {0x7F,          0,                    1,    0,   {0x00}                  }, //
+    {0x50,          0,                    1,    0,   {0x00}                  }, //
+    {0x52,          0,                    1,    0,   {0xD6}                  }, //
+    {0x53,          0,                    1,    0,   {0x04}                  }, //
+    {0x54,          0,                    1,    0,   {0x04}                  }, //
+    {0x55,          0,                    1,    0,   {0x1B}                  }, //
+    {0x56,          0,                    1,    0,   {0x1B}                  }, //
+    {0xA0,          0,                    3,    0,   {0x2A, 0x24, 0x00}      }, //
+    {0xA1,          0,                    1,    0,   {0x84}                  }, //
+    {0xA2,          0,                    1,    0,   {0x85}                  }, //
+    {0xA8,          0,                    1,    0,   {0x34}                  }, //
+    {0xA9,          0,                    1,    0,   {0x80}                  }, //
+    {0xAA,          0,                    1,    0,   {0x73}                  }, //
+    {0xAB,          0,                    2,    0,   {0x03, 0x61}            }, //
+    {0xAC,          0,                    2,    0,   {0x03, 0x65}            }, //
+    {0xAD,          0,                    2,    0,   {0x03, 0x60}            }, //
+    {0xAE,          0,                    2,    0,   {0x03, 0x64}            }, //
+    {0xB9,          0,                    1,    0,   {0x82}                  }, //
+    {0xBA,          0,                    1,    0,   {0x83}                  }, //
+    {0xBB,          0,                    1,    0,   {0x80}                  }, //
+    {0xBC,          0,                    1,    0,   {0x81}                  }, //
+    {0xBD,          0,                    1,    0,   {0x02}                  }, //
+    {0xBE,          0,                    1,    0,   {0x01}                  }, //
+    {0xBF,          0,                    1,    0,   {0x04}                  }, //
+    {0xC0,          0,                    1,    0,   {0x03}                  }, //
+    {0xC4,          0,                    1,    0,   {0x33}                  }, //
+    {0xC5,          0,                    1,    0,   {0x80}                  }, //
+    {0xC6,          0,                    1,    0,   {0x73}                  }, //
+    {0xC7,          0,                    1,    0,   {0x00}                  }, //
+    {0xC8,          0,                    2,    0,   {0x33, 0x33}            }, //
+    {0xC9,          0,                    1,    0,   {0x5B}                  }, //
+    {0xCA,          0,                    1,    0,   {0x5A}                  }, //
+    {0xCB,          0,                    1,    0,   {0x5D}                  }, //
+    {0xCC,          0,                    1,    0,   {0x5C}                  }, //
+    {0xCD,          0,                    2,    0,   {0x33, 0x33}            }, //
+    {0xCE,          0,                    1,    0,   {0x5F}                  }, //
+    {0xCF,          0,                    1,    0,   {0x5E}                  }, //
+    {0xD0,          0,                    1,    0,   {0x61}                  }, //
+    {0xD1,          0,                    1,    0,   {0x60}                  }, //
+    {0xB0,          0,                    4,    0,   {0x3A, 0x3A, 0x00, 0x00}}, //
+    {0xB6,          0,                    1,    0,   {0x32}                  }, //
+    {0xB7,          0,                    1,    0,   {0x80}                  }, //
+    {0xB8,          0,                    1,    0,   {0x73}                  }, //
+    {0xE0,          0,                    1,    0,   {0x00}                  }, //
+    {0xE1,          0,                    2,    0,   {0x03, 0x0F}            }, //
+    {0xE2,          0,                    1,    0,   {0x04}                  }, //
+    {0xE3,          0,                    1,    0,   {0x01}                  }, //
+    {0xE4,          0,                    1,    0,   {0x0E}                  }, //
+    {0xE5,          0,                    1,    0,   {0x01}                  }, //
+    {0xE6,          0,                    1,    0,   {0x19}                  }, //
+    {0xE7,          0,                    1,    0,   {0x10}                  }, //
+    {0xE8,          0,                    1,    0,   {0x10}                  }, //
+    {0xE9,          0,                    1,    0,   {0x21}                  }, //
+    {0xEA,          0,                    1,    0,   {0x12}                  }, //
+    {0xEB,          0,                    1,    0,   {0xD0}                  }, //
+    {0xEC,          0,                    1,    0,   {0x04}                  }, //
+    {0xED,          0,                    1,    0,   {0x07}                  }, //
+    {0xEE,          0,                    1,    0,   {0x07}                  }, //
+    {0xEF,          0,                    1,    0,   {0x09}                  }, //
+    {0xF0,          0,                    1,    0,   {0xD0}                  }, //
+    {0xF1,          0,                    1,    0,   {0x0E}                  }, //
+    {0xF9,          0,                    1,    0,   {0x56}                  }, //
+    {0xF2,          0,                    4,    0,   {0x26, 0x1B, 0x0B, 0x20}}, //
+    {0xEC,          0,                    1,    0,   {0x04}                  }, //
+    {0x35,   0,                    1,    0,   {0x00}                  }, //
+    {0x44,          0,                    2,    0,   {0x00, 0x10}            }, //
+    {0x46,          0,                    1,    0,   {0x10}                  }, //
+    {0xFF,   0,                    1,    0,   {0x00}                  }, // the registers of the vendor closed
+    {0x3A, dgx_panel_adj_colmod, 1,    0,   {0x05}                  }, // 05h for 16 bits, 06h for 18
+    {0x36, dgx_panel_adj_madctl, 1,    0,   {0}                     }, // upright, in the color order of the screen
+    {0x20, 0,                    0,    0,   {0}                     }, // INVON for a module whose colors come out inverted
+    {0x11, 0,                    0,    200, {0}                     }, //
+    {0,             0,                    0xff, 0,   {0}                     }  // Stop
 };
 #endif
 
 static dgx_screen_t *make_screen(dgx_bus_protocols_t *bus)
 {
-#if DEMO_TABLE_279
+#if DEMO_TABLE_MAIN
     static dgx_panel_t panel;
     panel      = dgx_panel_nv3007_142x428;
-    panel.init = table_279;
+    panel.init = table_main;
     dgx_screen_t *scr = dgx_panel_init(bus, &panel, (gpio_num_t)DEMO_PIN_RST, (gpio_num_t)DEMO_PIN_BACKLIGHT, 16, DEMO_COLOR_ORDER);
 #else
     dgx_screen_t *scr =
@@ -116,7 +200,7 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "NV3007 demo, test %d: MOSI %d, SCLK %d, CS %d, DC %d, RST %d, backlight %d, SPI %d MHz, invert %d, table %s", DEMO_TEST,
              DEMO_PIN_MOSI, DEMO_PIN_SCLK, DEMO_PIN_CS, DEMO_PIN_DC, DEMO_PIN_RST, DEMO_PIN_BACKLIGHT, DEMO_SPI_MHZ, DEMO_INVERT,
-             DEMO_TABLE_279 ? "2.79" : "main");
+             DEMO_TABLE_MAIN ? "main" : "2.79");
     dgx_bus_protocols_t *bus   = dgx_spi_init(DEMO_LCD_HOST, SPI_DMA_CH_AUTO, (gpio_num_t)DEMO_PIN_MOSI, GPIO_NUM_NC, (gpio_num_t)DEMO_PIN_SCLK,
                                               (gpio_num_t)DEMO_PIN_CS, (gpio_num_t)DEMO_PIN_DC, DEMO_SPI_MHZ * 1000000, 0);
     dgx_screen_t        *aside = dgx_bw_init(96, 10);

@@ -1,25 +1,25 @@
 # DGX NV3007 check
 
-This example checks the NV3007 driver on a 142x428 SPI bar module with an
-ESP32 or an ESP32-S3. It draws a fixed set of test pictures and prints to the
-serial log what each picture should look like.
+This example checks the NV3007 driver on a 2.79" 142x428 SPI bar module with
+an ESP32-C3. It draws a fixed set of test pictures and prints to the serial log
+what each picture should look like.
 
 ## Wiring
 
-The default pins exist on both an ESP32 and an ESP32-S3 and stay clear of
-their flash, PSRAM and USB pins. Module pin names vary a little between
-sellers.
+The default pins are the SPI pins of the ESP32-C3 and three free GPIOs next
+to them, clear of its flash, USB, console and strapping pins. Module pin names
+vary a little between sellers.
 
-| Module pin | ESP32 / ESP32-S3 |
+| Module pin | ESP32-C3 |
 | --- | --- |
 | VCC | 3.3V |
 | GND | GND |
-| SDA (SDI, DIN, MOSI) | GPIO 13 |
-| SCL (CLK, SCK) | GPIO 14 |
-| CS | GPIO 15 |
-| DC (RS) | GPIO 2 |
+| SDA (SDI, DIN, MOSI) | GPIO 7 |
+| SCL (CLK, SCK) | GPIO 6 |
+| CS | GPIO 10 |
+| DC (RS) | GPIO 3 |
 | RES (RST) | GPIO 4 |
-| BLK (BL, LED) | GPIO 21 |
+| BLK (BL, LED) | GPIO 5 |
 
 If your wiring differs, change the `DEMO_PIN_*` constants at the top of
 `main/main.c`. If RES or BLK is tied to 3.3V, put `GPIO_NUM_NC` there.
@@ -32,7 +32,7 @@ so build it inside the repository:
 ```sh
 git clone -b nv3007 https://github.com/jef-sure/esp32-component-dgx.git
 cd esp32-component-dgx/examples/nv3007_demo
-idf.py set-target esp32s3    # or esp32
+idf.py set-target esp32c3
 idf.py -p PORT flash monitor
 ```
 
@@ -77,8 +77,9 @@ a problem, one at a time, flashing again after each:
 - Colors inverted, like a photo negative, with the `BLACK` bar white: set
   `DEMO_INVERT` to 1.
 - Washed-out or wrong colors, or stripes, with the switches above not
-  helping: set `DEMO_TABLE_279` to 1. This starts the panel with another
-  init table, the one Arduino_GFX has for a 2.79" module.
+  helping: set `DEMO_TABLE_MAIN` to 1. The driver starts the panel with the
+  init table Arduino_GFX has for the 2.79" module; this starts it with the
+  other table Arduino_GFX has for the NV3007.
 
 Say which switch, if any, made the pictures right. If the screen stays white
 or shows only noise, check the wiring and the 3.3V supply first.
