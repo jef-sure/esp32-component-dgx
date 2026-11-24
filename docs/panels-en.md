@@ -211,6 +211,25 @@ dgx_bus_protocols_t *bus = dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_12
 dgx_screen_t *scr = dgx_co5300_init(bus, GPIO_NUM_8, 16, DgxScreenRGB, DGX_CO5300_466X466);
 ```
 
+Sent as they are, frames can tear. The panel shows its memory 60 times a
+second, scanning its rows, and a frame written while the scan crosses it
+shows partly old and partly new. `dgx_co5300_init_with()` with `tear_free`
+set listens to the TE line of the panel, which marks the start of each scan,
+and sends every rectangle in the order of the scan, after the scan has
+passed it and before the next one comes to it. The 466x466 glass of that
+board scans from its bottom edge up, against the rows of the upright screen,
+so they are sent from the last. A drawing call waits for that time, up to
+one scan: on that board a 340x340 rectangle sent frame after frame keeps its
+40 frames a second, and the whole screen goes at 20 instead of 21. With the
+axes swapped the rows of the screen lie across the scan, and the screen is
+sent as without the line. The rows go through three buffers of 8 KB of DMA
+memory. On that board the TE line is GPIO 9:
+
+```c
+const dgx_co5300_options_t options = {.tear_free = true, .te = GPIO_NUM_9};
+dgx_screen_t *scr = dgx_co5300_init_with(bus, GPIO_NUM_8, 16, DgxScreenRGB, DGX_CO5300_466X466, &options);
+```
+
 The memory of the controller has 480 columns whatever the glass, and the
 rows of the glass. The 466x466 glass of that board lies at column 6 the way
 its vendor's examples turn it upright, and at column 8 with the columns

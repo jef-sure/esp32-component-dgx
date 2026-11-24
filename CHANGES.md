@@ -1,5 +1,33 @@
 # Changes
 
+## 0.12.5 - 2026-11-24
+
+Frames without tearing on the CO5300. Checked by host tests, builds for
+ESP32, ESP32-S3 and ESP32-P4 under IDF 5.5.4 and 6.1, and on the Waveshare
+ESP32-S3-Touch-AMOLED-1.32.
+
+New:
+
+- **`dgx_co5300_init_with()`** takes `dgx_co5300_options_t`. With
+  `tear_free` and the TE line of the panel in `te`, every rectangle goes to
+  the panel in the order of its scan, after the scan has passed it and
+  before the next one comes to it, so no frame is seen torn.
+  - The 466x466 glass scans from its bottom edge up, against the rows of the
+    upright screen: they are sent from the last, with MY off.
+  - A drawing call waits up to one scan, 16.7 ms. On that board a 340x340
+    rectangle sent frame after frame keeps its 40 frames a second, and the
+    whole screen goes at 20 instead of 21.
+  - With the axes swapped the rows of the screen lie across the scan, and
+    the screen is sent as without the line.
+  - Three buffers of 8 KB of DMA memory. `dgx_co5300_init()` stays as it
+    was.
+
+Tests:
+
+- test_co5300 runs everything again with `tear_free`: every window on pairs
+  of columns and rows, the glass equal to the picture, the turns, and MY off
+  where the axes are not swapped.
+
 ## 0.12.4 - 2026-11-24
 
 A driver for the CO5300, the controller of AMOLED panels on QSPI, worked out

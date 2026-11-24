@@ -5,7 +5,9 @@
  * lines one pixel wide, rectangles at odd places, text, fills. The glass must
  * show what the picture in memory has: sent again whole, the picture changes
  * nothing on it. A turn changes nothing on the glass either, in all eight
- * orientations of all four glasses, two of them not square. The model: 480
+ * orientations of all four glasses, two of them not square. All of it again
+ * with tear_free, where the rows go in the order of the scan of the panel: MY
+ * off where the axes are not swapped, the rows sent from the last. The model: 480
  * columns of memory whatever the glass, the rows of the glass, MADCTL as the
  * window on the computer has it (MV exchanges the counters, MX turns the
  * columns of the memory, MY its rows).
@@ -135,14 +137,16 @@ int main(void)
         {DGX_CO5300_280X456, 280, 456, 0x00},
     };
     static const int chain[] = {1, 5, 2, 7, 4, 3, 6, 0, 6, 5, 3, 1, 7, 2, 4, 0};
+    for (int tear = 0; tear < 2; ++tear)
     for (size_t g = 0; g < sizeof(glasses) / sizeof(glasses[0]); ++g) {
         mh = glasses[g].height, bad_windows = 0, outside = 0, display_on = false, madctl = 0xff;
         memset(glass, 0x55, sizeof(glass));
-        dgx_screen_t *scr = dgx_co5300_init(&bus, GPIO_NUM_NC, 16, DgxScreenRGB, glasses[g].resolution);
+        const dgx_co5300_options_t options = {.tear_free = tear, .te = 9};
+        dgx_screen_t *scr = dgx_co5300_init_with(&bus, GPIO_NUM_NC, 16, DgxScreenRGB, glasses[g].resolution, &options);
         CHECK(scr && scr->width == glasses[g].width && scr->height == glasses[g].height);
         if (!scr) continue;
-        /* upright as the vendor turns it, the glass black and lit */
-        CHECK(madctl == glasses[g].madctl);
+        /* upright as the vendor turns it, the glass black and lit; with tear_free MY off where the axes are not swapped */
+        CHECK(madctl == (tear && !(glasses[g].madctl & 0x20) ? (glasses[g].madctl & ~0x80) : glasses[g].madctl));
         CHECK(display_on);
         CHECK(glass_is_picture(scr));
         CHECK(dgx_screen_backlight(scr, true) == ESP_ERR_NOT_SUPPORTED);
@@ -179,6 +183,7 @@ int main(void)
             const int w = chain[c];
             CHECK(dgx_screen_orientation(scr, ways[w].x, ways[w].y, ways[w].swap) == ESP_OK);
             CHECK(scr->width == (ways[w].swap ? glasses[g].height : glasses[g].width));
+            if (tear) CHECK((madctl & 0x20) || !(madctl & 0x80));
             kept += glass_is_picture(scr);
             /* drawn turned, the glass still shows the picture */
             dgx_set_pixel(scr, 3 + (int)c, 5, white);

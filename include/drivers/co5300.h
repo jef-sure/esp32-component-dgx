@@ -7,6 +7,7 @@
  *  windows from an even column and row to odd ones.
  */
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "bus/dgx_bus_protocols.h"
@@ -53,6 +54,31 @@ typedef enum dgx_co5300_resolution_t {
  */
 dgx_screen_t *dgx_co5300_init(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo,
                               dgx_co5300_resolution_t resolution);
+
+/**
+ * @brief Choices of dgx_co5300_init_with(); zero for each is the default.
+ */
+typedef struct dgx_co5300_options_t {
+    /**
+     * Send in step with the scan of the panel, so that no frame is seen torn:
+     * the TE line of the panel, @c te, tells when a scan starts, and a
+     * rectangle goes out when the scan has passed it and before the next one
+     * comes to it, its rows in the order of the scan. A drawing call waits up
+     * to one scan for that, 16.7 ms at 60 Hz. With the axes swapped the rows
+     * of the screen lie across the scan, and the screen is sent as without
+     * the line. Takes three buffers of 8 KB of DMA memory.
+     */
+    bool       tear_free;
+    gpio_num_t te; /**< The TE line, for @c tear_free; GPIO 9 on the Waveshare ESP32-S3-Touch-AMOLED-1.32. */
+} dgx_co5300_options_t;
+
+/**
+ * @brief dgx_co5300_init() with choices of the program.
+ * @param options NULL for the defaults, as dgx_co5300_init().
+ * @return The screen, or NULL as dgx_co5300_init(), and when the TE line of @c tear_free cannot be listened to.
+ */
+dgx_screen_t *dgx_co5300_init_with(dgx_bus_protocols_t *bus, gpio_num_t rst, uint8_t color_bits, dgx_color_order_t cbo,
+                                   dgx_co5300_resolution_t resolution, const dgx_co5300_options_t *options);
 
 #ifdef __cplusplus
 // @formatter:off
