@@ -138,6 +138,11 @@ config DGX_ENABLE_SPI_ST7789
     depends on DGX_ENABLE_SPI || DGX_ENABLE_P8
     default n
 
+config DGX_ENABLE_SPI_ST7796S
+    bool "Enable ST7796S panel driver"
+    depends on DGX_ENABLE_SPI || DGX_ENABLE_P8
+    default n
+
 config DGX_ENABLE_SPI_GC9A01
     bool "Enable GC9A01 panel driver"
     depends on DGX_ENABLE_SPI || DGX_ENABLE_P8

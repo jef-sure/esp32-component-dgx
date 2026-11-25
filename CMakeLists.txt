@@ -74,6 +74,10 @@ if(CONFIG_DGX_ENABLE_SPI_ST7789)
 	list(APPEND srcs "src/drivers/st7789.c")
 endif()
 
+if(CONFIG_DGX_ENABLE_SPI_ST7796S)
+	list(APPEND srcs "src/drivers/st7796s.c")
+endif()
+
 if(CONFIG_DGX_ENABLE_SPI_GC9A01)
 	list(APPEND srcs "src/drivers/gc9a01.c")
 endif()
