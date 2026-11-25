@@ -94,6 +94,10 @@ if(CONFIG_DGX_ENABLE_CO5300)
 	list(APPEND srcs "src/drivers/co5300.c")
 endif()
 
+if(CONFIG_DGX_ENABLE_AXS15231B)
+	list(APPEND srcs "src/drivers/axs15231b.c")
+endif()
+
 if(CONFIG_DGX_ENABLE_JD9165)
 	list(APPEND srcs "src/drivers/jd9165.c")
 endif()

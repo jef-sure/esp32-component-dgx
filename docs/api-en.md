@@ -208,7 +208,7 @@ itself, of a texture of either depth; with `alpha` the two are multiplied.
 Soft edges and translucent
 texels are mixed in 32 steps with what the screen has where it can be read,
 as soft text is: a virtual screen, a display drawn through a virtual back
-screen such as the CO5300, a DSI or an RGB display. On a display behind a bus
+screen such as the CO5300 or the AXS15231B, a DSI or an RGB display. On a display behind a bus
 they are mixed with `paper`; without `DGX_TEXTURE_PAPER` a pixel there is
 drawn whole from half on, and not at all below. A virtual screen of 16 bits
 is written in its memory. The quad moved by whole pixels has the same
@@ -887,6 +887,7 @@ Table 5. What each display does for the four calls; a dash is `ESP_ERR_NOT_SUPPO
 | --- | --- | --- | --- | --- |
 | ILI9341, ST7789, ST7735, GC9A01, NV3041A, ST77916, a panel of `dgx_panel_init()` | by the controller | the line | DISPON / DISPOFF | - |
 | CO5300 | by the controller; the picture in memory is turned with it, nothing is sent | - | DISPON / DISPOFF | the brightness of the panel, 256 steps |
+| AXS15231B | in the memory of the screen, laid onto the glass as it is sent; nothing is sent at a turn | the line | DISPON / DISPOFF | - |
 | a window on the computer | as the panel | - | the window goes dark | - |
 | SSD1351 | by the controller | - | yes | the master current, 16 steps |
 | SSD1306, SSD1309, SH1106 | in the memory of the screen | - | yes | the contrast, doubled every 32 levels: 1 at level 0, 16 at 128, 255 at 255 |
@@ -1160,6 +1161,7 @@ with its transport: see [Getting started](../README.md#getting-started).
 | `CONFIG_DGX_ENABLE_NV3041A` | `drivers/nv3041a.c` | needs SPI (its QSPI bus) |
 | `CONFIG_DGX_ENABLE_ST77916` | `drivers/st77916.c` | needs SPI (its QSPI bus, or SPI for a panel of one data line) |
 | `CONFIG_DGX_ENABLE_CO5300` | `drivers/co5300.c` | needs SPI (its QSPI bus); selects `VSCREEN` |
+| `CONFIG_DGX_ENABLE_AXS15231B` | `drivers/axs15231b.c` | needs SPI (its QSPI bus); selects `VSCREEN` |
 | `CONFIG_DGX_ENABLE_SSD1306` | `drivers/ssd1306.c` | needs SPI or I2C; selects `V_BW_SCREEN` |
 | `CONFIG_DGX_ENABLE_SSD1309` | `drivers/ssd1309.c` | needs SPI or I2C; selects `V_BW_SCREEN` |
 | `CONFIG_DGX_ENABLE_SH1106` | `drivers/sh1106.c` | needs SPI or I2C; selects `V_BW_SCREEN` |

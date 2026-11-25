@@ -18,6 +18,7 @@ board does not wire.
 | NV3041A | color TFT, 480x272 | QSPI | `dgx_nv3041a_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_NV3041A` |
 | ST77916 | round color TFT, 360x360 | QSPI, SPI | `dgx_st77916_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_ST77916` |
 | CO5300 | color AMOLED, round 466x466; 480x480, 368x448 and 280x456 described | QSPI | `dgx_co5300_init(bus, rst, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_CO5300` |
+| AXS15231B | color IPS TFT, 320x480, the touch controller in the same chip | QSPI | `dgx_axs15231b_init(bus, rst, backlight, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_AXS15231B` |
 | GC9A01 | round color TFT | SPI, P8 | `dgx_gc9a01_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_GC9A01` |
 | SSD1351 | color OLED | SPI, P8 | `dgx_ssd1351_init(bus, rst, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SSD1351` |
 | SSD1322 | 16-gray OLED, 256x64, 240x128, 128x64 | P8, SPI | `dgx_ssd1322_init(bus, rst, resolution)` | `CONFIG_DGX_ENABLE_SSD1322` |
@@ -78,6 +79,8 @@ Common parameters:
   (Waveshare 2.16"), `DGX_CO5300_368X448` (Waveshare 1.8" of the second
   revision) and `DGX_CO5300_280X456` (Waveshare and LilyGO 1.64"), described
   from the code of their vendors and not yet tried on a module.
+- `resolution` (AXS15231B) — the glass: `DGX_AXS15231B_320X480`, the 3.5"
+  glass of the Guition JC3248W535.
 
 Every display is turned, lit and dimmed by the same calls, whatever its
 driver: `dgx_screen_orientation()`, `dgx_screen_backlight()`,
@@ -237,6 +240,44 @@ counted the other way; both were measured. The other glasses take the
 offsets and the upright MADCTL from the code Waveshare and Arduino_GFX have
 for their boards.
 
+AXS15231B is the controller of the 320x480 IPS panel of the Guition
+JC3248W535, with the touch controller in the same chip, on QSPI with the same
+commands and pixels as NV3041A. It stores its picture in blocks of 4x4
+pixels. A window that starts or ends inside a block spoils the rest of that
+block: rows shifted by 4 pixels and stray points, and the panel ripples
+while such windows are written. A window of whole blocks is drawn right at
+any place, and so is a whole frame. The screen of `dgx_axs15231b_init()`
+keeps its picture in a 16-bit virtual screen, 300 KB, from PSRAM on a board
+that has it, and sends what a drawing call has changed widened to whole
+blocks of the glass, in pieces of whole rows: a piece that ends inside a row,
+the next one going on from there, lands in the wrong place. A pixel can be
+read back, and soft text mixes with what lies under it. What is drawn in a
+batch goes out once, at its end. Outside a batch every call sends the
+rectangle around what it drew, and a line across the screen sends nearly the
+whole screen, so draw many figures in a batch or in memory. A fill of whole
+blocks goes to the panel by its color: on that board at 40 MHz a fill of the
+whole screen takes 16.2 ms, as long as its pixels take on the wire.
+
+On QSPI the controller mirrors its axes but does not swap them: with the
+axes swapped by MADCTL the panel shows a strip at its top and nothing else.
+MADCTL stays upright, and the driver lays the picture onto the glass itself
+as it sends it, in all eight orientations. A turn sends nothing, as on the
+CO5300. The backlight is a line of the board; `dgx_screen_brightness()` is
+not supported. On that board:
+
+```c
+dgx_bus_protocols_t *bus = dgx_qspi_init(SPI2_HOST, SPI_DMA_CH_AUTO, GPIO_NUM_21, GPIO_NUM_48, GPIO_NUM_40,
+                                         GPIO_NUM_39, GPIO_NUM_47 /* sclk */, GPIO_NUM_45 /* cs */, 40 * 1000 * 1000, 0);
+dgx_screen_t *scr = dgx_axs15231b_init(bus, GPIO_NUM_NC, GPIO_NUM_1, 16, DgxScreenRGB, DGX_AXS15231B_320X480);
+```
+
+The board has no reset line for the panel. Its TE line, GPIO 38, gives 60
+pulses a second; the driver does not use it. The touch controller answers on
+I2C at 0x3B, SDA on GPIO 4 and SCL on GPIO 8. The init sequence is the one
+ESPHome has for this board: the vendor registers unlocked, C1h set to 33h,
+the registers locked again, sleep out. The memory is cleared to black before
+the display is turned on and the backlight comes on.
+
 ## Color depths
 
 The depths each driver sets up, in bits a pixel, and the depths its
@@ -250,6 +291,7 @@ controller takes over that bus but DGX does not set up, where they are known:
 | ILI9341 | SPI, P8 | 16, 18 | |
 | ST77916 | QSPI, SPI | 16, 18 | |
 | CO5300 | QSPI | 16 | |
+| AXS15231B | QSPI | 16 | 18 |
 | NV3041A | QSPI | 16, 18 | |
 | SSD1351 | SPI, P8 | 16, 18 | |
 | SSD1322 | P8, SPI | 4: 16 grays | |

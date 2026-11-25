@@ -179,6 +179,17 @@ config DGX_ENABLE_CO5300
         buffer, 434 KB for 466x466 (PSRAM on a board that has it), and
         sends what has changed in windows of whole pairs of columns and rows.
 
+config DGX_ENABLE_AXS15231B
+    bool "Enable AXS15231B panel driver"
+    depends on DGX_ENABLE_SPI
+    select DGX_ENABLE_VSCREEN
+    default n
+    help
+        The controller of 320x480 IPS panels with touch in the same chip,
+        on the bus of dgx_qspi_init(). The driver keeps the picture in a
+        16-bit RAM buffer, 300 KB (PSRAM on a board that has it), and sends
+        what has changed in windows of whole blocks of 4x4 pixels.
+
 config DGX_ENABLE_JD9165
     bool "Enable JD9165 panel driver"
     depends on DGX_ENABLE_DSI

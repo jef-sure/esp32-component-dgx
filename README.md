@@ -1538,8 +1538,8 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
 ## What's in the box
 
 - Panel drivers for ST7735, ST7789, ILI9341, NV3041A, ST77916, GC9A01, SSD1351, SSD1306,
-  SSD1309, SH1106, ST7565R, ST7920, SSD1322, JD9165, JD9365 and ST7701S, CO5300 for
-  AMOLED, and SSD1680 for e-paper of black, white and red; glasses on parallel RGB
+  SSD1309, SH1106, ST7565R, ST7920, SSD1322, JD9165, JD9365, ST7701S and AXS15231B,
+  CO5300 for AMOLED, and SSD1680 for e-paper of black, white and red; glasses on parallel RGB
   described by their timing.
 - SPI, QSPI, I2C, 8-bit parallel (I80), parallel RGB and MIPI-DSI
   transports, each on the chips that have it: see [Chips](#chips).
@@ -1611,7 +1611,8 @@ The transports on each chip, and the chips DGX has run on:
 
 Among the boards: the CYD with an ESP32 and an ILI9341 on SPI; an ESP32-C3
 with a GC9A01 on SPI; the Guition JC4827W543 with an ESP32-S3 and an NV3041A
-on QSPI, and the Waveshare ESP32-S3-Touch-AMOLED-1.32 with a CO5300 on QSPI;
+on QSPI, the Waveshare ESP32-S3-Touch-AMOLED-1.32 with a CO5300 on QSPI, and
+the Guition JC3248W535 with an AXS15231B on QSPI;
 the Guition JC1060P470 and JC8012P4A1C with an ESP32-P4 and MIPI-DSI
 displays. For the other chips, a program with every driver and every header
 of DGX builds with ESP-IDF 5.5.4 and 6.1, without a warning from DGX. It

@@ -1,5 +1,32 @@
 # Changes
 
+## Unreleased
+
+New:
+
+- **AXS15231B**: the controller of the 320x480 IPS panel of the Guition
+  JC3248W535, on QSPI: `dgx_axs15231b_init(bus, rst, backlight, color_bits,
+  cbo, resolution)` with `DGX_AXS15231B_320X480`, enabled by
+  `CONFIG_DGX_ENABLE_AXS15231B`.
+  - The controller stores its picture in blocks of 4x4 pixels, and a window
+    that starts or ends inside a block spoils the rest of it. The screen
+    keeps its picture in a 16-bit virtual screen, 300 KB of PSRAM, and sends
+    what a call changed widened to whole blocks, in pieces of whole rows.
+  - On QSPI the controller mirrors its axes but does not swap them, so the
+    driver lays the picture onto the glass itself as it sends it, in all
+    eight orientations. A turn sends nothing.
+  - A fill of whole blocks goes to the panel by its color: on that board a
+    fill of the whole screen takes 16.2 ms at 40 MHz. The PDQ graphics test
+    takes 8.0 s drawn straight on the display, 1.2 s with every timed part a
+    batch and 0.82 s in memory, see docs/benchmarks-en.md.
+
+Tests:
+
+- test_axs15231b: every window the driver sends is of whole blocks, the
+  pixels go in pieces of whole rows, MADCTL never swaps the axes; the glass
+  shows what a panel turned by MADCTL shows for the same drawing in all
+  eight orientations, and a turn leaves it as it was.
+
 ## 0.12.6 - 2026-11-25
 
 A picture on four corners that lie between pixels, an arc gauge with soft

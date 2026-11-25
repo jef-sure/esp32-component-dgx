@@ -258,7 +258,7 @@ void dgx_set_pixel(dgx_screen_t *scr, int x, int y, uint32_t color);
  * @return The color of the pixel.
  * @note Works only where pixels are memory of the chip: on virtual screens,
  *       on physical screens that draw into a virtual back screen first
- *       (ST7920, SSD1306, ST7565R, CO5300) and on a DSI display. Direct physical
+ *       (ST7920, SSD1306, ST7565R, CO5300, AXS15231B) and on a DSI display. Direct physical
  *       panels (ILI9341, ST7789, ...) do not read back and return 0; see
  *       dgx_screen_is_readable().
 */
@@ -269,7 +269,7 @@ uint32_t dgx_get_pixel(dgx_screen_t *scr, int x, int y);
  *
  * True for a screen that keeps its pixels in memory: a virtual screen, a
  * display that is drawn into a virtual screen first (ST7920, SSD1306,
- * ST7565R, CO5300), a DSI display with its frame buffers. False for a display that
+ * ST7565R, CO5300, AXS15231B), a DSI display with its frame buffers. False for a display that
  * has its memory in the panel behind a bus (ILI9341, ST7789, ...):
  * dgx_get_pixel() returns 0 there.
  *

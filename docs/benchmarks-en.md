@@ -1,6 +1,6 @@
 # Benchmarks
 
-How fast DGX draws on four boards, and beside TFT_eSPI, LovyanGFX and
+How fast DGX draws on five boards, and beside TFT_eSPI, LovyanGFX and
 Adafruit_ILI9341 on one of them. The test is the PDQ graphics test those
 libraries ship; DGX runs it as [examples/graphicstest](../examples/graphicstest).
 Times are in microseconds, as the test prints them.
@@ -13,6 +13,7 @@ Contents:
 - [Drawn in memory and sent](#drawn-in-memory-and-sent)
 - [Three boards side by side](#three-boards-side-by-side)
 - [A round ST77916 on QSPI](#a-round-st77916-on-qspi)
+- [An AXS15231B on QSPI](#an-axs15231b-on-qspi)
 - [The other libraries against their published numbers](#the-other-libraries-against-their-published-numbers)
 - [What the SPI bus of DGX does](#what-the-spi-bus-of-dgx-does)
 - [DGX before and after, on SPI and QSPI](#dgx-before-and-after-on-spi-and-qspi)
@@ -73,7 +74,7 @@ calls when the bus is done.
 
 ## The boards
 
-The boards, as they were measured on 2026-10-30:
+The boards, the first four as they were measured on 2026-10-30, the JC3248W535 on 2026-11-25:
 
 | Board | Chip | Panel | Bus | Upright screen |
 | --- | --- | --- | --- | --- |
@@ -81,6 +82,7 @@ The boards, as they were measured on 2026-10-30:
 | Guition JC4827W543 | ESP32-S3 (QFN56), revision 0.2, 240 MHz | NV3041A, 480x272 | QSPI on SPI2, 40 MHz | 272x480 |
 | Guition JC1060P470 | ESP32-P4, revision 1.3, 360 MHz | JD9165, 1024x600 | MIPI-DSI, 2 lanes of 750 Mbit/s, one frame buffer in PSRAM | 600x1024 |
 | ESP32-S3 dev board with the round module "TFT 1.53 1.0" | ESP32-S3 (QFN56), revision 0.2, 240 MHz | ST77916, 360x360, glass T150XV-C16-04 | QSPI on SPI2, 40 MHz, jumper leads | 360x360 |
+| Guition JC3248W535 | ESP32-S3 (QFN56), revision 0.2, 240 MHz, 8 MB of octal PSRAM | AXS15231B, 320x480 | QSPI on SPI2, 40 MHz | 320x480 |
 
 DGX was built with ESP-IDF 5.5.4, GCC 14.2 and `-O2`, the processor at the
 clock in the table. TFT_eSPI 2.5.43, LovyanGFX 1.2.7 and Adafruit_ILI9341
@@ -240,6 +242,67 @@ The ST77916, one round, microseconds:
 | Total | 3 366 272 | 393 502 |
 
 A fill of the whole screen takes 13.3 ms at 16 bits a pixel and 20.0 ms at 18.
+
+## An AXS15231B on QSPI
+
+The Guition JC3248W535: an ESP32-S3 at 240 MHz, as on the JC4827W543, with
+an AXS15231B of 320x480 on QSPI at 40 MHz. The test is examples/graphicstest
+with the pins and the driver changed, and with a third run.
+
+Its controller draws right only windows of whole blocks of 4x4 pixels, so
+the driver keeps a copy of the picture, 16 bits a pixel, in PSRAM, see
+[AXS15231B](panels-en.md). A drawing call goes into that copy, and the
+rectangle around what it drew, widened to whole blocks, is copied out of
+PSRAM and sent: at the end of the call, or for all the calls of a batch
+(`dgx_screen_batch_begin()` to `dgx_screen_batch_end()`) at its end. On this
+display a batch is drawing in memory, the memory of the driver. The three
+runs differ in what is sent and how often:
+
+- on the display: every call on its own, its rectangle sent at its end, as
+  on the other boards;
+- in batches, the run added for this display: the same calls, every timed
+  part of a test one batch, its rectangle sent at its end, within the time;
+- in memory: the test draws into an 8-bit virtual screen of its own, which
+  is put through the table of colors into the copy, and the whole copy is
+  sent. This is a batch too, through a second picture and always of the
+  whole screen.
+
+The AXS15231B, one round, microseconds:
+
+| Test | on the display | in batches | in memory |
+| --- | ---: | ---: | ---: |
+| HaD pushColor | 95 852 | 95 856 | 83 695 |
+| Screen fill | 16 159 | 12 104 | 35 243 |
+| Text | 10 212 | 10 583 | 35 286 |
+| Pixels | 1 732 613 | 97 085 | 132 222 |
+| Lines | 4 620 861 | 185 157 | 112 635 |
+| Horiz/Vert Lines | 84 169 | 46 519 | 37 083 |
+| Rectangles (outline) | 207 543 | 19 821 | 33 492 |
+| Rectangles (filled) | 306 111 | 306 106 | 77 565 |
+| Circles (filled) | 62 207 | 34 748 | 39 342 |
+| Circles (outline) | 63 668 | 33 142 | 39 736 |
+| Triangles (outline) | 137 696 | 17 996 | 35 227 |
+| Triangles (filled) | 159 939 | 159 958 | 45 639 |
+| Rounded rects (outline) | 215 651 | 19 938 | 34 733 |
+| Rounded rects (filled) | 300 568 | 117 045 | 81 036 |
+| Total | 8 013 249 | 1 156 058 | 822 934 |
+
+What the numbers show:
+
+- A batch takes away the cost of the calls sent one by one: Pixels take
+  0.10 s instead of 1.7 s, Lines 0.19 s instead of 4.6 s.
+- Where a test changes little of the screen, a batch is faster than the
+  memory run: that one always ends by sending the whole screen through the
+  copy, about 33 ms, and no row of its column takes less. On the JC4827W543,
+  which has no copy, that is about 14 ms. Where much is drawn, the memory run
+  is faster: it writes 8 bits a pixel into PSRAM, the copy 16.
+- Rectangles (filled) and Triangles (filled) time every figure apart, an
+  outline drawn between them outside the time, so there a batch holds one
+  call and changes nothing.
+- Screen fill is the time of one of five fills of the whole screen. On the
+  display the driver sends each by its color, in about 16 ms, the time of the
+  whole screen on the wire. In a batch the five go into the copy and the
+  screen is sent once.
 
 ## The other libraries against their published numbers
 
