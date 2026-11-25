@@ -1,11 +1,12 @@
 # Changes
 
-## Unreleased
+## 0.12.6 - 2026-11-25
 
 A picture on four corners that lie between pixels, an arc gauge with soft
 edges, and shapes whose places lie between pixels, painted with gradients,
-translucent and soft. Checked by host tests and on the Waveshare
-ESP32-S3-Touch-AMOLED-1.32.
+translucent and soft, with an example of them on a round AMOLED. Checked by
+host tests, builds for every ESP32 chip under IDF 5.5.4 and 6.1, and on the
+Waveshare ESP32-S3-Touch-AMOLED-1.32.
 
 New:
 
