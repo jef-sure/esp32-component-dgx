@@ -1,6 +1,11 @@
 # Changes
 
-## Unreleased
+## 0.12.8 - 2026-11-25
+
+The soft edges of a texture quad by the exact share of a pixel, quads that
+are not convex refused, and a README that installs 0.12. Checked by host
+tests, builds for ESP32, ESP32-S3 and ESP32-P4 under IDF 5.5.4 and 6.1, and
+timed on the Waveshare ESP32-S3-Touch-AMOLED-1.32.
 
 Fixed:
 
