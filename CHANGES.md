@@ -64,6 +64,16 @@ New:
   `dgx_draw_arc()` and thick lines 2.5 ms, and either frame about 13 ms to
   send.
 
+Documentation:
+
+- The README has a section on chips: the transports of each ESP32 chip, and
+  those DGX has run on, the ESP32, ESP32-C3, ESP32-S3 and ESP32-P4. For the
+  ESP32-S2, C2, C5, C6, C61 and H2, a program with every driver builds with
+  ESP-IDF 5.5.4 and 6.1, and for the preview targets H21, H4 and S31 of
+  ESP-IDF 6.1. Getting started points to it.
+- The README links to projects built with DGX: a weather clock in a
+  handwritten font, a CO2 meter and a clock on two OLEDs.
+
 Tests:
 
 - test_texture_quad: whole and half pixels, a quarter turn, perspective,

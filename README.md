@@ -56,8 +56,10 @@ Every picture in this README was drawn by DGX's own code, run on a PC.
   - [LVGL on top of DGX](#lvgl-on-top-of-dgx)
   - [An effect on the computer](#an-effect-on-the-computer)
 - [Examples](#examples)
+- [Projects built with DGX](#projects-built-with-dgx)
 - [How fast](#how-fast)
 - [What's in the box](#whats-in-the-box)
+- [Chips](#chips)
 - [Documentation](#documentation)
 - [License](#license)
 
@@ -65,7 +67,11 @@ Every picture in this README was drawn by DGX's own code, run on a PC.
 
 DGX is an ESP-IDF component, published in the
 [ESP Component Registry](https://components.espressif.com/components/jef-sure/dgx)
-as `jef-sure/dgx`. Add it to a project:
+as `jef-sure/dgx`. It has run on boards with the ESP32, ESP32-C3, ESP32-S3
+and ESP32-P4, and is written to work on every ESP32 chip of ESP-IDF; a
+transport appears in `menuconfig` only on a chip that has it. Which chip has
+which: [Chips](#chips).
+Add it to a project:
 
 ```sh
 idf.py add-dependency "jef-sure/dgx^0.11.0"
@@ -1396,6 +1402,24 @@ idf.py flash monitor
 A CYD (Cheap Yellow Display) is an ESP32-2432S028R: an ESP32 with a
 320x240 ILI9341 on SPI.
 
+## Projects built with DGX
+
+- [handwritten-clock](https://github.com/jef-sure/handwritten-clock): a
+  weather clock in a handwritten font of Bézier curves. The digits of the
+  time flow into one another, the temperature and the name of the city are
+  written stroke by stroke, and the weather symbol is made of dots that flow
+  into the next symbol. It runs on a CYD and on the Guition JC1060P470 and
+  JC8012P4A1C, an ESP32-P4 with a 7-inch or a 10.1-inch MIPI-DSI display.
+- [esp32-co2-station](https://github.com/jef-sure/esp32-co2-station): a CO2
+  meter on an ESP32-C3 with an SCD41 sensor and a round 1.28-inch GC9A01
+  display: a gauge and animated digits of a dot font, the readings sent to
+  Home Assistant over MQTT.
+- [dotview-clock](https://github.com/jef-sure/dotview-clock): a clock on two
+  1.5-inch 128x128 SSD1351 OLEDs driven by an ESP32, the hours on one and the
+  minutes on the other, its dot-matrix digits morphing into each other, with
+  the weather and its forecast. It carries an early version of DGX in
+  `components/dgx`.
+
 ## How fast
 
 The PDQ graphics test that Adafruit_GFX, TFT_eSPI and LovyanGFX ship, with
@@ -1517,8 +1541,8 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
   SSD1309, SH1106, ST7565R, ST7920, SSD1322, JD9165, JD9365 and ST7701S, CO5300 for
   AMOLED, and SSD1680 for e-paper of black, white and red; glasses on parallel RGB
   described by their timing.
-- SPI, QSPI, I2C and 8-bit parallel (I80) transports for ESP32, MIPI-DSI
-  for ESP32-P4, and parallel RGB for ESP32-S3 and ESP32-P4.
+- SPI, QSPI, I2C, 8-bit parallel (I80), parallel RGB and MIPI-DSI
+  transports, each on the chips that have it: see [Chips](#chips).
 - A color RAM-backed virtual screen and a 1-bit monochrome virtual screen.
   They are useful on their own, as staging buffers for animation, or as shadow
   buffers behind monochrome controllers. A virtual screen goes to a display or
@@ -1563,6 +1587,41 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
   its components: a face picked by rules or named exactly, a size in
   points, millimeters or pixels, only the characters the texts use, one
   font per face and size.
+
+## Chips
+
+DGX is written for every ESP32 chip that ESP-IDF supports. It reaches the
+hardware through ESP-IDF: its drivers, and on SPI the `spi_ll_*` functions of
+its low-level layer, which every chip has. What differs between chips, such
+as the longest SPI transfer or whether DMA can read PSRAM, comes from
+ESP-IDF's description of the chip. A transport is offered in `menuconfig`
+only on a chip that has its peripheral; the panel drivers and everything
+that draws are the same on every chip.
+
+The transports on each chip, and the chips DGX has run on:
+
+| Chip | SPI, QSPI, I2C | 8-bit parallel (I80) | Parallel RGB | MIPI-DSI | Run on boards |
+| --- | --- | --- | --- | --- | --- |
+| ESP32 | yes | yes | — | — | yes |
+| ESP32-S2 | yes | yes | — | — | — |
+| ESP32-S3 | yes | yes | yes | — | yes |
+| ESP32-C3 | yes | — | — | — | yes |
+| ESP32-C2, ESP32-C5, ESP32-C6, ESP32-C61, ESP32-H2 | yes | — | — | — | — |
+| ESP32-P4 | yes | yes | yes | yes | yes |
+
+Among the boards: the CYD with an ESP32 and an ILI9341 on SPI; an ESP32-C3
+with a GC9A01 on SPI; the Guition JC4827W543 with an ESP32-S3 and an NV3041A
+on QSPI, and the Waveshare ESP32-S3-Touch-AMOLED-1.32 with a CO5300 on QSPI;
+the Guition JC1060P470 and JC8012P4A1C with an ESP32-P4 and MIPI-DSI
+displays. For the other chips, a program with every driver and every header
+of DGX builds with ESP-IDF 5.5.4 and 6.1, without a warning from DGX. It
+builds too for the ESP32-H21, ESP32-H4 and ESP32-S31, which ESP-IDF 6.1 has
+as preview targets; the ESP32-S31 has the 8-bit parallel and RGB transports
+as well.
+
+On the C and H chips `SPI2_HOST` is the only SPI host for displays, and the
+ESP32-C2, C3, C6 and H2 have no PSRAM: a screen kept in memory, such as that
+of the CO5300 driver, 434 KB at 466x466, does not fit there.
 
 ## Documentation
 

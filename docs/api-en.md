@@ -736,7 +736,7 @@ Declared under [include/bus/](../include/bus):
 | `dgx_spi_init_with(..., options)`, `dgx_spi_init_on_bus_with(..., options)`, `dgx_qspi_init_with(..., options)`, `dgx_qspi_init_on_bus_with(..., options)` | The same four with choices of the program in a `dgx_spi_options_t`, such as the longest buffer; NULL for the defaults. |
 | `dgx_i2c_init(i2c_num, i2c_address, sda, sclk, clock_speed_hz)` | I2C master bus. |
 | `dgx_i2c_init_on_bus(i2c_bus, i2c_address, clock_speed_hz)` | A display on an I2C master bus the program owns. |
-| `dgx_p8_init(d0..d7, wr, rd, cs, dc, pclk_hz)` | 8-bit parallel (I80) bus. |
+| `dgx_p8_init(d0..d7, wr, rd, cs, dc, pclk_hz)` | 8-bit parallel (I80) bus of ESP32, ESP32-S2, ESP32-S3 and ESP32-P4. |
 | `dgx_p8_init_on_bus(i80_bus, rd, cs, pclk_hz)` | A display on an I80 bus the program owns. |
 | `dgx_dsi_init(bus_id, data_lanes, lane_bit_rate_mbps, phy_ldo_chan, phy_ldo_mv)` | MIPI-DSI bus of ESP32-P4. `phy_ldo_chan` and `phy_ldo_mv` name the regulator of the chip that powers the DSI PHY, 3 and 2500 on the usual boards; -1 when it is powered otherwise. |
 | `dgx_rgb_init(pins, pclk_hz)` | Parallel RGB bus of ESP32-S3 and ESP32-P4: the 16 data lines, PCLK, HSYNC, VSYNC, DE and DISP of the board in a `dgx_rgb_pins_t`, and the pixel clock, which is the board's. The frame buffer lies in PSRAM and goes to the panel through two bounce buffers in internal memory. Made on the core that draws. A program that writes to the flash sets `CONFIG_SPIRAM_XIP_FROM_PSRAM`, or the picture is spoilt meanwhile, and `CONFIG_LCD_RGB_RESTART_IN_VSYNC` is best left off: [What a program sets](rgb-display-en.md#what-a-program-sets). |
@@ -1147,7 +1147,7 @@ with its transport: see [Getting started](../README.md#getting-started).
 | --- | --- | --- |
 | `CONFIG_DGX_ENABLE_SPI` | `bus/spi_esp32.c`, `bus/qspi_esp32.c`, `drivers/panel.c` | SPI and QSPI transports, and `dgx_panel_init()` |
 | `CONFIG_DGX_ENABLE_I2C` | `bus/i2c_esp32.c` | I2C transport |
-| `CONFIG_DGX_ENABLE_P8` | `bus/p8_esp32.c`, `drivers/panel.c` | 8-bit parallel (I80) transport, and `dgx_panel_init()` |
+| `CONFIG_DGX_ENABLE_P8` | `bus/p8_esp32.c`, `drivers/panel.c` | 8-bit parallel (I80) transport, and `dgx_panel_init()`; chips that have it (ESP32, ESP32-S2, ESP32-S3, ESP32-P4) |
 | `CONFIG_DGX_ENABLE_DSI` | `bus/dsi_esp32.c`, `bus/fb_area.c`, `bus/fb_tiles.c`, `bus/fb_flip.c` | MIPI-DSI transport; chips that have it (ESP32-P4) |
 | `CONFIG_DGX_ENABLE_RGB` | `bus/rgb_esp32.c`, `bus/fb_area.c`, `bus/fb_tiles.c`, `bus/fb_flip.c`, `drivers/rgb_panel.c` | parallel RGB transport and `dgx_rgb_panel_init()`; chips that have it (ESP32-S3, ESP32-P4); a program that writes to the flash also sets `CONFIG_SPIRAM_XIP_FROM_PSRAM` of IDF |
 | `CONFIG_DGX_RGB_BOUNCE_ROWS` | - | rows of the panel in each of the two bounce buffers of the RGB bus, 10 by default |
