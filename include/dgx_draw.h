@@ -791,7 +791,8 @@ uint32_t dgx_draw_line_mask(dgx_screen_t *scr, int x1, int y1, int x2, int y2, u
  * @param tx,ty   Top-left corner of the texture region.
  * @param tw,th   Size of the texture region; it must lie inside the texture.
  * @return ESP_OK, also when nothing of it falls on the screen; ESP_ERR_INVALID_ARG for a texture of another depth, a
- *         region outside it, or a region or quad too large for 16.16 fixed point; ESP_ERR_NOT_SUPPORTED for a screen
+ *         region outside it, a region or quad too large for 16.16 fixed point, or a quad that is not convex: its
+ *         sides cross or it bends inward; ESP_ERR_NOT_SUPPORTED for a screen
  *         without windows, a texture that cannot be read or a depth of no whole bytes; ESP_ERR_NO_MEM when a screen
  *         without a buffer of its bus gets no memory for a row.
  */
@@ -864,12 +865,14 @@ typedef struct dgx_texture_quad_t {
  * corners are a parallelogram's rounded each to 1/16 px, off one by up to two
  * sixteenths, mapped as the parallelogram between them. Any other convex quad
  * takes it as a plane seen in perspective: every straight line of the texture
- * stays straight, and the quad has no fold along a diagonal. A pixel is
+ * stays straight, and the quad has no fold along a diagonal. A quad with a
+ * corner given twice, or three corners on a line, has no such map and draws
+ * nothing, as a quad of no area does. A pixel is
  * sampled at its centre: the texel it falls in, or with DGX_TEXTURE_BILINEAR
  * the four nearest mixed by distance, the region's border texels repeated past
  * its edges. A pixel is in the quad when its centre is; with DGX_TEXTURE_SOFT
- * it takes the texture by its distance from the nearest side, wholly half a
- * pixel inside, not at all half a pixel outside.
+ * it takes the texture by the share of its area the quad covers, counted
+ * exactly, at the corners too, as the shapes below count it.
  *
  * Translucent texels (the opacities of an 8-bit texture, those of
  * @c alpha_map, the key color of a 16-bit one with DGX_TEXTURE_KEY) and soft
@@ -887,7 +890,8 @@ typedef struct dgx_texture_quad_t {
  * @param scr  The screen to draw on, of 16 bits a pixel.
  * @param quad The quad, the texture and the choices.
  * @return ESP_OK, also when nothing of it falls on the screen; ESP_ERR_INVALID_ARG for a region outside the texture, an
- *         8-bit texture without @c lut, an @c alpha_map smaller than the texture or a quad wider than 32767 pixels;
+ *         8-bit texture without @c lut, an @c alpha_map smaller than the texture, a quad wider than 32767 pixels or a
+ *         quad that is not convex: its sides cross or it bends inward;
  *         ESP_ERR_NOT_SUPPORTED for a screen of another depth or without windows, a texture that is not a virtual screen of
  *         16 or 8 bits and an @c alpha_map that is not one of 8 bits; ESP_ERR_NO_MEM when a screen without a buffer of its
  *         bus gets no memory for a row.

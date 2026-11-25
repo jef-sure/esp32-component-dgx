@@ -74,14 +74,14 @@ which: [Chips](#chips).
 Add it to a project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.11.0"
+idf.py add-dependency "jef-sure/dgx^0.12.7"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.11.0"
+  jef-sure/dgx: "^0.12.7"
 ```
 
 Then enable the drivers you need in `menuconfig`, under the **DGX** menu. A
@@ -647,7 +647,8 @@ dgx_draw_texture_quad(scr, mirrored, tex, 0, 0, tex->width, tex->height);
 ```
 
 To rotate or animate the picture, compute the four corners again for every
-frame. The quad must be convex; the mapping is affine, without perspective.
+frame. The quad must be convex, or the call refuses it with
+`ESP_ERR_INVALID_ARG`; the mapping is affine, without perspective.
 For a whole number of times larger, a quarter turn or a mirror image, the
 flags of a transfer do the same pixel for pixel, faster and with smoothing:
 see [Pixel art made larger](#pixel-art-made-larger).

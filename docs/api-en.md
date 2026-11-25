@@ -63,7 +63,7 @@ Declared in [include/dgx_draw.h](../include/dgx_draw.h):
 | `dgx_draw_triangle(scr, x0, y0, x1, y1, x2, y2, color)` | Outline of a triangle: its three lines, a pixel wide, in one update. It is the border of `dgx_fill_triangle()` with the same corners, pixel for pixel. |
 | `dgx_fill_triangle(scr, x0, y0, x1, y1, x2, y2, color)` | Filled triangle: every row from the leftmost to the rightmost pixel the lines of its sides have there, so two triangles with a side in common leave no gap. |
 | `dgx_fill_polygon4(scr, x0..y3, color)` | Filled simple quadrilateral (convex or concave). |
-| `dgx_draw_texture_quad(scr, quad, texture, tx, ty, tw, th)` | Stretch a region of a virtual screen onto a convex quadrilateral (affine, nearest texel). Returns `ESP_OK`, or why nothing was drawn: a texture of another depth or a region outside it, a screen without windows, no memory for a row. |
+| `dgx_draw_texture_quad(scr, quad, texture, tx, ty, tw, th)` | Stretch a region of a virtual screen onto a convex quadrilateral (affine, nearest texel). Returns `ESP_OK`, or why nothing was drawn: a texture of another depth or a region outside it, a quad that is not convex, a screen without windows, no memory for a row. |
 | `dgx_draw_texture_rect(scr, x, y, w, h, texture, tx, ty, tw, th)` | Scale a region of a virtual screen into a rectangle; returns as the quad does. |
 | `dgx_draw_texture_quad_with(scr, &quad)` | Put a region of a virtual screen on a convex quadrilateral whose corners lie between pixels, as `dgx_texture_quad_t` describes it: a texture of 16 bits, or of 8 bits through a table of colors with an opacity for each index, and an opacity for each texel from `alpha_map`; the nearest texel or four mixed; hard or soft edges. For a screen of 16 bits; see below the table. |
 | `dgx_fill_ring_with(scr, &ring)` | A ring between two radii, the part of it between two angles with ends cut along the rays or round, a sector, a disc, as `dgx_ring_t` describes it; its place and radii in sixteenths of a pixel. See [Shapes between pixels](#shapes-between-pixels) for this and the calls below. |
@@ -190,12 +190,17 @@ top-left corner of pixel (0, 0): the centre of pixel x is
 `x * DGX_SUBPIXEL + 8`. A parallelogram is mapped affine, and so are corners
 rounded each from those of a parallelogram, off it by up to two sixteenths;
 any other convex quad is mapped in perspective, a plane seen at an angle. A
-pixel is sampled at its centre. The flags of the quad:
+quad that is not convex, its sides crossing or bending inward, is refused
+with `ESP_ERR_INVALID_ARG`. One with a corner given twice, or three corners
+on a line, a triangle, has no such map and draws nothing, as a quad of no
+area does; `dgx_draw_texture_quad()` draws a triangle. A pixel is sampled at
+its centre. The flags of the quad:
 
 - `DGX_TEXTURE_BILINEAR`: a pixel mixes the four texels around its point by
   distance, instead of taking the one it falls in.
 - `DGX_TEXTURE_SOFT`: a pixel the edge crosses takes the texture by the share
-  of it the quad covers.
+  of its area the quad covers, counted exactly, at the corners and sharp tips
+  too, as for the shapes below.
 - `DGX_TEXTURE_KEY`: a texel of a 16-bit texture of the color `key` is not
   drawn.
 - `DGX_TEXTURE_PAPER`: soft edges and translucent texels are mixed with

@@ -27,6 +27,27 @@ static const char TAG[] = "DGX TEXTURE";
 #define DGX_FP_ROUND(v)    ((int)(((v) + DGX_FP_ONE / 2) >> 16))
 #define DGX_FP_FROM_INT(v) ((int32_t)(v) * DGX_FP_ONE)
 
+/*
+ * How the sides of a quad turn at its corners. A convex quad turns the same
+ * way at every corner, and with four corners turning one way the sides
+ * cannot go round twice. A quad whose sides cross turns both ways, and so
+ * does one that bends inward: DGX_TEXTURE_BENT. A corner given twice, or on
+ * the line of its neighbours, does not turn: DGX_TEXTURE_FLAT, a triangle or
+ * less.
+ */
+enum { DGX_TEXTURE_CONVEX, DGX_TEXTURE_FLAT, DGX_TEXTURE_BENT };
+
+static int dgx_texture_turns(const int x[4], const int y[4])
+{
+    bool left = false, right = false, flat = false;
+    for (int i = 0; i < 4; ++i) {
+        const int     j = (i + 1) & 3, k = (i + 2) & 3;
+        const int64_t turn = (int64_t)(x[j] - x[i]) * (y[k] - y[j]) - (int64_t)(y[j] - y[i]) * (x[k] - x[j]);
+        left |= turn > 0, right |= turn < 0, flat |= turn == 0;
+    }
+    return left && right ? DGX_TEXTURE_BENT : flat ? DGX_TEXTURE_FLAT : DGX_TEXTURE_CONVEX;
+}
+
 typedef struct {
     dgx_point_2d_t p; /* on the screen */
     dgx_point_2d_t s; /* in the texture */
@@ -201,6 +222,14 @@ esp_err_t dgx_draw_texture_quad(dgx_screen_t *scr, const dgx_point_2d_t quad[4],
         ESP_LOGE(TAG, "texture region is too large for 16.16 fixed point");
         return ESP_ERR_INVALID_ARG;
     }
+    {
+        int cx[4], cy[4];
+        for (int i = 0; i < 4; ++i) cx[i] = quad[i].x, cy[i] = quad[i].y;
+        if (dgx_texture_turns(cx, cy) == DGX_TEXTURE_BENT) {
+            ESP_LOGE(TAG, "the quad is not convex: its sides cross or it bends inward");
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
 
     /* quad[] follows the texture region corners: top-left, top-right, bottom-right, bottom-left */
     dgx_texture_vertex_t vertices[4];
@@ -345,7 +374,9 @@ esp_err_t dgx_draw_texture_rect(dgx_screen_t *scr, int x, int y, int w, int h, d
  *
  * Each pixel the quad may touch is looked at by its centre. Its distance from
  * each side, positive inside, is kept in 1/256 of a pixel and stepped along
- * the row; the nearest side gives the coverage. Where it is covered, the point
+ * the row. A soft edge covers a pixel by the share of its area inside the
+ * quad, see dgx_tq_cover(); a hard one where the centre is inside. Where it
+ * is covered, the point
  * its centre maps to in the texture is found: by an affine map, stepped in
  * 16.16 along the row, for a parallelogram, or by the projective map of the
  * square onto the quad (Heckbert's), one division a pixel, for any other. The
@@ -675,10 +706,108 @@ static void dgx_tq_inside_mapped(const dgx_tq_t *t, uint16_t *at, int n, dgx_tq_
     else map->s = s, map->v = v;
 }
 
+/*
+ * The sides of a quad for its soft edges. A side cuts the square of a pixel
+ * while the centre of the pixel is closer to it than half of |nx| + |ny|, the
+ * farthest a corner of the square lies from the centre along the normal; the
+ * coverage goes in 32 steps, so a side that cuts off less than 1/64 of the
+ * pixel is taken to leave it whole, or, from outside, to cover nothing of it.
+ */
+typedef struct {
+    float   nx[4], ny[4];    /* the normals, inward, of length 1 */
+    float   far[4], near[4]; /* (a + b) / 2 and (a - b) / 2 of a >= b, |nx| and |ny| */
+    float   lin[4], tri[4];  /* 1 / a and 1 / (2 a b): a division is a call of the library on the S3 */
+    int32_t whole[4];        /* in 1/256 px: from this far inside the side leaves the pixel whole, from this far outside empty */
+} dgx_tq_sides_t;
+
+/* the distance from a side, in 1/256 px, from which it cuts off less than 1/64 of a pixel */
+static int32_t dgx_tq_whole(float a, float b)
+{
+    const float eps = 1.0f / 64.0f;
+    const float d   = b > 2.0f * a * eps ? (a + b) * 0.5f - sqrtf(2.0f * a * b * eps) : (0.5f - eps) * a;
+    return (int32_t)ceilf(d * 256.0f);
+}
+
+/*
+ * The share of a pixel inside side i whose distance from its centre is d,
+ * positive inside, a >= b the two parts of the normal: while the side crosses
+ * two opposite edges of the square the share is linear in d, past that it
+ * cuts a corner off the square, a triangle.
+ */
+static float dgx_tq_half_plane(const dgx_tq_sides_t *s, int i, float d)
+{
+    if (d > s->near[i]) {
+        const float t = s->far[i] - d;
+        return 1.0f - t * t * s->tri[i];
+    }
+    if (d < -s->near[i]) {
+        const float t = s->far[i] + d;
+        return t * t * s->tri[i];
+    }
+    return 0.5f + d * s->lin[i];
+}
+
+/* the area of the square of a pixel left by the sides of `cut`: the square cut by each in turn */
+static float dgx_tq_clipped(const dgx_tq_sides_t *s, const int32_t *dist, unsigned cut)
+{
+    float x[12] = {-0.5f, 0.5f, 0.5f, -0.5f}, y[12] = {-0.5f, -0.5f, 0.5f, 0.5f}, cx[12], cy[12];
+    int   n = 4;
+    for (int i = 0; i < 4; ++i) {
+        if (!(cut >> i & 1u)) continue;
+        const float nx = s->nx[i], ny = s->ny[i], d = (float)dist[i] * (1.0f / 256.0f);
+        int         m = 0;
+        for (int k = 0; k < n; ++k) {
+            const int   j  = k + 1 == n ? 0 : k + 1;
+            const float fk = nx * x[k] + ny * y[k] + d, fj = nx * x[j] + ny * y[j] + d;
+            if (fk >= 0) cx[m] = x[k], cy[m] = y[k], ++m;
+            if ((fk >= 0) != (fj >= 0)) {
+                const float u = fk / (fk - fj);
+                cx[m] = x[k] + (x[j] - x[k]) * u, cy[m] = y[k] + (y[j] - y[k]) * u, ++m;
+            }
+        }
+        if (m < 3) return 0.0f;
+        for (int k = 0; k < m; ++k) x[k] = cx[k], y[k] = cy[k];
+        n = m;
+    }
+    float area2 = 0;
+    for (int k = 0; k < n; ++k) {
+        const int j = k + 1 == n ? 0 : k + 1;
+        area2 += x[k] * y[j] - x[j] * y[k];
+    }
+    return (area2 < 0 ? -area2 : area2) * 0.5f;
+}
+
+/*
+ * The coverage of a pixel by a soft edge, 0 to 32: the share of the pixel
+ * inside the quad, its area counted exactly, as the shapes of shape.c count
+ * it. One side across the pixel gives it in closed form; two or more, at a
+ * corner or across a thin quad, by the square cut by each. Out of line: only
+ * the pixels of the edges come here.
+ */
+static __attribute__((noinline)) uint32_t dgx_tq_cover(const dgx_tq_sides_t *s, const int32_t *dist)
+{
+    unsigned cut = 0;
+    int      one = 0, count = 0;
+    for (int i = 0; i < 4; ++i) {
+        if (dist[i] >= s->whole[i]) continue;
+        if (dist[i] <= -s->whole[i]) return 0;
+        cut |= 1u << i, one = i, ++count;
+    }
+    if (!count) return 32;
+    const float area = count == 1 ? dgx_tq_half_plane(s, one, (float)dist[one] * (1.0f / 256.0f)) : dgx_tq_clipped(s, dist, cut);
+    const int   c    = (int)(area * 32.0f + 0.5f);
+    return c <= 0 ? 0u : c >= 32 ? 32u : (uint32_t)c;
+}
+
 esp_err_t dgx_draw_texture_quad_with(dgx_screen_t *scr, const dgx_texture_quad_t *q)
 {
     if (!scr || !q || !q->texture) return ESP_ERR_INVALID_ARG;
     if (q->tw <= 0 || q->th <= 0) return ESP_OK;
+    const int turns = dgx_texture_turns(q->x, q->y);
+    if (turns == DGX_TEXTURE_BENT) {
+        ESP_LOGE(TAG, "the quad is not convex: its sides cross or it bends inward");
+        return ESP_ERR_INVALID_ARG;
+    }
     if (scr->color_bits != 16 || !scr->set_area || !scr->write_area) return ESP_ERR_NOT_SUPPORTED;
     dgx_screen_t *texture = q->texture;
     const bool    indexed = texture->color_bits == 8;
@@ -721,16 +850,18 @@ esp_err_t dgx_draw_texture_quad_with(dgx_screen_t *scr, const dgx_texture_quad_t
     /* twice the signed area: positive when the corners go clockwise on the screen */
     float area2 = 0;
     for (int i = 0; i < 4; ++i) area2 += X[i] * Y[(i + 1) & 3] - X[(i + 1) & 3] * Y[i];
-    if (area2 > -1e-3f && area2 < 1e-3f) return ESP_OK;
+    /* a triangle or less has no map of the square onto it: it draws nothing, as a quad of no area */
+    if (turns == DGX_TEXTURE_FLAT || (area2 > -1e-3f && area2 < 1e-3f)) return ESP_OK;
     const bool  soft   = (q->flags & DGX_TEXTURE_SOFT) != 0;
-    const float margin = soft ? 0.5f : 0.0f;
-    /* the box of the pixels the quad may touch: half a pixel more for a soft edge */
+    const float margin = soft ? 0.71f : 0.0f;
+    /* the box of the pixels the quad may touch: a soft edge reaches a pixel whose centre is up to half a diagonal outside */
     int bx0 = ox + (int)floorf(x_lo - margin - 0.5f), bx1 = ox + (int)ceilf(x_hi + margin - 0.5f);
     int by0 = oy + (int)floorf(y_lo - margin - 0.5f), by1 = oy + (int)ceilf(y_hi + margin - 0.5f);
     if (dgx_clip_misses(scr, bx0, bx1, by0, by1)) return ESP_OK;
     /* the sides: a distance from each, positive inside, in 1/256 of a pixel at the centre of a pixel, and its step along a row */
     const float orient = area2 > 0 ? 1.0f : -1.0f;
-    float       nx[4], ny[4], nc[4];
+    float          nx[4], ny[4], nc[4];
+    dgx_tq_sides_t sides = {0};
     for (int i = 0; i < 4; ++i) {
         const int   j = (i + 1) & 3;
         const float ex = X[j] - X[i], ey = Y[j] - Y[i], len = sqrtf(ex * ex + ey * ey);
@@ -740,6 +871,11 @@ esp_err_t dgx_draw_texture_quad_with(dgx_screen_t *scr, const dgx_texture_quad_t
         }
         nx[i] = -ey / len * orient, ny[i] = ex / len * orient;
         nc[i] = -(nx[i] * X[i] + ny[i] * Y[i]);
+        const float ax = fabsf(nx[i]), ay = fabsf(ny[i]), sa = ax > ay ? ax : ay, sb = ax > ay ? ay : ax;
+        sides.nx[i] = nx[i], sides.ny[i] = ny[i];
+        sides.far[i] = (sa + sb) * 0.5f, sides.near[i] = (sa - sb) * 0.5f;
+        sides.lin[i] = 1.0f / sa, sides.tri[i] = sb > 1e-6f ? 0.5f / (sa * sb) : 0.0f;
+        sides.whole[i] = dgx_tq_whole(sa, sb);
     }
     /* the map from the screen to the region of the texture, u and v in texels: the inverse of the square onto the quad */
     /*
@@ -797,7 +933,9 @@ esp_err_t dgx_draw_texture_quad_with(dgx_screen_t *scr, const dgx_texture_quad_t
     /* a texture with no transparent texel goes inside the quad by dgx_tq_inside(); there a side is at least this far, in 1/256 px */
     const bool    opaque   = !indexed && !(q->flags & DGX_TEXTURE_KEY) && !alpha_map;
     const bool    bilinear = (q->flags & DGX_TEXTURE_BILINEAR) != 0;
-    const int32_t inside   = soft ? 128 : 0;
+    /* a side at least this far from the centre of a pixel, in 1/256 px, leaves the pixel whole */
+    int32_t inside[4];
+    for (int i = 0; i < 4; ++i) inside[i] = soft ? sides.whole[i] : 0;
     dgx_screen_batch_begin(scr);
     for (int y = by0; y <= by1; ++y) {
         const float yc = (float)(y - oy) + 0.5f;
@@ -842,13 +980,13 @@ esp_err_t dgx_draw_texture_quad_with(dgx_screen_t *scr, const dgx_texture_quad_t
         /* the pixels x0 + in_lo .. x0 + in_hi have every side at least `inside` away: the quad covers them whole */
         int in_lo = 0, in_hi = opaque || t.memory ? x1 - x0 : -1;
         for (int i = 0; i < 4 && in_lo <= in_hi; ++i) {
-            if (dist[i] >= inside) {
+            if (dist[i] >= inside[i]) {
                 if (step[i] < 0) {
-                    const int k = (dist[i] - inside) / -step[i];
+                    const int k = (dist[i] - inside[i]) / -step[i];
                     if (k < in_hi) in_hi = k;
                 }
             } else if (step[i] > 0) {
-                const int k = (inside - dist[i] + step[i] - 1) / step[i];
+                const int k = (inside[i] - dist[i] + step[i] - 1) / step[i];
                 if (k > in_lo) in_lo = k;
             } else {
                 in_hi = -1;
@@ -872,14 +1010,13 @@ esp_err_t dgx_draw_texture_quad_with(dgx_screen_t *scr, const dgx_texture_quad_t
                 x += n - 1;
                 continue;
             }
-            int32_t m = dist[0];
-            for (int i = 1; i < 4; ++i)
-                if (dist[i] < m) m = dist[i];
-            uint32_t cover = 0;
+            uint32_t cover;
             if (soft) {
-                const int32_t k = m + 128;
-                cover           = k <= 0 ? 0u : k >= 256 ? 32u : (uint32_t)k >> 3;
+                cover = dgx_tq_cover(&sides, dist);
             } else {
+                int32_t m = dist[0];
+                for (int i = 1; i < 4; ++i)
+                    if (dist[i] < m) m = dist[i];
                 cover = m >= 0 ? 32u : 0u;
             }
             if (cover) {

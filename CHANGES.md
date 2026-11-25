@@ -1,5 +1,38 @@
 # Changes
 
+## Unreleased
+
+Fixed:
+
+- **The soft edges of `dgx_draw_texture_quad_with()` cover a pixel by the
+  share of its area inside the quad**, counted exactly, as the shapes of
+  0.12.6 count it. They took the distance from the nearest side, which is
+  right along a straight edge but too much at a corner and at a sharp tip: a
+  corner of a square a quarter of a pixel off the grid gave 0.75 of its pixel
+  instead of 0.5625, and the tip of a thin parallelogram up to 10/32 too
+  much. A soft sprite and a soft polygon of the same corners now agree. On
+  the Waveshare ESP32-S3-Touch-AMOLED-1.32 a soft card of 125x83 takes
+  2.69 ms with the nearest texel instead of 2.28, and 6.98 ms bilinear
+  instead of 6.56.
+- **A quad that is not convex is refused** by `dgx_draw_texture_quad()` and
+  `dgx_draw_texture_quad_with()`, with `ESP_ERR_INVALID_ARG`: one whose sides
+  cross or that bends inward drew a mess. `dgx_draw_texture_quad_with()`
+  draws nothing for a quad with a corner given twice or three corners on a
+  line, as for one of no area: there is no map of the square onto it, and
+  such a triangle came out in the color of one texel.
+
+Tests:
+
+- test_texture_quad: the soft edges of a square a quarter of a pixel off the
+  grid, a turned rectangle, a thin parallelogram and a quad in perspective
+  against the share of every pixel counted by 32 x 32 points; a quad whose
+  sides cross and one bent inward refused by both calls, a triangle with each
+  of its corners given twice drawn by the one and not by the other.
+
+Documentation:
+
+- The README installs `^0.12.7`; it gave `^0.11.0`, which takes no 0.12.
+
 ## 0.12.7 - 2026-11-25
 
 Two drivers: the ST7796S of 320x480 panels on SPI, checked on a module, and

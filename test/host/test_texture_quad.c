@@ -10,8 +10,10 @@
  * outside the clip. On a display behind a bus, which cannot be read, a soft
  * edge is whole from half on, or mixed with paper.
  */
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "check.h"
@@ -389,6 +391,112 @@ int main(void)
         dgx_screen_destroy(&ink);
         dgx_screen_destroy(&m);
         dgx_screen_destroy(&noise), dgx_screen_destroy(&a), dgx_screen_destroy(&b);
+    }
+
+    /*
+     * A soft edge covers a pixel by the share of its area inside the quad, at
+     * its corners too: white on black, the weight of every pixel against the
+     * share counted by 32 x 32 points of it tested against the quad. A square
+     * with corners a quarter of a pixel off the grid, a turned rectangle, a
+     * thin parallelogram with sharp tips, a quad in perspective.
+     */
+    {
+        float quads[4][8] = {
+            {10.25f, 10.25f, 30.25f, 10.25f, 30.25f, 30.25f, 10.25f, 30.25f},
+            {0},
+            {4.2f, 58.3f, 20.1f, 58.3f, 60.3f, 52.1f, 44.4f, 52.1f},
+            {12.3f, 8.6f, 50.2f, 14.1f, 46.7f, 40.9f, 9.1f, 33.3f},
+        };
+        static const float sx[4] = {-1, 1, 1, -1}, sy[4] = {-1, -1, 1, 1};
+        for (int i = 0; i < 4; ++i) {
+            const float c = 0.8660254f, s = 0.5f, u = sx[i] * 15.0f, v = sy[i] * 7.0f;
+            quads[1][2 * i] = 32.3f + u * c - v * s, quads[1][2 * i + 1] = 31.7f + u * s + v * c;
+        }
+        int   bad = 0, edge = 0;
+        float worst = 0;
+        for (int k = 0; k < 4; ++k) {
+            dgx_texture_quad_t c = {.texture = white, .tw = 4, .th = 4, .flags = DGX_TEXTURE_SOFT};
+            float              X[4], Y[4];
+            for (int i = 0; i < 4; ++i) {
+                c.x[i] = (int)lroundf(quads[k][2 * i] * 16), c.y[i] = (int)lroundf(quads[k][2 * i + 1] * 16);
+                X[i] = (float)c.x[i] / 16, Y[i] = (float)c.y[i] / 16;
+            }
+            dgx_fill_rectangle(scr, 0, 0, 64, 64, BLACK);
+            CHECK(dgx_draw_texture_quad_with(scr, &c) == ESP_OK);
+            float sign = 0;
+            for (int e = 0; e < 4; ++e) sign += X[e] * Y[(e + 1) & 3] - X[(e + 1) & 3] * Y[e];
+            for (int y = 0; y < 64; ++y)
+                for (int x = 0; x < 64; ++x) {
+                    /* a pixel whose corners are all inside is covered whole, one with all of them outside a side not at all */
+                    int whole = 1, none = 0;
+                    for (int e = 0; e < 4; ++e) {
+                        const int f   = (e + 1) & 3;
+                        int       out = 0;
+                        for (int k2 = 0; k2 < 4; ++k2) {
+                            const float qx = (float)(x + (k2 & 1)), qy = (float)(y + (k2 >> 1));
+                            out += ((X[f] - X[e]) * (qy - Y[e]) - (Y[f] - Y[e]) * (qx - X[e])) * sign < 0;
+                        }
+                        whole &= out == 0, none |= out == 4;
+                    }
+                    int in = whole ? 1024 : 0;
+                    if (!whole && !none)
+                    for (int j = 0; j < 32; ++j)
+                        for (int i = 0; i < 32; ++i) {
+                            const float qx = (float)x + ((float)i + 0.5f) / 32, qy = (float)y + ((float)j + 0.5f) / 32;
+                            int         pos = 0, neg = 0;
+                            for (int e = 0; e < 4; ++e) {
+                                const int   f     = (e + 1) & 3;
+                                const float cross = (X[f] - X[e]) * (qy - Y[e]) - (Y[f] - Y[e]) * (qx - X[e]);
+                                pos += cross > 0, neg += cross < 0;
+                            }
+                            in += !pos || !neg;
+                        }
+                    const uint16_t got = px(scr, x, y);
+                    int            w   = -1;
+                    for (int m = 0; m <= 32 && w < 0; ++m)
+                        if (dgx_alpha_mix16(BLACK, WHITE, (uint32_t)m) == got) w = m;
+                    const float err = w < 0 ? 1.0f : fabsf((float)w / 32 - (float)in / 1024);
+                    if (err > worst) worst = err;
+                    bad += err > 1.5f / 32;
+                    edge += in > 0 && in < 1024;
+                }
+        }
+        if (bad) printf("soft edges by area: %d pixels off by more than 1.5/32, the worst by %.3f\n", bad, worst);
+        CHECK(bad == 0 && edge > 300);
+    }
+
+    /*
+     * A quad that is not convex is refused by both calls, and nothing is
+     * drawn: one whose sides cross, one with a corner bent inward. A corner
+     * given twice, a triangle, has no projective map: the quad of corners
+     * between pixels draws nothing and says nothing, as for a quad of no
+     * area; the quad of whole pixels, mapped as two triangles, draws it,
+     * whichever corner it is.
+     */
+    {
+        static const int16_t shapes[6][8] = {
+            {10, 10, 40, 40, 40, 10, 10, 40}, /* sides crossing */
+            {10, 10, 40, 10, 20, 20, 10, 40}, /* a corner bent inward */
+            {10, 10, 10, 10, 40, 10, 10, 40}, /* a triangle, corner 0 twice */
+            {10, 10, 40, 10, 40, 10, 10, 40}, /* corner 1 twice */
+            {10, 10, 40, 10, 10, 40, 10, 40}, /* corner 2 twice */
+            {10, 10, 40, 10, 10, 40, 10, 10}, /* corner 3 twice */
+        };
+        for (int k = 0; k < 6; ++k) {
+            dgx_texture_quad_t c = {.texture = white, .tw = 4, .th = 4};
+            dgx_point_2d_t     p[4];
+            for (int i = 0; i < 4; ++i) {
+                c.x[i] = shapes[k][2 * i] * DGX_SUBPIXEL, c.y[i] = shapes[k][2 * i + 1] * DGX_SUBPIXEL;
+                p[i] = (dgx_point_2d_t){shapes[k][2 * i], shapes[k][2 * i + 1]};
+            }
+            const esp_err_t want = k < 2 ? ESP_ERR_INVALID_ARG : ESP_OK;
+            dgx_fill_rectangle(scr, 0, 0, 64, 64, BLACK);
+            CHECK(dgx_draw_texture_quad_with(scr, &c) == want);
+            CHECK(px(scr, 15, 15) == BLACK && px(scr, 30, 12) == BLACK);
+            dgx_fill_rectangle(scr, 0, 0, 64, 64, BLACK);
+            CHECK(dgx_draw_texture_quad(scr, p, white, 0, 0, 4, 4) == want);
+            CHECK(px(scr, 15, 15) == (k < 2 ? BLACK : WHITE) && px(scr, 30, 12) == (k < 2 ? BLACK : WHITE));
+        }
     }
 
     dgx_screen_destroy(&lcd);
