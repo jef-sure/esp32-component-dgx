@@ -885,7 +885,7 @@ Table 5. What each display does for the four calls; a dash is `ESP_ERR_NOT_SUPPO
 
 | Display | Orientation | Backlight | Display on/off | Brightness |
 | --- | --- | --- | --- | --- |
-| ILI9341, ST7789, ST7735, GC9A01, NV3041A, ST77916, a panel of `dgx_panel_init()` | by the controller | the line | DISPON / DISPOFF | - |
+| ILI9341, ST7789, ST7796S, ST7735, GC9A01, NV3041A, ST77916, a panel of `dgx_panel_init()` | by the controller | the line | DISPON / DISPOFF | - |
 | CO5300 | by the controller; the picture in memory is turned with it, nothing is sent | - | DISPON / DISPOFF | the brightness of the panel, 256 steps |
 | AXS15231B | in the memory of the screen, laid onto the glass as it is sent; nothing is sent at a turn | the line | DISPON / DISPOFF | - |
 | a window on the computer | as the panel | - | the window goes dark | - |
@@ -1154,6 +1154,7 @@ with its transport: see [Getting started](../README.md#getting-started).
 | `CONFIG_DGX_RGB_BOUNCE_ROWS` | - | rows of the panel in each of the two bounce buffers of the RGB bus, 10 by default |
 | `CONFIG_DGX_ENABLE_SPI_ST7735` | `drivers/st7735.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SPI_ST7789` | `drivers/st7789.c` | needs SPI or P8 |
+| `CONFIG_DGX_ENABLE_SPI_ST7796S` | `drivers/st7796s.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SPI_GC9A01` | `drivers/gc9a01.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SPI_ILI_9341` | `drivers/ili9341.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SSD1351` | `drivers/ssd1351.c` | needs SPI or P8 |

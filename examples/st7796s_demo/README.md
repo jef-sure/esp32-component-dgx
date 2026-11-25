@@ -1,8 +1,8 @@
 # DGX ST7796S check
 
-This example checks the ST7796S driver on a 320x480 SPI module with an
-ESP32. It draws a fixed set of test pictures and prints to the serial log
-what each picture should look like.
+This example checks a 320x480 ST7796S module on SPI with an ESP32. It draws
+a fixed set of test pictures and prints to the serial log what each picture
+should look like.
 
 ## Wiring
 
@@ -28,14 +28,19 @@ backlight is wired to a GPIO instead of 3.3V, put that GPIO in
 
 ## Build and flash
 
-You need ESP-IDF 5.2 or later. The example uses the driver from this checkout,
-so build it inside the repository:
+You need ESP-IDF 5.2 or later. From a checkout of the repository:
 
 ```sh
-git clone -b st7796s https://github.com/jef-sure/esp32-component-dgx.git
+git clone https://github.com/jef-sure/esp32-component-dgx.git
 cd esp32-component-dgx/examples/st7796s_demo
 idf.py set-target esp32
 idf.py -p PORT flash monitor
+```
+
+Or as a project of its own, with DGX from the ESP Component Registry:
+
+```sh
+compote project create-from-example -p st7796s_check jef-sure/dgx:st7796s_demo
 ```
 
 Replace `PORT` with your board's serial port (for example `/dev/ttyUSB0` or
@@ -54,9 +59,11 @@ The pictures run in a loop of a little over a minute:
    labeled `y`, a large yellow F near the square, and on the other half of the
    screen the test number, the orientation's name and size, and a small yellow
    F. In every picture all text should read normally, not mirrored or upside
-   down, and the large F should look exactly like the small one, turned the
-   same way. Hold the module so that the text of the first of them reads normally
-   and keep it that way for all eight. Pictures 1 to 4 are portrait
+   down. The large F is drawn by the screen in its orientation, so in some
+   pictures it comes out mirrored or turned, as it must: it should look
+   exactly like the small F, which shows how it should look. Hold the module
+   so that the text of the first of them reads normally and keep it that way
+   for all eight. Pictures 1 to 4 are portrait
    (320x480), pictures 5 to 8 landscape (480x320), so in those the arrows
    run along the other sides of the module.
 3. **Speed**. The whole screen flashes red, green, blue, white and black
@@ -64,15 +71,15 @@ The pictures run in a loop of a little over a minute:
 4. **Colors, 18 bits a pixel** (8 s). The same bars as in 1; the ramps should
    look as smooth as in 1 or smoother.
 
-## What to report
+## What to look for
 
-Confirm that every picture looks as described above and that there are no
-artifacts: no stray pixels, noise, stripes or shifted lines, and no flicker
-outside the speed test. If something is off, describe it; a photo of that
-picture helps.
+Every picture should look as described above, with no artifacts: no stray
+pixels, noise, stripes or shifted lines, and no flicker outside the speed
+test. If something is off on your module, open an issue and describe it; a
+photo of that picture helps.
 
 If red and blue are swapped (the `RED` bar is blue), change
-`DEMO_COLOR_ORDER` in `main/main.c` to `DgxScreenBGR`, flash again and say
-so in the report. If the colors look inverted, like a photo negative, with
+`DEMO_COLOR_ORDER` in `main/main.c` to `DgxScreenBGR` and flash again; say
+so in the issue. If the colors look inverted, like a photo negative, with
 the `BLACK` bar white, report it as it is. If the screen stays white or shows
 noise, check the wiring first, then try `DEMO_SPI_MHZ` 20.

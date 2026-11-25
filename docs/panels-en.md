@@ -14,6 +14,7 @@ board does not wire.
 | --- | --- | --- | --- | --- |
 | ST7735 | color TFT, 128x160 and the 0.96" 80x160 | SPI, P8 | `dgx_st7735_init(bus, rst, backlight, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_SPI_ST7735` |
 | ST7789 | color TFT | SPI, P8 | `dgx_st7789_init(bus, rst, backlight, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_SPI_ST7789` |
+| ST7796S | color TFT, 320x480 | SPI, P8 | `dgx_st7796s_init(bus, rst, backlight, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_SPI_ST7796S` |
 | ILI9341 | color TFT | SPI, P8 | `dgx_ili9341_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ILI_9341` |
 | NV3041A | color TFT, 480x272 | QSPI | `dgx_nv3041a_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_NV3041A` |
 | ST77916 | round color TFT, 360x360 | QSPI, SPI | `dgx_st77916_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_ST77916` |
@@ -65,6 +66,11 @@ Common parameters:
   `DGX_ST7789_240X135` for the 1.14" glass, which lies 52 columns and
   40 rows into the memory of the controller. Swapping the axes in
   `dgx_screen_orientation()` turns the screen between the two shapes.
+- `resolution` (ST7796S) — the panel: `DGX_ST7796S_320X480`, or
+  `DGX_ST7796S_480X320` for it in landscape. The glass fills the memory of
+  the controller. With `DgxScreenRGB` the driver sets the BGR bit of MADCTL,
+  as TFT_eSPI does; a module that shows red and blue swapped takes
+  `DgxScreenBGR`.
 - `resolution` (ST7735) — the panel: `DGX_ST7735_128X160`, or
   `DGX_ST7735_160X128` for it in landscape;
   `DGX_ST7735_80X160` or `DGX_ST7735_160X80` for the 0.96" IPS
@@ -188,6 +194,14 @@ scrolls by its own hardware. An init table belongs to its glass: with the table 
 another one the picture comes out as stripes, so a module of another glass
 takes its own, see [A panel of your own module](#a-panel-of-your-own-module).
 
+ST7796S is the controller of 320x480 panels, often 4-inch modules on SPI.
+The driver has the init table that TFT_eSPI, LovyanGFX and Espressif's
+esp_lcd_st7796 share, and takes 16 or 18 bits. Its serial interface takes no
+other depth: the 24-bit format of the controller is for its 8080 parallel
+buses. The datasheet gives a write cycle of 66 ns, about 15 MHz, yet a
+module on an ESP32 drew right at 40 MHz on SPI, at both depths and in all
+eight orientations.
+
 CO5300 is the controller of AMOLED panels on QSPI, round ones among them,
 with the same commands and pixels on that bus as NV3041A. It does not draw
 every window right: a window one column wide or one row high draws nothing,
@@ -287,6 +301,7 @@ controller takes over that bus but DGX does not set up, where they are known:
 | --- | --- | --- | --- |
 | ST7735 | SPI, P8 | 12, 16, 18 | |
 | ST7789 | SPI, P8 | 12, 16, 18 | |
+| ST7796S | SPI, P8 | 16, 18 | 24, on the 8-bit parallel bus |
 | GC9A01 | SPI, P8 | 12, 16, 18 | |
 | ILI9341 | SPI, P8 | 16, 18 | |
 | ST77916 | QSPI, SPI | 16, 18 | |
@@ -307,15 +322,15 @@ An empty cell in the last column means that the datasheet of the controller
 was not checked for more, not that there is none. 24 bits come only over
 MIPI-DSI: no panel DGX drives on SPI, QSPI or the parallel bus has them set
 up. Of the 18-bit depths, only those of the ST77916 and the NV3041A, both
-on QSPI, have been seen on a panel; see [docs/18-bit-pixels-en.md](18-bit-pixels-en.md).
+on QSPI, and of the ST7796S on SPI have been seen on a panel; see [docs/18-bit-pixels-en.md](18-bit-pixels-en.md).
 
 ## A panel of your own module
 
-ST7735, ST7789, ILI9341, GC9A01, NV3041A and ST77916 are descriptions of
+ST7735, ST7789, ST7796S, ILI9341, GC9A01, NV3041A and ST77916 are descriptions of
 their panels, `dgx_panel_t` of [include/drivers/dgx_panel.h](../include/drivers/dgx_panel.h),
 and their constructors make a screen of one with `dgx_panel_init()`. Their
 headers have them under the names `dgx_panel_st7735`, `dgx_panel_st7735_80x160`, `dgx_panel_st7789_240x240`,
-`dgx_panel_st7789_240x320`, `dgx_panel_st7789_76x284`, `dgx_panel_st7789_135x240`, `dgx_panel_ili9341`, `dgx_panel_gc9a01`,
+`dgx_panel_st7789_240x320`, `dgx_panel_st7789_76x284`, `dgx_panel_st7789_135x240`, `dgx_panel_st7796s`, `dgx_panel_ili9341`, `dgx_panel_gc9a01`,
 `dgx_panel_nv3041a` and `dgx_panel_st77916`. A module of another glass is a
 copy of one with what the module has otherwise: the size of its glass and
 where the glass lies in the memory of the controller, the table of commands

@@ -1396,6 +1396,7 @@ idf.py flash monitor
 | [hw_font_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/hw_font_demo) | CYD | a text written by hand, stroke by stroke |
 | [hw_morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/hw_morph_demo) | CYD | handwritten words morphing one into another |
 | [hw_soft_pen_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/hw_soft_pen_demo) | CYD or JC1060P470 | handwriting with a soft pen, lines that move to make room |
+| [st7796s_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/st7796s_demo) | ESP32 with a 320x480 ST7796S module on SPI | a check of a module: named colors and ramps at 16 and 18 bits a pixel, the eight ways the screen can lie on the glass, the time of a fill |
 | [ssd1322_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/ssd1322_demo) | ESP32 with a 3.12" SSD1322 OLED on the 8-bit parallel bus | 16 grays, text in two fonts, lines and circles, a gray ramp |
 | [ssd1680_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/ssd1680_demo) | ESP32 with the WeAct Studio 2.9" e-paper module of black, white and red | text, the three colors and figures in landscape, the eight ways the screen can lie on the glass; the time of a refresh in the log |
 
@@ -1537,7 +1538,7 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
 
 ## What's in the box
 
-- Panel drivers for ST7735, ST7789, ILI9341, NV3041A, ST77916, GC9A01, SSD1351, SSD1306,
+- Panel drivers for ST7735, ST7789, ST7796S, ILI9341, NV3041A, ST77916, GC9A01, SSD1351, SSD1306,
   SSD1309, SH1106, ST7565R, ST7920, SSD1322, JD9165, JD9365, ST7701S and AXS15231B,
   CO5300 for AMOLED, and SSD1680 for e-paper of black, white and red; glasses on parallel RGB
   described by their timing.

@@ -1,9 +1,27 @@
 # Changes
 
-## Unreleased
+## 0.12.7 - 2026-11-25
+
+Two drivers: the ST7796S of 320x480 panels on SPI, checked on a module, and
+the AXS15231B of the 320x480 IPS panel of the Guition JC3248W535 on QSPI,
+which keeps its picture in PSRAM. Checked by host tests, builds for ESP32,
+ESP32-S3 and ESP32-P4 under IDF 5.5.4 and 6.1, and on the two displays.
 
 New:
 
+- **ST7796S**: the controller of 320x480 panels, often 4-inch modules, on
+  SPI or the 8-bit parallel bus: `dgx_st7796s_init(bus, rst, backlight,
+  color_bits, cbo, resolution)` with `DGX_ST7796S_320X480` or
+  `DGX_ST7796S_480X320`, enabled by `CONFIG_DGX_ENABLE_SPI_ST7796S`, and its
+  description `dgx_panel_st7796s` for `dgx_panel_init()`.
+  - The init table is the one TFT_eSPI, LovyanGFX and Espressif's
+    esp_lcd_st7796 share. 16 or 18 bits a pixel; the 24-bit format of the
+    controller is for its 8080 parallel buses only.
+  - A module on an ESP32 drew right at 40 MHz on SPI, at both depths and in
+    all eight orientations, though the datasheet gives about 15 MHz.
+  - `examples/st7796s_demo` checks a module: named colors and ramps at 16
+    and 18 bits, the eight orientations, the time of a fill, and the log
+    says what each picture should look like.
 - **AXS15231B**: the controller of the 320x480 IPS panel of the Guition
   JC3248W535, on QSPI: `dgx_axs15231b_init(bus, rst, backlight, color_bits,
   cbo, resolution)` with `DGX_AXS15231B_320X480`, enabled by
@@ -22,6 +40,10 @@ New:
 
 Tests:
 
+- test_st7796s: MADCTL at start and after every turn agrees with the size
+  and orientation of the screen, the window covers the whole memory every
+  way, 16 and 18 bits and no other depth, command set 2 locked again at the
+  end of the init, inversion off, the display on once the screen is black.
 - test_axs15231b: every window the driver sends is of whole blocks, the
   pixels go in pieces of whole rows, MADCTL never swaps the axes; the glass
   shows what a panel turned by MADCTL shows for the same drawing in all
