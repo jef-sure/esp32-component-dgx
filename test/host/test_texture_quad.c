@@ -259,6 +259,88 @@ int main(void)
             }
         CHECK(differ == 0);
         /*
+         * An opacity for every texel, alpha_map: on a 16-bit texture and on an
+         * 8-bit one with opacities of its own, the two multiplied; a virtual
+         * screen and the display behind a bus give the same pixels with paper.
+         */
+        dgx_screen_t *map = dgx_vscreen_init(23, 17, 8, DgxScreenRGB);
+        for (int y = 0; y < 17; ++y)
+            for (int x = 0; x < 23; ++x) seed = seed * 1103515245u + 12345u, dgx_set_pixel(map, x, y, x < 4 ? 0 : x > 18 ? 255 : (seed >> 16) & 255);
+        differ = 0, drawn = 0;
+        for (int k = 0; k < 3; ++k)
+            for (uint32_t flags = 0; flags < 8; ++flags) {
+                dgx_texture_quad_t q = {.texture = flags & 4 ? ink : noise, .tx = 2, .ty = 1, .tw = 19, .th = 15, .lut = inks, .alpha = opacity,
+                                        .alpha_map = map, .paper = 0x1234, .flags = (flags & 3) | DGX_TEXTURE_PAPER};
+                for (int i = 0; i < 4; ++i) q.x[i] = quads[k][2 * i] * 2 / 3, q.y[i] = quads[k][2 * i + 1] * 2 / 3;
+                dgx_fill_rectangle(m, 0, 0, 64, 64, 0x1234);
+                for (int y = 0; y < 64; ++y)
+                    for (int x = 0; x < 64; ++x) glass[y][x] = 0x1234;
+                CHECK(dgx_draw_texture_quad_with(m, &q) == ESP_OK && dgx_draw_texture_quad_with(lcd, &q) == ESP_OK);
+                for (int y = 0; y < 64; ++y)
+                    for (int x = 0; x < 64; ++x) differ += px(m, x, y) != glass[y][x], drawn += glass[y][x] != 0x1234;
+            }
+        CHECK(differ == 0 && drawn > 24 * 400);
+        /* a map of 255 is no map; a map of 0 draws nothing; a map of 128 over an opacity of 255 is an opacity of 128 */
+        {
+            dgx_screen_t      *full = dgx_vscreen_init(23, 17, 8, DgxScreenRGB);
+            dgx_texture_quad_t q    = {.texture = noise, .tx = 2, .ty = 1, .tw = 19, .th = 15, .flags = DGX_TEXTURE_BILINEAR | DGX_TEXTURE_SOFT};
+            for (int i = 0; i < 4; ++i) q.x[i] = quads[0][2 * i] * 2 / 3, q.y[i] = quads[0][2 * i + 1] * 2 / 3;
+            dgx_fill_rectangle(full, 0, 0, 23, 17, 255);
+            dgx_fill_rectangle(m, 0, 0, 64, 64, 0x1234);
+            CHECK(dgx_draw_texture_quad_with(m, &q) == ESP_OK);
+            dgx_screen_t *plain = dgx_vscreen_init(64, 64, 16, DgxScreenRGB);
+            dgx_fill_rectangle(plain, 0, 0, 64, 64, 0x1234);
+            q.alpha_map = full;
+            CHECK(dgx_draw_texture_quad_with(plain, &q) == ESP_OK);
+            int same = 0, none = 0;
+            for (int y = 0; y < 64; ++y)
+                for (int x = 0; x < 64; ++x) same += px(m, x, y) == px(plain, x, y);
+            dgx_fill_rectangle(full, 0, 0, 23, 17, 0);
+            dgx_fill_rectangle(plain, 0, 0, 64, 64, 0x1234);
+            CHECK(dgx_draw_texture_quad_with(plain, &q) == ESP_OK);
+            for (int y = 0; y < 64; ++y)
+                for (int x = 0; x < 64; ++x) none += px(plain, x, y) == 0x1234;
+            CHECK(same == 64 * 64 && none == 64 * 64);
+            /* an index of opacity 128 and a map of 255, an index of 255 and a map of 128: the same */
+            static uint8_t half[256], whole[256];
+            memset(half, 128, sizeof(half)), memset(whole, 255, sizeof(whole));
+            dgx_texture_quad_t h = {.texture = ink, .tx = 2, .ty = 1, .tw = 19, .th = 15, .lut = inks, .alpha = half, .alpha_map = full};
+            for (int i = 0; i < 4; ++i) h.x[i] = quads[0][2 * i] * 2 / 3, h.y[i] = quads[0][2 * i + 1] * 2 / 3;
+            dgx_fill_rectangle(full, 0, 0, 23, 17, 255);
+            dgx_fill_rectangle(m, 0, 0, 64, 64, 0x1234);
+            CHECK(dgx_draw_texture_quad_with(m, &h) == ESP_OK);
+            dgx_fill_rectangle(full, 0, 0, 23, 17, 128);
+            h.alpha = whole;
+            dgx_fill_rectangle(plain, 0, 0, 64, 64, 0x1234);
+            CHECK(dgx_draw_texture_quad_with(plain, &h) == ESP_OK);
+            same = 0, none = 0;
+            for (int y = 0; y < 64; ++y)
+                for (int x = 0; x < 64; ++x) same += px(m, x, y) == px(plain, x, y), none += px(m, x, y) == 0x1234;
+            CHECK(same == 64 * 64 && none < 64 * 64 - 300);
+            /* both: an index of 128 and a map of 128 are an index of 64 */
+            static uint8_t quarter[256];
+            memset(quarter, 64, sizeof(quarter));
+            h.alpha = half;
+            dgx_fill_rectangle(m, 0, 0, 64, 64, 0x1234);
+            CHECK(dgx_draw_texture_quad_with(m, &h) == ESP_OK);
+            dgx_fill_rectangle(full, 0, 0, 23, 17, 255);
+            h.alpha = quarter;
+            dgx_fill_rectangle(plain, 0, 0, 64, 64, 0x1234);
+            CHECK(dgx_draw_texture_quad_with(plain, &h) == ESP_OK);
+            same = 0;
+            for (int y = 0; y < 64; ++y)
+                for (int x = 0; x < 64; ++x) same += px(m, x, y) == px(plain, x, y);
+            CHECK(same == 64 * 64);
+            /* a map of another depth, or smaller than the texture */
+            dgx_screen_t *wide = dgx_vscreen_init(23, 17, 16, DgxScreenRGB), *small = dgx_vscreen_init(22, 17, 8, DgxScreenRGB);
+            h.alpha_map = wide;
+            CHECK(dgx_draw_texture_quad_with(m, &h) == ESP_ERR_NOT_SUPPORTED);
+            h.alpha_map = small;
+            CHECK(dgx_draw_texture_quad_with(m, &h) == ESP_ERR_INVALID_ARG);
+            dgx_screen_destroy(&wide), dgx_screen_destroy(&small), dgx_screen_destroy(&plain), dgx_screen_destroy(&full);
+        }
+        dgx_screen_destroy(&map);
+        /*
          * Moved by whole pixels the quad is the same pixels, moved: drawn
          * whole, drawn into strips of 16 rows each with the quad at its place
          * in the strip, drawn 7 pixels right and 5 up, and drawn under a clip

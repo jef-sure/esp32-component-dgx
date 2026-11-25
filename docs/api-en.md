@@ -65,7 +65,13 @@ Declared in [include/dgx_draw.h](../include/dgx_draw.h):
 | `dgx_fill_polygon4(scr, x0..y3, color)` | Filled simple quadrilateral (convex or concave). |
 | `dgx_draw_texture_quad(scr, quad, texture, tx, ty, tw, th)` | Stretch a region of a virtual screen onto a convex quadrilateral (affine, nearest texel). Returns `ESP_OK`, or why nothing was drawn: a texture of another depth or a region outside it, a screen without windows, no memory for a row. |
 | `dgx_draw_texture_rect(scr, x, y, w, h, texture, tx, ty, tw, th)` | Scale a region of a virtual screen into a rectangle; returns as the quad does. |
-| `dgx_draw_texture_quad_with(scr, &quad)` | Put a region of a virtual screen on a convex quadrilateral whose corners lie between pixels, as `dgx_texture_quad_t` describes it: a texture of 16 bits, or of 8 bits through a table of colors with an opacity for each index; the nearest texel or four mixed; hard or soft edges. For a screen of 16 bits; see below the table. |
+| `dgx_draw_texture_quad_with(scr, &quad)` | Put a region of a virtual screen on a convex quadrilateral whose corners lie between pixels, as `dgx_texture_quad_t` describes it: a texture of 16 bits, or of 8 bits through a table of colors with an opacity for each index, and an opacity for each texel from `alpha_map`; the nearest texel or four mixed; hard or soft edges. For a screen of 16 bits; see below the table. |
+| `dgx_fill_ring_with(scr, &ring)` | A ring between two radii, the part of it between two angles with ends cut along the rays or round, a sector, a disc, as `dgx_ring_t` describes it; its place and radii in sixteenths of a pixel. See [Shapes between pixels](#shapes-between-pixels) for this and the calls below. |
+| `dgx_draw_wedge_with(scr, &wedge)` | A straight line whose width goes from that at one end to that at the other, its ends cut straight or round: the needle of a dial, a segment of one width, a dot. |
+| `dgx_fill_ellipse_with(scr, &ellipse)` | A filled ellipse or circle whose centre and radii lie between pixels. |
+| `dgx_fill_round_rectangle_with(scr, &rect)` | A filled rectangle with round corners, or square ones, whose edges lie between pixels. |
+| `dgx_fill_polygon_with(scr, &polygon)` | A filled polygon of any number of corners, convex or not, its sides crossing or not. |
+| `dgx_draw_polyline_with(scr, &polyline)` | A line of a width through points, with round joints and ends: straight from point to point, a smooth curve through them, or a curve for the values of a chart that shows no peak they do not have. |
 
 Lines, circles, ellipses and sectors are one code for every screen, made of
 the pixels and the rectangles a screen draws itself: a figure has the same
@@ -196,7 +202,10 @@ pixel is sampled at its centre. The flags of the quad:
   `paper` instead of with what the screen has.
 
 An 8-bit texture is indices: `lut` gives each its RGB565 color and `alpha` its
-opacity, 0 to 255, or `NULL` for all opaque. Soft edges and translucent
+opacity, 0 to 255, or `NULL` for all opaque. `alpha_map`, a virtual screen of
+8 bits at least as large as the texture, gives an opacity to each texel
+itself, of a texture of either depth; with `alpha` the two are multiplied.
+Soft edges and translucent
 texels are mixed in 32 steps with what the screen has where it can be read,
 as soft text is: a virtual screen, a display drawn through a virtual back
 screen such as the CO5300, a DSI or an RGB display. On a display behind a bus
@@ -211,6 +220,79 @@ drawn into the memory of the screen takes 0.18 µs a pixel with the nearest
 texel, where `dgx_draw_texture_quad()` takes 0.16, and 0.57 µs bilinear; soft
 edges add about 0.05 µs. An 8-bit texture with opacities takes 0.45 µs, and
 0.93 µs bilinear. In perspective a pixel costs a division of floats more.
+
+### Shapes between pixels
+
+`dgx_fill_ring_with()`, `dgx_draw_wedge_with()`, `dgx_fill_ellipse_with()`,
+`dgx_fill_round_rectangle_with()`, `dgx_fill_polygon_with()` and
+`dgx_draw_polyline_with()` each take a struct: the place and the size of the
+shape in sixteenths of a pixel, `DGX_SUBPIXEL`, and its paint,
+`dgx_paint_t`. The place counts from the top-left corner of pixel (0, 0), so
+the centre of pixel x is `x * DGX_SUBPIXEL + 8`; the disc of
+`dgx_fill_circle(x, y, r)` is the one of the centre `16 x + 8` and the radius
+`16 r + 8`, the rectangle of `dgx_fill_rectangle(x, y, w, h)` the one of the
+corner `16 x` and the size `16 w`. Zero is the default of every member of the
+structs but the place and the size: a shape of one opaque color with hard
+edges.
+
+The paint, `dgx_paint_t`, is a color or a gradient and its flags:
+
+- `DGX_PAINT_SOFT`: a pixel takes the paint by the share of it the shape
+  covers. Without it a pixel is the shape's when the shape covers half of it
+  or more.
+- `DGX_PAINT_OPACITY`: the paint is translucent by `opacity`, 0 to 255.
+- `DGX_PAINT_LINEAR`: a gradient from `color` at `(gx[0], gy[0])` to `color2`
+  at `(gx[1], gy[1])` and past it, by where the centre of a pixel lies along
+  that line, in 256 steps. `DGX_PAINT_RADIAL`: from `color` at the centre
+  `(gx[0], gy[0])` to `color2` on the circle through `(gx[1], gy[1])`. The
+  points are on the screen, so a shape moves over its gradient.
+- `DGX_PAINT_PAPER`: soft edges and translucent paint are mixed with `paper`
+  instead of with what the screen has.
+
+A share of a pixel is exact, counted in whole numbers from the outline of
+the shape, its curves cut into chords within 1/64 of a pixel of them. Soft
+edges and translucent paint are mixed in 32 steps with what the screen has
+where it can be read, as the texture quad mixes them; on a display behind a
+bus with `paper`, or else a pixel is drawn whole from half on and not at all
+below. The shapes draw on a screen of any depth: a virtual screen of 16 or 8
+bits is written in its memory, a 16-bit display behind a bus by runs of a
+row, any other screen by runs of one color; on a screen of 8 bits a pixel is
+an amount of ink, mixed as a number. A shape moved by whole pixels has the
+same pixels, moved, so a picture drawn into strips of rows, or under a clip,
+has no seams.
+
+A polygon is filled where its sides go round a point more times one way
+than the other, so a star of five points drawn in one stroke has its middle
+filled; a pixel the polygon goes round twice is counted once, exactly. A
+line of `dgx_draw_polyline_with()` is one shape: its joints are round and
+painted once, so a translucent line is as translucent at its joints as
+along its pieces; where a line lies over itself a pixel on its edge may come
+out a little darker. Its `way`:
+
+- `DGX_POLYLINE_STRAIGHT`: straight from point to point;
+- `DGX_POLYLINE_SMOOTH`: a smooth curve through every point, a centripetal
+  Catmull-Rom spline, with no loops or cusps where points lie close;
+- `DGX_POLYLINE_MONOTONE`: a smooth curve through points whose x grows, the
+  values of a chart: between two points it goes neither above nor below both,
+  so it shows no peak the values do not have, and a flat stretch stays flat.
+
+On the Waveshare ESP32-S3-Touch-AMOLED-1.32 at 240 MHz, drawn into the memory
+of the screen, which lies in PSRAM:
+
+| Shape | Time |
+| --- | --- |
+| `dgx_fill_circle()` of r 100, for comparison | 1.97 ms |
+| a circle of r 100, hard / soft | 3.9 / 4.1 ms |
+| the same with a radial gradient / translucent | 14.4 / 6.0 ms |
+| a ring of 270°, radii 81 and 95, round ends, soft / with a gradient | 3.5 / 4.7 ms |
+| a star of r 100 in one stroke, soft | 3.1 ms |
+| a rectangle of 300 x 120 with corners of 20, soft / translucent with a gradient | 3.2 / 11.1 ms |
+| a needle of 74 pixels, 9 to 1.6 wide, round, soft | 0.7 ms |
+| a line of 60 points, 3 wide, soft, straight / smooth | 5.7 / 8.2 ms |
+
+Writing a filled shape is bound by the PSRAM there: the comparison circle
+spends its time on it. A soft edge reads the pixel under it, and a gradient
+finds a color for every pixel.
 
 ### Text and fonts
 

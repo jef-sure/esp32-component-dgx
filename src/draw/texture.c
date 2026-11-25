@@ -367,6 +367,8 @@ typedef struct {
     int                       memory_pitch;
     uint16_t                 *row; /* the run being made, RGB565 as the wire takes it: the high byte first */
     int                       run_x, run_n, y;
+    const uint8_t            *alpha_map; /* the opacity of each texel, rows of `alpha_pitch` bytes; else NULL */
+    int                       alpha_pitch;
 } dgx_tq_t;
 
 /* an RGB565 value as the wire takes it, stored as 16 bits on a little-endian chip, and back */
@@ -378,14 +380,20 @@ static inline uint16_t dgx_tq_swap(uint16_t c)
 static inline uint16_t dgx_tq_texel(const dgx_tq_t *t, int u, int v, uint32_t *alpha)
 {
     const dgx_texture_quad_t *q = t->q;
+    uint16_t                  c;
     if (t->indexed) {
         const uint8_t i = t->texels[(size_t)(q->ty + v) * (size_t)t->pitch + (size_t)(q->tx + u)];
         *alpha          = q->alpha ? q->alpha[i] : 255u;
-        return q->lut[i];
+        c               = q->lut[i];
+    } else {
+        const uint8_t *p = t->texels + (size_t)(q->ty + v) * (size_t)t->pitch + (size_t)(q->tx + u) * 2u;
+        c                = (uint16_t)(p[0] << 8 | p[1]);
+        *alpha           = (q->flags & DGX_TEXTURE_KEY) && c == (uint16_t)q->key ? 0u : 255u;
     }
-    const uint8_t *p = t->texels + (size_t)(q->ty + v) * (size_t)t->pitch + (size_t)(q->tx + u) * 2u;
-    const uint16_t c = (uint16_t)(p[0] << 8 | p[1]);
-    *alpha           = (q->flags & DGX_TEXTURE_KEY) && c == (uint16_t)q->key ? 0u : 255u;
+    if (t->alpha_map) {
+        const uint32_t m = t->alpha_map[(size_t)(q->ty + v) * (size_t)t->alpha_pitch + (size_t)(q->tx + u)];
+        *alpha           = *alpha == 255u ? m : (*alpha * m + 127u) / 255u;
+    }
     return c;
 }
 
@@ -525,7 +533,7 @@ static inline uint16_t dgx_tq_bilinear(const uint8_t *base, int pitch, int umax,
  * `out`: each its texel, nearest or bilinear, by the map stepped along; the
  * map is left at the pixel after them.
  */
-static void dgx_tq_inside(const dgx_tq_t *t, uint16_t *out, int n, dgx_tq_map_t *map, bool bilinear, bool projective)
+static __attribute__((aligned(16))) void dgx_tq_inside(const dgx_tq_t *t, uint16_t *out, int n, dgx_tq_map_t *map, bool bilinear, bool projective)
 {
     const dgx_texture_quad_t *q    = t->q;
     const int                 pitch = t->pitch, umax = q->tw - 1, vmax = q->th - 1;
@@ -625,7 +633,7 @@ static inline __attribute__((always_inline)) void dgx_tq_indexed_run(const dgx_t
  * the memory of a linear virtual screen from `at` on: each its texel by its
  * opacity over what is there, or over the paper.
  */
-static void dgx_tq_inside_mixed(const dgx_tq_t *t, uint16_t *at, int n, dgx_tq_map_t *map, bool projective)
+static __attribute__((noinline, aligned(16))) void dgx_tq_inside_mixed(const dgx_tq_t *t, uint16_t *at, int n, dgx_tq_map_t *map, bool projective)
 {
     const dgx_texture_quad_t *q     = t->q;
     if (t->indexed) {
@@ -633,6 +641,27 @@ static void dgx_tq_inside_mixed(const dgx_tq_t *t, uint16_t *at, int n, dgx_tq_m
         else dgx_tq_indexed_run(t, at, n, map, projective, false);
         return;
     }
+    const bool                paper = (q->flags & DGX_TEXTURE_PAPER) != 0;
+    int32_t                   s = map->s, v = map->v;
+    for (int k = 0; k < n; ++k) {
+        if (projective) dgx_tq_project(map, map->k + k, &s, &v);
+        uint32_t alpha;
+        uint16_t color = dgx_tq_sample(t, s, v, &alpha);
+        if (!projective) s += map->ds, v += map->dv;
+        dgx_tq_over(at + k, color, alpha, paper, (uint16_t)q->paper);
+    }
+    if (projective) map->k += n;
+    else map->s = s, map->v = v;
+}
+
+/*
+ * The same with an opacity for every texel, alpha_map: each texel sampled
+ * with it, 16-bit or 8-bit. A function of its own, so that the loops of
+ * dgx_tq_inside_mixed() are compiled as they were without it.
+ */
+static void dgx_tq_inside_mapped(const dgx_tq_t *t, uint16_t *at, int n, dgx_tq_map_t *map, bool projective)
+{
+    const dgx_texture_quad_t *q     = t->q;
     const bool                paper = (q->flags & DGX_TEXTURE_PAPER) != 0;
     int32_t                   s = map->s, v = map->v;
     for (int k = 0; k < n; ++k) {
@@ -656,6 +685,12 @@ esp_err_t dgx_draw_texture_quad_with(dgx_screen_t *scr, const dgx_texture_quad_t
     if ((texture->color_bits != 16 && !indexed) || !dgx_vscreen_is_linear(texture)) return ESP_ERR_NOT_SUPPORTED;
     if (indexed && !q->lut) {
         ESP_LOGE(TAG, "an 8-bit texture takes the table of its colors, lut");
+        return ESP_ERR_INVALID_ARG;
+    }
+    dgx_screen_t *alpha_map = q->alpha_map;
+    if (alpha_map && (alpha_map->color_bits != 8 || !dgx_vscreen_is_linear(alpha_map))) return ESP_ERR_NOT_SUPPORTED;
+    if (alpha_map && (alpha_map->width < texture->width || alpha_map->height < texture->height)) {
+        ESP_LOGE(TAG, "alpha map %dx%d is smaller than the %dx%d texture", alpha_map->width, alpha_map->height, texture->width, texture->height);
         return ESP_ERR_INVALID_ARG;
     }
     if (q->tx < 0 || q->ty < 0 || q->tw > texture->width - q->tx || q->th > texture->height - q->ty || q->tx + q->tw > INT16_MAX ||
@@ -742,6 +777,7 @@ esp_err_t dgx_draw_texture_quad_with(dgx_screen_t *scr, const dgx_texture_quad_t
         .indexed = indexed,
         .read    = dgx_screen_is_readable(scr),
     };
+    if (alpha_map) t.alpha_map = ((dgx_vscreen_t *)alpha_map)->v_array, t.alpha_pitch = alpha_map->width;
     if (dgx_vscreen_is_linear(scr)) t.memory = ((dgx_vscreen_t *)scr)->v_array, t.memory_pitch = scr->width * 2;
     const uint32_t row_bytes = (uint32_t)scr->width * 2u;
     /* a screen not in memory takes the runs from a row, written 16 bits at a time */
@@ -759,7 +795,7 @@ esp_err_t dgx_draw_texture_quad_with(dgx_screen_t *scr, const dgx_texture_quad_t
     if (by1 > cb - 1) by1 = cb - 1;
     const int32_t tw16 = q->tw * 65536, th16 = q->th * 65536;
     /* a texture with no transparent texel goes inside the quad by dgx_tq_inside(); there a side is at least this far, in 1/256 px */
-    const bool    opaque   = !indexed && !(q->flags & DGX_TEXTURE_KEY);
+    const bool    opaque   = !indexed && !(q->flags & DGX_TEXTURE_KEY) && !alpha_map;
     const bool    bilinear = (q->flags & DGX_TEXTURE_BILINEAR) != 0;
     const int32_t inside   = soft ? 128 : 0;
     dgx_screen_batch_begin(scr);
@@ -822,7 +858,9 @@ esp_err_t dgx_draw_texture_quad_with(dgx_screen_t *scr, const dgx_texture_quad_t
             if (x == x0 + in_lo && in_lo <= in_hi) {
                 const int n   = in_hi - in_lo + 1;
                 uint16_t *mem = t.memory ? (uint16_t *)(t.memory + y * t.memory_pitch) + x : NULL;
-                if (!opaque) {
+                if (t.alpha_map) {
+                    dgx_tq_inside_mapped(&t, mem, n, &map, !parallelogram);
+                } else if (!opaque) {
                     dgx_tq_inside_mixed(&t, mem, n, &map, !parallelogram);
                 } else if (mem) {
                     dgx_tq_inside(&t, mem, n, &map, bilinear, !parallelogram);

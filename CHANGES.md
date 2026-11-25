@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-A picture on four corners that lie between pixels, and an arc gauge with
-soft edges. Checked by host tests and on the Waveshare
+A picture on four corners that lie between pixels, an arc gauge with soft
+edges, and shapes whose places lie between pixels, painted with gradients,
+translucent and soft. Checked by host tests and on the Waveshare
 ESP32-S3-Touch-AMOLED-1.32.
 
 New:
@@ -18,7 +19,9 @@ New:
     `DGX_TEXTURE_SOFT` gives a pixel on an edge the share of it the quad
     covers.
   - A texture of 8 bits is indices into `lut`, with an opacity for each in
-    `alpha`; `DGX_TEXTURE_KEY` leaves out one color of a 16-bit texture.
+    `alpha`; `alpha_map`, a virtual screen of 8 bits, gives each texel of a
+    texture of either depth an opacity of its own; `DGX_TEXTURE_KEY` leaves
+    out one color of a 16-bit texture.
   - Soft edges and translucent texels are mixed with what the screen has
     where it can be read, or with `paper` (`DGX_TEXTURE_PAPER`) on a display
     behind a bus.
@@ -31,6 +34,27 @@ New:
   are mixed with it, and the edge between two steps of different colors
   with both. Every color mixed is one the gauge knows, so the ring is soft
   on a display behind a bus too. `dgx_gauge_t` has two members more for it.
+- **Shapes between pixels**, each taking a struct with its place and size in
+  sixteenths of a pixel and a paint, `dgx_paint_t`, on a screen of any depth:
+  - `dgx_fill_ring_with()`: a ring, the part of it between two angles with
+    its ends cut along the rays or round, a sector, a disc;
+  - `dgx_draw_wedge_with()`: a straight line whose width changes from one end
+    to the other, its ends straight or round: the needle of a dial;
+  - `dgx_fill_ellipse_with()`, `dgx_fill_round_rectangle_with()`;
+  - `dgx_fill_polygon_with()`: any polygon, filled where its sides go round
+    a point, a star of one stroke too;
+  - `dgx_draw_polyline_with()`: a line of a width through points with round
+    joints, straight, a smooth curve through them (`DGX_POLYLINE_SMOOTH`), or
+    a curve for the values of a chart that goes neither above nor below two
+    neighbouring values (`DGX_POLYLINE_MONOTONE`).
+  - The paint is one color or a linear or radial gradient
+    (`DGX_PAINT_LINEAR`, `DGX_PAINT_RADIAL`), translucent by `opacity`
+    (`DGX_PAINT_OPACITY`), with soft edges (`DGX_PAINT_SOFT`), mixed with
+    what the screen has or with `paper` (`DGX_PAINT_PAPER`).
+  - The share of a pixel a shape covers is counted exactly, and a shape
+    moved by whole pixels has the same pixels, moved.
+  - On that board a soft circle of radius 100 takes 4.1 ms, where the hard
+    `dgx_fill_circle()` takes 1.97; the needle of a dial 0.7 ms.
 
 Tests:
 
@@ -43,6 +67,14 @@ Tests:
 - test_gauge: the soft ring has as much ink as its band has area, within 3
   pixels of 1626; each pixel is written once by a redraw, and a value looks
   the same however the gauge came to it.
+- test_texture_quad: an alpha map of 255 is none, of 0 draws nothing, and is
+  multiplied with the opacities of an 8-bit texture; a virtual screen and a
+  display behind a bus show the same with it.
+- test_shape: the share of every pixel of every shape against the share
+  counted by 32 x 32 points, the area of a ring, the shapes moved, drawn into
+  strips and clipped, a display behind a bus against a virtual screen of the
+  paper, gradients, opacity, a translucent line painted once at its joints, a
+  monotone curve within its values, screens of 1 to 32 bits.
 
 ## 0.12.5 - 2026-11-24
 

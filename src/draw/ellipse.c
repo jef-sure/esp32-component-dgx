@@ -57,9 +57,9 @@ typedef struct {
     int     row;     /* the row to come, counted from the middle; below 0: no more */
     int     reach;   /* of the row before it */
     bool    top;     /* no row was given yet */
-} dgx_ellipse_t;
+} dgx_ellipse_walk_t;
 
-static void dgx_ellipse_begin(dgx_ellipse_t *e, int rx, int ry)
+static void dgx_ellipse_begin(dgx_ellipse_walk_t *e, int rx, int ry)
 {
     e->a = (int64_t)ry * ry;
     e->b = (int64_t)rx * rx;
@@ -71,7 +71,7 @@ static void dgx_ellipse_begin(dgx_ellipse_t *e, int rx, int ry)
 }
 
 /* the next row: it is `row` rows from the middle, reaches `reach` pixels to each side, its outline begins at `from` */
-static bool dgx_ellipse_next(dgx_ellipse_t *e, int *row, int *from, int *reach)
+static bool dgx_ellipse_next(dgx_ellipse_walk_t *e, int *row, int *from, int *reach)
 {
     if (e->row < 0) return false;
     int x = e->reach;
@@ -111,7 +111,7 @@ typedef struct {
     int32_t c1, s1, c2, s2;
     bool    all;  /* a whole turn */
     bool    wide; /* over a half turn: what lies on the side of either ray, not of both */
-} dgx_wedge_t;
+} dgx_ellipse_rays_t;
 
 static void dgx_wedge_ray(float degrees, int32_t *c, int32_t *s)
 {
@@ -134,7 +134,7 @@ static void dgx_wedge_ray(float degrees, int32_t *c, int32_t *s)
 }
 
 /* false: there is nothing between the rays */
-static bool dgx_wedge_set(dgx_wedge_t *w, float from, float to)
+static bool dgx_wedge_set(dgx_ellipse_rays_t *w, float from, float to)
 {
     if (!(fabsf(from) < DGX_ELLIPSE_DEGREES) || !(fabsf(to) < DGX_ELLIPSE_DEGREES)) return false;
     if (to < from) {
@@ -172,7 +172,7 @@ static inline void dgx_wedge_side(int32_t a, int32_t b, int *lo, int *hi)
  * and rows counted from the centre: the number of runs, none to two, and
  * their ends in out[].
  */
-static int dgx_wedge_row(const dgx_wedge_t *w, int dy, int left, int right, int out[4])
+static int dgx_wedge_row(const dgx_ellipse_rays_t *w, int dy, int left, int right, int out[4])
 {
     if (left > right) return 0;
     if (w->all) {
@@ -243,7 +243,7 @@ static void dgx_ellipse_columns(dgx_screen_t *scr, int x, int y, int column, int
 void dgx_draw_ellipse(dgx_screen_t *scr, int x, int y, int rx, int ry, uint32_t color)
 {
     if (!dgx_ellipse_fits(scr, x, y, rx, ry, 0)) return;
-    dgx_ellipse_t e;
+    dgx_ellipse_walk_t e;
     int           row, from, reach;
     int           column = -1, top = 0, bottom = 0; /* single pixels not sent yet */
     dgx_ellipse_begin(&e, rx, ry);
@@ -292,7 +292,7 @@ static void dgx_ellipse_stack_send(dgx_ellipse_stack_t *stack, dgx_screen_t *scr
  * pixels of rows one under another are a column: they are kept in `stack`
  * until the column ends.
  */
-static void dgx_ellipse_arc_run(dgx_screen_t *scr, const dgx_wedge_t *w, int x, int y, int dy, int left, int right, uint32_t color,
+static void dgx_ellipse_arc_run(dgx_screen_t *scr, const dgx_ellipse_rays_t *w, int x, int y, int dy, int left, int right, uint32_t color,
                                 dgx_ellipse_stack_t *stack)
 {
     int       out[4];
@@ -313,9 +313,9 @@ static void dgx_ellipse_arc_run(dgx_screen_t *scr, const dgx_wedge_t *w, int x, 
 }
 
 /* an arc a pixel wide: the pixels of the outline that lie between the rays */
-static void dgx_ellipse_arc(dgx_screen_t *scr, int x, int y, int rx, int ry, const dgx_wedge_t *w, uint32_t color)
+static void dgx_ellipse_arc(dgx_screen_t *scr, int x, int y, int rx, int ry, const dgx_ellipse_rays_t *w, uint32_t color)
 {
-    dgx_ellipse_t       e;
+    dgx_ellipse_walk_t       e;
     int                 row, from, reach;
     dgx_ellipse_stack_t stacks[2][2] = {{{0, 1, 0}, {0, 1, 0}}, {{0, 1, 0}, {0, 1, 0}}}; /* above the middle and below it, to the left and to the right */
     dgx_ellipse_begin(&e, rx, ry);
@@ -371,10 +371,10 @@ static void dgx_ellipse_band_row(dgx_ellipse_band_t *band, dgx_screen_t *scr, in
  * has one run of it, or two when the sector is over a half turn and the row
  * crosses the part left out. A wedge of a whole turn is the ellipse filled.
  */
-static void dgx_ellipse_fill(dgx_screen_t *scr, int x, int y, int rx, int ry, const dgx_wedge_t *w, uint32_t color)
+static void dgx_ellipse_fill(dgx_screen_t *scr, int x, int y, int rx, int ry, const dgx_ellipse_rays_t *w, uint32_t color)
 {
     if (!dgx_ellipse_fits(scr, x, y, rx, ry, 0)) return;
-    dgx_ellipse_t      e;
+    dgx_ellipse_walk_t      e;
     dgx_ellipse_band_t bands[2][2] = {{{0}}}; /* above the middle and below it; the first run of a row and the second one */
     int                row, start, reach, out[4];
     dgx_ellipse_begin(&e, rx, ry);
@@ -404,7 +404,7 @@ static void dgx_ellipse_fill(dgx_screen_t *scr, int x, int y, int rx, int ry, co
 
 void dgx_fill_sector(dgx_screen_t *scr, int x, int y, int rx, int ry, float from, float to, uint32_t color)
 {
-    dgx_wedge_t w;
+    dgx_ellipse_rays_t w;
     if (!dgx_wedge_set(&w, from, to)) return;
     dgx_ellipse_fill(scr, x, y, rx, ry, &w, color);
 }
@@ -412,7 +412,7 @@ void dgx_fill_sector(dgx_screen_t *scr, int x, int y, int rx, int ry, float from
 /* the sector of a whole turn, with no angles to count */
 void dgx_fill_ellipse(dgx_screen_t *scr, int x, int y, int rx, int ry, uint32_t color)
 {
-    const dgx_wedge_t w = {.all = true};
+    const dgx_ellipse_rays_t w = {.all = true};
     dgx_ellipse_fill(scr, x, y, rx, ry, &w, color);
 }
 
@@ -526,7 +526,7 @@ void dgx_draw_arc(dgx_screen_t *scr, int x, int y, int rx, int ry, float from, f
     const int   bits = DGX_PEN_SOFT | DGX_PEN_START_DISC | DGX_PEN_END_DISC | DGX_PEN_MAX;
     if (width < 1 || (width & ~bits) < 1) return;
     const int   pen = width & ~bits;
-    dgx_wedge_t w;
+    dgx_ellipse_rays_t w;
     if (!dgx_ellipse_fits(scr, x, y, rx, ry, pen > INT16_MAX ? INT16_MAX : pen) || !dgx_wedge_set(&w, from, to)) return;
     /* what the pen will be on this screen is told by the pen: one asked to be soft is hard where a pixel is not ink */
     dgx_bezier_t         pen_here;

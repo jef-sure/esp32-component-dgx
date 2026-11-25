@@ -844,6 +844,12 @@ typedef struct dgx_texture_quad_t {
     int           tx, ty, tw, th; /**< The region of the texture; it must lie inside it. */
     const uint16_t *lut;           /**< For an 8-bit texture: its 256 colors, RGB565. */
     const uint8_t  *alpha;         /**< For an 8-bit texture: the opacity of each index, 0 to 255; NULL for all opaque. */
+    /**
+     * The opacity of each texel, 0 to 255: a virtual screen of 8 bits at least as
+     * large as the texture, its pixels as rows of memory, a texel's opacity at
+     * the texel's place; NULL for none. With @c alpha the two are multiplied.
+     */
+    dgx_screen_t   *alpha_map;
     uint32_t        key;           /**< With DGX_TEXTURE_KEY: the color of a 16-bit texture that is not drawn. */
     uint32_t        paper;         /**< With DGX_TEXTURE_PAPER: what soft edges and translucent texels are mixed with. */
     uint32_t        flags;         /**< DGX_TEXTURE_BILINEAR, DGX_TEXTURE_SOFT, DGX_TEXTURE_KEY, DGX_TEXTURE_PAPER. */
@@ -865,8 +871,9 @@ typedef struct dgx_texture_quad_t {
  * it takes the texture by its distance from the nearest side, wholly half a
  * pixel inside, not at all half a pixel outside.
  *
- * Translucent texels (the opacities of an 8-bit texture, the key color of a
- * 16-bit one with DGX_TEXTURE_KEY) and soft edges are mixed, in 32 steps, with
+ * Translucent texels (the opacities of an 8-bit texture, those of
+ * @c alpha_map, the key color of a 16-bit one with DGX_TEXTURE_KEY) and soft
+ * edges are mixed, in 32 steps, with
  * what lies on the screen where it can be read: a virtual screen, a display
  * drawn into a virtual screen first, a DSI or RGB display. With
  * DGX_TEXTURE_PAPER they are mixed with @c paper instead. On a display behind
@@ -880,11 +887,250 @@ typedef struct dgx_texture_quad_t {
  * @param scr  The screen to draw on, of 16 bits a pixel.
  * @param quad The quad, the texture and the choices.
  * @return ESP_OK, also when nothing of it falls on the screen; ESP_ERR_INVALID_ARG for a region outside the texture, an
- *         8-bit texture without @c lut or a quad wider than 32767 pixels; ESP_ERR_NOT_SUPPORTED for a screen of another depth
- *         or without windows, and a texture that is not a virtual screen of 16 or 8 bits; ESP_ERR_NO_MEM when a screen
- *         without a buffer of its bus gets no memory for a row.
+ *         8-bit texture without @c lut, an @c alpha_map smaller than the texture or a quad wider than 32767 pixels;
+ *         ESP_ERR_NOT_SUPPORTED for a screen of another depth or without windows, a texture that is not a virtual screen of
+ *         16 or 8 bits and an @c alpha_map that is not one of 8 bits; ESP_ERR_NO_MEM when a screen without a buffer of its
+ *         bus gets no memory for a row.
  */
 esp_err_t dgx_draw_texture_quad_with(dgx_screen_t *scr, const dgx_texture_quad_t *quad);
+
+/** Edges of the shape are soft: a pixel takes the paint by the share of it the shape covers. */
+#define DGX_PAINT_SOFT 0x2u
+/**
+ * Soft edges and translucent paint are mixed with dgx_paint_t::paper instead
+ * of with what lies on the screen, as the text of DGX_FONT_BG is: for a
+ * display behind a bus, which cannot be read.
+ */
+#define DGX_PAINT_PAPER 0x8u
+/** The paint is translucent, by dgx_paint_t::opacity. */
+#define DGX_PAINT_OPACITY 0x10u
+/** A gradient along the line from (gx[0], gy[0]), of `color`, to (gx[1], gy[1]), of `color2`. */
+#define DGX_PAINT_LINEAR 0x20u
+/** A gradient out from the centre (gx[0], gy[0]), of `color`, to the circle through (gx[1], gy[1]), of `color2`. */
+#define DGX_PAINT_RADIAL 0x40u
+
+/**
+ * @brief How a shape is painted, for the calls of shapes below: one color or
+ * a gradient, opaque or translucent, with hard edges or soft.
+ *
+ * Zero is the default of every member but the color: opaque, one color, hard
+ * edges. A pixel with a hard edge is the shape's when the shape covers half of
+ * it or more.
+ *
+ * A gradient takes, at the centre of a pixel, the color of where the pixel
+ * lies along the line from (gx[0], gy[0]) to (gx[1], gy[1]), or how far it
+ * lies from (gx[0], gy[0]) for DGX_PAINT_RADIAL: `color` at the start,
+ * `color2` at the end and past it, between them the two mixed in 256 steps.
+ * The points are on the screen, in sixteenths of a pixel as the shapes are,
+ * so a gradient stays where it is while a shape moves over it.
+ *
+ * Soft edges and translucent paint are mixed, in 32 steps, with what lies on
+ * the screen where it can be read: a virtual screen, a display drawn into a
+ * virtual screen first, a DSI or RGB display. With DGX_PAINT_PAPER they are
+ * mixed with @c paper instead. On a display behind a bus without it, a pixel
+ * is drawn whole from half on and not at all below. A pixel of a screen of 8
+ * bits is an amount of ink, mixed as a number.
+ *
+ * A paint with both DGX_PAINT_LINEAR and DGX_PAINT_RADIAL is refused: the
+ * calls of shapes return ESP_ERR_INVALID_ARG for it.
+ */
+typedef struct dgx_paint_t {
+    uint32_t color;        /**< The color; of a gradient, its color at (gx[0], gy[0]). */
+    uint32_t color2;       /**< Of a gradient: its color at (gx[1], gy[1]) and past it. */
+    int      gx[2], gy[2]; /**< Of a gradient: where it starts and ends, in sixteenths of a pixel on the screen. */
+    uint32_t paper;        /**< With DGX_PAINT_PAPER: what soft edges and translucent paint are mixed with. */
+    uint8_t  opacity;      /**< With DGX_PAINT_OPACITY: 0, nothing, to 255, opaque. */
+    uint32_t flags;        /**< DGX_PAINT_SOFT, DGX_PAINT_PAPER, DGX_PAINT_OPACITY, DGX_PAINT_LINEAR or DGX_PAINT_RADIAL. */
+} dgx_paint_t;
+
+/**
+ * @brief A ring, a part of one between two rays, a sector or a disc, for dgx_fill_ring_with().
+ * Zero is the default of every member but the radii and the angles.
+ */
+typedef struct dgx_ring_t {
+    int         x, y;             /**< The centre, in sixteenths of a pixel: the centre of the pixel (x, y) is (16 x + 8, 16 y + 8). */
+    int         r_inner, r_outer; /**< The radii, in sixteenths of a pixel; r_inner 0 for a sector or a disc. */
+    float       from, to;         /**< The angles, degrees, as of dgx_draw_arc(): counter-clockwise, 90 up. */
+    bool        round;            /**< The ends of a part of a ring rounded, by half a disc as wide as the ring. */
+    dgx_paint_t paint;
+} dgx_ring_t;
+
+/**
+ * @brief Fills a ring between two radii; the part of it between two rays; with
+ * an inner radius of 0, a sector or a disc.
+ *
+ * The angles are those of dgx_draw_arc(): degrees counter-clockwise from the
+ * ray that goes right, 90 up, which of the two is the larger makes no
+ * difference, 360 or more between them is the whole ring, and with no angle
+ * between them nothing is drawn. A part of a ring has its ends cut along the
+ * rays, or with @c round half a disc as wide as the ring past either end, as a
+ * pen of that width would leave: an arc of a gauge.
+ *
+ * The edges are where the radii and the rays are, between pixels: the disc of
+ * dgx_fill_circle(x, y, r) is the one of the centre (16 x + 8, 16 y + 8) and
+ * the radius 16 r + 8. The shape moved by whole pixels has the same pixels,
+ * moved, so a picture drawn into strips of rows, or under a clip, has no
+ * seams; so do the other shapes below.
+ *
+ * @param scr  The screen to draw on, of any depth.
+ * @param ring The ring and its paint.
+ * @return ESP_OK, also when nothing of it falls on the screen; ESP_ERR_INVALID_ARG for a ring past 32767 pixels;
+ *         ESP_ERR_NO_MEM when the outline or a row gets no memory.
+ */
+esp_err_t dgx_fill_ring_with(dgx_screen_t *scr, const dgx_ring_t *ring);
+
+/**
+ * @brief A straight line whose width changes from one end to the other, for dgx_draw_wedge_with().
+ * Zero is the default of every member but the ends and the widths.
+ */
+typedef struct dgx_wedge_t {
+    int         x[2], y[2]; /**< The ends, in sixteenths of a pixel. */
+    int         width[2];   /**< The width at either end, in sixteenths of a pixel; 0 for a point. */
+    bool        round;      /**< Round ends, discs as wide as the line there; otherwise cut straight across. */
+    dgx_paint_t paint;
+} dgx_wedge_t;
+
+/**
+ * @brief Draws a wedge: a straight line from one end to the other whose width
+ * changes evenly between the widths at its ends; the needle of a dial.
+ *
+ * Its ends are cut straight across the line, or with @c round they are discs
+ * as wide as the line there, joined by the lines that touch both: a needle
+ * with a round hub and a round tip. A wedge of one width is a line of that
+ * width, and a round one whose ends are one point is a disc. The ends and the
+ * widths are in sixteenths of a pixel, so a slow needle moves by less than a
+ * pixel a frame without jumping.
+ *
+ * @param scr   The screen to draw on, of any depth.
+ * @param wedge The wedge and its paint.
+ * @return ESP_OK, also when nothing of it falls on the screen; ESP_ERR_INVALID_ARG for a wedge past 32767 pixels;
+ *         ESP_ERR_NO_MEM when the outline or a row gets no memory.
+ */
+esp_err_t dgx_draw_wedge_with(dgx_screen_t *scr, const dgx_wedge_t *wedge);
+
+/**
+ * @brief An ellipse whose axes lie along the rows and the columns, for dgx_fill_ellipse_with().
+ * Zero is the default of every member but the centre and the radii.
+ */
+typedef struct dgx_ellipse_t {
+    int         x, y;   /**< The centre, in sixteenths of a pixel. */
+    int         rx, ry; /**< The radii, in sixteenths of a pixel. */
+    dgx_paint_t paint;
+} dgx_ellipse_t;
+
+/**
+ * @brief Fills an ellipse, or with equal radii a circle, whose centre and radii lie between pixels.
+ *
+ * A dot of a soft edge that moves by less than a pixel at a time is a small
+ * circle of this call.
+ *
+ * @param scr     The screen to draw on, of any depth.
+ * @param ellipse The ellipse and its paint.
+ * @return ESP_OK, also when nothing of it falls on the screen; ESP_ERR_INVALID_ARG for an ellipse past 32767 pixels;
+ *         ESP_ERR_NO_MEM when the outline or a row gets no memory.
+ */
+esp_err_t dgx_fill_ellipse_with(dgx_screen_t *scr, const dgx_ellipse_t *ellipse);
+
+/**
+ * @brief A rectangle with round corners, for dgx_fill_round_rectangle_with().
+ * Zero is the default of every member but the place and the size.
+ */
+typedef struct dgx_round_rectangle_t {
+    int         x, y; /**< The top left corner, in sixteenths of a pixel: (0, 0) is the top left corner of the pixel (0, 0). */
+    int         w, h; /**< The size, in sixteenths of a pixel. */
+    int         r;    /**< The radius of the corners, in sixteenths of a pixel; 0 for square ones. */
+    dgx_paint_t paint;
+} dgx_round_rectangle_t;
+
+/**
+ * @brief Fills a rectangle with round corners, or with a radius of 0 a
+ * rectangle, whose edges lie between pixels.
+ *
+ * A radius larger than half the shorter side is taken as that half. The
+ * rectangle of dgx_fill_rectangle(x, y, w, h) is the one of (16 x, 16 y) and
+ * the size (16 w, 16 h): with a gradient, or translucent, it is that
+ * rectangle painted so.
+ *
+ * @param scr  The screen to draw on, of any depth.
+ * @param rect The rectangle and its paint.
+ * @return ESP_OK, also when nothing of it falls on the screen; ESP_ERR_INVALID_ARG for a rectangle past 32767 pixels;
+ *         ESP_ERR_NO_MEM when the outline or a row gets no memory.
+ */
+esp_err_t dgx_fill_round_rectangle_with(dgx_screen_t *scr, const dgx_round_rectangle_t *rect);
+
+/**
+ * @brief A polygon, for dgx_fill_polygon_with().
+ * Zero is the default of every member but the points and their count.
+ */
+typedef struct dgx_polygon_t {
+    const dgx_point_2d_t *points; /**< The corners in order, in sixteenths of a pixel, so within 2047 pixels either way. */
+    int                   count;  /**< How many corners; the last is joined to the first. */
+    dgx_paint_t           paint;
+} dgx_polygon_t;
+
+/**
+ * @brief Fills a polygon whose corners lie between pixels: convex or not,
+ * its sides crossing or not.
+ *
+ * A point is inside when the sides go round it, whichever way, more times
+ * one way than the other: where a polygon crosses itself, as a star of five
+ * points drawn in one stroke does, the part gone round twice is filled too.
+ *
+ * @param scr     The screen to draw on, of any depth.
+ * @param polygon The polygon and its paint.
+ * @return ESP_OK, also when nothing of it falls on the screen; ESP_ERR_INVALID_ARG for no points;
+ *         ESP_ERR_NO_MEM when the outline or a row gets no memory.
+ */
+esp_err_t dgx_fill_polygon_with(dgx_screen_t *scr, const dgx_polygon_t *polygon);
+
+/** The way of dgx_polyline_t: straight from point to point. */
+#define DGX_POLYLINE_STRAIGHT 0
+/** The way of dgx_polyline_t: a smooth curve through the points, a centripetal Catmull-Rom spline. */
+#define DGX_POLYLINE_SMOOTH 1
+/**
+ * The way of dgx_polyline_t: a smooth curve through points that go right, the
+ * values of a chart: between two points it goes neither above nor below both,
+ * so it shows no peak the values do not have.
+ */
+#define DGX_POLYLINE_MONOTONE 2
+
+/**
+ * @brief A line through points, for dgx_draw_polyline_with().
+ * Zero is the default of every member but the points, their count and the width.
+ */
+typedef struct dgx_polyline_t {
+    const dgx_point_2d_t *points; /**< The points, in sixteenths of a pixel, so within 2047 pixels either way. */
+    int                   count;  /**< How many points. */
+    int                   width;  /**< The width of the line, in sixteenths of a pixel. */
+    int                   way;    /**< DGX_POLYLINE_STRAIGHT, DGX_POLYLINE_SMOOTH or DGX_POLYLINE_MONOTONE. */
+    bool                  closed; /**< The last point joined to the first. */
+    dgx_paint_t           paint;
+} dgx_polyline_t;
+
+/**
+ * @brief Draws a line of a width through points: straight from one to the
+ * next, or a smooth curve through them.
+ *
+ * The line is @c width wide with the way in its middle, with round joints and
+ * round ends; it is one shape, so where its pieces meet nothing is painted
+ * twice, and a translucent line is as translucent at its joints as along its
+ * pieces. Where a line crosses itself it is painted once too, though a pixel
+ * on its edge just there may be a little darker. A line of one point is a
+ * disc as wide as the line.
+ *
+ * DGX_POLYLINE_SMOOTH goes through every point by a centripetal Catmull-Rom
+ * spline, which makes no loops or cusps where points lie close.
+ * DGX_POLYLINE_MONOTONE is for the values of a chart, the x of each point
+ * greater than of the one before: between two points the curve goes up or
+ * down as they do, and a flat stretch stays flat.
+ *
+ * @param scr      The screen to draw on, of any depth.
+ * @param polyline The line and its paint.
+ * @return ESP_OK, also when nothing of it falls on the screen; ESP_ERR_INVALID_ARG for no points, a width under 1, or
+ *         for DGX_POLYLINE_MONOTONE points whose x does not grow or a closed line; ESP_ERR_NO_MEM when the outline or a
+ *         row gets no memory.
+ */
+esp_err_t dgx_draw_polyline_with(dgx_screen_t *scr, const dgx_polyline_t *polyline);
 
 /*
  * Deprecated names, gone in DGX 1.0. Filled figures used to be named three

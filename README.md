@@ -32,9 +32,11 @@ Every picture in this README was drawn by DGX's own code, run on a PC.
   - [Fonts made at build time](#fonts-made-at-build-time)
   - [Text with soft edges](#text-with-soft-edges)
   - [A gauge](#a-gauge)
+  - [A dial with a needle](#a-dial-with-a-needle)
   - [A pie chart, arcs, a Wi-Fi icon](#a-pie-chart-arcs-a-wi-fi-icon)
   - [A graph](#a-graph)
   - [A circle with a soft edge](#a-circle-with-a-soft-edge)
+  - [Shapes with gradients, translucent, between pixels](#shapes-with-gradients-translucent-between-pixels)
   - [Scrolling text](#scrolling-text)
   - [A picture at any size and angle](#a-picture-at-any-size-and-angle)
   - [Pixel art made larger](#pixel-art-made-larger)
@@ -414,6 +416,40 @@ dgx_gauge_set_value(&gauge, 42);                // redraws only the steps that c
 `dgx_gauge_init_soft()` takes one color more after the background: the color
 around the ring. The ring then has soft edges, mixed with it.
 
+### A dial with a needle
+
+A ring with round ends and a gradient for the value, ticks and a needle as
+wedges, lines whose width changes from end to end. Places and sizes are in
+sixteenths of a pixel, so the needle moves by less than a pixel a frame
+without jumping.
+
+```c
+#define S(v) ((int)lroundf((v) * DGX_SUBPIXEL))
+const float x = cx + 0.5f, y = cy + 0.5f;                 // the centre of the pixel (cx, cy)
+const float at = 225.0f - 270.0f * value / 100;           // degrees, counter-clockwise, 90 up
+
+dgx_ring_t ring = {.x = S(x), .y = S(y), .r_inner = S(81), .r_outer = S(95), .from = -45, .to = 225, .round = true,
+                   .paint = {.color = dim, .flags = DGX_PAINT_SOFT}};
+dgx_fill_ring_with(scr, &ring);                            // the track
+ring.from  = at;                                           // the value, green to red from left to right
+ring.paint = (dgx_paint_t){.color = green, .color2 = red, .gx = {S(x - 95), S(x + 95)}, .gy = {S(y), S(y)},
+                           .flags = DGX_PAINT_SOFT | DGX_PAINT_LINEAR};
+dgx_fill_ring_with(scr, &ring);
+
+const float a = at * (float)M_PI / 180;
+dgx_wedge_t needle = {.x = {S(x), S(x + 74 * cosf(a))}, .y = {S(y), S(y - 74 * sinf(a))},
+                      .width = {S(9), S(1.6f)}, .round = true, .paint = {.color = red, .flags = DGX_PAINT_SOFT}};
+dgx_draw_wedge_with(scr, &needle);
+dgx_ellipse_t hub = {.x = S(x), .y = S(y), .rx = S(7.5f), .ry = S(7.5f), .paint = {.color = white, .flags = DGX_PAINT_SOFT}};
+dgx_fill_ellipse_with(scr, &hub);
+```
+
+The soft edges are mixed with what the screen has, so draw the dial into a
+screen that can be read: a virtual screen, or a display kept in memory such
+as the CO5300 and a DSI one. On a display behind a bus give
+`DGX_PAINT_PAPER` with the color under the dial in `paper`. The rules:
+[Shapes between pixels](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#shapes-between-pixels).
+
 ### A pie chart, arcs, a Wi-Fi icon
 
 Angles are in degrees, counter-clockwise, and 0 points to the right. With
@@ -454,6 +490,19 @@ dgx_draw_polyline(scr, graph, 48, 3, ink);
 [Handwritten text](#handwritten-text). A closed outline is a list whose last
 point repeats the first.
 
+On a screen of colors a soft line, a smooth one, or a translucent one is
+`dgx_draw_polyline_with()`, its points in sixteenths of a pixel. For the
+values of a chart, `DGX_POLYLINE_MONOTONE` goes smoothly through them and
+shows no peak they do not have:
+
+```c
+static dgx_point_2d_t graph[48];
+for (int i = 0; i < 48; ++i) graph[i] = (dgx_point_2d_t){.x = (10 + i * 6) * DGX_SUBPIXEL, .y = (200 - reading[i]) * DGX_SUBPIXEL};
+dgx_polyline_t line = {.points = graph, .count = 48, .width = 5 * DGX_SUBPIXEL / 2, .way = DGX_POLYLINE_MONOTONE,
+                       .paint = {.color = ink, .flags = DGX_PAINT_SOFT}};
+dgx_draw_polyline_with(scr, &line);
+```
+
 ### A circle with a soft edge
 
 A filled circle takes the soft edge of the pen: add `DGX_PEN_SOFT` to its
@@ -483,6 +532,41 @@ The circle covers what is under it, as the hard one does.
 does, and is then the dot of the pen byte for byte. On any other screen the
 circle is the hard one. Details: [A soft circle](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/pen-en.md#a-soft-circle)
 in docs/pen-en.md; the call: [Drawing primitives](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#drawing-primitives).
+On a screen of colors a circle with a soft edge is `dgx_fill_ellipse_with()`,
+see the next recipe.
+
+### Shapes with gradients, translucent, between pixels
+
+Rings, wedges, ellipses, rectangles with round corners, polygons and lines
+through points take their places in sixteenths of a pixel and a paint: one
+color or a gradient, opaque or translucent, with hard or soft edges. They
+draw on any screen.
+
+```c
+// a card: a rectangle with round corners, darker to the bottom, a little translucent
+dgx_round_rectangle_t card = {.x = 20 * DGX_SUBPIXEL, .y = 40 * DGX_SUBPIXEL, .w = 200 * DGX_SUBPIXEL, .h = 80 * DGX_SUBPIXEL,
+                              .r = 12 * DGX_SUBPIXEL,
+                              .paint = {.color = light, .color2 = dark, .gx = {0, 0}, .gy = {40 * DGX_SUBPIXEL, 120 * DGX_SUBPIXEL},
+                                        .opacity = 200, .flags = DGX_PAINT_SOFT | DGX_PAINT_LINEAR | DGX_PAINT_OPACITY}};
+dgx_fill_round_rectangle_with(scr, &card);
+
+// a dot that moves by a tenth of a pixel a frame
+dgx_ellipse_t dot = {.x = lroundf(px * DGX_SUBPIXEL), .y = lroundf(py * DGX_SUBPIXEL), .rx = 3 * DGX_SUBPIXEL, .ry = 3 * DGX_SUBPIXEL,
+                     .paint = {.color = white, .flags = DGX_PAINT_SOFT}};
+dgx_fill_ellipse_with(scr, &dot);
+
+// a star of five points in one stroke, its middle filled too
+static const dgx_point_2d_t star[5] = {{1600, 320}, {2240, 2300}, {560, 1080}, {2640, 1080}, {960, 2300}};
+dgx_polygon_t p = {.points = star, .count = 5, .paint = {.color = gold, .flags = DGX_PAINT_SOFT}};
+dgx_fill_polygon_with(scr, &p);
+```
+
+Soft edges and translucent paint are mixed with what the screen has where
+it can be read; on a display behind a bus, give `DGX_PAINT_PAPER` and the
+color under the shape in `paper`. An opaque gradient needs nothing under it.
+A shape moved by whole pixels has the same pixels, so it can be drawn into
+strips of rows. The rules and the speed:
+[Shapes between pixels](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#shapes-between-pixels).
 
 ### Scrolling text
 
@@ -569,7 +653,10 @@ dgx_draw_texture_quad_with(scr, &q);
 ```
 
 Its texture may also be of 8 bits, indices into `lut` with an opacity for
-each in `alpha`: a sprite with parts one sees through. Soft edges and those
+each in `alpha`: a sprite with parts one sees through. `alpha_map`, an 8-bit
+virtual screen as large as the texture, gives each texel an opacity of its
+own, for a texture of either depth: a picture that fades out to its edges.
+Soft edges and those
 parts are mixed with what the screen has; on a display behind a bus, which
 cannot be read, give `DGX_TEXTURE_PAPER` and the color under the picture in
 `paper`. The rules and the speed:
@@ -1442,7 +1529,13 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
   and sectors, triangles, filled and textured quads, a rectangle scrolled any
   way — and an arc gauge helper, its edges hard or soft. A textured quad may
   have its corners between pixels, its texels mixed and its edges soft, in
-  perspective, from a texture of 8 bits with parts one sees through.
+  perspective, from a texture of 8 bits with parts one sees through or with
+  an opacity for each texel.
+- Shapes whose places lie between pixels: rings, arcs and sectors with round
+  or straight ends, wedges for needles, ellipses, rectangles with round
+  corners, polygons and lines through points, straight or smooth; painted with
+  a color or a linear or radial gradient, opaque or translucent, with hard or
+  soft edges, on any screen.
 - The same calls for every display to turn it, switch its backlight, turn
   its picture off and on, and set the brightness of an OLED.
 - UTF-8 text rendering with 8-way orientation, glyph lookup, layout and bounds
