@@ -55,6 +55,14 @@ New:
     moved by whole pixels has the same pixels, moved.
   - On that board a soft circle of radius 100 takes 4.1 ms, where the hard
     `dgx_fill_circle()` takes 1.97; the needle of a dial 0.7 ms.
+- The example `soft_shapes_demo` for the Waveshare ESP32-S3-Touch-AMOLED-1.32:
+  a dial, shapes, a chart, a textured card and a gauge, each drawn in whole
+  pixels with hard edges beside the same placed between pixels with soft
+  edges; a card faded by an alpha map; lenses of an 8-bit texture with
+  translucent parts. Every scene logs its frame rate and the time to draw
+  and to send a frame: the soft dial takes 10.0 ms to draw, the one of
+  `dgx_draw_arc()` and thick lines 2.5 ms, and either frame about 13 ms to
+  send.
 
 Tests:
 

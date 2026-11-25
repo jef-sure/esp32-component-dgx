@@ -293,6 +293,9 @@ of the screen, which lies in PSRAM:
 Writing a filled shape is bound by the PSRAM there: the comparison circle
 spends its time on it. A soft edge reads the pixel under it, and a gradient
 finds a color for every pixel.
+[examples/soft_shapes_demo](../examples/soft_shapes_demo) draws the shapes on
+that board, each with hard edges beside soft ones, and logs the time of a
+frame.
 
 ### Text and fonts
 

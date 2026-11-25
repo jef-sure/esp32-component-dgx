@@ -415,6 +415,7 @@ dgx_gauge_set_value(&gauge, 42);                // redraws only the steps that c
 
 `dgx_gauge_init_soft()` takes one color more after the background: the color
 around the ring. The ring then has soft edges, mixed with it.
+Example: [examples/soft_shapes_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/soft_shapes_demo), the scene GAUGE.
 
 ### A dial with a needle
 
@@ -449,6 +450,8 @@ screen that can be read: a virtual screen, or a display kept in memory such
 as the CO5300 and a DSI one. On a display behind a bus give
 `DGX_PAINT_PAPER` with the color under the dial in `paper`. The rules:
 [Shapes between pixels](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#shapes-between-pixels).
+Example: [examples/soft_shapes_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/soft_shapes_demo), the scene DIAL, beside the same
+dial drawn by the calls in whole pixels.
 
 ### A pie chart, arcs, a Wi-Fi icon
 
@@ -502,6 +505,8 @@ dgx_polyline_t line = {.points = graph, .count = 48, .width = 5 * DGX_SUBPIXEL /
                        .paint = {.color = ink, .flags = DGX_PAINT_SOFT}};
 dgx_draw_polyline_with(scr, &line);
 ```
+
+Example: [examples/soft_shapes_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/soft_shapes_demo), the scene CHART.
 
 ### A circle with a soft edge
 
@@ -567,6 +572,8 @@ color under the shape in `paper`. An opaque gradient needs nothing under it.
 A shape moved by whole pixels has the same pixels, so it can be drawn into
 strips of rows. The rules and the speed:
 [Shapes between pixels](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#shapes-between-pixels).
+Example: [examples/soft_shapes_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/soft_shapes_demo) draws each shape with hard edges
+and with soft ones side by side on a round AMOLED.
 
 ### Scrolling text
 
@@ -664,7 +671,10 @@ cannot be read, give `DGX_TEXTURE_PAPER` and the color under the picture in
 Examples: [examples/texture_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/texture_demo) scales, rotates and
 wobbles a card (`card_corners()`),
 [examples/flip_clock_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/flip_clock_demo) folds the digits of a
-split-flap clock.
+split-flap clock, and
+[examples/soft_shapes_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/soft_shapes_demo) turns a card by
+`dgx_draw_texture_quad()` beside `dgx_draw_texture_quad_with()`, fades a card
+by an alpha map and moves lenses of an 8-bit texture with translucent parts.
 
 ### Pixel art made larger
 
@@ -1368,6 +1378,7 @@ idf.py flash monitor
 | [figures_scroll_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/figures_scroll_demo) | CYD or JC1060P470 | a pie chart, arcs, a Wi-Fi icon, a scrolling terminal and chart; prints timings |
 | [graphicstest](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/graphicstest) | CYD, JC4827W543 or JC1060P470 | the PDQ graphics test of Adafruit_GFX, TFT_eSPI and LovyanGFX made with DGX, its table in the log and on the screen; see [How fast](#how-fast) |
 | [texture_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/texture_demo) | CYD | a textured card scaled, rotated and wobbled |
+| [soft_shapes_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/soft_shapes_demo) | Waveshare ESP32-S3-Touch-AMOLED-1.32 (CO5300, round 466x466) | a dial, shapes, a chart, a textured card and a gauge, each drawn in whole pixels with hard edges beside the same placed between pixels with soft edges; gradients, translucent paint, an alpha map; each timed |
 | [sprite_palette_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/sprite_palette_demo) | CYD | sprites of 1, 4 and 8 bits in maps of colors, mirrored, turned and clipped; day, night, lightning and a fade by the color table alone |
 | [pixel_scale_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/pixel_scale_demo) | CYD, JC1060P470 or JC8012P4A1C | a small picture two, three and four times as large by squares, Scale2x and Scale3x, Scale2xSFX and Scale3xSFX, each timed |
 | [alpha_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/alpha_demo) | CYD, JC1060P470 or JC8012P4A1C | two pictures fading into each other, a soft shape put by a mask many times over a picture, a translucent layer of buttons with a faint shadow over a picture that scrolls; each timed |
