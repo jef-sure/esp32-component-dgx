@@ -8,7 +8,9 @@
  * of what lies on the screen; a quad that is not a parallelogram maps the
  * meeting of its diagonals to the middle of the texture; nothing is drawn
  * outside the clip. On a display behind a bus, which cannot be read, a soft
- * edge is whole from half on, or mixed with paper.
+ * edge is whole from half on, or mixed with paper. A 16-bit texture whose
+ * pixels start at an odd address is refused, and dgx_draw_texture_quad()
+ * draws it.
  */
 #include <math.h>
 #include <stdbool.h>
@@ -497,6 +499,33 @@ int main(void)
             CHECK(dgx_draw_texture_quad(scr, p, white, 0, 0, 4, 4) == want);
             CHECK(px(scr, 15, 15) == (k < 2 ? BLACK : WHITE) && px(scr, 30, 12) == (k < 2 ? BLACK : WHITE));
         }
+    }
+
+    /* a 16-bit texture whose pixels start at an odd address is refused by the call that reads them as words, and drawn
+       at an even one; dgx_draw_texture_quad(), which reads them byte by byte, takes both */
+    {
+        static uint16_t store[4 * 4 + 2];
+        memset(store, 0xFF, sizeof store); /* white at any offset */
+        dgx_screen_t *at_odd  = dgx_vscreen_from_array((uint8_t *)store + 1, 4, 4, 16, DgxScreenRGB);
+        dgx_screen_t *at_even = dgx_vscreen_from_array((uint8_t *)store + 2, 4, 4, 16, DgxScreenRGB);
+        CHECK(at_odd && at_even);
+        const int            corners[8] = {10, 10, 30, 10, 30, 30, 10, 30};
+        dgx_texture_quad_t   o = {.texture = at_odd, .tw = 4, .th = 4}, e = {.texture = at_even, .tw = 4, .th = 4};
+        dgx_point_2d_t       p[4];
+        for (int i = 0; i < 4; ++i) {
+            o.x[i] = e.x[i] = corners[2 * i] * DGX_SUBPIXEL, o.y[i] = e.y[i] = corners[2 * i + 1] * DGX_SUBPIXEL;
+            p[i] = (dgx_point_2d_t){(int16_t)corners[2 * i], (int16_t)corners[2 * i + 1]};
+        }
+        dgx_fill_rectangle(scr, 0, 0, 64, 64, BLACK);
+        CHECK(dgx_draw_texture_quad_with(scr, &o) == ESP_ERR_INVALID_ARG);
+        CHECK(px(scr, 20, 20) == BLACK);
+        CHECK(dgx_draw_texture_quad_with(scr, &e) == ESP_OK);
+        CHECK(px(scr, 20, 20) == WHITE);
+        dgx_fill_rectangle(scr, 0, 0, 64, 64, BLACK);
+        CHECK(dgx_draw_texture_quad(scr, p, at_odd, 0, 0, 4, 4) == ESP_OK);
+        CHECK(px(scr, 20, 20) == WHITE);
+        dgx_screen_destroy(&at_odd);
+        dgx_screen_destroy(&at_even);
     }
 
     dgx_screen_destroy(&lcd);

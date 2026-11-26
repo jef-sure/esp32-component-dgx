@@ -890,8 +890,9 @@ typedef struct dgx_texture_quad_t {
  * @param scr  The screen to draw on, of 16 bits a pixel.
  * @param quad The quad, the texture and the choices.
  * @return ESP_OK, also when nothing of it falls on the screen; ESP_ERR_INVALID_ARG for a region outside the texture, an
- *         8-bit texture without @c lut, an @c alpha_map smaller than the texture, a quad wider than 32767 pixels or a
- *         quad that is not convex: its sides cross or it bends inward;
+ *         8-bit texture without @c lut, an @c alpha_map smaller than the texture, a quad wider than 32767 pixels, a
+ *         quad that is not convex: its sides cross or it bends inward, or a 16-bit texture whose pixels start at an
+ *         odd address: they are read as 16-bit words;
  *         ESP_ERR_NOT_SUPPORTED for a screen of another depth or without windows, a texture that is not a virtual screen of
  *         16 or 8 bits and an @c alpha_map that is not one of 8 bits; ESP_ERR_NO_MEM when a screen without a buffer of its
  *         bus gets no memory for a row.

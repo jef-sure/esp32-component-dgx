@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+Fixed:
+
+- **`dgx_draw_texture_quad_with()` refuses a 16-bit texture whose pixels
+  start at an odd address**, with `ESP_ERR_INVALID_ARG` and a line in the
+  log. It reads them as 16-bit words, and such a read at an odd address is
+  a LoadStoreAlignment exception on the Xtensa chips, the ESP32, ESP32-S2
+  and ESP32-S3.
+  A `const uint16_t` array is always aligned; bytes embedded by
+  `EMBED_FILES` of ESP-IDF need not be. The description of
+  `dgx_vscreen_from_array()` said that a picture in flash needs no
+  alignment, being read byte by byte; it now names this call as the one
+  that reads by words. `dgx_draw_texture_quad()` reads byte by byte and
+  takes such a texture.
+
+Tests:
+
+- test_texture_quad: a 16-bit texture at an odd address refused by
+  `dgx_draw_texture_quad_with()` and drawn at an even one, and drawn by
+  `dgx_draw_texture_quad()` at both.
+
 Documentation:
 
 - The README links the components that work with DGX, in the ESP Component

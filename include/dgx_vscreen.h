@@ -75,8 +75,11 @@ dgx_screen_t* dgx_vscreen_init(int width, int height, uint8_t color_bits, dgx_co
  * picture through its bus buffer or, on MIPI-DSI, through the bands the bus
  * builds pictures in. Drawing on such a screen, or using it as the
  * destination of a transfer, writes to read-only memory: a bug in the
- * program. A picture in flash does not have to be aligned, because it is
- * read byte by byte.
+ * program. A picture in flash is read byte by byte by all of these calls but
+ * one: dgx_draw_texture_quad_with() reads a 16-bit texture by 16-bit words and
+ * refuses one whose pixels start at an odd address. A `const uint16_t` array
+ * is always aligned so; bytes embedded by other means, `EMBED_FILES` of
+ * ESP-IDF among them, need not be.
  *
  * When the rows of the memory are longer than the picture, give the length of
  * a row in pixels as @p width and take the picture with

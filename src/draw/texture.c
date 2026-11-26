@@ -812,6 +812,11 @@ esp_err_t dgx_draw_texture_quad_with(dgx_screen_t *scr, const dgx_texture_quad_t
     dgx_screen_t *texture = q->texture;
     const bool    indexed = texture->color_bits == 8;
     if ((texture->color_bits != 16 && !indexed) || !dgx_vscreen_is_linear(texture)) return ESP_ERR_NOT_SUPPORTED;
+    /* the texels of a 16-bit texture are read as 16-bit words, which an odd address does not take on every chip */
+    if (!indexed && ((uintptr_t)((dgx_vscreen_t *)texture)->v_array & 1u)) {
+        ESP_LOGE(TAG, "the pixels of a 16-bit texture start at an odd address, %p", (const void *)((dgx_vscreen_t *)texture)->v_array);
+        return ESP_ERR_INVALID_ARG;
+    }
     if (indexed && !q->lut) {
         ESP_LOGE(TAG, "an 8-bit texture takes the table of its colors, lut");
         return ESP_ERR_INVALID_ARG;
