@@ -32,7 +32,7 @@ typedef struct {
 
 static uint32_t bytes_of(const spec_t *s, int w, int h)
 {
-    if (s->kind == DGX_IMAGE_FILE_INDEXED) return (uint32_t)((w * s->bits + 7) / 8 * h);
+    if (s->kind != DGX_IMAGE_FILE_PIXELS) return (uint32_t)((w * s->bits + 7) / 8 * h);
     return (uint32_t)(((uint64_t)w * h * (s->bits == 18 ? 24 : s->bits) + 7) / 8);
 }
 
@@ -41,7 +41,7 @@ static uint32_t make(const spec_t *s, uint8_t *out)
 {
     memset(out, 0, 4096);
     uint32_t at = up4(64 + 16 * s->count), palette = 0;
-    if (s->kind == DGX_IMAGE_FILE_INDEXED) palette = at, at = up4(at + 4 * s->colors);
+    if (s->kind != DGX_IMAGE_FILE_PIXELS) palette = at, at = up4(at + 4 * s->colors);
     for (int i = 0; i < s->colors; ++i) out[palette + 4 * i] = (uint8_t)(10 * i), out[palette + 4 * i + 3] = 255;
     for (int k = 0; k < s->count; ++k) {
         uint8_t *e = out + 64 + 16 * k;
@@ -61,7 +61,7 @@ static uint32_t make(const spec_t *s, uint8_t *out)
     const uint32_t about = s->about ? at : 0, about_length = s->about ? (uint32_t)strlen(s->about) : 0;
     if (s->about) memcpy(out + at, s->about, about_length), at += about_length;
     memcpy(out, "DGXI", 4);
-    put16(out + 4, DGX_IMAGE_FILE_VERSION);
+    put16(out + 4, s->kind == DGX_IMAGE_FILE_MASK ? 2 : 1);
     out[6] = s->bits, out[7] = s->kind;
     put16(out + 8, s->count), put16(out + 10, s->colors);
     put32(out + 12, at), put32(out + 16, 64), put32(out + 20, palette), put32(out + 24, about), put32(out + 28, about_length);
@@ -84,12 +84,23 @@ static void use(const dgx_image_file_t *f)
         for (unsigned i = 0; i < 4u * f->colors; ++i) sum += f->palette[i];
         for (uint32_t i = 0; i < f->about_length; ++i) sum += (uint8_t)f->about[i];
         dgx_image_t image;
-        if (f->kind == DGX_IMAGE_FILE_INDEXED && dgx_image_file_image(f, k, &image) == ESP_OK && (uint32_t)p.width * p.height <= 4096) {
-            dgx_screen_t *scr = dgx_vscreen_init(p.width, p.height, 8, DgxScreenRGB);
-            if (scr) {
-                dgx_image_blit(scr, p.origin_x, p.origin_y, &image, NULL);
-                dgx_screen_destroy(&scr);
+        if (dgx_image_file_image(f, k, &image) == ESP_OK && (uint32_t)p.width * p.height <= 4096) {
+            /* indexed by values into 8 bits; every picture by its colors, soft, into 16 bits */
+            dgx_screen_t *s8 = dgx_vscreen_init(p.width, p.height, 8, DgxScreenRGB), *s16 = dgx_vscreen_init(p.width, p.height, 16, DgxScreenRGB);
+            if (s8 && f->kind == DGX_IMAGE_FILE_INDEXED) dgx_image_blit(s8, p.origin_x, p.origin_y, &image, NULL);
+            if (s16) {
+                static uint32_t colors[256];
+                static uint8_t  alpha[256];
+                dgx_image_blit_t how = {.flags = DGX_IMAGE_SOFT, .color = 0xffff};
+                if (f->kind == DGX_IMAGE_FILE_INDEXED && dgx_image_file_colors(f, s16, colors, alpha) == ESP_OK) how.colors = colors, how.alpha = alpha;
+                if (f->kind == DGX_IMAGE_FILE_MASK) how.flags |= DGX_IMAGE_SILHOUETTE;
+                dgx_image_blit(s16, p.origin_x, p.origin_y, &image, &how);
+                how.flags |= DGX_IMAGE_OPAQUE;
+                how.orientation = DgxOutputRotate90CW;
+                dgx_image_blit(s16, p.origin_x, p.origin_y, &image, &how);
             }
+            dgx_screen_destroy(&s8);
+            dgx_screen_destroy(&s16);
         }
     }
 }
@@ -114,6 +125,8 @@ int main(void)
         {.bits = 1, .kind = DGX_IMAGE_FILE_PIXELS, .count = 3, .w = {9, 1, 7}, .h = {3, 1, 2}, .plane = true},
         {.bits = 32, .kind = DGX_IMAGE_FILE_PIXELS, .count = 1, .w = {2}, .h = {2}, .about = "x"},
         {.bits = 18, .kind = DGX_IMAGE_FILE_PIXELS, .count = 1, .w = {3}, .h = {1}},
+        {.bits = 4, .kind = DGX_IMAGE_FILE_MASK, .count = 2, .w = {5, 3}, .h = {2, 3}, .colors = 1},
+        {.bits = 8, .kind = DGX_IMAGE_FILE_MASK, .count = 1, .w = {3}, .h = {2}, .colors = 1, .about = "mask"},
     };
     static uint8_t file[4096], spoiled[4096];
     for (size_t s = 0; s < sizeof specs / sizeof specs[0]; ++s) {
@@ -122,11 +135,15 @@ int main(void)
         for (unsigned shift = 0; shift < 4; ++shift) {
             dgx_image_file_t f;
             uint8_t         *buffer;
-            CHECK(open_at(file, size, shift, &f, &buffer) == ESP_OK);
+            if (open_at(file, size, shift, &f, &buffer) != ESP_OK) {
+                CHECK(!"a sound file is read");
+                free(buffer);
+                continue;
+            }
             const uint8_t *b = buffer + shift;
             CHECK(f.bits == sp->bits && f.kind == sp->kind && f.count == sp->count && f.colors == sp->colors && f.length == size);
             CHECK(f.first == (sp->kind == DGX_IMAGE_FILE_INDEXED && sp->colors < 1 << sp->bits ? 1 : 0));
-            CHECK((f.palette != NULL) == (sp->kind == DGX_IMAGE_FILE_INDEXED));
+            CHECK((f.palette != NULL) == (sp->kind != DGX_IMAGE_FILE_PIXELS));
             CHECK(sp->about ? f.about_length == strlen(sp->about) && !memcmp(f.about, sp->about, f.about_length) : f.about == NULL);
             for (int k = 0; k < sp->count; ++k) {
                 dgx_image_file_picture_t p;
@@ -134,10 +151,10 @@ int main(void)
                 CHECK(p.width == sp->w[k] && p.height == sp->h[k] && p.origin_x == -k && p.origin_y == k);
                 CHECK(p.pixels > b && (p.pixels - b) % 4 == 0 && (p.alpha != NULL) == sp->plane);
                 dgx_image_t image;
-                if (sp->kind == DGX_IMAGE_FILE_INDEXED) {
+                if (sp->kind != DGX_IMAGE_FILE_PIXELS || sp->bits == 16) {
                     CHECK(dgx_image_file_image(&f, (unsigned)k, &image) == ESP_OK);
                     CHECK(image.width == p.width && image.height == p.height && image.origin_x == p.origin_x && image.format == sp->bits &&
-                          image.data == p.pixels);
+                          image.data == p.pixels && image.alpha == p.alpha);
                 } else {
                     CHECK(dgx_image_file_image(&f, (unsigned)k, &image) == ESP_ERR_INVALID_ARG);
                 }
@@ -172,11 +189,29 @@ int main(void)
             }
         }
     }
-    /* a later format, NULLs */
+    /* a later format, a mask in a file of format 1, NULLs */
     const uint32_t size = make(&specs[0], file);
     put16(file + 4, DGX_IMAGE_FILE_VERSION + 1);
     dgx_image_file_t f;
     CHECK(dgx_image_file_open(file, size, &f) == ESP_ERR_INVALID_VERSION);
+    const uint32_t masked = make(&specs[sizeof specs / sizeof specs[0] - 1], file);
+    CHECK(dgx_image_file_open(file, masked, &f) == ESP_OK && f.kind == DGX_IMAGE_FILE_MASK && f.colors == 1 && f.palette);
+    put16(file + 4, 1);
+    CHECK(dgx_image_file_open(file, masked, &f) == ESP_ERR_INVALID_ARG);
+    /* the colors of the values of an indexed file on a screen: the palette, 0 transparent when it is not full */
+    {
+        static const spec_t two = {.bits = 4, .kind = DGX_IMAGE_FILE_INDEXED, .count = 1, .w = {2}, .h = {1}, .colors = 2};
+        const uint32_t      n   = make(&two, file);
+        CHECK(dgx_image_file_open(file, n, &f) == ESP_OK);
+        dgx_screen_t *s16 = dgx_vscreen_init(4, 4, 16, DgxScreenRGB);
+        uint32_t      colors[256];
+        uint8_t       alpha[256];
+        CHECK(dgx_image_file_colors(&f, s16, colors, alpha) == ESP_OK);
+        CHECK(alpha[0] == 0 && colors[1] == dgx_rgb_to_16(0, 0, 0) && alpha[1] == 255 && colors[2] == dgx_rgb_to_16(10, 0, 0) && alpha[2] == 255 &&
+              alpha[3] == 0);
+        CHECK(dgx_image_file_colors(NULL, s16, colors, alpha) == ESP_ERR_INVALID_ARG);
+        dgx_screen_destroy(&s16);
+    }
     CHECK(dgx_image_file_open(NULL, size, &f) == ESP_ERR_INVALID_ARG);
     CHECK(dgx_image_file_open(file, size, NULL) == ESP_ERR_INVALID_ARG);
     CHECK(dgx_image_file_picture(NULL, 0, NULL) == ESP_ERR_INVALID_ARG);

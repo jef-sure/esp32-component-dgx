@@ -320,11 +320,12 @@ void battery(dgx_screen_t *scr, int x, int y, int w, int h, int level, uint32_t 
 ### Значок из PNG, в нескольких состояниях
 
 Состояния значка, нарисованные в графическом редакторе, каждое — PNG с
-прозрачным фоном, при сборке становятся одним набором картинок в 1 бит:
+прозрачным фоном, при сборке становятся одним набором масок: каждый пиксель
+хранит, насколько значок его покрывает, поэтому край остаётся мягким.
 
 ```cmake
 # в CMakeLists.txt программы
-dgx_image_need(wifi PNG art/wifi0.png art/wifi1.png art/wifi2.png art/wifi3.png BITS 1)
+dgx_image_need(wifi PNG art/wifi0.png art/wifi1.png art/wifi2.png art/wifi3.png BITS 4 MASK)
 ```
 
 ```c
@@ -338,13 +339,14 @@ void wifi_icon(dgx_screen_t *scr, int x, int y, int bars, uint32_t ink, uint32_t
     if (!file.bytes && dgx_image_file_open(dgx_asset_wifi, dgx_asset_wifi_size, &file) != ESP_OK) return;
     dgx_image_t icon;
     if (dgx_image_file_image(&file, (unsigned)bars, &icon) != ESP_OK) return;
-    dgx_image_blit(scr, x, y, &icon, &(dgx_image_blit_t){.flags = DGX_IMAGE_OPAQUE, .color = ink, .bg = back});
+    dgx_image_blit(scr, x, y, &icon,
+                   &(dgx_image_blit_t){.flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT | DGX_IMAGE_OPAQUE, .color = ink, .bg = back});
 }
 ```
 
-Непрозрачные пиксели PNG — единицы, они рисуются цветом `ink`; прозрачные
-с `DGX_IMAGE_OPAQUE` получают `back`. Так каждый пиксель значка пишется
-один раз, и новое состояние поверх старого не мигает. Картинки остаются во
+Значок рисуется цветом `ink`, а его край смешивается с `back`: с
+`DGX_IMAGE_OPAQUE` каждый пиксель его коробки пишется один раз, и новое
+состояние поверх старого не мигает, на дисплее за шиной тоже. Картинки остаются во
 flash, а значок можно рисовать на дисплее любой глубины. Картинка во многих
 цветах, глубина набора, сокращение цветов PNG — в
 [Картинках из PNG](pictures-ru.md).

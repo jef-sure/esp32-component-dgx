@@ -504,7 +504,7 @@ function(dgx_image_need name)
     endif()
     # a line of a file of needs, every word in double quotes, the paths of PNG made absolute; FROM tells the tool
     # where the need was given, for its errors
-    set(keywords PNG BITS INDEXED PIXELS REDUCE DITHER INK ALPHA BACKGROUND ORIGIN)
+    set(keywords PNG BITS INDEXED PIXELS MASK REDUCE DITHER INK ALPHA BACKGROUND ORIGIN)
     set(line "${name} FROM \"${CMAKE_CURRENT_LIST_FILE}\"")
     set(paths FALSE)
     foreach(word IN LISTS ARGN)

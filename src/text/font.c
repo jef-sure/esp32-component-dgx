@@ -9,6 +9,7 @@
 #include "dgx_font_priv.h"
 #include "dgx_vscreen.h"
 #include "../dgx_clip_priv.h"
+#include "../dgx_mix_priv.h"
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
@@ -196,42 +197,6 @@ static int font_depth(const dgx_font_t *font)
     return font->f_type == DGX_FONT_BITMAP_DEPTH4 ? 4 : font->f_type == DGX_FONT_BITMAP_DEPTH2 ? 2 : 1;
 }
 
-/* whether colors of this many bits are mixed, channel by channel; 8 bits are an amount of ink */
-static bool mixable_bits(int bits)
-{
-    return bits == 4 || bits == 8 || bits == 12 || bits == 16 || bits == 18 || bits == 24;
-}
-
-static uint32_t mix_channel(uint32_t under, uint32_t color, unsigned a, unsigned shift, uint32_t mask)
-{
-    const uint32_t u = (under >> shift) & mask, c = (color >> shift) & mask;
-    return ((u * (255u - a) + c * a + 127u) / 255u) << shift;
-}
-
-/*
- * `color` over `under` by a of 255, rounded, each channel in its own width: 4 bits a gray level in the high nibble, as
- * the SSD1322 has it; 8 bits one amount of ink; 12 bits nibbles
- * at 15..12, 11..8 and 7..4 (DGX_RGB_12); 16 bits 5, 6 and 5; 18 bits the six high bits of each byte (DGX_RGB_18);
- * 24 bits a byte each.
- */
-static uint32_t mix_color(int bits, uint32_t under, uint32_t color, unsigned a)
-{
-    switch (bits) {
-    case 4:
-        return mix_channel(under, color, a, 4, 15);
-    case 8:
-        return mix_channel(under, color, a, 0, 0xff);
-    case 12:
-        return mix_channel(under, color, a, 12, 15) | mix_channel(under, color, a, 8, 15) | mix_channel(under, color, a, 4, 15);
-    case 16:
-        return mix_channel(under, color, a, 11, 31) | mix_channel(under, color, a, 5, 63) | mix_channel(under, color, a, 0, 31);
-    case 18:
-        return mix_channel(under, color, a, 18, 63) | mix_channel(under, color, a, 10, 63) | mix_channel(under, color, a, 2, 63);
-    default:
-        return mix_channel(under, color, a, 16, 255) | mix_channel(under, color, a, 8, 255) | mix_channel(under, color, a, 0, 255);
-    }
-}
-
 /*
  * The colors of the levels of a font of 2 or 4 bits over the paper of the context, when it has one and the screen
  * has colors to mix; NULL otherwise.
@@ -239,9 +204,9 @@ static uint32_t mix_color(int bits, uint32_t under, uint32_t color, unsigned a)
 static const uint32_t *soft_table(const dgx_font_context_t *ctx, uint32_t table[16])
 {
     const int depth = font_depth(ctx->font);
-    if (depth == 1 || !(ctx->flags & (DGX_FONT_BG | DGX_FONT_FILL)) || !mixable_bits(ctx->scr->color_bits)) return NULL;
+    if (depth == 1 || !(ctx->flags & (DGX_FONT_BG | DGX_FONT_FILL)) || !dgx_mix_bits(ctx->scr->color_bits)) return NULL;
     const uint8_t *alpha = depth == 4 ? soft_alpha4 : soft_alpha2;
-    for (int k = 0; k < 1 << depth; ++k) table[k] = mix_color(ctx->scr->color_bits, ctx->bg, ctx->color, alpha[k]);
+    for (int k = 0; k < 1 << depth; ++k) table[k] = dgx_mix_color(ctx->scr->color_bits, ctx->bg, ctx->color, alpha[k]);
     return table;
 }
 
@@ -402,7 +367,7 @@ static void soft_glyph_memory(const dgx_font_context_t *ctx, const dgx_glyph_t *
             const int y0 = ry < ct ? ct : ry, y1 = ry + rh > cb ? cb : ry + rh;
             for (int sy = y0; sy < y1; ++sy) {
                 uint8_t *m = memory + ((size_t)sy * (size_t)width + (size_t)x0) * (size_t)bytes;
-                for (int sx = x0; sx < x1; ++sx, m += bytes) memory_put(m, bytes, mixed ? mix_color(bits, memory_get(m, bytes), color, alpha[level]) : c);
+                for (int sx = x0; sx < x1; ++sx, m += bytes) memory_put(m, bytes, mixed ? dgx_mix_color(bits, memory_get(m, bytes), color, alpha[level]) : c);
             }
         }
     }
@@ -425,7 +390,7 @@ static void soft_glyph(const dgx_font_context_t *ctx, const dgx_glyph_t *g, cons
     /* the level from which a pixel is drawn whole when the levels are not mixed: every one touched, or as font2c cuts */
     int cut = 0;
     if (ctx->flags & DGX_FONT_HARD) cut = 1;
-    else if ((ctx->flags & DGX_FONT_MONO) || (!table && !(mixable_bits(bits) && dgx_screen_is_readable(scr))))
+    else if ((ctx->flags & DGX_FONT_MONO) || (!table && !(dgx_mix_bits(bits) && dgx_screen_is_readable(scr))))
         cut = (DGX_FONT_INK_THRESHOLD + unit - 1) / unit;
     const int memory = memory_bytes(scr);
     if (memory) {
@@ -471,7 +436,7 @@ static void soft_glyph(const dgx_font_context_t *ctx, const dgx_glyph_t *g, cons
             if (mixed) {
                 place_run(p, by, bx, bx, &rx, &ry, &rw, &rh);
                 for (int sy = ry; sy < ry + rh; ++sy)
-                    for (int sx = rx; sx < rx + rw; ++sx) dgx_set_pixel(scr, sx, sy, mix_color(bits, dgx_get_pixel(scr, sx, sy), ctx->color, alpha[level]));
+                    for (int sx = rx; sx < rx + rw; ++sx) dgx_set_pixel(scr, sx, sy, dgx_mix_color(bits, dgx_get_pixel(scr, sx, sy), ctx->color, alpha[level]));
             }
         }
     }

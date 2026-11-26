@@ -321,12 +321,12 @@ it can be drawn again over itself.
 ### An icon of a PNG, in states
 
 The states of an icon drawn in an image editor, each a PNG with a
-transparent background, become one set of 1-bit pictures when the program
-is built:
+transparent background, become one set of masks when the program is built:
+each pixel keeps how much the icon covers it, so its edges stay soft.
 
 ```cmake
 # in CMakeLists.txt of the program
-dgx_image_need(wifi PNG art/wifi0.png art/wifi1.png art/wifi2.png art/wifi3.png BITS 1)
+dgx_image_need(wifi PNG art/wifi0.png art/wifi1.png art/wifi2.png art/wifi3.png BITS 4 MASK)
 ```
 
 ```c
@@ -340,13 +340,14 @@ void wifi_icon(dgx_screen_t *scr, int x, int y, int bars, uint32_t ink, uint32_t
     if (!file.bytes && dgx_image_file_open(dgx_asset_wifi, dgx_asset_wifi_size, &file) != ESP_OK) return;
     dgx_image_t icon;
     if (dgx_image_file_image(&file, (unsigned)bars, &icon) != ESP_OK) return;
-    dgx_image_blit(scr, x, y, &icon, &(dgx_image_blit_t){.flags = DGX_IMAGE_OPAQUE, .color = ink, .bg = back});
+    dgx_image_blit(scr, x, y, &icon,
+                   &(dgx_image_blit_t){.flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT | DGX_IMAGE_OPAQUE, .color = ink, .bg = back});
 }
 ```
 
-The opaque pixels of a PNG are the 1s, drawn in `ink`; the transparent ones
-take `back` with `DGX_IMAGE_OPAQUE`, so every pixel of the icon is written
-once and a new state drawn over the old one does not blink. The pictures
+The icon is drawn in `ink`, its edges mixed with `back`: with
+`DGX_IMAGE_OPAQUE` every pixel of its box is written once, so a new state
+drawn over the old one does not blink, on a display behind a bus too. The pictures
 stay in flash, and the icon can be drawn on a display of any depth. A
 picture in many colors, the depth of a set, the colors of a PNG reduced:
 [Pictures from PNG files](pictures-en.md).

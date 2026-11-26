@@ -807,32 +807,32 @@ when the program is built, at any depth of a virtual screen, and embeds it
 at an address divisible by 4; the program reads its pictures in place.
 
 ```cmake
-dgx_image_need(wifi PNG art/wifi0.png art/wifi1.png art/wifi2.png BITS 1)  # three states of an icon
-dgx_image_need(logo PNG art/logo.png BITS 16)                              # RGB565
+dgx_image_need(wifi PNG art/wifi0.png art/wifi1.png art/wifi2.png BITS 4 MASK)  # three states of a soft icon
+dgx_image_need(logo PNG art/logo.png BITS 16)                                   # RGB565 and its transparency
 ```
 
 ```c
 #include "dgx_assets.h"
 #include "dgx_image_file.h"
 
-dgx_image_file_t wifi;
-dgx_image_t      icon;
+dgx_image_file_t wifi, file;
+dgx_image_t      icon, logo;
 dgx_image_file_open(dgx_asset_wifi, dgx_asset_wifi_size, &wifi);
 dgx_image_file_image(&wifi, state, &icon);
-dgx_image_blit(lcd, 10, 10, &icon, &(dgx_image_blit_t){.color = DGX_WHITE(dgx_rgb_to_16)});
+/* soft edges mixed with the paper: the icon is written whole and does not blink */
+dgx_image_blit(lcd, 10, 10, &icon, &(dgx_image_blit_t){
+    .flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT | DGX_IMAGE_OPAQUE, .color = DGX_WHITE(dgx_rgb_to_16), .bg = 0});
 
-dgx_image_file_t         file;
-dgx_image_file_picture_t p;
 dgx_image_file_open(dgx_asset_logo, dgx_asset_logo_size, &file);
-dgx_image_file_picture(&file, 0, &p);
-dgx_screen_t *logo = dgx_vscreen_from_array((void *)p.pixels, p.width, p.height, 16, DgxScreenRGB);
-dgx_vscreen_to_screen(lcd, 40, 10, logo, 0);
+dgx_image_file_image(&file, 0, &logo);
+dgx_image_blit(lcd, 40, 10, &logo, &(dgx_image_blit_t){.flags = DGX_IMAGE_SOFT | DGX_IMAGE_OPAQUE, .bg = 0});
 ```
 
-An indexed picture of 1, 4 or 8 bits keeps the colors of its PNG in a
-palette, to be mapped to the colors of the program; a picture of pixels
-keeps the transparent places of its PNG in a plane of opacity, for a soft
-texture quad. Colors, needs kept in a file, fonts embedded the same way, a
+A mask keeps how much of one color covers each pixel, for an icon with soft
+edges in any color; an indexed picture of 1, 4 or 8 bits keeps the colors of
+its PNG in a palette; a picture of pixels keeps the transparent places of its
+PNG in a plane of opacity. Soft edges are mixed with what lies under them
+where the screen can be read, and with a paper on a display behind a bus. Colors, needs kept in a file, fonts embedded the same way, a
 file from a file system:
 [Pictures from PNG files](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/pictures-en.md).
 
@@ -1624,7 +1624,8 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
   colors of the display shown from flash with no copy in RAM.
 - Pictures made of PNG files when the program is built, at any depth of a
   virtual screen, with their colors reduced and dithered if asked, embedded
-  aligned and read in place, or read from a file system or the network.
+  aligned and read in place, or read from a file system or the network;
+  icons and pictures drawn with soft edges.
 - Color tables for 8-bit virtual screens: from a palette, a ramp between two
   colors, fades and flashes, without redrawing the frame.
 - A two-head compositor (`vscreen_2h`) that exposes two child screens as one

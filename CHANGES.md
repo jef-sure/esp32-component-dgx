@@ -1,5 +1,51 @@
 # Changes
 
+## Unreleased
+
+New:
+
+- **Pictures with soft edges.** `dgx_image_blit()` takes `DGX_IMAGE_SOFT`,
+  which mixes the edges of a picture by the opacity of every pixel, as soft
+  text mixes its letters: with what lies under them on a screen that can be
+  read (a virtual screen of 4 to 24 bits, a DSI display), with `bg` under
+  `DGX_IMAGE_OPAQUE`, the box written whole, every pixel once, so a soft icon
+  on a display behind a bus does not blink; elsewhere a pixel is put whole
+  from half its opacity on. DGX does not read a display back.
+  - **Masks**: the value of a picture of 4 or 8 bits drawn with
+    `DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT` is how much of `color` covers the
+    pixel. `dgx_image_need(... BITS 4 MASK)` makes them of the opacity of a
+    PNG, or of its brightness (`INK DARK` for the dark), a kind of `.dgxi`
+    file of format 2, which an earlier DGX refuses as a later format.
+  - **Pictures of 16 bits** in `dgx_image_t`: `DGX_IMAGE_16BPP`, RGB565, and
+    a plane of opacity in the new member `alpha`. `dgx_image_file_image()`
+    gives the pictures of 16 bits of a `.dgxi` file so, and they go by
+    `dgx_image_blit()` with its turns, scale and clip, soft or hard.
+  - **Indexed pictures by their colors**: `dgx_image_blit_t` has `colors`
+    and `alpha`, the color and the opacity of each value, which take a
+    picture of 1, 4 or 8 bits to any screen, not only to an 8-bit virtual
+    screen through a map. `dgx_image_file_colors()` fills them from the
+    palette of a file for a screen.
+  - The new members of `dgx_image_t` and `dgx_image_blit_t` are at their
+    end: a structure filled by the names of its members is as before.
+
+Tests:
+
+- test_image_soft: masks, pictures of 16 bits and tables of colors, mixed
+  with what lies under them, with the paper, and put from half on a display
+  behind a bus, every pixel of an opaque box written once; a picture drawn
+  by a table of colors lands as the same picture in one color in every
+  turn, at every scale and clip.
+- test_image_file: masks, pictures of 16 bits and the colors of a file;
+  every spoiled file that is read drawn soft too.
+- test/images: masks made of opacity and of brightness, dithered; a picture
+  of 16 bits drawn by `dgx_image_blit()` as its virtual screen shows it.
+
+Documentation:
+
+- `docs/pictures-en.md` and `docs/pictures-ru.md`: masks, soft edges and
+  what they are mixed with. The icon of the README and of the cookbook is a
+  soft mask.
+
 ## 0.12.10 - 2026-11-26
 
 Pictures from PNG files, made into `.dgxi` files when a program is built and

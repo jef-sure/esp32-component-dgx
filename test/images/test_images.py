@@ -379,6 +379,34 @@ def test_colors():
     check(d.make([a, b], bits=4) == d.make([a, b], bits=4), "the same pictures, the same bytes")
 
 
+def test_mask():
+    # a mask of 8 bits: how much each pixel is covered, the opacity of the PNG, exactly; drawn soft by DGX in 255 over 0
+    alphas = [0, 17, 128, 200, 255, 1]
+    row = [(255, 0, 0, a) for a in alphas]
+    data = d.make([png(6, 1, row)], bits=8, kind="mask")
+    check(struct.unpack("<H", data[4:6])[0] == 2 and data[7] == d.MASK, "a mask is of format 2, kind 3")
+    out = dumped(data)
+    check(out["kind"] == d.MASK and out["colors"] == 1 and values(out["pictures"][0]) == alphas, "a mask of 8 bits: %s" % values(out["pictures"][0]))
+    check(out["palette"] == [(255, 0, 0, 255)], "a mask: its one entry the mean color it covers, %s" % out["palette"])
+    out = dumped(d.make([png(6, 1, row)], bits=4, kind="mask"))
+    check(values(out["pictures"][0]) == [lvl(a, 15) * 17 for a in alphas], "a mask of 4 bits: the nearest of 16 levels")
+    # a PNG without transparency: the brightness, the light the ink, or the dark with INK DARK
+    grays = [(g, g, g, 255) for g in (0, 60, 128, 255)]
+    out = dumped(d.make([png(4, 1, grays)], bits=8, kind="mask"))
+    check(values(out["pictures"][0]) == [0, 60, 128, 255], "a mask of an opaque PNG: its brightness")
+    out = dumped(d.make([png(4, 1, grays)], bits=8, kind="mask", ink="dark"))
+    check(values(out["pictures"][0]) == [255, 195, 127, 0], "a mask of an opaque PNG, INK DARK: the dark is the ink")
+    # dithered: every value one of the levels, the mean kept
+    ramp = [(255, 255, 255, x * 255 // 63) for x in range(64)]
+    out = dumped(d.make([png(64, 1, ramp)], bits=4, kind="mask", dither=True))
+    got = values(out["pictures"][0])
+    check(all(v % 17 == 0 for v in got) and abs(sum(got) - sum(p[3] for p in ramp)) < 64 * 9, "a dithered mask keeps its mean")
+    for args, words in (({"bits": 1, "kind": "mask"}, ["MASK of 1 bits"]), ({"bits": 16, "kind": "mask"}, ["MASK of 16 bits"]),
+                        ({"bits": 8, "kind": "mask", "alpha": True}, ["ALPHA of a mask"]),
+                        ({"bits": 8, "kind": "mask", "background": "000000"}, ["BACKGROUND of a mask"])):
+        refused(lambda: d.make([png(1, 1, [(0, 0, 0, 255)])], **args), words)
+
+
 def test_refusals():
     one = png(1, 1, [(0, 0, 0, 255)])
     refused(lambda: d.make([one], bits=2), ["BITS 2", "1, 4, 8, 12, 16, 18, 24 or 32"])
@@ -494,6 +522,8 @@ def test_needs():
             ("wifi BITS 4\n", ":1:", "no PNG picture"),
             ("wifi PNG 'art/on.png BITS 4\n", ":1:", "closing quotation"),
             ("wifi PNG art/on.png BITS 4 BITS 8\n", ":1:", "BITS given twice"),
+            ("wifi PNG art/on.png BITS 4 MASK INDEXED\n", ":1:", "a picture is of one kind"),
+            ("wifi PNG art/on.png BITS 1 MASK\n", ":1:", "MASK of 1 bits"),
             ("wifi PNG art/on.png INK DARK\n", ":1:", "INK at 16 bits"),
             ("wifi PNG art/on.png ORIGIN 1\n", ":1:", "ORIGIN without x and y"),
             ("wifi FROM CMakeLists.txt PNG art/on.png BITS 2\n", "CMakeLists.txt: ", "BITS 2"),
@@ -517,6 +547,7 @@ def main():
     test_pngsuite()
     test_depths()
     test_colors()
+    test_mask()
     test_refusals()
     test_needs()
     if failures:

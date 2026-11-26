@@ -32,10 +32,10 @@ Paths are resolved from the `CMakeLists.txt` that gives them. The words:
 | --- | --- |
 | `PNG <file>...` | the pictures of the set, in this order |
 | `BITS <n>` | 1, 4, 8, 12, 16, 18, 24 or 32 bits a pixel, every depth of a virtual screen; 16 if not given |
-| `INDEXED` or `PIXELS` | the kind of the set, see below; 1, 4 and 8 bits are `INDEXED` unless `PIXELS` is given, the deeper ones are `PIXELS` |
+| `INDEXED`, `PIXELS` or `MASK` | the kind of the set, see below; 1, 4 and 8 bits are `INDEXED` unless another is given, the deeper ones are `PIXELS` |
 | `REDUCE` | an indexed set with more colors than its depth holds is reduced to them; without it, such a set is refused |
 | `DITHER` | the error of every pixel is spread over its neighbours (Floyd-Steinberg), at any depth |
-| `INK DARK` or `INK LIGHT` | at 1 bit: whether the dark or the light pixels are 1; `LIGHT` if not given |
+| `INK DARK` or `INK LIGHT` | at 1 bit, and for a mask of a PNG without transparency: whether the dark or the light pixels are the ink; `LIGHT` if not given |
 | `ALPHA` | an indexed set keeps the opacity of the PNG in its palette, for an 8-bit texture |
 | `BACKGROUND <rrggbb>` | the transparent places are painted in this color, mixed by their opacity |
 | `ORIGIN <x> <y>` | the origin of every picture of the set; 0 0 if not given |
@@ -44,8 +44,7 @@ The pictures of a set share one depth and one palette, and may differ in
 size: the states of an icon, the frames of a sprite. A picture is at most
 65535 pixels a side.
 
-**The two kinds.** A set is one of two kinds, because DGX draws pictures in
-two ways:
+**The three kinds.** A set is one of three kinds, by the way DGX draws it:
 
 - `INDEXED`, 1, 4 or 8 bits: the layout of `dgx_image_t`, drawn by
   `dgx_image_blit()`. Its palette holds the colors of the source. With fewer
@@ -58,7 +57,13 @@ two ways:
   `dgx_screen_rgb()` gives it (for a monochrome display, the 16 grays of an
   SSD1322); RGB at 12, 16, 18 and 24 bits; `0xAARRGGBB` at 32 bits, `AA` the
   opacity as in a PNG. A picture of 1 to 24 bits whose PNG has transparent
-  places keeps them in a plane of opacity beside it, a byte a pixel.
+  places keeps them in a plane of opacity beside it, a byte a pixel. A
+  picture of 16 bits is a `dgx_image_t` too, drawn by `dgx_image_blit()`.
+- `MASK`, 4 or 8 bits: how much of one color covers each pixel, as the
+  letters of a soft font are kept, taken from the opacity of the PNG, or
+  from its brightness when it has no transparency. An icon drawn in one
+  color with soft edges. Its palette has one entry, the mean color of the
+  PNG where it covers.
 
 **The origin** is the pixel of a picture that `dgx_image_blit()` puts at the
 point it is given, and mirrors and rotates the picture around. An icon needs
@@ -158,7 +163,48 @@ dgx_screen_t *opacity = p.alpha ? dgx_vscreen_from_array((void *)p.alpha, p.widt
 /* or soft over what lies under it: dgx_draw_texture_quad_with() with .texture = logo, .alpha_map = opacity */
 ```
 
-Such a screen is only read: never draw on it.
+Such a screen is only read: never draw on it. A picture of 16 bits is also
+a `dgx_image_t`, with its plane in `alpha`, and goes by `dgx_image_blit()`
+with its turns, scale and clip, see below.
+
+### Soft edges
+
+`dgx_image_blit()` with `DGX_IMAGE_SOFT` mixes the edges of a picture by the
+opacity of every pixel, as soft text mixes its letters:
+
+```c
+/* a mask: a soft icon in any color, its box written whole over the paper, so it does not blink */
+dgx_image_file_image(&wifis, state, &icon);
+dgx_image_blit(lcd, 10, 10, &icon, &(dgx_image_blit_t){
+    .flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT | DGX_IMAGE_OPAQUE, .color = white, .bg = back});
+
+/* an indexed picture with its opacity in the palette (ALPHA): through the colors of the file */
+uint32_t colors[256];
+uint8_t  opacity[256];
+dgx_image_file_colors(&arrows, lcd, colors, opacity);
+dgx_image_blit(lcd, x, y, &arrow, &(dgx_image_blit_t){
+    .flags = DGX_IMAGE_SOFT | DGX_IMAGE_OPAQUE, .colors = colors, .alpha = opacity, .bg = back});
+
+/* a picture of 16 bits with its plane of opacity, over what lies under it */
+dgx_image_blit(frame, x, y, &ball, &(dgx_image_blit_t){.flags = DGX_IMAGE_SOFT});
+```
+
+What a partly covered pixel is mixed with:
+
+- with what lies under it, on a screen that can be read: a virtual screen
+  of 4 to 24 bits, a display on MIPI-DSI;
+- with `bg` with `DGX_IMAGE_OPAQUE`, on any screen: the box of the picture
+  is written whole, every pixel once, so a soft icon drawn again over itself
+  on a display behind a bus does not blink;
+- with nothing on a display behind a bus without `DGX_IMAGE_OPAQUE`, which
+  cannot be read: a pixel is put whole from half its opacity on. DGX does
+  not read a display back.
+
+Without `DGX_IMAGE_SOFT` a picture of 16 bits, or one drawn through
+`colors`, puts every pixel of an opacity from 128 on whole and leaves the
+others. `colors` takes an indexed picture to any screen, not only to an
+8-bit virtual screen through a map, and `dgx_image_file_colors()` fills it
+from the palette of the file, converted to the colors of the screen.
 
 **Fonts too.** With `dgx_fonts_files()` every font file of the program is
 embedded the same way, by the name of its file, and read in place by
@@ -188,6 +234,9 @@ One rule for every depth, in two branches.
   mean of their colors. A set without them has its light pixels 1, from the
   middle gray on as `dgx_screen_rgb()` counts it, or its dark ones with
   `INK DARK`; its two entries are the mean colors of the 0s and the 1s.
+- **Mask.** The opacity of the PNG, or its brightness when nothing in the
+  set is transparent (the light the ink, or the dark with `INK DARK`),
+  rounded to the nearest of 16 or 256 levels; `DITHER` spreads the error.
 - **Pixels.** Every color is rounded to the nearest of the depth; nothing is
   refused. The brightness at 1, 4 and 8 bits is
   `(77 r + 150 g + 29 b) / 256`, as `dgx_screen_rgb()` takes it.
@@ -273,11 +322,11 @@ them reads them, the high byte of a pixel first.
 | Offset | Bytes | Field |
 | --- | --- | --- |
 | 0 | 4 | `DGXI` |
-| 4 | 2 | the version of the format, 1 |
+| 4 | 2 | the version of the format: 1, or 2 for a mask, which a DGX before 0.12.11 refuses as a later format |
 | 6 | 1 | bits a pixel |
-| 7 | 1 | the kind: 1 indexed, 2 pixels |
+| 7 | 1 | the kind: 1 indexed, 2 pixels, 3 a mask |
 | 8 | 2 | pictures |
-| 10 | 2 | entries of the palette: 1 to 2^bits for an indexed set, 0 for pixels |
+| 10 | 2 | entries of the palette: 1 to 2^bits for an indexed set, 1 for a mask, 0 for pixels |
 | 12 | 4 | the length of the file |
 | 16 | 4 | where the table of pictures starts |
 | 20 | 4 | where the palette starts, 0 for none |

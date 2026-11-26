@@ -4,8 +4,10 @@
  * The file is read into a buffer SHIFT bytes past an address divisible by 8, so a file at an odd address is read too.
  * An indexed picture is drawn by dgx_image_blit() into an 8-bit virtual screen of its size, its origin put at its
  * own origin, so the picture lands at (0, 0): with no map a value p != 0 puts p, at 1 bit the color 1, and a
- * transparent 0 leaves the 0 the screen was filled with. A picture of pixels is read as a virtual screen over its
- * bytes, by dgx_get_pixel(), and its plane of opacity as an 8-bit virtual screen over the plane. Printed:
+ * transparent 0 leaves the 0 the screen was filled with. A mask is drawn so too, soft, in the color 255 over 0: a
+ * value is how much it covers, 0 to 255. A picture of pixels is read as a virtual screen over its bytes, by
+ * dgx_get_pixel(), and its plane of opacity as an 8-bit virtual screen over the plane; one of 16 bits is also drawn
+ * by dgx_image_blit() as a dgx_image_t, which must put the same pixels where its plane is from 128 on. Printed:
  *
  *   file <bits> <kind> <count> <colors> <first>
  *   entry <r> <g> <b> <a>                 for every entry of the palette
@@ -64,19 +66,34 @@ int main(int argc, char **argv)
         if (dgx_image_file_picture(&file, k, &p) != ESP_OK) return 3;
         printf("picture %u %u %d %d %d\n", p.width, p.height, p.origin_x, p.origin_y, p.alpha != NULL);
         dgx_screen_t *scr;
-        if (file.kind == DGX_IMAGE_FILE_INDEXED) {
+        if (file.kind != DGX_IMAGE_FILE_PIXELS) {
             dgx_image_t image;
             if (dgx_image_file_image(&file, k, &image) != ESP_OK || image.data != p.pixels) return 3;
             scr = dgx_vscreen_init(p.width, p.height, 8, DgxScreenRGB);
             if (!scr) return 3;
             dgx_fill_rectangle(scr, 0, 0, p.width, p.height, 0);
-            const dgx_image_blit_t how = {.color = 1};
+            dgx_image_blit_t how = {.color = 1};
+            if (file.kind == DGX_IMAGE_FILE_MASK) how = (dgx_image_blit_t){.flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT, .color = 255};
             if (dgx_image_blit(scr, p.origin_x, p.origin_y, &image, &how) != ESP_OK) return 3;
         } else {
-            dgx_image_t not_indexed;
-            if (dgx_image_file_image(&file, k, &not_indexed) != ESP_ERR_INVALID_ARG) return 3;
+            dgx_image_t image;
+            const esp_err_t as_image = dgx_image_file_image(&file, k, &image);
+            if (file.bits == 16 ? as_image != ESP_OK || image.alpha != p.alpha : as_image != ESP_ERR_INVALID_ARG) return 3;
             scr = dgx_vscreen_from_array((void *)p.pixels, p.width, p.height, file.bits, DgxScreenRGB);
             if (!scr) return 3;
+            if (file.bits == 16) {
+                /* the same picture by dgx_image_blit(): its pixels where the plane is from 128 on, the paper elsewhere */
+                dgx_screen_t *blit = dgx_vscreen_init(p.width, p.height, 16, DgxScreenRGB);
+                if (!blit) return 3;
+                dgx_fill_rectangle(blit, 0, 0, p.width, p.height, 0x1234);
+                if (dgx_image_blit(blit, p.origin_x, p.origin_y, &image, NULL) != ESP_OK) return 3;
+                for (int y = 0; y < p.height; ++y)
+                    for (int x = 0; x < p.width; ++x) {
+                        const bool shown = !p.alpha || p.alpha[y * p.width + x] >= 128;
+                        if (dgx_get_pixel(blit, x, y) != (shown ? dgx_get_pixel(scr, x, y) : 0x1234u)) return 4;
+                    }
+                dgx_screen_destroy(&blit);
+            }
         }
         for (int y = 0; y < p.height; ++y) {
             printf("row");

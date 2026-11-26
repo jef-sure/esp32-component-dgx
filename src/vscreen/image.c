@@ -15,7 +15,9 @@
 #include "dgx_draw.h"
 #include "dgx_image.h"
 #include "dgx_vscreen.h"
+#include "esp_heap_caps.h"
 #include "../dgx_clip_priv.h"
+#include "../dgx_mix_priv.h"
 #ifdef ESP_PLATFORM
 #include "sdkconfig.h"
 #endif
@@ -325,6 +327,102 @@ static bool image_window_scaled(dgx_screen_t *dst, const image_walk_t *wk, int s
     return true;
 }
 
+/*
+ * ---- A picture by its colors: 16 bits, or values through `colors`, or the coverage of one color, soft or not ----
+ *
+ * Every pixel of the destination is looked up in the picture: its color, in the format of the screen, and its
+ * opacity. The pixels a row writes go into a row of memory and out by runs, each through a window of the screen, as
+ * the texture quad sends its rows: a display behind a bus gets one window a run, a virtual screen and a DSI display
+ * take the same calls.
+ */
+typedef struct {
+    const dgx_image_t *image;
+    unsigned           format;
+    uint32_t           color;    /* the coverage of one color: what covers */
+    bool               coverage; /* a value of 4 or 8 bits is how much of color covers the pixel */
+    const uint32_t    *colors;   /* the color of each value */
+    const uint8_t     *alpha;    /* the opacity of each value; NULL for 0 transparent, the rest opaque */
+    const dgx_screen_t *dst;
+} image_colors_t;
+
+/* the color, in the format of the screen, and the opacity of the pixel at column sx of row sy of the picture */
+static inline uint32_t image_color(const image_colors_t *c, const uint8_t *row, int sx, int sy, unsigned *a)
+{
+    if (c->format == DGX_IMAGE_16BPP) {
+        const uint32_t v = (uint32_t)row[2 * sx] << 8 | row[2 * sx + 1];
+        *a               = c->image->alpha ? c->image->alpha[(size_t)sy * c->image->width + (size_t)sx] : 255u;
+        if (c->dst->color_bits == 16) return v;
+        return dgx_screen_rgb(c->dst, (uint8_t)((v >> 8) & 0xf8u), (uint8_t)((v >> 3) & 0xfcu), (uint8_t)((v << 3) & 0xf8u));
+    }
+    const unsigned p = image_value(row, c->format, sx);
+    if (c->coverage) {
+        *a = c->format == DGX_IMAGE_4BPP ? p * 17u : p;
+        return c->color;
+    }
+    *a = c->alpha ? c->alpha[p] : p ? 255u : 0u;
+    return c->colors[p];
+}
+
+static esp_err_t image_by_colors(dgx_screen_t *dst, const image_walk_t *wk, int scale, const dgx_image_blit_t *how, const image_colors_t *c,
+                                 int left, int top, int right, int bottom)
+{
+    const bool     opaque = (how->flags & DGX_IMAGE_OPAQUE) != 0;
+    const uint8_t  bits   = dst->color_bits;
+    const bool     mix    = (how->flags & DGX_IMAGE_SOFT) && dgx_mix_bits(bits);
+    const bool     under  = mix && !opaque && dgx_screen_is_readable(dst); /* mixed with what lies on the screen */
+    const int      n      = right - left;
+    const uint32_t bytes  = dgx_color_points_to_bytes(bits, (uint32_t)n);
+    const bool     window = dst->set_area && dst->write_area;
+    /* a display behind a bus has its buffer; another screen a row of its own, or no window and a pixel at a time */
+    const bool     shared = window && dst->draw_buffer && dst->draw_buffer_len >= bytes;
+    uint8_t       *own    = NULL;
+    if (window && !shared) {
+        own = heap_caps_malloc(bytes, MALLOC_CAP_DMA);
+        if (!own) return ESP_ERR_NO_MEM;
+    }
+    uint8_t *const buffer = shared ? dst->draw_buffer : own;
+    dgx_screen_batch_begin(dst);
+    for (int y = top; y < bottom; ++y) {
+        int run = -1; /* where the run being made starts, -1 for none */
+        if (shared && dst->wait) dst->wait(dst); /* the row before may still be on its way from the buffer */
+        uint8_t *lp = buffer;
+        for (int x = left; x <= right; ++x) {
+            bool     put = false;
+            uint32_t v   = 0;
+            if (x < right) {
+                const int      u = (x - wk->box_x) / scale, w = (y - wk->box_y) / scale;
+                const int      W = wk->image->width, H = wk->image->height;
+                const int      sx = wk->x_back ? W - 1 - (wk->swapped ? w : u) : (wk->swapped ? w : u);
+                const int      sy = wk->y_back ? H - 1 - (wk->swapped ? u : w) : (wk->swapped ? u : w);
+                unsigned       a;
+                const uint32_t color = image_color(c, wk->image->data + (size_t)sy * wk->stride, sx, sy, &a);
+                if (a == 255u) put = true, v = color;
+                else if (opaque) put = true, v = a == 0u ? how->bg : mix ? dgx_mix_color(bits, how->bg, color, a) : a >= 128u ? color : how->bg;
+                else if (a && under) put = true, v = dgx_mix_color(bits, dgx_get_pixel(dst, x, y), color, a);
+                else if (a >= 128u) put = true, v = color;
+            }
+            if (put) {
+                if (!window) {
+                    dgx_set_pixel(dst, x, y, v);
+                    continue;
+                }
+                if (run < 0) run = x, lp = buffer;
+                lp = dgx_fill_buf_value(bits, lp, x - run, v);
+            } else if (run >= 0) {
+                /* the run ends: out through a window of its own */
+                dst->set_area(dst, (uint16_t)run, (uint16_t)(x - 1), (uint16_t)y, (uint16_t)y);
+                dst->write_area(dst, buffer, dgx_color_points_to_bytes(bits, (uint32_t)(x - run)) * 8u);
+                if (shared && dst->wait && x < right) dst->wait(dst);
+                run = -1;
+            }
+        }
+    }
+    if (window) dgx_screen_touch(dst, left, right - 1, top, bottom - 1);
+    dgx_screen_batch_end(dst);
+    if (own) heap_caps_free(own);
+    return ESP_OK;
+}
+
 /* a linear 8-bit virtual screen: the only destination for values and maps */
 static inline bool image_indexed_screen(const dgx_screen_t *dst)
 {
@@ -342,12 +440,15 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
     if (!how) how = &as_is;
     if (!dst || !image || !image->data) return ESP_ERR_INVALID_ARG;
     const uint8_t format = image->format;
-    if (format != DGX_IMAGE_1BPP && format != DGX_IMAGE_4BPP && format != DGX_IMAGE_8BPP) return ESP_ERR_INVALID_ARG;
+    if (format != DGX_IMAGE_1BPP && format != DGX_IMAGE_4BPP && format != DGX_IMAGE_8BPP && format != DGX_IMAGE_16BPP) return ESP_ERR_INVALID_ARG;
     if ((unsigned)how->orientation > (unsigned)DgxOutputTransverse) return ESP_ERR_INVALID_ARG;
     /* one color (a 1-bit picture or a silhouette) goes to any screen; values and maps are indices of an 8-bit virtual screen */
     const bool one_color = format == DGX_IMAGE_1BPP || (how->flags & DGX_IMAGE_SILHOUETTE);
+    /* by colors, to any screen: 16 bits, values through `colors`, or the coverage of one color with soft edges */
+    const bool by_colors = format == DGX_IMAGE_16BPP || how->colors ||
+                           ((how->flags & DGX_IMAGE_SOFT) && format != DGX_IMAGE_1BPP && (how->flags & DGX_IMAGE_SILHOUETTE));
     const bool indexed   = image_indexed_screen(dst);
-    if (!indexed && !one_color) return ESP_ERR_NOT_SUPPORTED;
+    if (!by_colors && !indexed && !one_color) return ESP_ERR_NOT_SUPPORTED;
     const int w = image->width, h = image->height;
     if (!w || !h) return ESP_OK;
     const int scale = how->scale > 1 ? how->scale : 1;
@@ -383,6 +484,18 @@ esp_err_t dgx_image_blit(dgx_screen_t *dst, int x, int y, const dgx_image_t *ima
 
     const bool         opaque = (how->flags & DGX_IMAGE_OPAQUE) != 0;
     const image_walk_t wk     = {image, ((size_t)w * format + 7u) / 8u, swapped, x_back, y_back, box_x, box_y};
+    if (by_colors) {
+        const image_colors_t c = {
+            .image    = image,
+            .format   = format,
+            .color    = how->color,
+            .coverage = format != DGX_IMAGE_16BPP && !how->colors,
+            .colors   = how->colors,
+            .alpha    = how->alpha,
+            .dst      = dst,
+        };
+        return image_by_colors(dst, &wk, scale, how, &c, left, top, right, bottom);
+    }
     if (!indexed) {
         /* the screen draws the runs itself, in one batch; an opaque box on a display behind a bus goes in one window */
         dgx_screen_batch_begin(dst);

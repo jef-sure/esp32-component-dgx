@@ -12,10 +12,13 @@ The words of a picture are those dgx_image_need() takes in CMake and a line of a
 
     PNG <file>...        the pictures of the set, in this order
     BITS <n>             1, 4, 8, 12, 16, 18, 24 or 32; 16 if not given
-    INDEXED | PIXELS     the kind: 1, 4 and 8 bits are indexed unless PIXELS is given, the others are pixels
+    INDEXED | PIXELS | MASK
+                         the kind: 1, 4 and 8 bits are indexed unless PIXELS or MASK is given, the others are
+                         pixels; a mask, of 4 or 8 bits, is how much of one color covers each pixel, for soft icons
     REDUCE               an indexed set of more colors than its depth holds is reduced to them, by median cut
     DITHER               the error of every pixel spread over its neighbours, Floyd-Steinberg
-    INK DARK | LIGHT     at 1 bit, whether the dark or the light pixels are 1; LIGHT if not given
+    INK DARK | LIGHT     at 1 bit, and for a mask of a PNG without transparency, whether the dark or the light pixels
+                         are the ink; LIGHT if not given
     ALPHA                an indexed set keeps the opacity of the PNG in the entries of its palette
     BACKGROUND <rrggbb>  the transparent places painted in this color, mixed by their opacity
     ORIGIN <x> <y>       the origin of every picture of the set; 0 0 if not given
@@ -41,8 +44,10 @@ import sys
 import zlib
 
 FORMAT = 1
+FORMAT_MASK = 2  # a mask is of format 2: a DGX that reads only format 1 refuses it as of a later DGX
 INDEXED = 1
 PIXELS = 2
+MASK = 3
 DEPTHS = (1, 4, 8, 12, 16, 18, 24, 32)
 HEAD = 64
 PICTURE = 16
@@ -353,20 +358,13 @@ def make(pngs, bits=16, kind=None, reduce=False, dither=False, ink=None, backgro
         raise DgxiError("BITS %s: a picture takes 1, 4, 8, 12, 16, 18, 24 or 32 bits" % bits)
     if kind is None:
         kind = "indexed" if bits <= 8 else "pixels"
-    if kind not in ("indexed", "pixels"):
-        raise DgxiError("the kind %r: a picture is INDEXED or PIXELS" % (kind,))
-    if kind == "indexed" and bits > 8:
-        raise DgxiError("INDEXED %d bits: an indexed picture takes 1, 4 or 8 bits" % bits)
+    if kind not in ("indexed", "pixels", "mask"):
+        raise DgxiError("the kind %r: a picture is INDEXED, PIXELS or MASK" % (kind,))
     if ink is not None and ink not in ("dark", "light"):
         raise DgxiError("INK %s: ink is DARK or LIGHT" % ink)
-    if ink is not None and bits != 1:
-        raise DgxiError("INK at %d bits: ink says which pixels are 1, at 1 bit" % bits)
-    if alpha and kind != "indexed":
-        raise DgxiError("ALPHA of pictures of pixels: they keep their opacity in a plane of their own, or BACKGROUND paints it over")
     if isinstance(background, str):
         background = _hex_color(background)
-    if alpha and background is not None:
-        raise DgxiError("ALPHA and BACKGROUND: BACKGROUND paints over the opacity ALPHA keeps")
+    make_check([], bits, kind, reduce, dither, ink, background, alpha, origin)
     ox, oy = origin
     if not (-32768 <= ox <= 32767 and -32768 <= oy <= 32767):
         raise DgxiError("ORIGIN %d %d: an origin is a 16-bit number with a sign" % (ox, oy))
@@ -409,6 +407,10 @@ def make(pngs, bits=16, kind=None, reduce=False, dither=False, ink=None, backgro
         palette, data = _indexed(pictures, bits, reduce, dither, ink, alpha)
         planes = [None] * len(pictures)
         kind_code = INDEXED
+    elif kind == "mask":
+        palette, data = _mask(pictures, bits, dither, ink)
+        planes = [None] * len(pictures)
+        kind_code = MASK
     else:
         palette = []
         data, planes = _pixels(pictures, bits, dither, ink)
@@ -474,6 +476,34 @@ def _indexed(pictures, bits, reduce, dither, ink, alpha):
         values.append(v)
     palette = [tuple(e[:3]) + ((e[3],) if alpha else (255,)) for e in entries]
     return palette, values
+
+
+def _mask(pictures, bits, dither, ink):
+    """the mean color it covers, the one entry of the palette, and how much of the ink covers every pixel: the opacity of
+    the PNG, or, in a set without transparent pixels, the brightness, the light the ink unless INK DARK"""
+    top = (1 << bits) - 1
+    by_alpha = any(rgba[o] != 255 for _, _, rgba in pictures for o in range(3, len(rgba), 4))
+    values, sums = [], [0, 0, 0, 0]
+    for w, h, rgba in pictures:
+        cover = [rgba[o + 3] if by_alpha else _gray(*rgba[o:o + 3]) for o in range(0, len(rgba), 4)]
+        if not by_alpha and ink == "dark":
+            cover = [255 - c for c in cover]
+        work = [float(c) for c in cover]
+        v = bytearray(w * h)
+        for p in range(w * h):
+            c = min(255, max(0, int(round(work[p]))))
+            q = _level(c, top)
+            if dither:
+                _spread(work, w, h, p % w, p // w, [c - _value(q, top)], 1)
+            v[p] = q
+            o = p * 4
+            for k in range(3):
+                sums[k] += rgba[o + k] * cover[p]
+            sums[3] += cover[p]
+        values.append(v)
+    n = sums[3]
+    entry = tuple((sums[k] + n // 2) // n for k in range(3)) if n else (255, 255, 255)
+    return [entry + (255,)], values
 
 
 def _one_bit(pictures, has_transparent, dither, ink, alpha, opaque_of):
@@ -610,13 +640,13 @@ def _write(bits, kind, pictures, palette, data, planes, origin, about):
     count = len(pictures)
     table = HEAD
     at = _align(table + count * PICTURE)
-    palette_at = at if kind == INDEXED else 0
-    if kind == INDEXED:
+    palette_at = at if kind != PIXELS else 0
+    if kind != PIXELS:
         at = _align(at + len(palette) * 4)
     parts = []
     entries = bytearray()
     for (w, h, _), values, plane in zip(pictures, data, planes):
-        body = _pack_rows(values, w, h, bits) if kind == INDEXED else values
+        body = _pack_rows(values, w, h, bits) if kind != PIXELS else values
         pixels_at = at
         at = _align(at + len(body))
         plane_at = 0
@@ -629,12 +659,12 @@ def _write(bits, kind, pictures, palette, data, planes, origin, about):
             parts.append((plane_at, plane))
     about_at = at
     length = about_at + len(about)
-    head = struct.pack("<4sHBBHHIIIII", b"DGXI", FORMAT, bits, kind, count, len(palette) if kind == INDEXED else 0,
+    head = struct.pack("<4sHBBHHIIIII", b"DGXI", FORMAT_MASK if kind == MASK else FORMAT, bits, kind, count, len(palette) if kind != PIXELS else 0,
                        length, table, palette_at, about_at if about else 0, len(about))
     out = bytearray(length)
     out[0:len(head)] = head
     out[table:table + len(entries)] = entries
-    if kind == INDEXED:
+    if kind != PIXELS:
         flat = bytes(x for e in palette for x in e)
         out[palette_at:palette_at + len(flat)] = flat
     for offset, body in parts:
@@ -645,7 +675,7 @@ def _write(bits, kind, pictures, palette, data, planes, origin, about):
 
 # ---- needs ----
 
-KEYWORDS = ("PNG", "BITS", "INDEXED", "PIXELS", "REDUCE", "DITHER", "INK", "ALPHA", "BACKGROUND", "ORIGIN", "FROM")
+KEYWORDS = ("PNG", "BITS", "INDEXED", "PIXELS", "MASK", "REDUCE", "DITHER", "INK", "ALPHA", "BACKGROUND", "ORIGIN", "FROM")
 
 
 def _is_c_name(name):
@@ -687,9 +717,9 @@ def parse_words(words, base):
             if not v.isdigit() or int(v) not in DEPTHS:
                 raise DgxiError("BITS %s: a picture takes 1, 4, 8, 12, 16, 18, 24 or 32 bits" % v)
             args["bits"] = int(v)
-        elif w in ("INDEXED", "PIXELS"):
-            if "INDEXED" in seen and "PIXELS" in seen:
-                raise DgxiError("INDEXED and PIXELS: a picture is of one kind")
+        elif w in ("INDEXED", "PIXELS", "MASK"):
+            if sum(k in seen for k in ("INDEXED", "PIXELS", "MASK")) > 1:
+                raise DgxiError("%s: a picture is of one kind, INDEXED, PIXELS or MASK" % w)
             args["kind"] = w.lower()
         elif w in ("REDUCE", "DITHER", "ALPHA"):
             args[w.lower()] = True
@@ -777,10 +807,16 @@ def make_check(pngs, bits=16, kind=None, reduce=False, dither=False, ink=None, b
         kind = "indexed" if bits <= 8 else "pixels"
     if kind == "indexed" and bits > 8:
         raise DgxiError("INDEXED %d bits: an indexed picture takes 1, 4 or 8 bits" % bits)
-    if ink is not None and bits != 1:
-        raise DgxiError("INK at %d bits: ink says which pixels are 1, at 1 bit" % bits)
+    if kind == "mask" and bits not in (4, 8):
+        raise DgxiError("MASK of %d bits: a mask takes 4 or 8 bits" % bits)
+    if ink is not None and bits != 1 and kind != "mask":
+        raise DgxiError("INK at %d bits: ink says which pixels are 1, at 1 bit, or which are the ink of a mask" % bits)
+    if alpha and kind == "mask":
+        raise DgxiError("ALPHA of a mask: a mask is the opacity of its PNG already")
     if alpha and kind != "indexed":
         raise DgxiError("ALPHA of pictures of pixels: they keep their opacity in a plane of their own, or BACKGROUND paints it over")
+    if background is not None and kind == "mask":
+        raise DgxiError("BACKGROUND of a mask: a mask is made of the transparency BACKGROUND would paint over")
     if alpha and background is not None:
         raise DgxiError("ALPHA and BACKGROUND: BACKGROUND paints over the opacity ALPHA keeps")
     if not (-32768 <= origin[0] <= 32767 and -32768 <= origin[1] <= 32767):

@@ -28,7 +28,12 @@
  *   file.bits, cbo). The values are what a virtual screen of the depth holds: the brightness at 1, 4 and 8 bits, as
  *   dgx_screen_rgb() gives it; the colors of dgx_rgb_to_12() .. dgx_rgb_to_24() at 12 to 24 bits; 0xAARRGGBB at 32
  *   bits, AA the opacity, 0 transparent, as the alpha of a PNG. A picture of 1 to 24 bits with transparent places has
- *   a plane of opacity beside it, a byte a pixel, rows one after another: the alpha_map of a texture quad.
+ *   a plane of opacity beside it, a byte a pixel, rows one after another: the alpha_map of a texture quad. A picture
+ *   of 16 bits is also a dgx_image_t of DGX_IMAGE_16BPP, its plane in alpha, for dgx_image_blit().
+ * - DGX_IMAGE_FILE_MASK, 4 or 8 bits, laid out as dgx_image_t takes them: a value is how much of one color covers the
+ *   pixel, 0 to 15 or 0 to 255, as the letters of a soft font are kept; drawn by dgx_image_blit() with
+ *   DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT, its edges soft, in any color. Its palette has one entry, the mean color of
+ *   the PNG where it covers. A mask is of format 2, which a DGX before 0.12.11 refuses as a later one.
  *
  * The numbers of the head and the tables of a file are read byte by byte, so a file is read at any address and on a
  * processor of any byte order. Every table and the pixels of every picture start at an offset divisible by 4: the
@@ -51,20 +56,22 @@ extern "C" {
 // @formatter:on
 #endif
 
-/** The version of the format of a file this DGX reads. */
-#define DGX_IMAGE_FILE_VERSION 1
+/** The latest version of the format of a file this DGX reads: 1, and 2, which adds masks. */
+#define DGX_IMAGE_FILE_VERSION 2
 
 /** Pictures of 1, 4 or 8 bits, drawn by dgx_image_blit() through the palette of the file. */
 #define DGX_IMAGE_FILE_INDEXED 1
 /** Pictures of any depth of a virtual screen, drawn as a virtual screen over their bytes. */
 #define DGX_IMAGE_FILE_PIXELS 2
+/** Masks of 4 or 8 bits: how much of one color covers each pixel, drawn soft by dgx_image_blit(). */
+#define DGX_IMAGE_FILE_MASK 3
 
 /** A file of pictures, as dgx_image_file_open() gives it. */
 typedef struct {
     uint8_t        bits;         /**< bits a pixel: 1, 4, 8, 12, 16, 18, 24 or 32 */
-    uint8_t        kind;         /**< DGX_IMAGE_FILE_INDEXED or DGX_IMAGE_FILE_PIXELS */
+    uint8_t        kind;         /**< DGX_IMAGE_FILE_INDEXED, DGX_IMAGE_FILE_PIXELS or DGX_IMAGE_FILE_MASK */
     uint16_t       count;        /**< pictures in the file, at least 1 */
-    uint16_t       colors;       /**< entries of the palette of an indexed file, 1 to 2^bits; 0 for pixels */
+    uint16_t       colors;       /**< entries of the palette: 1 to 2^bits for an indexed file, 1 for a mask, 0 for pixels */
     uint8_t        first;        /**< the value of the first entry: 1, and 0 is transparent; 0 for a full palette, of 2^bits */
     const uint8_t *palette;      /**< R, G, B and the opacity of the values first .. first + colors - 1; NULL for pixels */
     const char    *about;        /**< a text about the pictures, lines "key: value", with no 0 at its end; NULL if none */
@@ -103,14 +110,27 @@ esp_err_t dgx_image_file_open(const void *bytes, size_t length, dgx_image_file_t
 esp_err_t dgx_image_file_picture(const dgx_image_file_t *file, unsigned index, dgx_image_file_picture_t *picture);
 
 /**
- * @brief A picture of an indexed file as a dgx_image_t, for dgx_image_blit().
+ * @brief A picture as a dgx_image_t, for dgx_image_blit(): of an indexed file, of a mask, or of pixels of 16 bits with
+ * its plane of opacity.
  * @param file  A file of dgx_image_file_open().
  * @param index The picture, from 0 to file->count - 1.
- * @param image Out: the picture, its data in the file.
- * @return ESP_OK; ESP_ERR_INVALID_ARG for a NULL argument, an index past the last picture or a file of pixels, with a
- *         line in the log.
+ * @param image Out: the picture, its data and its plane in the file.
+ * @return ESP_OK; ESP_ERR_INVALID_ARG for a NULL argument, an index past the last picture or a file of pixels of
+ *         another depth than 16, with a line in the log.
  */
 esp_err_t dgx_image_file_image(const dgx_image_file_t *file, unsigned index, dgx_image_t *image);
+
+/**
+ * @brief The colors and the opacities of the values of an indexed file on a screen, for dgx_image_blit_t::colors and
+ * dgx_image_blit_t::alpha: the palette of the file converted by dgx_screen_rgb(), and a value without an entry, 0 of a
+ * palette that is not full, transparent.
+ * @param file   An indexed file of dgx_image_file_open().
+ * @param scr    The screen the pictures go to, for the format of its colors.
+ * @param colors Out: 256 colors.
+ * @param alpha  Out: 256 opacities, 0 to 255.
+ * @return ESP_OK; ESP_ERR_INVALID_ARG for a NULL argument or a file that is not indexed.
+ */
+esp_err_t dgx_image_file_colors(const dgx_image_file_t *file, const dgx_screen_t *scr, uint32_t colors[256], uint8_t alpha[256]);
 
 #ifdef __cplusplus
 // @formatter:off

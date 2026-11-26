@@ -6,11 +6,11 @@
  *
  * The head, 64 bytes, numbers little-endian:
  *    0  4  "DGXI"
- *    4  2  the version of the format, 1
+ *    4  2  the version of the format: 1, or 2 for a mask, which DGX before 0.12.11 does not read
  *    6  1  bits a pixel: 1, 4, 8, 12, 16, 18, 24, 32
- *    7  1  the kind: 1 indexed, 2 pixels
+ *    7  1  the kind: 1 indexed, 2 pixels, 3 a mask (format 2)
  *    8  2  pictures, at least 1
- *   10  2  entries of the palette: 1 to 2^bits for indexed pictures, 0 for pixels
+ *   10  2  entries of the palette: 1 to 2^bits for indexed pictures, 1 for a mask (the mean color it covers), 0 for pixels
  *   12  4  the length of the file
  *   16  4  where the table of pictures starts
  *   20  4  where the palette starts, 0 for none
@@ -52,10 +52,10 @@ static bool inside(uint32_t length, uint32_t offset, uint64_t size)
     return offset >= HEAD && offset % 4 == 0 && (uint64_t)offset + size <= length;
 }
 
-/* the bytes of the pixels of a picture: rows from a new byte for indexed ones, rows one after another for pixels */
+/* the bytes of the pixels of a picture: rows from a new byte for indexed ones and masks, rows one after another for pixels */
 static uint64_t pixel_bytes(uint8_t kind, uint8_t bits, uint32_t w, uint32_t h)
 {
-    if (kind == DGX_IMAGE_FILE_INDEXED) return ((uint64_t)w * bits + 7) / 8 * h;
+    if (kind != DGX_IMAGE_FILE_PIXELS) return ((uint64_t)w * bits + 7) / 8 * h;
     const uint64_t stored = bits == 18 ? 24 : bits; /* an 18-bit pixel is kept in 3 bytes */
     return ((uint64_t)w * h * stored + 7) / 8;
 }
@@ -71,8 +71,9 @@ esp_err_t dgx_image_file_open(const void *bytes, size_t length, dgx_image_file_t
     if (!file) return spoiled("no place for the file given", 0);
     if (!b || length < HEAD) return spoiled("shorter than its head", 0);
     if (memcmp(b, "DGXI", 4)) return spoiled("no mark DGXI", 0);
-    if (u16(b + 4) != DGX_IMAGE_FILE_VERSION) {
-        ESP_LOGE(TAG, "a file of pictures of format %u, of a later DGX: this one reads format %d", u16(b + 4), DGX_IMAGE_FILE_VERSION);
+    const uint16_t version = u16(b + 4);
+    if (version < 1 || version > DGX_IMAGE_FILE_VERSION) {
+        ESP_LOGE(TAG, "a file of pictures of format %u, of a later DGX: this one reads formats 1 to %d", version, DGX_IMAGE_FILE_VERSION);
         return ESP_ERR_INVALID_VERSION;
     }
     const uint8_t  bits = b[6], kind = b[7];
@@ -80,11 +81,13 @@ esp_err_t dgx_image_file_open(const void *bytes, size_t length, dgx_image_file_t
     const uint32_t size = u32(b + 12), table = u32(b + 16), palette = u32(b + 20), about = u32(b + 24), about_length = u32(b + 28);
     if (size < HEAD || size > length) return spoiled("its length is more than the bytes given, or less than a head", 12);
     if (!a_depth(bits)) return spoiled("no depth of a virtual screen", 6);
-    if (kind != DGX_IMAGE_FILE_INDEXED && kind != DGX_IMAGE_FILE_PIXELS) return spoiled("no kind of pictures", 7);
+    if (kind != DGX_IMAGE_FILE_INDEXED && kind != DGX_IMAGE_FILE_PIXELS && kind != DGX_IMAGE_FILE_MASK) return spoiled("no kind of pictures", 7);
+    if (kind == DGX_IMAGE_FILE_MASK && version < 2) return spoiled("a mask in a file of format 1", 7);
     if (kind == DGX_IMAGE_FILE_INDEXED && bits != 1 && bits != 4 && bits != 8) return spoiled("indexed pictures of other bits than 1, 4, 8", 6);
+    if (kind == DGX_IMAGE_FILE_MASK && bits != 4 && bits != 8) return spoiled("a mask of other bits than 4, 8", 6);
     if (!count) return spoiled("no picture", 8);
-    if (kind == DGX_IMAGE_FILE_INDEXED) {
-        if (!colors || colors > 1u << bits) return spoiled("the number of colors of the palette", 10);
+    if (kind != DGX_IMAGE_FILE_PIXELS) {
+        if (!colors || colors > (kind == DGX_IMAGE_FILE_MASK ? 1u : 1u << bits)) return spoiled("the number of colors of the palette", 10);
         if (!inside(size, palette, (uint64_t)colors * ENTRY)) return spoiled("the palette", 20);
     } else if (colors || palette) {
         return spoiled("a palette of pictures of pixels", 10);
@@ -100,8 +103,8 @@ esp_err_t dgx_image_file_open(const void *bytes, size_t length, dgx_image_file_t
         const uint64_t n = pixel_bytes(kind, bits, w, h);
         if (n > UINT32_MAX || !inside(size, pixels, n)) return spoiled("the pixels of a picture", at + 8);
         if (alpha) {
-            /* the opacity of an indexed picture is in its palette, that of 32 bits in its pixels */
-            if (kind == DGX_IMAGE_FILE_INDEXED || bits == 32) return spoiled("a plane of opacity of a picture that has its opacity elsewhere", at + 12);
+            /* the opacity of an indexed picture is in its palette, that of a mask and of 32 bits in its pixels */
+            if (kind != DGX_IMAGE_FILE_PIXELS || bits == 32) return spoiled("a plane of opacity of a picture that has its opacity elsewhere", at + 12);
             if (!inside(size, alpha, (uint64_t)w * h)) return spoiled("the plane of opacity of a picture", at + 12);
         }
     }
@@ -111,7 +114,7 @@ esp_err_t dgx_image_file_open(const void *bytes, size_t length, dgx_image_file_t
         .count        = count,
         .colors       = colors,
         .first        = kind == DGX_IMAGE_FILE_INDEXED && colors < 1u << bits ? 1 : 0, /* a full palette has no transparent value */
-        .palette      = kind == DGX_IMAGE_FILE_INDEXED ? b + palette : NULL,
+        .palette      = kind != DGX_IMAGE_FILE_PIXELS ? b + palette : NULL,
         .about        = about ? (const char *)b + about : NULL,
         .about_length = about ? about_length : 0,
         .bytes        = b,
@@ -152,8 +155,8 @@ esp_err_t dgx_image_file_image(const dgx_image_file_t *file, unsigned index, dgx
     dgx_image_file_picture_t p;
     const esp_err_t          e = dgx_image_file_picture(file, index, &p);
     if (e != ESP_OK) return e;
-    if (file->kind != DGX_IMAGE_FILE_INDEXED) {
-        ESP_LOGE(TAG, "a picture of pixels is drawn as a virtual screen over its bytes, not as a dgx_image_t");
+    if (file->kind == DGX_IMAGE_FILE_PIXELS && file->bits != 16) {
+        ESP_LOGE(TAG, "a picture of %u bits is drawn as a virtual screen over its bytes, not as a dgx_image_t: dgx_image_t takes 16", file->bits);
         return ESP_ERR_INVALID_ARG;
     }
     *image = (dgx_image_t){
@@ -163,6 +166,27 @@ esp_err_t dgx_image_file_image(const dgx_image_file_t *file, unsigned index, dgx
         .origin_y = p.origin_y,
         .format   = file->bits,
         .data     = p.pixels,
+        .alpha    = p.alpha,
     };
+    return ESP_OK;
+}
+
+esp_err_t dgx_image_file_colors(const dgx_image_file_t *file, const dgx_screen_t *scr, uint32_t colors[256], uint8_t alpha[256])
+{
+    if (!file || !file->bytes || !scr || !colors || !alpha) {
+        ESP_LOGE(TAG, "no file, screen or table given");
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (file->kind != DGX_IMAGE_FILE_INDEXED) {
+        ESP_LOGE(TAG, "only an indexed file has colors for its values");
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(colors, 0, 256 * sizeof colors[0]);
+    memset(alpha, 0, 256);
+    for (unsigned i = 0; i < file->colors; ++i) {
+        const uint8_t *c        = file->palette + 4 * i;
+        colors[file->first + i] = dgx_screen_rgb(scr, c[0], c[1], c[2]);
+        alpha[file->first + i]  = c[3];
+    }
     return ESP_OK;
 }
