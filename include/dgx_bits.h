@@ -259,6 +259,7 @@ static inline uint8_t *dgx_fill_buf_value_4(uint8_t *lp, int idx, uint32_t value
 
 static inline uint8_t *dgx_fill_buf_value_8(uint8_t *lp, int idx, uint32_t value)
 {
+    (void)idx;
     *lp = (uint8_t)value;
     return lp + 1;
 }
@@ -278,6 +279,7 @@ static inline uint8_t *dgx_fill_buf_value_12(uint8_t *lp, int idx, uint32_t valu
 
 static inline uint8_t *dgx_fill_buf_value_16(uint8_t *lp, int idx, uint32_t value)
 {
+    (void)idx;
     lp[0] = (uint8_t)((value & 0xff00u) >> 8);
     lp[1] = (uint8_t)(value & 0xffu);
     return lp + 2;
@@ -285,6 +287,7 @@ static inline uint8_t *dgx_fill_buf_value_16(uint8_t *lp, int idx, uint32_t valu
 
 static inline uint8_t *dgx_fill_buf_value_24(uint8_t *lp, int idx, uint32_t value)
 {
+    (void)idx;
     *lp++ = (uint8_t)(value >> 16);
     *lp++ = (uint8_t)(value >> 8);
     *lp++ = (uint8_t)value;
@@ -293,6 +296,7 @@ static inline uint8_t *dgx_fill_buf_value_24(uint8_t *lp, int idx, uint32_t valu
 
 static inline uint8_t *dgx_fill_buf_value_32(uint8_t *lp, int idx, uint32_t value)
 {
+    (void)idx;
     *lp++ = (uint8_t)(value >> 24);
     *lp++ = (uint8_t)(value >> 16);
     *lp++ = (uint8_t)(value >> 8);
@@ -320,6 +324,7 @@ static inline uint32_t dgx_read_buf_value_4(uint8_t **lp, int idx)
 
 static inline uint32_t dgx_read_buf_value_8(uint8_t **lp, int idx)
 {
+    (void)idx;
     uint32_t value = **lp;
     ++*lp;
     return value;
@@ -342,6 +347,7 @@ static inline uint32_t dgx_read_buf_value_12(uint8_t **lp, int idx)
 
 static inline uint32_t dgx_read_buf_value_16(uint8_t **lp, int idx)
 {
+    (void)idx;
     uint32_t value = (**lp << 8) | (*(*lp + 1));
     *lp += 2;
     return value;
@@ -349,6 +355,7 @@ static inline uint32_t dgx_read_buf_value_16(uint8_t **lp, int idx)
 
 static inline uint32_t dgx_read_buf_value_24(uint8_t **lp, int idx)
 {
+    (void)idx;
     uint32_t value = (**lp << 16) | (*(*lp + 1) << 8) | (*(*lp + 2));
     *lp += 3;
     return value;
@@ -356,6 +363,7 @@ static inline uint32_t dgx_read_buf_value_24(uint8_t **lp, int idx)
 
 static inline uint32_t dgx_read_buf_value_32(uint8_t **lp, int idx)
 {
+    (void)idx;
     uint32_t value = ((uint32_t)**lp << 24) | (*(*lp + 1) << 16) | (*(*lp + 2) << 8) | (*(*lp + 3));
     *lp += 4;
     return value;

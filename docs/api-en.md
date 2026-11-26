@@ -400,6 +400,12 @@ dgx_font_draw(&value, 150, 40, "1234");
 dgx_font_draw(&value, 150, 40, "7"); // the 1234 is gone, the 7 stands where the 4 stood
 ```
 
+A field paints all of its width, so text over a picture or a gradient, or
+text with a shadow drawn by a second call, is set at the end of its place
+without one: `dgx_font_bounds()` gives its width, the scale counted, and the
+text that must end at `right` is drawn at `right - width`, see
+[Text set right or centered](cookbook-en.md#text-set-right-or-centered).
+
 ### Handwritten fonts
 
 A handwritten font keeps every symbol as the path of a pen: Bezier curves in

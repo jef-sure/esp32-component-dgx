@@ -1,5 +1,27 @@
 # Changes
 
+## Unreleased
+
+Fixed:
+
+- **`dgx_bits.h` builds without warnings under `-Wextra`**: eight of its
+  inline functions left the pixel index unused, which a program built with
+  `-Wextra` was warned about once for each.
+
+Documentation:
+
+- **A cookbook**, `docs/cookbook-en.md` and `docs/cookbook-ru.md`: short
+  recipes for the small tasks of almost every program. Text set right or
+  centered, and in the middle of a box; a value that changes in place, on a
+  plain background by a field and over a picture through a small virtual
+  screen; text wrapped to a width; the degree sign and the fonts that have
+  it. A button, a progress bar, a battery icon; the backlight dimmed by
+  LEDC and turned off when idle; a clip; two displays; and a table of what
+  a wrong picture usually means. The pictures are drawn by the code of the
+  recipes on a PC, by `docs/images/cookbook.c`.
+- The API reference says how to set a text at the end of its place over a
+  picture, where a field would paint its whole width.
+
 ## 0.12.8 - 2026-11-25
 
 The soft edges of a texture quad by the exact share of a pixel, quads that

@@ -1633,6 +1633,7 @@ Beyond the recipes:
 | Document | What is in it |
 | --- | --- |
 | [API reference](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md) | every call by header, the flags, colors and tables, buses, batches, several tasks, orientation, Kconfig options, known gaps |
+| [Cookbook](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/cookbook-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/cookbook-ru.md)) | small tasks of every program: text set right or centered, a value that changes in place, text wrapped to a width, the degree sign, a button, a progress bar, a battery icon, the backlight dimmed, a clip, two displays, a picture that looks wrong |
 | [Supported panels](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/panels-en.md) | the controllers, their constructors and options, a panel of your own module |
 | [Fonts made at build time](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/fonts-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/fonts-ru.md)) | needs, sizes, characters, rules, licenses, soft edges, patches |
 | [font2c](https://github.com/jef-sure/esp32-component-dgx/blob/main/font2c/README.md), [the font editor](https://github.com/jef-sure/esp32-component-dgx/blob/main/font-editor/README.md) | converting fonts by hand, fixing glyphs |

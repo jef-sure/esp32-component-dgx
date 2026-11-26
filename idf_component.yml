@@ -110,6 +110,7 @@ files:
     - "docs/api-??.md"
     - "docs/arduino-??.md"
     - "docs/benchmarks-??.md"
+    - "docs/cookbook-??.md"
     - "docs/dsi-display-??.md"
     - "docs/dsi-usage-??.md"
     - "docs/development-??.md"
