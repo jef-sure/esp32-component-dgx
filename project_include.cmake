@@ -482,8 +482,8 @@ endif()
 #     dgx_image_need(logo PNG art/logo.png BITS 16 BACKGROUND 000000)              # RGB565, the transparent painted black
 #     dgx_image_needs_file(images.txt)                                              # a need a line, the same words
 #
-# The words are those of tools/dgx_images.py, which tells them: PNG <file>..., BITS, INDEXED or PIXELS, REDUCE,
-# DITHER, INK DARK|LIGHT, ALPHA, BACKGROUND <rrggbb>, ORIGIN <x> <y>. Paths are resolved from the CMakeLists that gives
+# The words are those of tools/dgx_images.py, which tells them: PNG <file>... or GIF <file>, BITS, INDEXED, PIXELS
+# or MASK, REDUCE, DITHER, INK DARK|LIGHT, ALPHA, BACKGROUND <rrggbb>, ORIGIN <x> <y>, DELAY <ms>, LOOPS <n>. Paths are resolved from the CMakeLists that gives
 # them, or from the file of needs. The needs are checked by the tool as the project is configured, and a mistake stops
 # it with the file and the line. At the end of the configure step one build rule makes all of them into
 # build/dgx_images/: <name>.dgxi of every need and dgx_images-files.txt, a line "<name> <file>" each. They are made
@@ -504,7 +504,7 @@ function(dgx_image_need name)
     endif()
     # a line of a file of needs, every word in double quotes, the paths of PNG made absolute; FROM tells the tool
     # where the need was given, for its errors
-    set(keywords PNG BITS INDEXED PIXELS MASK REDUCE DITHER INK ALPHA BACKGROUND ORIGIN)
+    set(keywords PNG GIF BITS INDEXED PIXELS MASK REDUCE DITHER INK ALPHA BACKGROUND ORIGIN DELAY LOOPS)
     set(line "${name} FROM \"${CMAKE_CURRENT_LIST_FILE}\"")
     set(paths FALSE)
     foreach(word IN LISTS ARGN)
@@ -514,7 +514,7 @@ function(dgx_image_need name)
         if(word IN_LIST keywords)
             string(APPEND line " ${word}")
             set(paths FALSE)
-            if(word STREQUAL "PNG")
+            if(word STREQUAL "PNG" OR word STREQUAL "GIF")
                 set(paths TRUE)
             endif()
         elseif(paths)

@@ -29,6 +29,7 @@ PC, by [docs/images/cookbook.c](https://github.com/jef-sure/esp32-component-dgx/
   - [Draw only inside a rectangle](#draw-only-inside-a-rectangle)
   - [Two displays](#two-displays)
   - [When the picture looks wrong](#when-the-picture-looks-wrong)
+  - [A snapshot of the screen](#a-snapshot-of-the-screen)
 
 ## Text
 
@@ -559,3 +560,26 @@ Table 1. What a wrong picture usually means, and what to change.
 | Nothing at all, or a white screen | The wiring of CS, DC and RESET, and the backlight. A constructor that fails logs an error and returns NULL. |
 
 The drivers and their options are in [panels-en.md](panels-en.md).
+
+### A snapshot of the screen
+
+What the device shows, taken off it to look at on the computer: a frame
+composed in a virtual screen, or a display on MIPI-DSI itself, printed to
+the console.
+
+```c
+#include "dgx_snapshot.h"
+
+/* the frame as it was sent, to the console, while the button is held */
+if (gpio_get_level(BUTTON_PIN) == 0) dgx_screen_snapshot_print(frame, 0, 0, 0, 0, "frame", NULL);
+```
+
+```sh
+python managed_components/jef-sure__dgx/tools/dgx_snapshot.py /dev/ttyUSB0 --out shots/
+```
+
+The tool passes the log through as a monitor does and writes
+`shots/frame.dgxi` and `shots/frame.png`, a second one `frame-2` and on. A
+display behind a bus cannot be read: take the virtual screen the frame is
+composed in. At 115200 baud a frame of 200x200 of 16 bits takes some 10
+seconds, the screen standing still meanwhile.

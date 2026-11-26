@@ -28,6 +28,8 @@ typedef struct {
     int         colors;
     bool        plane;
     const char *about;
+    int         delays[3]; /* an animation: the delay of every picture, or 0 */
+    int         loops;
 } spec_t;
 
 static uint32_t bytes_of(const spec_t *s, int w, int h)
@@ -57,6 +59,11 @@ static uint32_t make(const spec_t *s, uint8_t *out)
             for (int i = 0; i < s->w[k] * s->h[k]; ++i) out[at + i] = (uint8_t)(i * 13);
             at = up4(at + (uint32_t)(s->w[k] * s->h[k]));
         }
+    }
+    if (s->delays[0]) {
+        put32(out + 32, at), put16(out + 36, (uint32_t)s->loops);
+        for (int k = 0; k < s->count; ++k) put16(out + at + 2 * k, (uint32_t)s->delays[k]);
+        at = up4(at + 2 * (uint32_t)s->count);
     }
     const uint32_t about = s->about ? at : 0, about_length = s->about ? (uint32_t)strlen(s->about) : 0;
     if (s->about) memcpy(out + at, s->about, about_length), at += about_length;
@@ -127,6 +134,7 @@ int main(void)
         {.bits = 18, .kind = DGX_IMAGE_FILE_PIXELS, .count = 1, .w = {3}, .h = {1}},
         {.bits = 4, .kind = DGX_IMAGE_FILE_MASK, .count = 2, .w = {5, 3}, .h = {2, 3}, .colors = 1},
         {.bits = 8, .kind = DGX_IMAGE_FILE_MASK, .count = 1, .w = {3}, .h = {2}, .colors = 1, .about = "mask"},
+        {.bits = 4, .kind = DGX_IMAGE_FILE_INDEXED, .count = 3, .w = {2, 2, 2}, .h = {2, 2, 2}, .colors = 2, .delays = {100, 200, 50}, .loops = 2},
     };
     static uint8_t file[4096], spoiled[4096];
     for (size_t s = 0; s < sizeof specs / sizeof specs[0]; ++s) {
@@ -189,12 +197,28 @@ int main(void)
             }
         }
     }
+    /* an animation: the delays, the picture at a time, played out after its loops or for ever */
+    {
+        dgx_image_file_t a;
+        const spec_t    *anim = &specs[sizeof specs / sizeof specs[0] - 1];
+        uint32_t         n    = make(anim, file);
+        CHECK(dgx_image_file_open(file, n, &a) == ESP_OK && a.delays && a.loops == 2);
+        CHECK(dgx_image_file_delay(&a, 0) == 100 && dgx_image_file_delay(&a, 2) == 50 && dgx_image_file_delay(&a, 3) == 0);
+        static const uint32_t at[]   = {0, 99, 100, 299, 300, 349, 350, 450, 699, 700, 100000};
+        static const unsigned want[] = {0, 0, 1, 1, 2, 2, 0, 1, 2, 2, 2};
+        for (size_t i = 0; i < sizeof at / sizeof at[0]; ++i) CHECK(dgx_image_file_frame(&a, at[i]) == want[i]);
+        put16(file + 36, 0); /* for ever */
+        CHECK(dgx_image_file_open(file, n, &a) == ESP_OK && dgx_image_file_frame(&a, 700) == 0 && dgx_image_file_frame(&a, 700 + 120) == 1);
+        n = make(&specs[0], file);
+        CHECK(dgx_image_file_open(file, n, &a) == ESP_OK && !a.delays && dgx_image_file_delay(&a, 0) == 0 && dgx_image_file_frame(&a, 5000) == 0);
+    }
     /* a later format, a mask in a file of format 1, NULLs */
     const uint32_t size = make(&specs[0], file);
     put16(file + 4, DGX_IMAGE_FILE_VERSION + 1);
     dgx_image_file_t f;
     CHECK(dgx_image_file_open(file, size, &f) == ESP_ERR_INVALID_VERSION);
-    const uint32_t masked = make(&specs[sizeof specs / sizeof specs[0] - 1], file);
+    static const spec_t mask8  = {.bits = 8, .kind = DGX_IMAGE_FILE_MASK, .count = 1, .w = {3}, .h = {2}, .colors = 1};
+    const uint32_t      masked = make(&mask8, file);
     CHECK(dgx_image_file_open(file, masked, &f) == ESP_OK && f.kind == DGX_IMAGE_FILE_MASK && f.colors == 1 && f.palette);
     put16(file + 4, 1);
     CHECK(dgx_image_file_open(file, masked, &f) == ESP_ERR_INVALID_ARG);

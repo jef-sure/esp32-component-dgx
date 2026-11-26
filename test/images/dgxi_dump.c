@@ -11,11 +11,16 @@
  *
  *   file <bits> <kind> <count> <colors> <first>
  *   entry <r> <g> <b> <a>                 for every entry of the palette
+ *   animation <loops> <delay>...          for an animation: as dgx_image_file_loops and dgx_image_file_delay() read them
  *   picture <w> <h> <origin_x> <origin_y> <has a plane>
  *   row <value>...                        for every row; values as dgx_get_pixel() gives them
  *   alpha <value>...                      for every row of the plane, if there is one
  *
  * An error of the reader prints "refused <code>" and exits with 1; 2 for a wrong command line.
+ *
+ * dgxi_dump --snapshot prints two snapshots as dgx_screen_snapshot_print() puts them on a console, among lines of a
+ * log: "sixteen", 7x5 of 16 bits, the pixel x, y of the value (x * 0x0841 + y * 0x1000) & 0xffff, and "four", 9x3 of
+ * 4 bits, the level (x + 2 * y) % 16; for tools/dgx_snapshot.py.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,10 +29,25 @@
 #include "dgx_draw.h"
 #include "dgx_image.h"
 #include "dgx_image_file.h"
+#include "dgx_snapshot.h"
 #include "dgx_vscreen.h"
 
 int main(int argc, char **argv)
 {
+    if (argc == 2 && !strcmp(argv[1], "--snapshot")) {
+        dgx_screen_t *a = dgx_vscreen_init(7, 5, 16, DgxScreenRGB), *b = dgx_vscreen_init(9, 3, 4, DgxScreenRGB);
+        for (int y = 0; y < 5; ++y)
+            for (int x = 0; x < 7; ++x) dgx_set_pixel(a, x, y, (uint32_t)(x * 0x0841 + y * 0x1000) & 0xffffu);
+        for (int y = 0; y < 3; ++y)
+            for (int x = 0; x < 9; ++x) dgx_set_pixel(b, x, y, (uint32_t)((x + 2 * y) % 16) << 4);
+        printf("I (10) app: a line of the log before\n");
+        if (dgx_screen_snapshot_print(a, 0, 0, 0, 0, "sixteen", NULL) != ESP_OK) return 3;
+        printf("I (20) app: a line between\n");
+        if (dgx_screen_snapshot_print(b, 0, 0, 0, 0, "four", NULL) != ESP_OK) return 3;
+        dgx_screen_destroy(&a);
+        dgx_screen_destroy(&b);
+        return 0;
+    }
     if (argc < 2 || argc > 3) {
         fprintf(stderr, "dgxi_dump FILE [SHIFT]\n");
         return 2;
@@ -60,6 +80,11 @@ int main(int argc, char **argv)
     for (unsigned i = 0; i < file.colors; ++i) {
         const uint8_t *c = file.palette + 4 * i;
         printf("entry %u %u %u %u\n", c[0], c[1], c[2], c[3]);
+    }
+    if (file.delays) {
+        printf("animation %u", file.loops);
+        for (unsigned i = 0; i < file.count; ++i) printf(" %u", (unsigned)dgx_image_file_delay(&file, i));
+        printf("\n");
     }
     for (unsigned k = 0; k < file.count; ++k) {
         dgx_image_file_picture_t p;

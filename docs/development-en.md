@@ -184,8 +184,8 @@ host/                    dgx_host.mk and ESP-IDF stubs: the platform-independent
 test/host/               host tests
 test/fonts/              the test of the fonts made at build time
 test/images/             the test of the pictures made of PNG files, and the PNG pictures of PngSuite
-tools/                   dgx_images.py, which makes pictures of PNG files into .dgxi files and embeds
-                         them; readme_version.py, which puts the version of idf_component.yml into
+tools/                   dgx_images.py, which makes pictures of PNG and GIF files into .dgxi files and
+                         embeds them; dgx_snapshot.py, which reads snapshots off a device; readme_version.py, which puts the version of idf_component.yml into
                          the install lines of the README, not in the component
 docs/                    morphing articles, handwritten text guides, fonts made at build time (English and Russian),
                          the converter and the tables of handwritten fonts (Russian),

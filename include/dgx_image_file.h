@@ -78,6 +78,8 @@ typedef struct {
     uint32_t       about_length; /**< bytes of the text */
     const uint8_t *bytes;        /**< the file, for dgx_image_file_picture() */
     uint32_t       length;       /**< bytes of the file */
+    const uint8_t *delays;       /**< an animation: the delay of every picture, see dgx_image_file_delay(); NULL for a set */
+    uint16_t       loops;        /**< an animation: how many times it is played, 0 for ever */
 } dgx_image_file_t;
 
 /** A picture of a file, as dgx_image_file_picture() gives it. */
@@ -119,6 +121,23 @@ esp_err_t dgx_image_file_picture(const dgx_image_file_t *file, unsigned index, d
  *         another depth than 16, with a line in the log.
  */
 esp_err_t dgx_image_file_image(const dgx_image_file_t *file, unsigned index, dgx_image_t *image);
+
+/**
+ * @brief How long a picture of an animation is shown: a GIF made into a file, or pictures made with DELAY.
+ * @param file  A file of dgx_image_file_open().
+ * @param index The picture.
+ * @return Milliseconds, 1 to 65535; 0 for a file that is not an animation or an index past the last picture.
+ */
+uint32_t dgx_image_file_delay(const dgx_image_file_t *file, unsigned index);
+
+/**
+ * @brief The picture of an animation to show a time after it began: its pictures one after another, each for its
+ * delay, as many times as file->loops says, then the last one for good; for ever with loops 0.
+ * @param file A file of dgx_image_file_open().
+ * @param ms   Milliseconds since the animation began.
+ * @return The index of the picture; 0 for a file that is not an animation.
+ */
+unsigned dgx_image_file_frame(const dgx_image_file_t *file, uint64_t ms);
 
 /**
  * @brief The colors and the opacities of the values of an indexed file on a screen, for dgx_image_blit_t::colors and

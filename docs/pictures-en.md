@@ -9,6 +9,7 @@ a file system or from the network works the same way.
 - [A need](#a-need)
 - [Needs in a file](#needs-in-a-file)
 - [Drawing the pictures](#drawing-the-pictures)
+- [Animations](#animations)
 - [Colors](#colors)
 - [What the build makes](#what-the-build-makes)
 - [A file from elsewhere](#a-file-from-elsewhere)
@@ -31,6 +32,7 @@ Paths are resolved from the `CMakeLists.txt` that gives them. The words:
 | Word | What it does |
 | --- | --- |
 | `PNG <file>...` | the pictures of the set, in this order |
+| `GIF <file>` | or the frames of one GIF, each whole, with their delays: an animation, see [Animations](#animations) |
 | `BITS <n>` | 1, 4, 8, 12, 16, 18, 24 or 32 bits a pixel, every depth of a virtual screen; 16 if not given |
 | `INDEXED`, `PIXELS` or `MASK` | the kind of the set, see below; 1, 4 and 8 bits are `INDEXED` unless another is given, the deeper ones are `PIXELS` |
 | `REDUCE` | an indexed set with more colors than its depth holds is reduced to them; without it, such a set is refused |
@@ -39,6 +41,8 @@ Paths are resolved from the `CMakeLists.txt` that gives them. The words:
 | `ALPHA` | an indexed set keeps the opacity of the PNG in its palette, for an 8-bit texture |
 | `BACKGROUND <rrggbb>` | the transparent places are painted in this color, mixed by their opacity |
 | `ORIGIN <x> <y>` | the origin of every picture of the set; 0 0 if not given |
+| `DELAY <ms>` | a set of PNG pictures as an animation, every picture shown so long |
+| `LOOPS <n>` | how many times an animation is played, 0 for ever; a GIF's own, or 0, if not given |
 
 The pictures of a set share one depth and one palette, and may differ in
 size: the states of an icon, the frames of a sprite. A picture is at most
@@ -215,6 +219,37 @@ size_t need;
 dgx_font_file_memory(dgx_asset_TerminusTTFMedium12, dgx_asset_TerminusTTFMedium12_size, &need);  /* 40 bytes */
 ```
 
+## Animations
+
+A GIF is made into a set of its frames, each whole, as large as the GIF,
+each frame drawn over the one before as the GIF says: its transparent color,
+and what is left of a frame for the next one. The file keeps the delay of
+every frame and how many times the animation is played:
+
+```cmake
+dgx_image_need(spinner GIF art/spinner.gif BITS 16)          # every frame RGB565 with its transparency
+dgx_image_need(blink PNG art/on.png art/off.png BITS 1 DELAY 500)   # or PNG pictures, half a second each
+```
+
+`dgx_image_file_frame()` tells the frame to show a time after the animation
+began, as many times round as it is played and then its last frame for good;
+`dgx_image_file_delay()` the delay of one:
+
+```c
+dgx_image_file_t spinner;
+dgx_image_file_open(dgx_asset_spinner, dgx_asset_spinner_size, &spinner);
+const int64_t start = esp_timer_get_time();
+for (;;) {
+    dgx_image_t frame;
+    dgx_image_file_image(&spinner, dgx_image_file_frame(&spinner, (esp_timer_get_time() - start) / 1000), &frame);
+    dgx_image_blit(lcd, x, y, &frame, &(dgx_image_blit_t){.flags = DGX_IMAGE_SOFT | DGX_IMAGE_OPAQUE, .bg = back});
+    vTaskDelay(pdMS_TO_TICKS(20));
+}
+```
+
+A delay of 0 or 10 ms is kept as 100 ms, as browsers play it. A DGX before
+0.12.12 reads such a file as a set of pictures without their delays.
+
 ## Colors
 
 One rule for every depth, in two branches.
@@ -332,7 +367,9 @@ them reads them, the high byte of a pixel first.
 | 20 | 4 | where the palette starts, 0 for none |
 | 24 | 4 | where the text about the pictures starts, 0 for none |
 | 28 | 4 | the length of the text |
-| 32 | 32 | 0, reserved |
+| 32 | 4 | an animation: where the delays of its pictures start, 2 bytes each in milliseconds; 0 for a set |
+| 36 | 2 | an animation: how many times it is played, 0 for ever |
+| 38 | 26 | 0, reserved |
 
 A picture of the table takes 16 bytes: width and height, 2 each; the origin,
 x and y with a sign, 2 each; where its pixels start and where its plane of

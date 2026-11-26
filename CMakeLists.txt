@@ -17,7 +17,7 @@ endif()
 # that lies 16 KB apart shares the lines of the 2-way flash cache of the ESP32; side by side the two do not.
 set(srcs
 	"src/drivers/dgx_lcd_init.c"
-	"src/screen/screen.c" "src/screen/screen_bus.c" "src/screen/pixels.c" "src/screen/bitmap.c"
+	"src/screen/screen.c" "src/screen/screen_bus.c" "src/screen/pixels.c" "src/screen/bitmap.c" "src/screen/snapshot.c"
 	"src/draw/draw.c" "src/draw/lines.c" "src/draw/circles.c" "src/draw/polygons.c"
 	"src/text/font.c" "src/text/hw_font.c" "src/draw/bezier.c" "src/text/hw_morph.c" "src/text/font_morph.c" "src/text/font_file.c"
 	"src/draw/gauge.c" "src/draw/texture.c" "src/draw/ellipse.c" "src/draw/scroll.c" "src/draw/rectangles.c" "src/draw/segment.c" "src/draw/shape.c"

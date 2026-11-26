@@ -2,7 +2,45 @@
 
 ## Unreleased
 
+New:
+
+- **Animations of GIF files.** `dgx_image_need(<name> GIF <file> ...)` makes
+  the frames of a GIF into a set of pictures of any kind and depth, each
+  frame whole, drawn over the one before as the GIF says, its transparent
+  color and its disposal kept; `DELAY <ms>` and `LOOPS <n>` make an
+  animation of PNG pictures. The file keeps the delay of every picture and
+  how many times it is played, in reserved bytes of its head: a DGX before
+  this one reads it as a set. `dgx_image_file_frame()` gives the frame to
+  show a time after the animation began, its loops counted, and
+  `dgx_image_file_delay()` the delay of one; `dgx_image_file_t` has
+  `delays` and `loops` at its end. The GIF reader is in Python of its own
+  library, as the PNG one.
+- **Snapshots of a screen**, `dgx_snapshot.h`: `dgx_screen_snapshot()`
+  hands the picture of a screen that can be read, or of a rectangle of it,
+  as a `.dgxi` file to a function of the program a piece at a time;
+  `dgx_screen_snapshot_print()` writes it to the console as base64 between
+  marks, with its length and CRC-32, giving a tick away every 4 KB.
+  `tools/dgx_snapshot.py` reads them off a serial port or a saved log and
+  writes a `.dgxi` file and a PNG of each; `tools/dgx_images.py png` turns
+  any `.dgxi` picture into a PNG.
+
+Tests:
+
+- test_snapshot: snapshots of virtual screens of every depth, whole and by
+  rectangles whose edges cut bytes, read back pixel for pixel; the console
+  form against the length and CRC of the file; a screen behind a bus
+  refused.
+- test_image_file: the delays of an animation and the frame at a time, with
+  loops and for ever.
+- test/images: GIF files, interlaced or not, with transparency and
+  disposal, against frames counted here and against PIL; animations of PNG
+  pictures; every kind read back to a PNG; snapshots printed by DGX among
+  lines of a log, read by `tools/dgx_snapshot.py`, a spoiled one told.
+
 Documentation:
+
+- Animations in `docs/pictures-en.md` and `-ru.md`; snapshots in the API
+  reference and the cookbook.
 
 - The cookbook turns a picture by any angle: a needle of 16 bits of a
   `.dgxi` file put on the texture quad around its origin, its edges soft,

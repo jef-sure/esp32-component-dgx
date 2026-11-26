@@ -163,3 +163,5 @@ files:
     - "test/images/pngsuite/PngSuite.README"
     # the writer of pictures, which a build calls, and tools such as the builder of dgx-ui; the other tools stay out
     - "tools/dgx_images.py"
+    # the snapshots of a device's screens read off its console
+    - "tools/dgx_snapshot.py"

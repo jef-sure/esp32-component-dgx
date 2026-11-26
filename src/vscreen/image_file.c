@@ -16,7 +16,9 @@
  *   20  4  where the palette starts, 0 for none
  *   24  4  where the text about the pictures starts, 0 for none
  *   28  4  the length of the text
- *   32 32  0, reserved
+ *   32  4  an animation: where the delays of its pictures start, 2 bytes each, in milliseconds; 0 for a set
+ *   36  2  an animation: how many times it is played, 0 for ever
+ *   38 26  0, reserved
  * A picture of the table, 16 bytes: width 2, height 2, origin_x 2 and origin_y 2 with a sign, where its pixels start
  * 4, where its plane of opacity starts 4, 0 for none. The table, the palette, the pixels and the planes start at
  * offsets divisible by 4.
@@ -94,6 +96,8 @@ esp_err_t dgx_image_file_open(const void *bytes, size_t length, dgx_image_file_t
     }
     if (!inside(size, table, (uint64_t)count * PICTURE)) return spoiled("the table of pictures", 16);
     if (about && (about < HEAD || (uint64_t)about + about_length > size)) return spoiled("the text about the pictures", 24);
+    const uint32_t delays = u32(b + 32);
+    if (delays && !inside(size, delays, (uint64_t)count * 2)) return spoiled("the delays of an animation", 32);
     for (uint32_t i = 0; i < count; ++i) {
         const uint32_t at = table + i * PICTURE;
         const uint8_t *p  = b + at;
@@ -119,6 +123,8 @@ esp_err_t dgx_image_file_open(const void *bytes, size_t length, dgx_image_file_t
         .about_length = about ? about_length : 0,
         .bytes        = b,
         .length       = size,
+        .delays       = delays ? b + delays : NULL,
+        .loops        = delays ? u16(b + 36) : 0,
     };
     return ESP_OK;
 }
@@ -169,6 +175,28 @@ esp_err_t dgx_image_file_image(const dgx_image_file_t *file, unsigned index, dgx
         .alpha    = p.alpha,
     };
     return ESP_OK;
+}
+
+uint32_t dgx_image_file_delay(const dgx_image_file_t *file, unsigned index)
+{
+    if (!file || !file->delays || index >= file->count) return 0;
+    return u16(file->delays + 2 * index);
+}
+
+unsigned dgx_image_file_frame(const dgx_image_file_t *file, uint64_t ms)
+{
+    if (!file || !file->delays) return 0;
+    uint64_t round = 0;
+    for (unsigned i = 0; i < file->count; ++i) round += u16(file->delays + 2 * i);
+    if (!round) return 0;
+    if (file->loops && ms >= round * file->loops) return file->count - 1u; /* played out: the last picture stays */
+    uint64_t t = ms % round;
+    for (unsigned i = 0; i < file->count; ++i) {
+        const uint32_t d = u16(file->delays + 2 * i);
+        if (t < d) return i;
+        t -= d;
+    }
+    return file->count - 1u;
 }
 
 esp_err_t dgx_image_file_colors(const dgx_image_file_t *file, const dgx_screen_t *scr, uint32_t colors[256], uint8_t alpha[256])

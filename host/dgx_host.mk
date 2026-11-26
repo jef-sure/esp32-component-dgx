@@ -15,7 +15,7 @@ DGX_HOST_DIR := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 DGX_ROOT     := $(patsubst %/,%,$(dir $(DGX_HOST_DIR)))
 
 # what every screen does: the window of a display behind a bus, pixel runs, 1-bit bitmaps
-DGX_HOST_SRCS_SCREEN  := $(addprefix $(DGX_ROOT)/src/screen/, screen.c screen_bus.c pixels.c bitmap.c)
+DGX_HOST_SRCS_SCREEN  := $(addprefix $(DGX_ROOT)/src/screen/, screen.c screen_bus.c pixels.c bitmap.c snapshot.c)
 # lines, circles, polygons, ellipses and arcs, Bezier curves and straight segments by the pen, textures, scrolling, the gauge,
 # shapes whose outlines lie between pixels
 DGX_HOST_SRCS_DRAW    := $(addprefix $(DGX_ROOT)/src/draw/, draw.c lines.c circles.c polygons.c ellipse.c bezier.c segment.c texture.c \

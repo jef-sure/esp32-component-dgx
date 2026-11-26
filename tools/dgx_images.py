@@ -4,6 +4,7 @@
     dgx_images.py make OUT.dgxi PNG <file>... [words]   one file of a set of pictures
     dgx_images.py check NEEDS [--depends FILE]          the needs of a file checked; FILE gets what they name
     dgx_images.py build NEEDS OUTDIR [--no-assets]      the files of the needs, their list, dgx_assets.S and .h
+    dgx_images.py png IN.dgxi OUT.png [INDEX]           a picture of a file as a PNG, as DGX draws it
     dgx_images.py assets OUTDIR [--images LIST] [--fonts LIST]
                                                         dgx_assets.S and .h of the files of the lists of images and
                                                         fonts, dgx_images-files.txt and dgx_fonts-files.txt
@@ -11,6 +12,9 @@
 The words of a picture are those dgx_image_need() takes in CMake and a line of a file of needs takes:
 
     PNG <file>...        the pictures of the set, in this order
+    GIF <file>           or the frames of one GIF, each whole, with their delays and how many times it is played
+    DELAY <ms>           a set of PNG pictures as an animation, every picture shown so long
+    LOOPS <n>            how many times an animation is played, 0 for ever; the GIF's own, or 0, if not given
     BITS <n>             1, 4, 8, 12, 16, 18, 24 or 32; 16 if not given
     INDEXED | PIXELS | MASK
                          the kind: 1, 4 and 8 bits are indexed unless PIXELS or MASK is given, the others are
@@ -260,6 +264,161 @@ def _text(kind, body, texts):
             texts[key].append(value.strip())
 
 
+# ---- GIF ----
+
+def _sub_blocks(data, at):
+    """the data sub-blocks of a GIF from at, joined, and where they end"""
+    out = bytearray()
+    while True:
+        if at >= len(data):
+            raise DgxiError("the GIF is cut in its data")
+        size = data[at]
+        at += 1
+        if not size:
+            return bytes(out), at
+        if at + size > len(data):
+            raise DgxiError("the GIF is cut in its data")
+        out += data[at:at + size]
+        at += size
+
+
+def _lzw(data, minimum, count):
+    """count indices of the LZW data of a GIF frame, codes of minimum + 1 bits and more, the low bits first"""
+    if not 2 <= minimum <= 8:
+        raise DgxiError("a frame of the GIF has a code size of %d, which GIF does not have" % minimum)
+    clear, end = 1 << minimum, (1 << minimum) + 1
+    first = [bytes((i,)) for i in range(clear)] + [b"", b""]
+    table, size, prior = list(first), minimum + 1, None
+    out = bytearray()
+    buffer = bits = at = 0
+    while len(out) < count:
+        while bits < size:
+            if at >= len(data):
+                return bytes(out) + bytes(count - len(out))  # cut short, as many GIFs are: the rest is the first color
+            buffer |= data[at] << bits
+            at += 1
+            bits += 8
+        code = buffer & ((1 << size) - 1)
+        buffer >>= size
+        bits -= size
+        if code == clear:
+            table, size, prior = list(first), minimum + 1, None
+            continue
+        if code == end:
+            break
+        if prior is None:
+            if code >= clear:
+                raise DgxiError("the picture data of the GIF is spoiled")
+            entry = table[code]
+        elif code < len(table):
+            entry = table[code]
+            if len(table) < 4096:
+                table.append(prior + entry[:1])
+        elif code == len(table):
+            entry = prior + prior[:1]
+            if len(table) < 4096:
+                table.append(entry)
+        else:
+            raise DgxiError("the picture data of the GIF is spoiled")
+        out += entry
+        prior = entry
+        if len(table) == 1 << size and size < 12:
+            size += 1
+    return bytes(out[:count]) + bytes(max(0, count - len(out)))
+
+
+def _deinterlace(indices, w, h):
+    rows = [y for start, step in ((0, 8), (4, 8), (2, 4), (1, 2)) for y in range(start, h, step)]
+    out = bytearray(w * h)
+    for k, y in enumerate(rows):
+        out[y * w:(y + 1) * w] = indices[k * w:(k + 1) * w]
+    return bytes(out)
+
+
+def read_gif(data):
+    """width, height, its frames whole as RGBA bytes, the delay of every frame in milliseconds, and how many times it is
+    played, 0 for ever. A frame is drawn over the one before as GIF says, the disposal of each frame applied; the
+    canvas starts transparent. A delay of 0 or 10 ms is played as 100 ms, as browsers play it."""
+    if not isinstance(data, (bytes, bytearray)) or data[:6] not in (b"GIF87a", b"GIF89a"):
+        raise DgxiError("not a GIF: no signature of one")
+    if len(data) < 13:
+        raise DgxiError("the GIF is cut in its head")
+    w, h, packed = struct.unpack("<HHB", data[6:11])
+    at = 13
+    shared = None
+    if packed & 0x80:
+        n = 3 << ((packed & 7) + 1)
+        if at + n > len(data):
+            raise DgxiError("the GIF is cut in its color table")
+        shared = [tuple(data[at + i:at + i + 3]) for i in range(0, n, 3)]
+        at += n
+    if not w or not h:
+        raise DgxiError("the GIF has no pixels")
+    canvas = bytearray(w * h * 4)
+    frames, delays, loops, control = [], [], 1, None
+    while at < len(data):
+        block = data[at]
+        at += 1
+        if block == 0x3B:
+            break
+        if block == 0x21:
+            if at >= len(data):
+                raise DgxiError("the GIF is cut in an extension")
+            label = data[at]
+            body, at = _sub_blocks(data, at + 1)
+            if label == 0xF9 and len(body) >= 4:
+                control = ((body[0] >> 2) & 7, body[1] | body[2] << 8, body[3] if body[0] & 1 else None)
+            elif label == 0xFF and body[:11] in (b"NETSCAPE2.0", b"ANIMEXTS1.0") and len(body) >= 14 and body[11] == 1:
+                loops = body[12] | body[13] << 8
+            continue
+        if block != 0x2C:
+            raise DgxiError("the GIF has a block 0x%02x, which GIF does not have" % block)
+        if at + 9 > len(data):
+            raise DgxiError("the GIF is cut in a frame")
+        left, top, fw, fh, p = struct.unpack("<HHHHB", data[at:at + 9])
+        at += 9
+        table = shared
+        if p & 0x80:
+            n = 3 << ((p & 7) + 1)
+            if at + n > len(data):
+                raise DgxiError("the GIF is cut in the color table of a frame")
+            table = [tuple(data[at + i:at + i + 3]) for i in range(0, n, 3)]
+            at += n
+        if table is None:
+            raise DgxiError("a frame of the GIF has no color table")
+        if at >= len(data):
+            raise DgxiError("the GIF is cut in a frame")
+        minimum = data[at]
+        packed_data, at = _sub_blocks(data, at + 1)
+        indices = _lzw(packed_data, minimum, fw * fh)
+        if p & 0x40:
+            indices = _deinterlace(indices, fw, fh)
+        disposal, delay, clear_index = control or (0, 0, None)
+        before = bytes(canvas) if disposal == 3 else None
+        for y in range(min(fh, h - top) if top < h else 0):
+            for x in range(min(fw, w - left) if left < w else 0):
+                i = indices[y * fw + x]
+                if i == clear_index:
+                    continue
+                if i >= len(table):
+                    raise DgxiError("a pixel of the GIF is an index past the end of its color table")
+                o = ((top + y) * w + left + x) * 4
+                canvas[o:o + 4] = bytes(table[i]) + b"\xff"
+        frames.append(bytearray(canvas))
+        delays.append(delay * 10 if delay > 1 else 100)
+        if disposal == 2:
+            for y in range(top, min(h, top + fh)):
+                canvas[(y * w + left) * 4:(y * w + min(w, left + fw)) * 4] = bytes(4 * max(0, min(w, left + fw) - left))
+        elif disposal == 3:
+            canvas[:] = before
+        control = None
+    if not frames:
+        raise DgxiError("the GIF has no frame")
+    if w > MOST or h > MOST:
+        raise DgxiError("a picture of %dx%d: DGX takes pictures of up to %d pixels a side" % (w, h, MOST))
+    return w, h, frames, delays, loops
+
+
 # ---- colors ----
 
 def _gray(r, g, b):
@@ -347,12 +506,15 @@ def _hex_color(text):
     return (int(t[0:2], 16), int(t[2:4], 16), int(t[4:6], 16))
 
 
-def make(pngs, bits=16, kind=None, reduce=False, dither=False, ink=None, background=None, alpha=False, origin=(0, 0),
-         name=None, sources=None):
-    """The bytes of a .dgxi file of the PNG pictures given, by their paths or as their bytes, in this order.
+def make(pngs=(), bits=16, kind=None, reduce=False, dither=False, ink=None, background=None, alpha=False, origin=(0, 0),
+         name=None, sources=None, gif=None, delay=None, loops=None):
+    """The bytes of a .dgxi file of the PNG pictures given, by their paths or as their bytes, in this order, or of the
+    frames of one GIF, by its path or as its bytes.
 
-    kind is "indexed" or "pixels", or None for the kind of the depth; ink is "dark" or "light"; background is
-    "rrggbb" or (r, g, b); name and sources, the names of the pictures, go into the text about them.
+    kind is "indexed", "pixels" or "mask", or None for the kind of the depth; ink is "dark" or "light"; background
+    is "rrggbb" or (r, g, b); name and sources, the names of the pictures, go into the text about them. An animation
+    keeps the delay of every picture in milliseconds and how many times it is played, 0 for ever: a GIF its own, a
+    set of PNG pictures `delay` each, `loops` times, 0 for ever if not given.
     """
     if bits not in DEPTHS:
         raise DgxiError("BITS %s: a picture takes 1, 4, 8, 12, 16, 18, 24 or 32 bits" % bits)
@@ -364,15 +526,39 @@ def make(pngs, bits=16, kind=None, reduce=False, dither=False, ink=None, backgro
         raise DgxiError("INK %s: ink is DARK or LIGHT" % ink)
     if isinstance(background, str):
         background = _hex_color(background)
-    make_check([], bits, kind, reduce, dither, ink, background, alpha, origin)
+    make_check([], bits, kind, reduce, dither, ink, background, alpha, origin, gif, delay, loops)
     ox, oy = origin
     if not (-32768 <= ox <= 32767 and -32768 <= oy <= 32767):
         raise DgxiError("ORIGIN %d %d: an origin is a 16-bit number with a sign" % (ox, oy))
-    if not pngs:
+    if gif is not None and pngs:
+        raise DgxiError("PNG and GIF: a set is made of PNG pictures or of the frames of one GIF")
+    if gif is None and not pngs:
         raise DgxiError("no PNG picture given")
     if len(pngs) > MOST:
         raise DgxiError("%d pictures: a file holds up to %d" % (len(pngs), MOST))
     pictures, texts, names = [], {}, []
+    delays = None
+    if gif is not None:
+        label = sources[0] if sources else (os.path.basename(gif) if isinstance(gif, (str, os.PathLike)) else "the GIF")
+        names.append(str(label))
+        try:
+            if isinstance(gif, (bytes, bytearray)):
+                data = gif
+            else:
+                with open(gif, "rb") as f:
+                    data = f.read()
+            w, h, frames, delays, gif_loops = read_gif(data)
+        except OSError as e:
+            raise DgxiError("%s: %s" % (gif, e.strerror or e))
+        except DgxiError as e:
+            raise DgxiError("%s: %s" % (label, e))
+        if len(frames) > MOST:
+            raise DgxiError("%s: %d frames: a file holds up to %d" % (label, len(frames), MOST))
+        loops = gif_loops if loops is None else loops
+        pictures = [(w, h, rgba) for rgba in frames]
+    elif delay is not None:
+        delays = [delay] * len(pngs)
+        loops = 0 if loops is None else loops
     for k, png in enumerate(pngs):
         label = sources[k] if sources and k < len(sources) else (os.path.basename(png) if isinstance(png, (str, os.PathLike)) else "picture %d" % (k + 1))
         names.append(str(label))
@@ -393,8 +579,10 @@ def make(pngs, bits=16, kind=None, reduce=False, dither=False, ink=None, backgro
                 texts.setdefault(key, [])
                 if v not in texts[key]:
                     texts[key].append(v)
-        if background is not None:
-            br, bg, bb = background
+        pictures.append((w, h, rgba))
+    if background is not None:
+        br, bg, bb = background
+        for _, _, rgba in pictures:
             for o in range(0, len(rgba), 4):
                 a = rgba[o + 3]
                 if a != 255:
@@ -402,7 +590,6 @@ def make(pngs, bits=16, kind=None, reduce=False, dither=False, ink=None, backgro
                     rgba[o + 1] = (rgba[o + 1] * a + bg * (255 - a) + 127) // 255
                     rgba[o + 2] = (rgba[o + 2] * a + bb * (255 - a) + 127) // 255
                     rgba[o + 3] = 255
-        pictures.append((w, h, rgba))
     if kind == "indexed":
         palette, data = _indexed(pictures, bits, reduce, dither, ink, alpha)
         planes = [None] * len(pictures)
@@ -418,7 +605,7 @@ def make(pngs, bits=16, kind=None, reduce=False, dither=False, ink=None, backgro
     about = ["name: %s" % name] if name else []
     about += ["made-by: tools/dgx_images.py of DGX, format %d" % FORMAT, "source: %s" % ", ".join(names)]
     about += ["%s: %s" % (key, "; ".join(texts[key])) for key in TEXT_KEYS if key in texts]
-    return _write(bits, kind_code, pictures, palette, data, planes, (ox, oy), "\n".join(about).encode("utf-8"))
+    return _write(bits, kind_code, pictures, palette, data, planes, (ox, oy), "\n".join(about).encode("utf-8"), delays, loops)
 
 
 def _indexed(pictures, bits, reduce, dither, ink, alpha):
@@ -636,13 +823,19 @@ def _align(n):
     return (n + 3) & ~3
 
 
-def _write(bits, kind, pictures, palette, data, planes, origin, about):
+def _write(bits, kind, pictures, palette, data, planes, origin, about, delays=None, loops=0):
     count = len(pictures)
     table = HEAD
     at = _align(table + count * PICTURE)
     palette_at = at if kind != PIXELS else 0
     if kind != PIXELS:
         at = _align(at + len(palette) * 4)
+    # an animation: the delay of every picture, 2 bytes each, in the reserved part of the head where a DGX before
+    # 0.12.12 does not look: it reads the pictures of the file as a set, without their times
+    delays_at = 0
+    if delays is not None:
+        delays_at = at
+        at = _align(at + 2 * count)
     parts = []
     entries = bytearray()
     for (w, h, _), values, plane in zip(pictures, data, planes):
@@ -663,6 +856,10 @@ def _write(bits, kind, pictures, palette, data, planes, origin, about):
                        length, table, palette_at, about_at if about else 0, len(about))
     out = bytearray(length)
     out[0:len(head)] = head
+    if delays is not None:
+        out[32:38] = struct.pack("<IH", delays_at, min(65535, loops or 0))
+        for k, ms in enumerate(delays):
+            out[delays_at + 2 * k:delays_at + 2 * k + 2] = struct.pack("<H", max(1, min(65535, int(ms))))
     out[table:table + len(entries)] = entries
     if kind != PIXELS:
         flat = bytes(x for e in palette for x in e)
@@ -673,9 +870,101 @@ def _write(bits, kind, pictures, palette, data, planes, origin, about):
     return bytes(out)
 
 
+# ---- a file read back, a PNG written ----
+
+def write_png(w, h, rgba):
+    """a PNG of RGBA pixels, 8 bits a channel"""
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+    raw = b"".join(b"\0" + bytes(rgba[y * w * 4:(y + 1) * w * 4]) for y in range(h))
+    return _SIGNATURE + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
+
+
+def read_dgxi(data):
+    """a .dgxi file as {bits, kind, palette, delays, loops, pictures: [(w, h, origin_x, origin_y, rgba)]}, every picture
+    in the colors it is drawn in: an indexed one by its palette, its 0 transparent unless the palette is full; a mask
+    as the color of its palette covering by its values; pixels by their depth and their plane of opacity"""
+    if len(data) < HEAD or data[:4] != b"DGXI":
+        raise DgxiError("not a file of pictures of DGX: no mark DGXI")
+    version, bits, kind, count, colors, length, table, palette_at, _, _ = struct.unpack("<HBBHHIIIII", data[4:32])
+    if version not in (1, 2):
+        raise DgxiError("a file of pictures of format %d: this reads formats 1 and 2" % version)
+    if length > len(data):
+        raise DgxiError("the file of pictures is cut")
+    delays_at, loops = struct.unpack("<IH", data[32:38])
+    palette = [tuple(data[palette_at + 4 * i:palette_at + 4 * i + 4]) for i in range(colors)] if kind != PIXELS else []
+    first = 1 if kind == INDEXED and colors < 1 << bits else 0
+    out = {"bits": bits, "kind": kind, "palette": palette, "loops": loops, "pictures": [],
+           "delays": [struct.unpack("<H", data[delays_at + 2 * k:delays_at + 2 * k + 2])[0] for k in range(count)] if delays_at else None}
+    for k in range(count):
+        w, h, ox, oy, pixels, plane = struct.unpack("<HHhhII", data[table + PICTURE * k:table + PICTURE * (k + 1)])
+        rgba = bytearray(w * h * 4)
+        if kind != PIXELS:
+            row = (w * bits + 7) // 8
+            for y in range(h):
+                for x in range(w):
+                    o = (y * w + x) * 4
+                    if bits == 8:
+                        v = data[pixels + y * row + x]
+                    else:
+                        per = 8 // bits
+                        v = data[pixels + y * row + x // per] >> (8 - bits * (x % per + 1)) & ((1 << bits) - 1)
+                    if kind == MASK:
+                        r, g, b, _ = palette[0]
+                        rgba[o:o + 4] = bytes((r, g, b, v * 255 // ((1 << bits) - 1)))
+                    elif v >= first and v - first < len(palette):
+                        rgba[o:o + 4] = bytes(palette[v - first])
+        else:
+            n = w * h
+            for i in range(n):
+                o = i * 4
+                if bits in (1, 4):
+                    bit = i * bits
+                    v = data[pixels + bit // 8] >> (8 - bits - bit % 8) & ((1 << bits) - 1)
+                    g = v * 255 // ((1 << bits) - 1)
+                    c = (g, g, g, 255)
+                elif bits == 8:
+                    g = data[pixels + i]
+                    c = (g, g, g, 255)
+                elif bits == 12:
+                    at = pixels + i * 3 // 2
+                    if i % 2 == 0:
+                        r, gg, b = data[at] >> 4, data[at] & 15, data[at + 1] >> 4
+                    else:
+                        r, gg, b = data[at] & 15, data[at + 1] >> 4, data[at + 1] & 15
+                    c = (r * 17, gg * 17, b * 17, 255)
+                elif bits == 16:
+                    v = data[pixels + 2 * i] << 8 | data[pixels + 2 * i + 1]
+                    r, gg, b = v >> 11, v >> 5 & 63, v & 31
+                    c = (r << 3 | r >> 2, gg << 2 | gg >> 4, b << 3 | b >> 2, 255)
+                elif bits in (18, 24):
+                    r, gg, b = data[pixels + 3 * i:pixels + 3 * i + 3]
+                    if bits == 18:
+                        r, gg, b = (r & 0xFC) | r >> 6, (gg & 0xFC) | gg >> 6, (b & 0xFC) | b >> 6
+                    c = (r, gg, b, 255)
+                else:
+                    a, r, gg, b = data[pixels + 4 * i:pixels + 4 * i + 4]
+                    c = (r, gg, b, a)
+                if plane:
+                    c = c[:3] + (data[plane + i],)
+                rgba[o:o + 4] = bytes(c)
+        out["pictures"].append((w, h, ox, oy, rgba))
+    return out
+
+
+def to_png(data, index=0):
+    """the picture `index` of a .dgxi file as a PNG"""
+    pictures = read_dgxi(data)["pictures"]
+    if not 0 <= index < len(pictures):
+        raise DgxiError("picture %d of a file of %d" % (index, len(pictures)))
+    w, h, _, _, rgba = pictures[index]
+    return write_png(w, h, rgba)
+
+
 # ---- needs ----
 
-KEYWORDS = ("PNG", "BITS", "INDEXED", "PIXELS", "MASK", "REDUCE", "DITHER", "INK", "ALPHA", "BACKGROUND", "ORIGIN", "FROM")
+KEYWORDS = ("PNG", "GIF", "BITS", "INDEXED", "PIXELS", "MASK", "REDUCE", "DITHER", "INK", "ALPHA", "BACKGROUND", "ORIGIN", "DELAY",
+            "LOOPS", "FROM")
 
 
 def _is_c_name(name):
@@ -712,6 +1001,13 @@ def parse_words(words, base):
                 i += 1
             if not args["pngs"]:
                 raise DgxiError("PNG without a file")
+        elif w == "GIF":
+            args["gif"] = os.path.normpath(os.path.join(base, value("a file")))
+        elif w in ("DELAY", "LOOPS"):
+            v = value("a number")
+            if not v.isdigit() or not (1 if w == "DELAY" else 0) <= int(v) <= 65535:
+                raise DgxiError("%s %s: %s" % (w, v, "a delay is 1 to 65535 milliseconds" if w == "DELAY" else "loops are 0, for ever, to 65535"))
+            args[w.lower()] = int(v)
         elif w == "BITS":
             v = value("a number")
             if not v.isdigit() or int(v) not in DEPTHS:
@@ -738,8 +1034,8 @@ def parse_words(words, base):
                 raise DgxiError("ORIGIN %s %s: an origin is two whole numbers" % tuple(xs))
         elif w == "FROM":
             args["where"] = value("a place")
-    if not args["pngs"]:
-        raise DgxiError("no PNG picture: PNG <file>...")
+    if not args["pngs"] and "gif" not in args:
+        raise DgxiError("no picture: PNG <file>... or GIF <file>")
     return args
 
 
@@ -789,7 +1085,7 @@ def read_needs(path, needs=None, files=None, seen=None):
             where = args.pop("where", where)
             if name in names:
                 raise DgxiError("%s: the name is taken by the need at %s" % (name, names[name]))
-            for png in args["pngs"]:
+            for png in args["pngs"] + ([args["gif"]] if "gif" in args else []):
                 if not os.path.isfile(png):
                     raise DgxiError("%s does not exist" % png)
             make_check(**args)
@@ -797,12 +1093,19 @@ def read_needs(path, needs=None, files=None, seen=None):
             raise DgxiError("%s: %s" % (where, e))
         needs.append((name, where, args))
         names[name] = where
-        files.extend(args["pngs"])
+        files.extend(args["pngs"] + ([args["gif"]] if "gif" in args else []))
     return needs, files
 
 
-def make_check(pngs, bits=16, kind=None, reduce=False, dither=False, ink=None, background=None, alpha=False, origin=(0, 0)):
+def make_check(pngs, bits=16, kind=None, reduce=False, dither=False, ink=None, background=None, alpha=False, origin=(0, 0), gif=None,
+               delay=None, loops=None):
     """the words of a need checked as make() checks them, without reading a picture"""
+    if gif is not None and pngs:
+        raise DgxiError("PNG and GIF: a set is made of PNG pictures or of the frames of one GIF")
+    if gif is not None and delay is not None:
+        raise DgxiError("DELAY of a GIF: a GIF has the delays of its frames")
+    if gif is None and delay is None and loops is not None:
+        raise DgxiError("LOOPS without DELAY: a set of PNG pictures is an animation by DELAY")
     if kind is None:
         kind = "indexed" if bits <= 8 else "pixels"
     if kind == "indexed" and bits > 8:
@@ -941,10 +1244,17 @@ def main(argv):
                 if argv[3] != "--depends":
                     raise DgxiError("check NEEDS [--depends FILE]")
                 # for CMake: the name of every need, every file of needs, every PNG; a line each
-                pngs = {p for _, _, a in needs for p in a["pngs"]}
+                pngs = {p for _, _, a in needs for p in a["pngs"] + ([a["gif"]] if "gif" in a else [])}
                 lines = ["need %s" % name for name, _, _ in needs]
                 lines += ["%s %s" % ("png" if f in pngs else "needs", os.path.abspath(f).replace("\\", "/")) for f in files]
                 _write_if_changed(argv[4], "".join(line + "\n" for line in lines))
+            return 0
+        if len(argv) in (4, 5) and argv[1] == "png":
+            with open(argv[2], "rb") as f:
+                data = f.read()
+            png = to_png(data, int(argv[4]) if len(argv) == 5 else 0)
+            with open(argv[3], "wb") as f:
+                f.write(png)
             return 0
         if len(argv) in (4, 5) and argv[1] == "build" and (len(argv) == 4 or argv[4] == "--no-assets"):
             build(argv[2], argv[3], assets=len(argv) == 4)

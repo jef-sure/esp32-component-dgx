@@ -1625,7 +1625,9 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
 - Pictures made of PNG files when the program is built, at any depth of a
   virtual screen, with their colors reduced and dithered if asked, embedded
   aligned and read in place, or read from a file system or the network;
-  icons and pictures drawn with soft edges.
+  icons and pictures drawn with soft edges; animations of GIF files.
+- Snapshots of a screen taken off the device over its console, made into
+  `.dgxi` files and PNG pictures on the computer by `tools/dgx_snapshot.py`.
 - Color tables for 8-bit virtual screens: from a palette, a ramp between two
   colors, fades and flashes, without redrawing the frame.
 - A two-head compositor (`vscreen_2h`) that exposes two child screens as one

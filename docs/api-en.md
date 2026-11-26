@@ -16,6 +16,7 @@ together: the recipes of the [README](../README.md#recipes).
   - [Controlling a display](#controlling-a-display)
   - [Drawing inside a rectangle: the clip](#drawing-inside-a-rectangle-the-clip)
   - [Flush control and batching](#flush-control-and-batching)
+  - [Snapshots of a screen](#snapshots-of-a-screen)
 - [Drawing from several tasks](#drawing-from-several-tasks)
 - [Coordinates and orientation](#coordinates-and-orientation)
 - [Build options](#build-options)
@@ -1062,6 +1063,37 @@ Guidelines:
   for that area.
 - A display on SPI or QSPI holds its host for the whole of a batch. Another
   device of that host is used before or after the batch, not inside it.
+
+### Snapshots of a screen
+
+What a real device shows, taken off it (`dgx_snapshot.h`): the picture a
+screen holds, as a `.dgxi` file of one picture of the depth of the screen,
+which `tools/dgx_images.py png` turns into a PNG.
+
+| Call | What it does |
+| --- | --- |
+| `dgx_screen_snapshot(scr, x, y, w, h, name, write, ctx)` | The rectangle (all the screen for a `w` or `h` of 0) as the bytes of a file, handed to `write(ctx, bytes, n)` a piece at a time, for a file system, a socket or a port; `write` returns false to stop. Nothing of the size of the picture is allocated. |
+| `dgx_screen_snapshot_print(scr, x, y, w, h, name, out)` | The same written to the console, or to `out`, as lines of base64 between `DGXSNAP BEGIN <name>` and `DGXSNAP END <name> <length> <crc32>`. It gives a tick away every 4 KB, so a long snapshot over a slow console does not starve the idle task. |
+
+```c
+#include "dgx_snapshot.h"
+
+dgx_screen_snapshot_print(frame, 0, 0, 0, 0, "dial", NULL);
+```
+
+```sh
+python tools/dgx_snapshot.py /dev/ttyUSB0 --out shots/     # shots/dial.dgxi and shots/dial.png, the log passed through
+python tools/dgx_snapshot.py --log saved.log --out shots/   # or the snapshots of a log saved by any terminal
+```
+
+Only a screen that can be read is taken: a virtual screen of any depth, a
+display on MIPI-DSI, the CO5300 and the AXS15231B, which keep their picture
+in memory. DGX does not read a display behind a bus: a program that draws on
+one takes the snapshot of the virtual screen it composes its frames in. Lines
+of the log of other tasks inside a snapshot are passed by; a snapshot spoiled
+on its way, a character lost or a line cut by another message, is told by its
+length and CRC and not written. At 115200 baud a screen of 320x240 of 16 bits
+takes some 14 seconds; a USB console is much faster.
 
 ## Drawing from several tasks
 

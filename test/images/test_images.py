@@ -131,6 +131,8 @@ def dump(data, shift=0):
             out.update(bits=nums[0], kind=nums[1], count=nums[2], colors=nums[3], first=nums[4])
         elif words[0] == "entry":
             out["palette"].append(tuple(nums))
+        elif words[0] == "animation":
+            out["animation"] = nums
         elif words[0] == "picture":
             out["pictures"].append({"w": nums[0], "h": nums[1], "origin": (nums[2], nums[3]), "rows": [], "alpha": []})
         elif words[0] in ("row", "alpha"):
@@ -407,6 +409,161 @@ def test_mask():
         refused(lambda: d.make([png(1, 1, [(0, 0, 0, 255)])], **args), words)
 
 
+# ---- GIF ----
+
+def gif(w, h, frames, palette, loops=None, delays=None, disposals=None, transparent=None, interlace=False):
+    """a GIF of frames of indices, each (left, top, width, height, indices), its LZW codes all of 9 bits: a clear
+    code before every 254 of them keeps the table from growing"""
+    def blocks(b):
+        return b"".join(bytes((len(b[i:i + 255]),)) + b[i:i + 255] for i in range(0, len(b), 255)) + b"\0"
+
+    def lzw(indices):
+        codes, out, acc, nbits = [], bytearray(), 0, 0
+        for k, i in enumerate(indices):
+            if k % 254 == 0:
+                codes.append(256)
+            codes.append(i)
+        codes.append(257)
+        for c in codes:
+            acc |= c << nbits
+            nbits += 9
+            while nbits >= 8:
+                out.append(acc & 255)
+                acc >>= 8
+                nbits -= 8
+        if nbits:
+            out.append(acc & 255)
+        return bytes(out)
+
+    table = bytes(c for e in palette for c in e) + bytes(3 * (256 - len(palette)))
+    out = b"GIF89a" + struct.pack("<HHBBB", w, h, 0xF7, 0, 0) + table
+    if loops is not None:
+        out += b"\x21\xff" + blocks(b"NETSCAPE2.0" + struct.pack("<BH", 1, loops))
+    for k, (left, top, fw, fh, indices) in enumerate(frames):
+        disposal = disposals[k] if disposals else 0
+        delay = delays[k] if delays else 0
+        packed = disposal << 2 | (1 if transparent is not None else 0)
+        out += b"\x21\xf9\x04" + struct.pack("<BHB", packed, delay, transparent or 0) + b"\0"
+        rows = list(range(fh))
+        if interlace:
+            rows = [y for start, step in ((0, 8), (4, 8), (2, 4), (1, 2)) for y in range(start, fh, step)]
+        stored = [indices[y * fw + x] for y in rows for x in range(fw)]
+        out += b"\x2c" + struct.pack("<HHHHB", left, top, fw, fh, 0x40 if interlace else 0) + b"\x08" + blocks(lzw(stored))
+    return out + b"\x3b"
+
+
+def test_gif():
+    pal = [(0, 0, 0), (255, 0, 0), (0, 255, 0), (0, 0, 255)]
+    w, h = 9, 7
+    f0 = (0, 0, w, h, [1] * (w * h))
+    f1 = (2, 1, 4, 3, [2] * 12)
+    f2 = (5, 3, 3, 3, [3, 0, 3, 0, 3, 0, 3, 0, 3])
+    for interlace in (False, True):
+        data = gif(w, h, [f0, f1, f2], pal, loops=2, delays=[5, 0, 30], disposals=[1, 2, 1], transparent=0, interlace=interlace)
+        gw, gh, frames, delays, loops = d.read_gif(data)
+        check((gw, gh, len(frames), delays, loops) == (w, h, 3, [50, 100, 300], 2), "a GIF: size, frames, delays, loops, interlace %s" % interlace)
+        px = lambda fr, x, y: tuple(frames[fr][(y * w + x) * 4:(y * w + x) * 4 + 4])
+        check(px(0, 4, 4) == (255, 0, 0, 255) and px(1, 3, 2) == (0, 255, 0, 255) and px(1, 0, 0) == (255, 0, 0, 255), "a GIF: a frame over the one before")
+        # disposal 2 of frame 1 clears its box to transparent; transparent indices of frame 2 leave what is under
+        check(px(2, 3, 2) == (0, 0, 0, 0) and px(2, 5, 3) == (0, 0, 255, 255) and px(2, 6, 3) == (255, 0, 0, 255), "a GIF: disposal and transparency")
+    # made into a file: the delays and the loops, as DGX reads them, and every frame a picture
+    data = gif(w, h, [f0, f1, f2], pal, loops=0, delays=[5, 7, 30], disposals=[1, 2, 1], transparent=0)
+    out = dumped(d.make(gif=data, bits=16))
+    check(out["count"] == 3 and out.get("animation") == [0, 50, 70, 300], "an animation of a GIF: %s" % out.get("animation"))
+    check(values(out["pictures"][1])[1 * w + 3] == screen_value(16, 0, 255, 0, 255), "an animation of a GIF: the pixels of a frame")
+    out = dumped(d.make([png(1, 1, [(1, 2, 3, 255)])] * 3, bits=16, delay=250, loops=4))
+    check(out.get("animation") == [4, 250, 250, 250], "an animation of PNG pictures by DELAY and LOOPS: %s" % out.get("animation"))
+    check(dumped(d.make([png(1, 1, [(1, 2, 3, 255)])], bits=16)).get("animation") is None, "a set without DELAY is no animation")
+    refused(lambda: d.make([png(1, 1, [(0, 0, 0, 255)])], gif=data), ["PNG and GIF"])
+    refused(lambda: d.make(gif=data, delay=100), ["DELAY of a GIF"])
+    refused(lambda: d.make([png(1, 1, [(0, 0, 0, 255)])], loops=2), ["LOOPS without DELAY"])
+    refused(lambda: d.make(gif=b"GIF89a" + bytes(7)), ["no pixels"])
+    refused(lambda: d.make(gif=data[:40]), ["cut"])
+    try:
+        from PIL import Image
+    except ImportError:
+        print("note: PIL is not installed, GIF frames are not compared with it")
+        return
+    import io
+    frames = []
+    for k in range(6):
+        im = Image.new("RGBA", (31, 19), (0, 0, 0, 0))
+        for y in range(19):
+            for x in range(31):
+                if (x - 4 * k) ** 2 + (y - 9) ** 2 < 30:
+                    im.putpixel((x, y), (200, 40 * k, 60, 255))
+                elif x > 25 - k and y < 6:
+                    im.putpixel((x, y), (30, 160, 220, 255))
+        frames.append(im)
+    for disposal in (0, 1, 2):
+        buf = io.BytesIO()
+        frames[0].save(buf, format="GIF", save_all=True, append_images=frames[1:], duration=60, loop=0, disposal=disposal, transparency=0)
+        _, _, mine, _, _ = d.read_gif(buf.getvalue())
+        ref = Image.open(io.BytesIO(buf.getvalue()))
+        bad = 0
+        for i in range(ref.n_frames):
+            ref.seek(i)
+            r = ref.convert("RGBA").tobytes()
+            bad += sum(1 for o in range(0, len(r), 4) if (r[o + 3] > 0) != (mine[i][o + 3] > 0) or (r[o + 3] and r[o:o + 3] != mine[i][o:o + 3]))
+        check(bad == 0, "the frames of a GIF of PIL, disposal %d, as PIL reads them: %d pixels differ" % (disposal, bad))
+
+
+def test_back_to_png():
+    # every kind read back as DGX draws it: through a PNG written and read again, the same pixels
+    pictures = gradient(11, 5, holes=True)
+    for args in ({"bits": 16}, {"bits": 12}, {"bits": 18}, {"bits": 24}, {"bits": 32}, {"bits": 1, "kind": "pixels"}, {"bits": 4, "kind": "pixels"},
+                 {"bits": 8, "kind": "pixels"}, {"bits": 4, "reduce": True}, {"bits": 8, "kind": "mask"}, {"bits": 1}):
+        data = d.make([png(11, 5, pictures)], **args)
+        back = d.read_dgxi(data)
+        w, h, _, _, rgba = back["pictures"][0]
+        again = d.read_png(d.to_png(data))
+        check(again[:3] == (w, h, rgba), "a picture of %s back to a PNG and read again" % args)
+        if args.get("kind") is None and args["bits"] >= 12:
+            # the colors of the file, of the depth, against what DGX holds: the dump
+            out = dumped(data)
+            got = values(out["pictures"][0])
+            want = [screen_value(args["bits"], *rgba[i * 4:i * 4 + 4]) for i in range(w * h)]
+            check(got == want, "a picture of %d bits read back in its own colors" % args["bits"])
+
+
+def test_snapshots():
+    # snapshots printed by DGX on a console, among lines of a log, read back by tools/dgx_snapshot.py
+    run = subprocess.run([DUMP, "--snapshot"], capture_output=True, text=True)
+    check(run.returncode == 0 and "DGXSNAP BEGIN sixteen" in run.stdout, "dgxi_dump --snapshot prints snapshots: %s" % run.stderr[-300:])
+    lines = run.stdout.split("\n")
+    # a line of another task inside a snapshot is passed by
+    k = lines.index("DGXSNAP BEGIN sixteen") + 2
+    lines.insert(k, "W (15) other: a line of another task")
+    work = tempfile.mkdtemp(prefix="dgxsnap-")
+    tool = os.path.join(DGX, "tools", "dgx_snapshot.py")
+    try:
+        log = os.path.join(work, "log.txt")
+        open(log, "w").write("\n".join(lines))
+        r = subprocess.run([sys.executable, "-I", tool, "--log", log, "--out", work], capture_output=True, text=True)
+        check(r.returncode == 0, "dgx_snapshot --log: %s" % r.stderr)
+        for name in ("sixteen", "four"):
+            check(os.path.isfile(os.path.join(work, name + ".dgxi")) and os.path.isfile(os.path.join(work, name + ".png")), "%s.dgxi and .png written" % name)
+        out = dumped(open(os.path.join(work, "sixteen.dgxi"), "rb").read())
+        check(out["bits"] == 16 and values(out["pictures"][0]) == [(x * 0x0841 + y * 0x1000) & 0xFFFF for y in range(5) for x in range(7)],
+              "a snapshot of 16 bits, pixel for pixel")
+        out = dumped(open(os.path.join(work, "four.dgxi"), "rb").read())
+        check(out["bits"] == 4 and values(out["pictures"][0]) == [((x + 2 * y) % 16) << 4 for y in range(3) for x in range(9)],
+              "a snapshot of 4 bits, pixel for pixel")
+        w, h, rgba, _ = d.read_png(open(os.path.join(work, "four.png"), "rb").read())
+        check((w, h) == (9, 3) and tuple(rgba[4:8]) == (17, 17, 17, 255), "the PNG of a snapshot of 4 bits, its levels as grays")
+        # a spoiled character: the CRC tells, nothing is written, and the tool says so
+        spoiled = list(lines)
+        k = spoiled.index("DGXSNAP BEGIN four") + 1
+        spoiled[k] = ("B" if spoiled[k][0] != "B" else "C") + spoiled[k][1:]
+        open(log, "w").write("\n".join(spoiled))
+        other = os.path.join(work, "again")
+        r = subprocess.run([sys.executable, "-I", tool, "--log", log, "--out", other], capture_output=True, text=True)
+        check(r.returncode == 1 and "four spoiled" in r.stderr and not os.path.exists(os.path.join(other, "four.dgxi"))
+              and os.path.isfile(os.path.join(other, "sixteen.dgxi")), "a spoiled snapshot is told and not written: %s" % r.stderr)
+    finally:
+        shutil.rmtree(work)
+
+
 def test_refusals():
     one = png(1, 1, [(0, 0, 0, 255)])
     refused(lambda: d.make([one], bits=2), ["BITS 2", "1, 4, 8, 12, 16, 18, 24 or 32"])
@@ -519,7 +676,9 @@ def test_needs():
             ("wifi PNG art/on.png BITS 4 SIZE 3\n", ":1:", "not a word of a need: 'SIZE'"),
             ("2wifi PNG art/on.png\n", ":1:", "C identifier"),
             ("wifi PNG art/on.png\nwifi PNG art/off.png\n", ":2:", "taken by the need at"),
-            ("wifi BITS 4\n", ":1:", "no PNG picture"),
+            ("wifi BITS 4\n", ":1:", "no picture"),
+            ("wifi GIF none.gif\n", ":1:", "none.gif does not exist"),
+            ("wifi GIF art/on.png DELAY 100\n", ":1:", "DELAY of a GIF"),
             ("wifi PNG 'art/on.png BITS 4\n", ":1:", "closing quotation"),
             ("wifi PNG art/on.png BITS 4 BITS 8\n", ":1:", "BITS given twice"),
             ("wifi PNG art/on.png BITS 4 MASK INDEXED\n", ":1:", "a picture is of one kind"),
@@ -548,6 +707,9 @@ def main():
     test_depths()
     test_colors()
     test_mask()
+    test_gif()
+    test_back_to_png()
+    test_snapshots()
     test_refusals()
     test_needs()
     if failures:
