@@ -1,6 +1,12 @@
 # Changes
 
-## Unreleased
+## 0.12.11 - 2026-11-26
+
+Pictures with soft edges: masks of 4 or 8 bits for icons in one color,
+pictures of 16 bits with a plane of opacity drawn by `dgx_image_blit()`,
+and indexed pictures put on any screen by the colors of their values.
+Checked by host tests, builds for ESP32, ESP32-C3, ESP32-S3 and ESP32-P4
+under IDF 5.5.4 and 6.1, and on a CYD and the Guition JC8012P4A1C.
 
 New:
 

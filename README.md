@@ -76,14 +76,14 @@ which: [Chips](#chips).
 Add it to a project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.12.10"
+idf.py add-dependency "jef-sure/dgx^0.12.11"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.12.10"
+  jef-sure/dgx: "^0.12.11"
 ```
 
 Then enable the drivers you need in `menuconfig`, under the **DGX** menu. A
