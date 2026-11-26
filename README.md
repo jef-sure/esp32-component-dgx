@@ -56,6 +56,7 @@ Every picture in this README was drawn by DGX's own code, run on a PC.
   - [LVGL on top of DGX](#lvgl-on-top-of-dgx)
   - [An effect on the computer](#an-effect-on-the-computer)
 - [Examples](#examples)
+- [Components that work with DGX](#components-that-work-with-dgx)
 - [Projects built with DGX](#projects-built-with-dgx)
 - [How fast](#how-fast)
 - [What's in the box](#whats-in-the-box)
@@ -1404,6 +1405,31 @@ idf.py flash monitor
 
 A CYD (Cheap Yellow Display) is an ESP32-2432S028R: an ESP32 with a
 320x240 ILI9341 on SPI.
+
+## Components that work with DGX
+
+Each of these is in the ESP Component Registry and adds to DGX what a
+program around a display needs:
+
+- [jef-sure/dgx-ui](https://components.espressif.com/components/jef-sure/dgx-ui) ([source](https://github.com/jef-sure/esp32-component-dgx-ui)): a light layer of
+  widgets: rows and columns, values that come as messages from other tasks,
+  animation only while a widget asks for time.
+- [jef-sure/dgx-di](https://components.espressif.com/components/jef-sure/dgx-di) ([source](https://github.com/jef-sure/esp32-component-dgx-di)): touch input. The
+  fingers of a touch panel become fingers of the display, turned with the
+  screen; a calibration measured on the board, gestures in millimetres,
+  buttons the program draws, a translucent game pad and a keyboard on the
+  display. A GSL3680 driver, and any panel of `esp_lcd_touch`.
+- [jef-sure/dgx-ge](https://components.espressif.com/components/jef-sure/dgx-ge) ([source](https://github.com/jef-sure/esp32-component-dgx-ge)): a small engine of 2D
+  and 2.5D games: an indexed frame sent by its changes and scaled, pictures
+  from a pack in flash, actors living by animation scripts, tiles, masks,
+  dialogs, a sound mixer.
+- [jef-sure/boards](https://components.espressif.com/components/jef-sure/boards) ([source](https://github.com/jef-sure/esp32-component-boards)): a program written once,
+  its board chosen when it is built. The component sets up the display,
+  touch, sound, radio, buttons and buses of a board of its catalog or of your
+  own, or a window on the computer that shows the display of the chosen
+  board; the program asks for parts by kind, never by the board's name.
+- [jef-sure/dgx-lvgl](https://components.espressif.com/components/jef-sure/dgx-lvgl) ([source](https://github.com/jef-sure/esp32-component-dgx-lvgl)): LVGL on the
+  displays of DGX, see [LVGL on top of DGX](#lvgl-on-top-of-dgx).
 
 ## Projects built with DGX
 

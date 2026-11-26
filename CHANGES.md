@@ -1,5 +1,12 @@
 # Changes
 
+## Unreleased
+
+Documentation:
+
+- The README links the components that work with DGX, in the ESP Component
+  Registry and their sources: dgx-ui, dgx-di, dgx-ge, boards and dgx-lvgl.
+
 ## 0.12.9 - 2026-11-26
 
 The NV3007 of 142x428 bar panels on SPI, checked on a 2.79-inch module, and
