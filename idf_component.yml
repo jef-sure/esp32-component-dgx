@@ -124,6 +124,7 @@ files:
     - "docs/nv3041a-??.md"
     - "docs/panels-??.md"
     - "docs/pen-??.md"
+    - "docs/pictures-??.md"
     - "docs/rgb-display-??.md"
     # one level each, so that nothing comes from the build directories of the examples
     - "examples/*/CMakeLists.txt"
@@ -151,3 +152,12 @@ files:
     - "test/host/*.c"
     - "test/host/*.h"
     - "test/host/*.py"
+    - "test/images/Makefile"
+    - "test/images/*.c"
+    - "test/images/*.py"
+    # the test pictures of PngSuite, free to use and distribute, with their license
+    - "test/images/pngsuite/*.png"
+    - "test/images/pngsuite/PngSuite.LICENSE"
+    - "test/images/pngsuite/PngSuite.README"
+    # the writer of pictures, which a build calls, and tools such as the builder of dgx-ui; the other tools stay out
+    - "tools/dgx_images.py"

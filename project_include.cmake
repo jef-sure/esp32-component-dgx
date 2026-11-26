@@ -19,7 +19,11 @@
 #     dgx_fonts_scale(4)                             # display pixels per point of the frame, for sizes in points; 1 by default
 #     dgx_fonts_scale(FIT 320 200)                   # or: the largest whole scale at which a 320x200 frame fits the display
 #     dgx_fonts_rules(fonts.rules)                   # required by any need without an exact face
-#     dgx_fonts_files()                              # every font also as a file of bytes, .dgxf, beside dgx_fonts.c
+#     dgx_fonts_files()                              # every font also as a file of bytes, .dgxf, beside dgx_fonts.c,
+#                                                    # embedded as dgx_asset_<name> of dgx_assets.h
+#
+# The pictures of PNG files a project needs are declared the same way, by dgx_image_need() and
+# dgx_image_needs_file(): see their part at the end of this file.
 #
 # At the end of the configure step one build rule is created for all the needs: font2c/dgx_fonts.py of DGX generates
 # dgx_fonts.c and dgx_fonts.h in the build directory, one font per face and size with the characters of every need
@@ -445,6 +449,11 @@ function(_dgx_fonts_finish)
         COMMENT "DGX: the fonts of the program by its needs"
         VERBATIM)
     add_custom_target(dgx_fonts_made DEPENDS "${out}/dgx_fonts.c" "${out}/dgx_fonts.h")
+    if("files" IN_LIST board)
+        # every font file is embedded too, as dgx_asset_<its name>, by the rule of _dgx_assets_finish
+        set_property(GLOBAL PROPERTY DGX_ASSETS_FONTS "${out}/dgx_fonts-files.txt")
+        set_property(GLOBAL PROPERTY DGX_ASSETS_FONTS_MADE "${out}/dgx_fonts.c")
+    endif()
     idf_component_get_property(lib ${DGX_FONTS_COMPONENT_NAME} COMPONENT_LIB)
     set_source_files_properties("${out}/dgx_fonts.c" "${out}/dgx_fonts.h" TARGET_DIRECTORY ${lib} PROPERTIES GENERATED TRUE)
     target_sources(${lib} PRIVATE "${out}/dgx_fonts.c")
@@ -465,4 +474,169 @@ endfunction()
 
 if(NOT DGX_FONTS_TOO_OLD)
     cmake_language(DEFER CALL _dgx_fonts_finish)
+endif()
+
+# ---- DGX: the pictures a project needs, made once for all of them ----
+#
+#     dgx_image_need(wifi PNG art/wifi0.png art/wifi1.png art/wifi2.png BITS 1)   # a set of states of an icon, 1 bit
+#     dgx_image_need(logo PNG art/logo.png BITS 16 BACKGROUND 000000)              # RGB565, the transparent painted black
+#     dgx_image_needs_file(images.txt)                                              # a need a line, the same words
+#
+# The words are those of tools/dgx_images.py, which tells them: PNG <file>..., BITS, INDEXED or PIXELS, REDUCE,
+# DITHER, INK DARK|LIGHT, ALPHA, BACKGROUND <rrggbb>, ORIGIN <x> <y>. Paths are resolved from the CMakeLists that gives
+# them, or from the file of needs. The needs are checked by the tool as the project is configured, and a mistake stops
+# it with the file and the line. At the end of the configure step one build rule makes all of them into
+# build/dgx_images/: <name>.dgxi of every need and dgx_images-files.txt, a line "<name> <file>" each. They are made
+# again when a PNG, a need or the tool changes; a file of needs changed configures the project again. The pictures
+# are read with dgx_image_file.h.
+#
+# Every file of a picture, and with dgx_fonts_files() every file of a font, is embedded by build/dgx_assets/dgx_assets.S
+# as dgx_asset_<name>, its length dgx_asset_<name>_size, declared in dgx_assets.h: at an address divisible by 4, on any
+# version of ESP-IDF, and in a section of its own, which the linker leaves out when the program does not name it. A
+# font is named by its file, dgx_asset_TerminusTTFMedium12; two files of one name stop the build.
+
+function(dgx_image_need name)
+    if(DGX_FONTS_TOO_OLD)
+        message(FATAL_ERROR "dgx_image_need(${name}): the pictures made at build time need CMake 3.19 or later, and this is CMake ${CMAKE_VERSION}")
+    endif()
+    if(NOT name MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
+        message(FATAL_ERROR "dgx_image_need: the name of a need must be a C identifier, not '${name}'")
+    endif()
+    # a line of a file of needs, every word in double quotes, the paths of PNG made absolute; FROM tells the tool
+    # where the need was given, for its errors
+    set(keywords PNG BITS INDEXED PIXELS REDUCE DITHER INK ALPHA BACKGROUND ORIGIN)
+    set(line "${name} FROM \"${CMAKE_CURRENT_LIST_FILE}\"")
+    set(paths FALSE)
+    foreach(word IN LISTS ARGN)
+        if(word MATCHES "\"")
+            message(FATAL_ERROR "dgx_image_need(${name}): a word with a double quote in it: ${word}")
+        endif()
+        if(word IN_LIST keywords)
+            string(APPEND line " ${word}")
+            set(paths FALSE)
+            if(word STREQUAL "PNG")
+                set(paths TRUE)
+            endif()
+        elseif(paths)
+            get_filename_component(abs "${word}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_LIST_DIR}")
+            string(APPEND line " \"${abs}\"")
+        else()
+            string(APPEND line " \"${word}\"")
+        endif()
+    endforeach()
+    _dgx_fonts_encode(line "${line}")
+    set_property(GLOBAL APPEND PROPERTY DGX_IMAGE_LINES "${line}")
+endfunction()
+
+# The needs of pictures in a file, a need a line, for a program whose CMakeLists is written once and its needs by a tool
+# (the builder of dgx-ui) or by hand; dgx_images.py build reads the same file on the host.
+function(dgx_image_needs_file path)
+    if(DGX_FONTS_TOO_OLD)
+        message(FATAL_ERROR "dgx_image_needs_file(${path}): the pictures made at build time need CMake 3.19 or later, and this is CMake ${CMAKE_VERSION}")
+    endif()
+    _dgx_font_absolute(abs "${path}")
+    if(NOT EXISTS "${abs}")
+        message(FATAL_ERROR "dgx_image_needs_file: ${abs} does not exist")
+    endif()
+    if(abs MATCHES "\"")
+        message(FATAL_ERROR "dgx_image_needs_file: a path with a double quote in it: ${abs}")
+    endif()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${abs}")
+    _dgx_fonts_encode(line "needs \"${abs}\"")
+    set_property(GLOBAL APPEND PROPERTY DGX_IMAGE_LINES "${line}")
+endfunction()
+
+# The single build rule for all the needs of pictures, created at the end of the configure step.
+function(_dgx_images_finish)
+    get_property(lines GLOBAL PROPERTY DGX_IMAGE_LINES)
+    if(NOT lines)
+        return()
+    endif()
+    set(out "${CMAKE_BINARY_DIR}/dgx_images")
+    set(tool "${DGX_FONTS_COMPONENT_DIR}/tools/dgx_images.py")
+    file(MAKE_DIRECTORY "${out}")
+    string(JOIN "\n" all ${lines})
+    _dgx_fonts_decode(all "${all}")
+    set(content "# the needs of pictures of the project, gathered from its CMakeLists files at configure time; generated, do not edit\n${all}\n")
+    set(needs "${out}/needs.txt")
+    set(old "")
+    if(EXISTS "${needs}")
+        file(READ "${needs}" old)
+    endif()
+    if(NOT old STREQUAL content)
+        file(WRITE "${needs}" "${content}")
+    endif()
+    idf_build_get_property(python PYTHON)
+    execute_process(COMMAND ${python} "${tool}" check "${needs}" --depends "${out}/depends.txt"
+        RESULT_VARIABLE failed ERROR_VARIABLE told OUTPUT_QUIET)
+    if(failed)
+        string(STRIP "${told}" told)
+        message(FATAL_ERROR "${told}")
+    endif()
+    file(STRINGS "${out}/depends.txt" depends ENCODING UTF-8)
+    set(made "")
+    set(pngs "")
+    set(files "")
+    foreach(d IN LISTS depends)
+        if(d MATCHES "^need (.+)$")
+            list(APPEND made "${out}/${CMAKE_MATCH_1}.dgxi")
+        elseif(d MATCHES "^png (.+)$")
+            list(APPEND pngs "${CMAKE_MATCH_1}")
+        elseif(d MATCHES "^needs (.+)$" AND NOT CMAKE_MATCH_1 STREQUAL needs)
+            list(APPEND files "${CMAKE_MATCH_1}")
+        endif()
+    endforeach()
+    # a file of needs taken by another one configures the project again when it changes, as the ones it names do
+    set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${files})
+    set(outputs ${made} "${out}/dgx_images-files.txt")
+    add_custom_command(OUTPUT ${outputs}
+        COMMAND ${python} "${tool}" build "${needs}" "${out}" --no-assets
+        DEPENDS "${tool}" "${needs}" ${pngs} ${files}
+        COMMENT "DGX: the pictures of the program by its needs"
+        VERBATIM)
+    add_custom_target(dgx_images_made DEPENDS ${outputs})
+    set_property(GLOBAL PROPERTY DGX_ASSETS_IMAGES "${out}/dgx_images-files.txt")
+    set_property(GLOBAL PROPERTY DGX_ASSETS_IMAGES_MADE ${outputs})
+    list(LENGTH made count)
+    message(STATUS "DGX images: ${count} need(s), made into ${out}; dgx_assets.h names them")
+endfunction()
+
+# The rule that embeds the files of the pictures and of the fonts, created after the rules that make them.
+function(_dgx_assets_finish)
+    get_property(images GLOBAL PROPERTY DGX_ASSETS_IMAGES)
+    get_property(fonts GLOBAL PROPERTY DGX_ASSETS_FONTS)
+    if(NOT images AND NOT fonts)
+        return()
+    endif()
+    get_property(images_made GLOBAL PROPERTY DGX_ASSETS_IMAGES_MADE)
+    get_property(fonts_made GLOBAL PROPERTY DGX_ASSETS_FONTS_MADE)
+    set(out "${CMAKE_BINARY_DIR}/dgx_assets")
+    set(tool "${DGX_FONTS_COMPONENT_DIR}/tools/dgx_images.py")
+    file(MAKE_DIRECTORY "${out}")
+    set(lists "")
+    if(images)
+        list(APPEND lists --images "${images}")
+    endif()
+    if(fonts)
+        list(APPEND lists --fonts "${fonts}")
+    endif()
+    idf_build_get_property(python PYTHON)
+    add_custom_command(OUTPUT "${out}/dgx_assets.S" "${out}/dgx_assets.h"
+        COMMAND ${python} "${tool}" assets "${out}" ${lists}
+        DEPENDS "${tool}" ${images_made} ${fonts_made}
+        COMMENT "DGX: the files of the pictures and the fonts embedded"
+        VERBATIM)
+    add_custom_target(dgx_assets_made DEPENDS "${out}/dgx_assets.S" "${out}/dgx_assets.h")
+    idf_component_get_property(lib ${DGX_FONTS_COMPONENT_NAME} COMPONENT_LIB)
+    set_source_files_properties("${out}/dgx_assets.S" "${out}/dgx_assets.h" TARGET_DIRECTORY ${lib} PROPERTIES GENERATED TRUE)
+    # the files .incbin takes are no dependency CMake sees in the assembly; its text names a digest of each, so it
+    # changes, and is assembled again, when one of them does
+    target_sources(${lib} PRIVATE "${out}/dgx_assets.S")
+    target_include_directories(${lib} PUBLIC "${out}")
+    add_dependencies(${lib} dgx_assets_made)
+endfunction()
+
+if(NOT DGX_FONTS_TOO_OLD)
+    cmake_language(DEFER CALL _dgx_images_finish)
+    cmake_language(DEFER CALL _dgx_assets_finish)
 endif()

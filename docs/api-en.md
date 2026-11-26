@@ -615,6 +615,7 @@ shadow buffers behind monochrome controllers, region copies, and LUT-expanded
 | `dgx_overlay_clear(display)` | Take the layer away; its place becomes changed. |
 | `dgx_overlay_take_dirty(display, &x, &y, &w, &h)` | The rectangle the layer changed since the last call: drawn into, laid, moved, taken away. Put it again from the picture. |
 | `dgx_image_blit(dst, x, y, image, how)` | Draw a picture of 1, 4 or 8 bits from flash or RAM (`dgx_image.h`): value 0 transparent, or `bg` with `DGX_IMAGE_OPAQUE`, a map or one color for the others, clipped, mirrored or rotated around its origin. A picture in one color, of 1 bit or any other with `DGX_IMAGE_SILHOUETTE`, goes on any screen, a display of any depth too, in a color of that screen. By its values or through a map it goes into a linear 8-bit virtual screen only, and returns `ESP_ERR_NOT_SUPPORTED` for another destination. `.scale` makes every pixel of the picture a square of scale x scale, 0 and 1 the same, up to 255, on every screen and turn: the square of the origin stands at (x, y), and the clips cut the squares. With `DGX_IMAGE_OPAQUE` on a display behind a bus a scaled picture goes in one window over its box too, every pixel sent once, so an icon drawn again does not blink. See [A picture from flash](#a-picture-from-flash). |
+| `dgx_image_file_open(bytes, length, &file)`, `dgx_image_file_picture(&file, i, &p)`, `dgx_image_file_image(&file, i, &image)` | Read a `.dgxi` file of pictures where it lies (`dgx_image_file.h`): the depth, the kind, the palette and the pictures of a set made of PNG files, a `dgx_image_t` of an indexed one for `dgx_image_blit()`, the pixels of another for `dgx_vscreen_from_array()`. Nothing is copied; a file spoiled or cut is refused. See [Pictures from PNG files](pictures-en.md). |
 | `dgx_bw_init(width, height)` | Allocate a 1-bit monochrome RAM screen. |
 | `dgx_vscreen_2h_init(left, right)` | Compose two screens as one wide logical screen. |
 | `dgx_vscreen_is_linear(scr)` | True when the screen is a `dgx_vscreen_t` with row-major pixels in `v_array`. |
@@ -645,6 +646,11 @@ Table 2. Which call shows a picture kept in flash, by the kind of the picture.
 | an icon or a logo in one color | `dgx_image_t` of `DGX_IMAGE_1BPP`: rows from the top, the first pixel in the high bit, each row from a new byte | `dgx_image_blit()` on any screen, with `.color` a color of that screen | none |
 | a sprite of up to 256 colors | `dgx_image_t` of 4 or 8 bits, or an 8-bit array | `dgx_image_blit()` into an 8-bit virtual screen, which goes to the display through a table; or `dgx_vscreen_from_array()` over the array and `dgx_vscreen8_to_screen16()` | the 8-bit screen, or none |
 | a picture in the pixels of the display | a `const uint8_t` array, for 16 bits two bytes a pixel, the high byte first | `dgx_vscreen_from_array((void *)logo, w, h, 16, cbo)` once, then `dgx_vscreen_to_screen()` with any flags | none |
+
+None of them has to be written by hand: `dgx_image_need()` in the
+`CMakeLists.txt` makes them of PNG files when the program is built, at any
+depth of a virtual screen, and embeds them, as
+[Pictures from PNG files](pictures-en.md) tells.
 
 ```c
 // a 16x16 icon in one color, straight on the display

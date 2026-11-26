@@ -669,6 +669,18 @@ dgx_fonts_files()   # в CMakeLists программы, один раз
 файле запросов того же просит строка `files`, у `dgx_fonts.py build` — ключ
 `--files`.
 
+Каждый такой файл ещё и вкладывается в программу под именем своего файла,
+как `dgx_asset_<имя>` с длиной `dgx_asset_<имя>_size` из `dgx_assets.h`: на
+адресе, кратном 4, и в своём разделе, который линковщик выбрасывает, если
+программа его не называет. Так же вкладываются картинки
+[dgx_image_need()](pictures-ru.md).
+
+```c
+#include "dgx_assets.h"
+size_t need;
+dgx_font_file_memory(dgx_asset_TerminusTTFMedium12, dgx_asset_TerminusTTFMedium12_size, &need);  /* 40 байт */
+```
+
 Шрифт, который делают руками, получает файл ключом `-bin`: `font2c -bin .
 font.ttf 16` кладёт `<имя>.dgxf` рядом с `<имя>.c`, а `font2c -jo список
 -bin каталог` — все шрифты списков в каталог, по первому имени. Файл
@@ -701,7 +713,8 @@ if (dgx_font_file_memory(bytes, length, &need) == ESP_OK) {
 на диапазон и 16 на глиф: у LiberationSansRegular12, 604 глифа в 37
 диапазонах, это около 10 КБ. Рукописный шрифт копирует ещё и символы, по 30
 байт, а по нечётному адресу и пути пера: font0ss тогда берёт около 7,5 КБ,
-по нечётному адресу 17 КБ. `malloc()` даёт адрес, кратный 4; `EMBED_FILES`
+по нечётному адресу 17 КБ. `malloc()` даёт адрес, кратный 4, и вложение
+`dgx_fonts_files()` тоже, на любой версии ESP-IDF; `EMBED_FILES`
 в ESP-IDF этого не обещает, а `target_add_binary_data(... ALIGN 4)` даёт с
 ESP-IDF 6.0.3 и 6.1.1; в ESP-IDF 5.5.5 и раньше, в 6.0–6.0.2 и в 6.1
 `ALIGN` нет.

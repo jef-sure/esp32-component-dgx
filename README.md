@@ -42,6 +42,7 @@ Every picture in this README was drawn by DGX's own code, run on a PC.
   - [Pixel art made larger](#pixel-art-made-larger)
   - [A sprite or an icon from flash](#a-sprite-or-an-icon-from-flash)
   - [An icon or a logo straight on the display](#an-icon-or-a-logo-straight-on-the-display)
+  - [Pictures from PNG files](#pictures-from-png-files)
   - [A palette, a fade and a flash](#a-palette-a-fade-and-a-flash)
   - [Crossfade between two pictures](#crossfade-between-two-pictures)
   - [A soft shape stamped anywhere](#a-soft-shape-stamped-anywhere)
@@ -797,6 +798,43 @@ dgx_vscreen_to_screen(lcd, 10, 10, picture, 0);
 
 Such a screen is only read: never draw on it. Details:
 [A picture from flash](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/api-en.md#a-picture-from-flash).
+
+### Pictures from PNG files
+
+The arrays of the two recipes above need not be written by hand. A need in
+`CMakeLists.txt` makes a set of PNG files into one file of bytes, `.dgxi`,
+when the program is built, at any depth of a virtual screen, and embeds it
+at an address divisible by 4; the program reads its pictures in place.
+
+```cmake
+dgx_image_need(wifi PNG art/wifi0.png art/wifi1.png art/wifi2.png BITS 1)  # three states of an icon
+dgx_image_need(logo PNG art/logo.png BITS 16)                              # RGB565
+```
+
+```c
+#include "dgx_assets.h"
+#include "dgx_image_file.h"
+
+dgx_image_file_t wifi;
+dgx_image_t      icon;
+dgx_image_file_open(dgx_asset_wifi, dgx_asset_wifi_size, &wifi);
+dgx_image_file_image(&wifi, state, &icon);
+dgx_image_blit(lcd, 10, 10, &icon, &(dgx_image_blit_t){.color = DGX_WHITE(dgx_rgb_to_16)});
+
+dgx_image_file_t         file;
+dgx_image_file_picture_t p;
+dgx_image_file_open(dgx_asset_logo, dgx_asset_logo_size, &file);
+dgx_image_file_picture(&file, 0, &p);
+dgx_screen_t *logo = dgx_vscreen_from_array((void *)p.pixels, p.width, p.height, 16, DgxScreenRGB);
+dgx_vscreen_to_screen(lcd, 40, 10, logo, 0);
+```
+
+An indexed picture of 1, 4 or 8 bits keeps the colors of its PNG in a
+palette, to be mapped to the colors of the program; a picture of pixels
+keeps the transparent places of its PNG in a plane of opacity, for a soft
+texture quad. Colors, needs kept in a file, fonts embedded the same way, a
+file from a file system:
+[Pictures from PNG files](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/pictures-en.md).
 
 ### A palette, a fade and a flash
 
@@ -1584,6 +1622,9 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
   8-bit virtual screen with a map of colors, clipped, mirrored and rotated;
   an icon in one color drawn straight on any display; a picture in the
   colors of the display shown from flash with no copy in RAM.
+- Pictures made of PNG files when the program is built, at any depth of a
+  virtual screen, with their colors reduced and dithered if asked, embedded
+  aligned and read in place, or read from a file system or the network.
 - Color tables for 8-bit virtual screens: from a palette, a ramp between two
   colors, fades and flashes, without redrawing the frame.
 - A two-head compositor (`vscreen_2h`) that exposes two child screens as one
@@ -1663,6 +1704,7 @@ Beyond the recipes:
 | [Cookbook](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/cookbook-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/cookbook-ru.md)) | small tasks of every program: text set right or centered, a value that changes in place, text wrapped to a width, the degree sign, a button, a progress bar, a battery icon, the backlight dimmed, a clip, two displays, a picture that looks wrong |
 | [Supported panels](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/panels-en.md) | the controllers, their constructors and options, a panel of your own module |
 | [Fonts made at build time](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/fonts-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/fonts-ru.md)) | needs, sizes, characters, rules, licenses, soft edges, patches |
+| [Pictures from PNG files](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/pictures-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/pictures-ru.md)) | needs of pictures, the two kinds, colors, the files the build makes and embeds, the format |
 | [font2c](https://github.com/jef-sure/esp32-component-dgx/blob/main/font2c/README.md), [the font editor](https://github.com/jef-sure/esp32-component-dgx/blob/main/font-editor/README.md) | converting fonts by hand, fixing glyphs |
 | [Handwriting](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/handwriting-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/handwriting-ru.md)), [the pen](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/pen-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/pen-ru.md)) | handwritten fonts, writing at the pace of a pen, the soft pen and what it costs |
 | [Morphing](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/morphing-en.md) ([ru](https://github.com/jef-sure/esp32-component-dgx/blob/main/docs/morphing-ru.md)) | the dot morphs and their renderers |

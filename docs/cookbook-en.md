@@ -22,6 +22,7 @@ PC, by [docs/images/cookbook.c](https://github.com/jef-sure/esp32-component-dgx/
   - [A button](#a-button)
   - [A progress bar](#a-progress-bar)
   - [A battery icon](#a-battery-icon)
+  - [An icon of a PNG, in states](#an-icon-of-a-png-in-states)
 - [The display](#the-display)
   - [Dim the backlight, turn it off when idle](#dim-the-backlight-turn-it-off-when-idle)
   - [Draw only inside a rectangle](#draw-only-inside-a-rectangle)
@@ -316,6 +317,39 @@ void battery(dgx_screen_t *scr, int x, int y, int w, int h, int level, uint32_t 
 The charge is green above half, yellow below it and red below a fifth. As
 the bar does, the icon writes the charged and the empty part separately, so
 it can be drawn again over itself.
+
+### An icon of a PNG, in states
+
+The states of an icon drawn in an image editor, each a PNG with a
+transparent background, become one set of 1-bit pictures when the program
+is built:
+
+```cmake
+# in CMakeLists.txt of the program
+dgx_image_need(wifi PNG art/wifi0.png art/wifi1.png art/wifi2.png art/wifi3.png BITS 1)
+```
+
+```c
+#include "dgx_assets.h"
+#include "dgx_image_file.h"
+
+/* The Wi-Fi icon of `bars` at x, y, in `ink` on `back`: a picture of the set wifi, drawn whole so that it does not blink. */
+void wifi_icon(dgx_screen_t *scr, int x, int y, int bars, uint32_t ink, uint32_t back)
+{
+    static dgx_image_file_t file;
+    if (!file.bytes && dgx_image_file_open(dgx_asset_wifi, dgx_asset_wifi_size, &file) != ESP_OK) return;
+    dgx_image_t icon;
+    if (dgx_image_file_image(&file, (unsigned)bars, &icon) != ESP_OK) return;
+    dgx_image_blit(scr, x, y, &icon, &(dgx_image_blit_t){.flags = DGX_IMAGE_OPAQUE, .color = ink, .bg = back});
+}
+```
+
+The opaque pixels of a PNG are the 1s, drawn in `ink`; the transparent ones
+take `back` with `DGX_IMAGE_OPAQUE`, so every pixel of the icon is written
+once and a new state drawn over the old one does not blink. The pictures
+stay in flash, and the icon can be drawn on a display of any depth. A
+picture in many colors, the depth of a set, the colors of a PNG reduced:
+[Pictures from PNG files](pictures-en.md).
 
 ## The display
 

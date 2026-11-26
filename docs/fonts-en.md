@@ -684,6 +684,18 @@ made, and the files of a build before are taken away. A needs file asks
 for the same with a line `files`, and `dgx_fonts.py build` with
 `--files`.
 
+Every such file is embedded in the program too, by the name of its file, as
+`dgx_asset_<name>` and its length `dgx_asset_<name>_size` of `dgx_assets.h`,
+at an address divisible by 4 and in a section of its own, which the linker
+leaves out when the program does not name it: the pictures of
+[dgx_image_need()](pictures-en.md) are embedded the same way.
+
+```c
+#include "dgx_assets.h"
+size_t need;
+dgx_font_file_memory(dgx_asset_TerminusTTFMedium12, dgx_asset_TerminusTTFMedium12_size, &need);  /* 40 bytes */
+```
+
 A font made by hand gets its file with `-bin`: `font2c -bin . font.ttf 16`
 writes `<name>.dgxf` beside `<name>.c`, and `font2c -jo list -bin dir`
 every font of the lists into `dir`, by its first name. The file of a font
@@ -716,8 +728,9 @@ the memory, 12 bytes a range and 16 a glyph: about 10 KB for
 LiberationSansRegular12, 604 glyphs in 37 ranges. A handwritten font copies
 its symbols too, 30 bytes each, and at an odd address its pen paths: font0ss
 then takes about 7.5 KB, and 17 KB at an odd address. `malloc()` gives an
-address divisible by 4; `EMBED_FILES` of ESP-IDF does not promise one, and
-`target_add_binary_data(... ALIGN 4)` gives it from ESP-IDF 6.0.3 and
+address divisible by 4, and so does the embedding of `dgx_fonts_files()`
+on every version of ESP-IDF; `EMBED_FILES` of ESP-IDF does not promise one,
+and `target_add_binary_data(... ALIGN 4)` gives it from ESP-IDF 6.0.3 and
 6.1.1; ESP-IDF 5.5.5 and earlier, 6.0 to 6.0.2 and 6.1 have no `ALIGN`.
 
 The reader holds every offset and length of a file to its bounds before

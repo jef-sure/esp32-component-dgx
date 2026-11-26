@@ -138,6 +138,16 @@ the font editor: a font `font2c` makes comes back from the editor byte for
 byte, and the editor and `dgx_fonts.py` read the same glyphs from every
 bitmap font of DGX.
 
+The pictures made of PNG files have a test of their own too,
+`make -C test/images`: every file `tools/dgx_images.py` makes there is read
+and drawn by a program of DGX built for the host under the sanitizers, at
+four addresses, and compared with its PNG pixel by pixel, at every depth and
+of both kinds; the colors, the refusals and the files of needs are checked,
+and `dgx_assets.S` is assembled and linked. The PNG reader is checked on the
+test pictures of PngSuite, `test/images/pngsuite/`, by Willem van Schaik,
+free to use and distribute (`PngSuite.LICENSE`), against PIL where it is
+installed. It needs Python 3 and a C compiler.
+
 What a host cannot tell, the look of a figure on a panel, the scroll of the
 panel itself and the times on the chip, is seen on a board:
 [examples/figures_scroll_demo](../examples/figures_scroll_demo), for a CYD or
@@ -167,19 +177,22 @@ src/                     implementations, by topic
                          licenses/ holds the texts of their licenses
 font2c/                  offline TTF/BDF -> C font generator, and dgx_fonts.py, which makes a program's fonts from its needs
 font-editor/             the editor of the glyphs of a font2c font, in the browser; its fixes are patches for font2c
-project_include.cmake    dgx_font_need() and the other font functions for a program's CMakeLists
+project_include.cmake    dgx_font_need(), dgx_image_need() and the other functions for a program's CMakeLists
 examples/                one project per example, see "Examples"
 host/                    dgx_host.mk and ESP-IDF stubs: the platform-independent part built on a PC;
                          window/ holds the window that stands for the display of a board
 test/host/               host tests
 test/fonts/              the test of the fonts made at build time
-tools/                   readme_version.py, which puts the version of idf_component.yml into the
-                         install lines of the README; not in the component
+test/images/             the test of the pictures made of PNG files, and the PNG pictures of PngSuite
+tools/                   dgx_images.py, which makes pictures of PNG files into .dgxi files and embeds
+                         them; readme_version.py, which puts the version of idf_component.yml into
+                         the install lines of the README, not in the component
 docs/                    morphing articles, handwritten text guides, fonts made at build time (English and Russian),
                          the converter and the tables of handwritten fonts (Russian),
                          a guide to a display on the DSI bus and notes on how its bus is made,
                          the soft pen, the NV3041A panel, the first piece of a transfer, 18-bit
-                         color, benchmarks and a cookbook of everyday recipes (English and Russian)
+                         color, benchmarks, a cookbook of everyday recipes and pictures from PNG
+                         files (English and Russian)
 Kconfig                  feature toggles
 CMakeLists.txt           ESP-IDF component build
 ```

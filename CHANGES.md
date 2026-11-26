@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+New:
+
+- **Pictures from PNG files**, `.dgxi`: a set of PNG pictures made, when the
+  program is built, into one file of bytes that DGX reads in place.
+  - `dgx_image_need(<name> PNG <file>... [BITS n] ...)` in a `CMakeLists.txt`,
+    or a need a line in a file of needs, `dgx_image_needs_file(<file>)`, for
+    a tool that writes the needs and never the `CMakeLists.txt`. A mistake
+    stops the configure step with the file and the line.
+  - Every depth of a virtual screen, 1, 4, 8, 12, 16, 18, 24 and 32 bits, of
+    two kinds: indexed pictures of 1, 4 or 8 bits for `dgx_image_blit()`,
+    with the colors of the PNG in a palette, a value 0 transparent unless the
+    palette is full; pictures of pixels laid out as a virtual screen keeps
+    them, read by `dgx_vscreen_from_array()`, with a plane of opacity where
+    the PNG is transparent. The colors kept exactly, or reduced by median cut
+    with `REDUCE`; Floyd-Steinberg with `DITHER` at any depth; `INK`,
+    `ALPHA`, `BACKGROUND`, `ORIGIN`.
+  - `dgx_image_file_open()`, `dgx_image_file_picture()` and
+    `dgx_image_file_image()` (`dgx_image_file.h`) read a file embedded, from
+    a file system or from the network: nothing copied, a file spoiled or cut
+    refused, at any address and on a processor of any byte order.
+  - `tools/dgx_images.py`, the one writer of the format, in Python 3.8 or
+    later and its own library: as a command, `make` and `build` on the host,
+    or as a module, for a tool that has the PNG files itself.
+  - The files are embedded by `build/dgx_assets/dgx_assets.S`, as
+    `dgx_asset_<name>` and `dgx_asset_<name>_size` of `dgx_assets.h`, at an
+    address divisible by 4 on every version of ESP-IDF and in a section of
+    their own, which the linker leaves out when the program does not name
+    it. With `dgx_fonts_files()` every font file is embedded the same way,
+    by the name of its file, and read in place, its tables not copied.
+
 Fixed:
 
 - **`dgx_draw_texture_quad_with()` refuses a 16-bit texture whose pixels
@@ -18,12 +48,25 @@ Fixed:
 
 Tests:
 
+- test/images, `make -C test/images`: every file `tools/dgx_images.py`
+  makes is read and drawn by DGX built for the host under the sanitizers,
+  at four addresses, and compared with its PNG pixel by pixel at every depth
+  and of both kinds; the colors, the refusals, the files of needs and
+  `dgx_assets.S`. The PNG reader against PIL on the 176 pictures of
+  PngSuite, every spoiled one refused.
+- test_image_file: files of every kind cut at every length and spoiled byte
+  by byte, four ways, at four addresses, refused or read within their
+  bounds.
 - test_texture_quad: a 16-bit texture at an odd address refused by
   `dgx_draw_texture_quad_with()` and drawn at an even one, and drawn by
   `dgx_draw_texture_quad()` at both.
 
 Documentation:
 
+- `docs/pictures-en.md` and `docs/pictures-ru.md`: the needs of pictures,
+  the two kinds, the colors, the files the build makes and embeds, the
+  format. The README has a recipe, the cookbook an icon of a PNG in its
+  states, and the fonts guide the fonts embedded.
 - The README links the components that work with DGX, in the ESP Component
   Registry and their sources: dgx-ui, dgx-di, dgx-ge, boards and dgx-lvgl.
 - `docs/fonts-en.md` and `docs/fonts-ru.md` name the ESP-IDF releases whose
