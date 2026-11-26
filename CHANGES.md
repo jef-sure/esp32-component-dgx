@@ -1,6 +1,14 @@
 # Changes
 
-## Unreleased
+## 0.12.10 - 2026-11-26
+
+Pictures from PNG files, made into `.dgxi` files when a program is built and
+read in place; the files of pictures and fonts embedded at an address
+divisible by 4 on every version of ESP-IDF; a texture quad that refuses a
+16-bit texture at an odd address; the README links the components that work
+with DGX. Checked by host tests, builds for ESP32, ESP32-C3, ESP32-S3 and
+ESP32-P4 under IDF 5.5.4 and 6.1 and for the linux target, and on a CYD and
+the Guition JC8012P4A1C, every embedded file read from flash there.
 
 New:
 
