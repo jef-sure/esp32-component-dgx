@@ -23,6 +23,7 @@ PC, by [docs/images/cookbook.c](https://github.com/jef-sure/esp32-component-dgx/
   - [A progress bar](#a-progress-bar)
   - [A battery icon](#a-battery-icon)
   - [An icon of a PNG, in states](#an-icon-of-a-png-in-states)
+  - [A picture turned by any angle](#a-picture-turned-by-any-angle)
 - [The display](#the-display)
   - [Dim the backlight, turn it off when idle](#dim-the-backlight-turn-it-off-when-idle)
   - [Draw only inside a rectangle](#draw-only-inside-a-rectangle)
@@ -351,6 +352,79 @@ drawn over the old one does not blink, on a display behind a bus too. The pictur
 stay in flash, and the icon can be drawn on a display of any depth. A
 picture in many colors, the depth of a set, the colors of a PNG reduced:
 [Pictures from PNG files](pictures-en.md).
+
+### A picture turned by any angle
+
+<img src="https://raw.githubusercontent.com/jef-sure/esp32-component-dgx/main/docs/images/cookbook-turned.png" width="330" alt="Three dials, their red needles turned to 30, 135 and 250 degrees">
+
+A needle of a dial, a compass arrow, a sprite that turns: the texture quad
+turns a picture by any angle, mixing its edges and the transparent places of
+its PNG. Order the picture at 16 bits, its origin the point it turns around:
+
+```cmake
+dgx_image_need(needle PNG art/needle.png BITS 16 ORIGIN 12 60)
+```
+
+```c
+#include <math.h>
+#include "dgx_draw.h"
+#include "dgx_image_file.h"
+#include "dgx_vscreen.h"
+
+/* A picture of 16 bits of a file made ready to be turned: a texture over its pixels and its plane, made once. */
+typedef struct {
+    dgx_screen_t *texture, *opacity;
+    float         ox, oy; /* the centre of its origin */
+} turnable_t;
+
+bool turnable_init(turnable_t *t, const dgx_image_file_t *file, unsigned index)
+{
+    dgx_image_file_picture_t p;
+    if (file->bits != 16 || dgx_image_file_picture(file, index, &p) != ESP_OK) return false;
+    t->texture = dgx_vscreen_from_array((void *)p.pixels, p.width, p.height, 16, DgxScreenRGB);
+    t->opacity = p.alpha ? dgx_vscreen_from_array((void *)p.alpha, p.width, p.height, 8, DgxScreenRGB) : NULL;
+    t->ox = p.origin_x + 0.5f, t->oy = p.origin_y + 0.5f;
+    return t->texture != NULL;
+}
+
+/* The picture turned clockwise by `degrees` around its origin and `scale` times larger, the origin at the centre of
+   pixel x, y; its edges soft, mixed with `paper` on a screen that cannot be read. */
+esp_err_t turnable_draw(dgx_screen_t *scr, const turnable_t *t, float x, float y, float degrees, float scale, uint32_t paper)
+{
+    const float a = degrees * 3.14159265f / 180.0f, c = cosf(a) * scale, s = sinf(a) * scale;
+    const int   w = t->texture->width, h = t->texture->height;
+    const float u[4] = {0, (float)w, (float)w, 0}, v[4] = {0, 0, (float)h, (float)h};
+    dgx_texture_quad_t q = {.texture = t->texture, .tw = w, .th = h, .alpha_map = t->opacity, .paper = paper,
+                            .flags = DGX_TEXTURE_BILINEAR | DGX_TEXTURE_SOFT | (dgx_screen_is_readable(scr) ? 0u : DGX_TEXTURE_PAPER)};
+    for (int i = 0; i < 4; ++i) {
+        const float du = u[i] - t->ox, dv = v[i] - t->oy;
+        q.x[i] = (int)lroundf((x + 0.5f + du * c - dv * s) * DGX_SUBPIXEL);
+        q.y[i] = (int)lroundf((y + 0.5f + du * s + dv * c) * DGX_SUBPIXEL);
+    }
+    return dgx_draw_texture_quad_with(scr, &q);
+}
+```
+
+```c
+static turnable_t needle; /* once */
+dgx_image_file_t  file;
+dgx_image_file_open(dgx_asset_needle, dgx_asset_needle_size, &file);
+turnable_init(&needle, &file, 0);
+
+/* every frame: the face, the needle at its angle, and the frame sent whole, so nothing blinks */
+dgx_vscreen_to_screen(frame, 0, 0, face, 0);
+turnable_draw(frame, &needle, 99.5f, 99.5f, degrees, 1.0f, back);
+dgx_vscreen_to_screen(lcd, x0, y0, frame, 0);
+```
+
+The textures are virtual screens over the bytes of the file in flash, and
+nothing is copied. The quad draws on a screen of 16 bits. Where the screen
+can be read, a virtual screen or a display on MIPI-DSI, the edges are mixed
+with what lies under them; a display behind a bus is not read, and they are
+mixed with `paper`, which is enough over a plain background. Over a picture,
+draw into a virtual screen and send it, as above. On a CYD a frame of
+200x200 takes 22.5 ms, most of it the wire at 40 MHz; to go faster, send only
+the box the needle sweeps.
 
 ## The display
 

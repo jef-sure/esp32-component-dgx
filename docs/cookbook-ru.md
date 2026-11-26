@@ -23,6 +23,7 @@
   - [Полоса прогресса](#полоса-прогресса)
   - [Значок батареи](#значок-батареи)
   - [Значок из PNG, в нескольких состояниях](#значок-из-png-в-нескольких-состояниях)
+  - [Картинка, повёрнутая на любой угол](#картинка-повёрнутая-на-любой-угол)
 - [Дисплей](#дисплей)
   - [Яркость подсветки и гашение в простое](#яркость-подсветки-и-гашение-в-простое)
   - [Рисовать только внутри прямоугольника](#рисовать-только-внутри-прямоугольника)
@@ -350,6 +351,79 @@ void wifi_icon(dgx_screen_t *scr, int x, int y, int bars, uint32_t ink, uint32_t
 flash, а значок можно рисовать на дисплее любой глубины. Картинка во многих
 цветах, глубина набора, сокращение цветов PNG — в
 [Картинках из PNG](pictures-ru.md).
+
+### Картинка, повёрнутая на любой угол
+
+<img src="https://raw.githubusercontent.com/jef-sure/esp32-component-dgx/main/docs/images/cookbook-turned.png" width="330" alt="Три циферблата, их красные стрелки повёрнуты на 30, 135 и 250 градусов">
+
+Стрелка циферблата, стрелка компаса, спрайт, который поворачивается: квад
+текстуры поворачивает картинку на любой угол и смешивает её край и
+прозрачные места её PNG. Картинку заказывают в 16 бит, а её точка привязки —
+точка, вокруг которой она вращается:
+
+```cmake
+dgx_image_need(needle PNG art/needle.png BITS 16 ORIGIN 12 60)
+```
+
+```c
+#include <math.h>
+#include "dgx_draw.h"
+#include "dgx_image_file.h"
+#include "dgx_vscreen.h"
+
+/* Картинка файла в 16 бит, готовая к повороту: текстура поверх её пикселей и её плоскости, делается один раз. */
+typedef struct {
+    dgx_screen_t *texture, *opacity;
+    float         ox, oy; /* центр её точки привязки */
+} turnable_t;
+
+bool turnable_init(turnable_t *t, const dgx_image_file_t *file, unsigned index)
+{
+    dgx_image_file_picture_t p;
+    if (file->bits != 16 || dgx_image_file_picture(file, index, &p) != ESP_OK) return false;
+    t->texture = dgx_vscreen_from_array((void *)p.pixels, p.width, p.height, 16, DgxScreenRGB);
+    t->opacity = p.alpha ? dgx_vscreen_from_array((void *)p.alpha, p.width, p.height, 8, DgxScreenRGB) : NULL;
+    t->ox = p.origin_x + 0.5f, t->oy = p.origin_y + 0.5f;
+    return t->texture != NULL;
+}
+
+/* Картинка, повёрнутая по часовой на degrees вокруг точки привязки и увеличенная в scale раз; точка привязки — в
+   центре пикселя x, y; край мягкий, на экране, который не читается, смешан с paper. */
+esp_err_t turnable_draw(dgx_screen_t *scr, const turnable_t *t, float x, float y, float degrees, float scale, uint32_t paper)
+{
+    const float a = degrees * 3.14159265f / 180.0f, c = cosf(a) * scale, s = sinf(a) * scale;
+    const int   w = t->texture->width, h = t->texture->height;
+    const float u[4] = {0, (float)w, (float)w, 0}, v[4] = {0, 0, (float)h, (float)h};
+    dgx_texture_quad_t q = {.texture = t->texture, .tw = w, .th = h, .alpha_map = t->opacity, .paper = paper,
+                            .flags = DGX_TEXTURE_BILINEAR | DGX_TEXTURE_SOFT | (dgx_screen_is_readable(scr) ? 0u : DGX_TEXTURE_PAPER)};
+    for (int i = 0; i < 4; ++i) {
+        const float du = u[i] - t->ox, dv = v[i] - t->oy;
+        q.x[i] = (int)lroundf((x + 0.5f + du * c - dv * s) * DGX_SUBPIXEL);
+        q.y[i] = (int)lroundf((y + 0.5f + du * s + dv * c) * DGX_SUBPIXEL);
+    }
+    return dgx_draw_texture_quad_with(scr, &q);
+}
+```
+
+```c
+static turnable_t needle; /* один раз */
+dgx_image_file_t  file;
+dgx_image_file_open(dgx_asset_needle, dgx_asset_needle_size, &file);
+turnable_init(&needle, &file, 0);
+
+/* каждый кадр: циферблат, стрелка под своим углом, и кадр уходит целиком, поэтому ничего не мигает */
+dgx_vscreen_to_screen(frame, 0, 0, face, 0);
+turnable_draw(frame, &needle, 99.5f, 99.5f, degrees, 1.0f, back);
+dgx_vscreen_to_screen(lcd, x0, y0, frame, 0);
+```
+
+Текстуры — это vscreen поверх байтов файла во flash, ничего не копируется.
+Квад рисует на экран в 16 бит. Где экран читается — vscreen или дисплей на
+MIPI-DSI, — край смешивается с тем, что под ним; дисплей за шиной не
+читается, и край смешивается с `paper`, чего хватает поверх однотонного
+фона. Поверх картинки рисуйте в vscreen и отправляйте его, как выше. На CYD
+кадр 200x200 занимает 22,5 мс, в основном провод на 40 МГц; чтобы быстрее,
+отправляйте только участок, который заметает стрелка.
 
 ## Дисплей
 

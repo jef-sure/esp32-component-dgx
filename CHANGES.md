@@ -1,5 +1,14 @@
 # Changes
 
+## Unreleased
+
+Documentation:
+
+- The cookbook turns a picture by any angle: a needle of 16 bits of a
+  `.dgxi` file put on the texture quad around its origin, its edges soft,
+  its plane of opacity the alpha map; checked on a CYD and the Guition
+  JC8012P4A1C.
+
 ## 0.12.11 - 2026-11-26
 
 Pictures with soft edges: masks of 4 or 8 bits for icons in one color,

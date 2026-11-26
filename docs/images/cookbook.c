@@ -5,9 +5,11 @@
  *   cookbook <picture> <out.ppm>
  *
  * Pictures: align - text set at a point and in a box, value - a value over a gradient, wrap - text wrapped to a
- * width, button - a button and the same one pressed, bars - a progress bar and batteries. Each is a screen of
- * 16 bits a pixel, written at twice its size, a pixel of the screen as 2x2. The value takes DejaVu Sans at
- * 32 px in 4 bits a pixel with the degree sign, made by font2c first. From the root of the repository:
+ * width, button - a button and the same one pressed, bars - a progress bar and batteries, turned - a needle of a
+ * picture file turned to three angles over dials. Each is a screen of 16 bits a pixel, written at twice its size, a
+ * pixel of the screen as 2x2. The value takes DejaVu Sans at 32 px in 4 bits a pixel with the degree sign, made by
+ * font2c first; the needle is docs/images/cookbook-needle.png made into a .dgxi file. From the root of the
+ * repository:
  *
  *   cc font2c/font2c.c -o /tmp/font2c $(pkg-config --cflags --libs freetype2) && mkdir -p /tmp/dgx-cookbook
  *   F=$(fc-match -f '%{file}' 'DejaVu Sans:style=Book')
@@ -16,7 +18,10 @@
  *      src/screen/*.c src/draw/*.c src/vscreen/*.c src/text/*.c src/morph/*.c src/fonts/?*.c /tmp/dgx-cookbook/*.c \
  *      -lm -o /tmp/cookbook
  *   for p in align value wrap button bars; do /tmp/cookbook $p /tmp/x.ppm && convert /tmp/x.ppm docs/images/cookbook-$p.png; done
+ *   python3 tools/dgx_images.py make /tmp/dgx-cookbook/needle.dgxi PNG docs/images/cookbook-needle.png BITS 16 ORIGIN 12 60
+ *   /tmp/cookbook turned /tmp/x.ppm /tmp/dgx-cookbook/needle.dgxi && convert /tmp/x.ppm docs/images/cookbook-turned.png
  */
+#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,6 +30,7 @@
 #include "dgx_colors.h"
 #include "dgx_draw.h"
 #include "dgx_font.h"
+#include "dgx_image_file.h"
 #include "dgx_vscreen.h"
 #include "fonts/LiberationSansRegular12.h"
 #include "fonts/TerminusTTFMedium12.h"
@@ -147,6 +153,41 @@ void battery(dgx_screen_t *scr, int x, int y, int w, int h, int level, uint32_t 
     dgx_fill_rectangle(scr, x + 3 + filled, y + 3, inner - filled, h - 6, back);
 }
 
+/* ---- a picture turned by any angle ---- */
+
+/* A picture of 16 bits of a file made ready to be turned: a texture over its pixels and its plane, made once. */
+typedef struct {
+    dgx_screen_t *texture, *opacity;
+    float         ox, oy; /* the centre of its origin */
+} turnable_t;
+
+bool turnable_init(turnable_t *t, const dgx_image_file_t *file, unsigned index)
+{
+    dgx_image_file_picture_t p;
+    if (file->bits != 16 || dgx_image_file_picture(file, index, &p) != ESP_OK) return false;
+    t->texture = dgx_vscreen_from_array((void *)p.pixels, p.width, p.height, 16, DgxScreenRGB);
+    t->opacity = p.alpha ? dgx_vscreen_from_array((void *)p.alpha, p.width, p.height, 8, DgxScreenRGB) : NULL;
+    t->ox = p.origin_x + 0.5f, t->oy = p.origin_y + 0.5f;
+    return t->texture != NULL;
+}
+
+/* The picture turned clockwise by `degrees` around its origin and `scale` times larger, the origin at the centre of
+   pixel x, y; its edges soft, mixed with `paper` on a screen that cannot be read. */
+esp_err_t turnable_draw(dgx_screen_t *scr, const turnable_t *t, float x, float y, float degrees, float scale, uint32_t paper)
+{
+    const float a = degrees * 3.14159265f / 180.0f, c = cosf(a) * scale, s = sinf(a) * scale;
+    const int   w = t->texture->width, h = t->texture->height;
+    const float u[4] = {0, (float)w, (float)w, 0}, v[4] = {0, 0, (float)h, (float)h};
+    dgx_texture_quad_t q = {.texture = t->texture, .tw = w, .th = h, .alpha_map = t->opacity, .paper = paper,
+                            .flags = DGX_TEXTURE_BILINEAR | DGX_TEXTURE_SOFT | (dgx_screen_is_readable(scr) ? 0u : DGX_TEXTURE_PAPER)};
+    for (int i = 0; i < 4; ++i) {
+        const float du = u[i] - t->ox, dv = v[i] - t->oy;
+        q.x[i] = (int)lroundf((x + 0.5f + du * c - dv * s) * DGX_SUBPIXEL);
+        q.y[i] = (int)lroundf((y + 0.5f + du * s + dv * c) * DGX_SUBPIXEL);
+    }
+    return dgx_draw_texture_quad_with(scr, &q);
+}
+
 /* ---- the pictures ---- */
 
 static int width, height;
@@ -179,6 +220,8 @@ static void show_temperature(dgx_screen_t *lcd, int x, int y, const char *text)
     text_right(&ink, piece->width - 2, base, text);
     dgx_vscreen_to_screen(lcd, x, y, piece, 0);
 }
+
+static const char *needle_path; /* the .dgxi file of the needle, for the picture turned */
 
 static dgx_screen_t *picture(const char *which)
 {
@@ -229,12 +272,33 @@ static dgx_screen_t *picture(const char *which)
         battery(scr, 30, 68, 70, 32, 90, black);
         battery(scr, 125, 68, 70, 32, 45, black);
         battery(scr, 220, 68, 70, 32, 10, black);
+    } else if (!strcmp(which, "turned") && needle_path) {
+        static uint8_t bytes[65536];
+        FILE          *f = fopen(needle_path, "rb");
+        const size_t   n = f ? fread(bytes, 1, sizeof bytes, f) : 0;
+        if (f) fclose(f);
+        dgx_image_file_t file;
+        turnable_t       needle;
+        if (dgx_image_file_open(bytes, n, &file) != ESP_OK || !turnable_init(&needle, &file, 0)) return NULL;
+        scr = dgx_vscreen_init(width = 330, height = 120, 16, DgxScreenRGB);
+        dgx_fill_rectangle(scr, 0, 0, width, height, black);
+        static const float angles[3] = {30, 135, 250};
+        for (int k = 0; k < 3; ++k) {
+            const int cx = 55 + 110 * k, cy = 60;
+            dgx_fill_circle(scr, cx, cy, DGX_PEN_SOFT | 52, DGX_MIDNIGHTBLUE(dgx_rgb_to_16));
+            for (int m = 0; m < 12; ++m) {
+                const float a = (float)m * 30 * 3.14159265f / 180.0f;
+                dgx_draw_line(scr, cx + (int)(40 * sinf(a)), cy - (int)(40 * cosf(a)), cx + (int)(48 * sinf(a)), cy - (int)(48 * cosf(a)), grey);
+            }
+            turnable_draw(scr, &needle, (float)cx, (float)cy, angles[k], 0.75f, black);
+        }
     }
     return scr;
 }
 
 int main(int argc, char **argv)
 {
+    needle_path       = argc > 3 ? argv[3] : NULL;
     dgx_screen_t *scr = picture(argc > 1 ? argv[1] : "align");
     if (!scr) return 1;
     uint32_t *px = malloc(sizeof(uint32_t) * width * height);
