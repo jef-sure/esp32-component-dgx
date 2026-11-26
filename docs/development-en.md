@@ -173,13 +173,18 @@ host/                    dgx_host.mk and ESP-IDF stubs: the platform-independent
                          window/ holds the window that stands for the display of a board
 test/host/               host tests
 test/fonts/              the test of the fonts made at build time
+tools/                   readme_version.py, which puts the version of idf_component.yml into the
+                         install lines of the README; not in the component
 docs/                    morphing articles, handwritten text guides, fonts made at build time (English and Russian),
                          the converter and the tables of handwritten fonts (Russian),
                          a guide to a display on the DSI bus and notes on how its bus is made,
                          the soft pen, the NV3041A panel, the first piece of a transfer, 18-bit
-                         color and benchmarks (English and Russian)
+                         color, benchmarks and a cookbook of everyday recipes (English and Russian)
 Kconfig                  feature toggles
 CMakeLists.txt           ESP-IDF component build
 ```
 
-See [CHANGES.md](../CHANGES.md) for the release history.
+See [CHANGES.md](../CHANGES.md) for the release history. A release sets its
+number in `idf_component.yml` and runs `tools/readme_version.py`, which puts
+it into the two install lines of the README; `tools/readme_version.py --check`
+changes nothing and fails while they differ.
