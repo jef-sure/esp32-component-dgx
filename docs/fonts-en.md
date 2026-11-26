@@ -717,7 +717,8 @@ LiberationSansRegular12, 604 glyphs in 37 ranges. A handwritten font copies
 its symbols too, 30 bytes each, and at an odd address its pen paths: font0ss
 then takes about 7.5 KB, and 17 KB at an odd address. `malloc()` gives an
 address divisible by 4; `EMBED_FILES` of ESP-IDF does not promise one, and
-`target_add_binary_data(... ALIGN 4)` gives it from ESP-IDF 6.0.
+`target_add_binary_data(... ALIGN 4)` gives it from ESP-IDF 6.0.3 and
+6.1.1; ESP-IDF 5.5.5 and earlier, 6.0 to 6.0.2 and 6.1 have no `ALIGN`.
 
 The reader holds every offset and length of a file to its bounds before
 it gives a font: a file that is spoiled or cut is refused with

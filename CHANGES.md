@@ -6,6 +6,9 @@ Documentation:
 
 - The README links the components that work with DGX, in the ESP Component
   Registry and their sources: dgx-ui, dgx-di, dgx-ge, boards and dgx-lvgl.
+- `docs/fonts-en.md` and `docs/fonts-ru.md` name the ESP-IDF releases whose
+  `target_add_binary_data()` takes `ALIGN`: 6.0.3 and 6.1.1. They said 6.0,
+  which has none, nor has 6.1 or any 5.5 release up to 5.5.5.
 
 ## 0.12.9 - 2026-11-26
 
