@@ -896,7 +896,7 @@ Table 5. What each display does for the four calls; a dash is `ESP_ERR_NOT_SUPPO
 
 | Display | Orientation | Backlight | Display on/off | Brightness |
 | --- | --- | --- | --- | --- |
-| ILI9341, ST7789, ST7796S, ST7735, GC9A01, NV3041A, ST77916, a panel of `dgx_panel_init()` | by the controller | the line | DISPON / DISPOFF | - |
+| ILI9341, ST7789, ST7796S, ST7735, GC9A01, NV3041A, NV3007, ST77916, a panel of `dgx_panel_init()` | by the controller | the line | DISPON / DISPOFF | - |
 | CO5300 | by the controller; the picture in memory is turned with it, nothing is sent | - | DISPON / DISPOFF | the brightness of the panel, 256 steps |
 | AXS15231B | in the memory of the screen, laid onto the glass as it is sent; nothing is sent at a turn | the line | DISPON / DISPOFF | - |
 | a window on the computer | as the panel | - | the window goes dark | - |
@@ -1171,6 +1171,7 @@ with its transport: see [Getting started](../README.md#getting-started).
 | `CONFIG_DGX_ENABLE_SSD1351` | `drivers/ssd1351.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_SSD1322` | `drivers/ssd1322.c` | needs SPI or P8; selects `VSCREEN` |
 | `CONFIG_DGX_ENABLE_NV3041A` | `drivers/nv3041a.c` | needs SPI (its QSPI bus) |
+| `CONFIG_DGX_ENABLE_NV3007` | `drivers/nv3007.c` | needs SPI or P8 |
 | `CONFIG_DGX_ENABLE_ST77916` | `drivers/st77916.c` | needs SPI (its QSPI bus, or SPI for a panel of one data line) |
 | `CONFIG_DGX_ENABLE_CO5300` | `drivers/co5300.c` | needs SPI (its QSPI bus); selects `VSCREEN` |
 | `CONFIG_DGX_ENABLE_AXS15231B` | `drivers/axs15231b.c` | needs SPI (its QSPI bus); selects `VSCREEN` |

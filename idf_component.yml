@@ -1,5 +1,5 @@
 ## IDF Component Manager Manifest File
-version: "0.12.8"
+version: "0.12.9"
 description: "Display and graphics component for ESP32 with SPI, QSPI, I2C, parallel, RGB and MIPI-DSI display buses, virtual screens, drawing primitives, fonts with anti-aliased edges, handwritten text and morphing"
 url: https://github.com/jef-sure/esp32-component-dgx
 repository: https://github.com/jef-sure/esp32-component-dgx.git
@@ -35,6 +35,7 @@ tags:
   - ili9341
   - st7789
   - st7796s
+  - nv3007
   - st7735
   - gc9a01
   - ssd1351

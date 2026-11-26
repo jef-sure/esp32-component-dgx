@@ -17,6 +17,7 @@ board does not wire.
 | ST7796S | color TFT, 320x480 | SPI, P8 | `dgx_st7796s_init(bus, rst, backlight, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_SPI_ST7796S` |
 | ILI9341 | color TFT | SPI, P8 | `dgx_ili9341_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_SPI_ILI_9341` |
 | NV3041A | color TFT, 480x272 | QSPI | `dgx_nv3041a_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_NV3041A` |
+| NV3007 | color TFT, a 142x428 bar | SPI, P8 | `dgx_nv3007_init(bus, rst, backlight, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_NV3007` |
 | ST77916 | round color TFT, 360x360 | QSPI, SPI | `dgx_st77916_init(bus, rst, backlight, color_bits, cbo)` | `CONFIG_DGX_ENABLE_ST77916` |
 | CO5300 | color AMOLED, round 466x466; 480x480, 368x448 and 280x456 described | QSPI | `dgx_co5300_init(bus, rst, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_CO5300` |
 | AXS15231B | color IPS TFT, 320x480, the touch controller in the same chip | QSPI | `dgx_axs15231b_init(bus, rst, backlight, color_bits, cbo, resolution)` | `CONFIG_DGX_ENABLE_AXS15231B` |
@@ -87,6 +88,9 @@ Common parameters:
   from the code of their vendors and not yet tried on a module.
 - `resolution` (AXS15231B) — the glass: `DGX_AXS15231B_320X480`, the 3.5"
   glass of the Guition JC3248W535.
+- `resolution` (NV3007) — the panel: `DGX_NV3007_142X428`, the 2.79" bar,
+  or `DGX_NV3007_428X142` for it in landscape. The glass lies 12 columns
+  into the 168x428 memory of the controller.
 
 Every display is turned, lit and dimmed by the same calls, whatever its
 driver: `dgx_screen_orientation()`, `dgx_screen_backlight()`,
@@ -202,6 +206,17 @@ buses. The datasheet gives a write cycle of 66 ns, about 15 MHz, yet a
 module on an ESP32 drew right at 40 MHz on SPI, at both depths and in all
 eight orientations.
 
+NV3007 is the controller of 142x428 bar panels on SPI, 2.79-inch modules
+among them. The driver has the init table Arduino_GFX has for the 2.79"
+module, takes 16 or 18 bits, and keeps the backlight off until the panel
+memory is black. Such a module on an ESP32-C3 drew right at 20 MHz on SPI,
+at 16 bits and in all eight orientations; a fill of the whole screen took
+49 ms there, the time of its bits on the wire. Arduino_GFX has another table
+for the controller, of another glass: a module that shows washed-out colors
+or stripes with the driver's table takes that one, see
+[A panel of your own module](#a-panel-of-your-own-module). The table is in
+[examples/nv3007_demo](../examples/nv3007_demo), behind `DEMO_TABLE_MAIN`.
+
 CO5300 is the controller of AMOLED panels on QSPI, round ones among them,
 with the same commands and pixels on that bus as NV3041A. It does not draw
 every window right: a window one column wide or one row high draws nothing,
@@ -308,6 +323,7 @@ controller takes over that bus but DGX does not set up, where they are known:
 | CO5300 | QSPI | 16 | |
 | AXS15231B | QSPI | 16 | 18 |
 | NV3041A | QSPI | 16, 18 | |
+| NV3007 | SPI, P8 | 16, 18 | |
 | SSD1351 | SPI, P8 | 16, 18 | |
 | SSD1322 | P8, SPI | 4: 16 grays | |
 | SSD1306, SSD1309, SH1106 | SPI, I2C | 1 | |
@@ -326,12 +342,12 @@ on QSPI, and of the ST7796S on SPI have been seen on a panel; see [docs/18-bit-p
 
 ## A panel of your own module
 
-ST7735, ST7789, ST7796S, ILI9341, GC9A01, NV3041A and ST77916 are descriptions of
+ST7735, ST7789, ST7796S, ILI9341, GC9A01, NV3041A, NV3007 and ST77916 are descriptions of
 their panels, `dgx_panel_t` of [include/drivers/dgx_panel.h](../include/drivers/dgx_panel.h),
 and their constructors make a screen of one with `dgx_panel_init()`. Their
 headers have them under the names `dgx_panel_st7735`, `dgx_panel_st7735_80x160`, `dgx_panel_st7789_240x240`,
 `dgx_panel_st7789_240x320`, `dgx_panel_st7789_76x284`, `dgx_panel_st7789_135x240`, `dgx_panel_st7796s`, `dgx_panel_ili9341`, `dgx_panel_gc9a01`,
-`dgx_panel_nv3041a` and `dgx_panel_st77916`. A module of another glass is a
+`dgx_panel_nv3041a`, `dgx_panel_nv3007_142x428` and `dgx_panel_st77916`. A module of another glass is a
 copy of one with what the module has otherwise: the size of its glass and
 where the glass lies in the memory of the controller, the table of commands
 of its maker. For a glass of 240x280 that lies 20 rows down in the 240x320 of

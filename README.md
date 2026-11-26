@@ -74,14 +74,14 @@ which: [Chips](#chips).
 Add it to a project:
 
 ```sh
-idf.py add-dependency "jef-sure/dgx^0.12.7"
+idf.py add-dependency "jef-sure/dgx^0.12.9"
 ```
 
 or put it into `main/idf_component.yml` yourself:
 
 ```yaml
 dependencies:
-  jef-sure/dgx: "^0.12.7"
+  jef-sure/dgx: "^0.12.9"
 ```
 
 Then enable the drivers you need in `menuconfig`, under the **DGX** menu. A
@@ -1398,6 +1398,7 @@ idf.py flash monitor
 | [hw_morph_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/hw_morph_demo) | CYD | handwritten words morphing one into another |
 | [hw_soft_pen_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/hw_soft_pen_demo) | CYD or JC1060P470 | handwriting with a soft pen, lines that move to make room |
 | [st7796s_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/st7796s_demo) | ESP32 with a 320x480 ST7796S module on SPI | a check of a module: named colors and ramps at 16 and 18 bits a pixel, the eight ways the screen can lie on the glass, the time of a fill |
+| [nv3007_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/nv3007_demo) | ESP32-C3 with a 2.79" 142x428 NV3007 bar module on SPI | a check of a module: named colors and ramps, the eight ways the screen can lie on the glass, the time of a fill, lines one pixel wide |
 | [ssd1322_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/ssd1322_demo) | ESP32 with a 3.12" SSD1322 OLED on the 8-bit parallel bus | 16 grays, text in two fonts, lines and circles, a gray ramp |
 | [ssd1680_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/ssd1680_demo) | ESP32 with the WeAct Studio 2.9" e-paper module of black, white and red | text, the three colors and figures in landscape, the eight ways the screen can lie on the glass; the time of a refresh in the log |
 
@@ -1539,7 +1540,7 @@ libraries: [docs/benchmarks-en.md](https://github.com/jef-sure/esp32-component-d
 
 ## What's in the box
 
-- Panel drivers for ST7735, ST7789, ST7796S, ILI9341, NV3041A, ST77916, GC9A01, SSD1351, SSD1306,
+- Panel drivers for ST7735, ST7789, ST7796S, ILI9341, NV3041A, NV3007, ST77916, GC9A01, SSD1351, SSD1306,
   SSD1309, SH1106, ST7565R, ST7920, SSD1322, JD9165, JD9365, ST7701S and AXS15231B,
   CO5300 for AMOLED, and SSD1680 for e-paper of black, white and red; glasses on parallel RGB
   described by their timing.

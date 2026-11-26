@@ -1,7 +1,7 @@
 # DGX NV3007 check
 
-This example checks the NV3007 driver on a 2.79" 142x428 SPI bar module with
-an ESP32-C3. It draws a fixed set of test pictures and prints to the serial log
+This example checks a 2.79" 142x428 NV3007 bar module on SPI with an
+ESP32-C3. It draws a fixed set of test pictures and prints to the serial log
 what each picture should look like.
 
 ## Wiring
@@ -26,14 +26,19 @@ If your wiring differs, change the `DEMO_PIN_*` constants at the top of
 
 ## Build and flash
 
-You need ESP-IDF 5.2 or later. The example uses the driver from this checkout,
-so build it inside the repository:
+You need ESP-IDF 5.2 or later. From a checkout of the repository:
 
 ```sh
-git clone -b nv3007 https://github.com/jef-sure/esp32-component-dgx.git
+git clone https://github.com/jef-sure/esp32-component-dgx.git
 cd esp32-component-dgx/examples/nv3007_demo
 idf.py set-target esp32c3
 idf.py -p PORT flash monitor
+```
+
+Or as a project of its own, with DGX from the ESP Component Registry:
+
+```sh
+compote project create-from-example -p nv3007_check jef-sure/dgx:nv3007_demo
 ```
 
 Replace `PORT` with your board's serial port (for example `/dev/ttyUSB0` or
@@ -52,9 +57,11 @@ The pictures run in a loop of about a minute:
    labeled `y`, a large yellow F near the square, and on the other half of the
    screen the test number, the orientation's name and size, and a small yellow
    F. In every picture all text should read normally, not mirrored or upside
-   down, and the large F should look exactly like the small one, turned the
-   same way. Hold the module so that the text of the first of them reads
-   normally and keep it that way for all eight. Pictures 1 to 4 are portrait
+   down. The large F is drawn by the screen in its orientation, so in some
+   pictures it comes out mirrored or turned, as it must: it should look
+   exactly like the small F, which shows how it should look. Hold the module
+   so that the text of the first of them reads normally and keep it that way
+   for all eight. Pictures 1 to 4 are portrait
    (142x428), pictures 5 to 8 landscape (428x142).
 3. **Speed**. The whole screen flashes red, green, blue, white and black
    twice, quickly. Then it shows how long one full-screen fill took.
@@ -62,15 +69,15 @@ The pictures run in a loop of about a minute:
    horizontal lines that look the same. Rows 4 and 5: two dotted lines that
    look the same, fainter than rows 2 and 3.
 
-## What to report
+## What to look for
 
-Confirm that every picture looks as described above and that there are no
-artifacts: no stray pixels, noise, stripes or shifted lines, and no band of
-noise along a long edge of the glass. If something is off, describe it; a
-photo of that picture helps.
+Every picture should look as described above, with no artifacts: no stray
+pixels, noise, stripes or shifted lines, and no band of noise along a long
+edge of the glass.
 
-There are three switches at the top of `main/main.c` to try before reporting
-a problem, one at a time, flashing again after each:
+There are three switches at the top of `main/main.c` for a module that
+differs from the one the driver was checked on. Try them one at a time,
+flashing again after each:
 
 - Red and blue swapped (the `RED` bar is blue): set `DEMO_COLOR_ORDER` to
   `DgxScreenBGR`.
@@ -81,5 +88,7 @@ a problem, one at a time, flashing again after each:
   init table Arduino_GFX has for the 2.79" module; this starts it with the
   other table Arduino_GFX has for the NV3007.
 
-Say which switch, if any, made the pictures right. If the screen stays white
-or shows only noise, check the wiring and the 3.3V supply first.
+If the screen stays white or shows only noise, check the wiring and the 3.3V
+supply first. If something is still off on your module, open an issue and
+describe it, saying which switch, if any, made the pictures right; a photo of
+that picture helps.

@@ -1,12 +1,42 @@
 # Changes
 
-## Unreleased
+## 0.12.9 - 2026-11-26
+
+The NV3007 of 142x428 bar panels on SPI, checked on a 2.79-inch module, and
+a cookbook of small everyday recipes. Checked by host tests, builds for
+ESP32, ESP32-C3, ESP32-S3 and ESP32-P4 under IDF 5.5.4 and 6.1, and on the
+module.
+
+New:
+
+- **NV3007**: the controller of 142x428 bar panels, 2.79-inch modules among
+  them, on SPI or the 8-bit parallel bus: `dgx_nv3007_init(bus, rst,
+  backlight, color_bits, cbo, resolution)` with `DGX_NV3007_142X428` or
+  `DGX_NV3007_428X142`, enabled by `CONFIG_DGX_ENABLE_NV3007`, and its
+  description `dgx_panel_nv3007_142x428` for `dgx_panel_init()`.
+  - The memory of the controller is 168x428, and the glass lies 12 columns
+    into it. The init table is the one Arduino_GFX has for the 2.79"
+    module; 16 or 18 bits a pixel.
+  - A module on an ESP32-C3 drew right at 20 MHz on SPI, at 16 bits and in
+    all eight orientations; a fill of the whole screen took 49 ms, the time
+    of its bits on the wire.
+  - `examples/nv3007_demo` checks a module: named colors and ramps, the
+    eight orientations, the time of a fill, lines one pixel wide, and the
+    log says what each picture should look like. It has the other table
+    Arduino_GFX has for the controller, for a module of another glass.
 
 Fixed:
 
 - **`dgx_bits.h` builds without warnings under `-Wextra`**: eight of its
   inline functions left the pixel index unused, which a program built with
   `-Wextra` was warned about once for each.
+
+Tests:
+
+- test_nv3007: against a model of the controller's 168x428 memory, a point
+  drawn in each of the eight orientations comes out on the glass where the
+  turn puts it and nothing is written outside the glass; 16 and 18 bits and
+  no other depth, inversion off, the display on once the screen is black.
 
 Documentation:
 
