@@ -470,11 +470,12 @@ typedef struct {
 /* a run of a row out through a window of its own, as many bits as its pixels take */
 static void image_run_out(image_sink_t *s, uint8_t bits, int x, int y, bool more)
 {
-    /* a screen of pixels that share bytes would take the rest of the last byte as pixels from the start of the window
-       again; 12-bit pixels go to a display behind a bus, which takes whole bytes, with the rest of their last byte */
+    /* the bits the pixels take in the row: a pixel of 18 bits three bytes, and those of 12 bits with the rest of their
+       last byte, as a display behind a bus takes whole bytes; but pixels of 1 or 4 bits as many bits as they are, as a
+       screen of pixels that share bytes would take the rest of the last byte as pixels from the start of the window again */
     const uint32_t n = (uint32_t)(x - s->run);
     s->dst->set_area(s->dst, (uint16_t)s->run, (uint16_t)(x - 1), (uint16_t)y, (uint16_t)y);
-    s->dst->write_area(s->dst, s->base, bits == 12 ? dgx_color_points_to_bytes(bits, n) * 8u : n * bits);
+    s->dst->write_area(s->dst, s->base, bits < 8 ? n * bits : dgx_color_points_to_bytes(bits, n) * 8u);
     if (s->ring) s->at += dgx_color_points_to_bytes(bits, n);
     else if (s->shared && more && s->dst->wait) s->dst->wait(s->dst);
     s->run = -1;

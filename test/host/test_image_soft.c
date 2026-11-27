@@ -24,9 +24,10 @@
 
 /* ---- a display behind a bus: a 64x64 memory written through windows, every pixel written counted ---- */
 
-static uint8_t  command, params[8], part[2];
-static int      params_n, part_n, windows;
-static uint16_t sc, ec, sp, ep, column, page, glass[64][64];
+static uint8_t  command, params[8], part[3];
+static int      params_n, part_n, windows, pixel_bytes = 2; /* 3 for a panel of 18 bits */
+static uint16_t sc, ec, sp, ep, column, page;
+static uint32_t glass[64][64];
 static int      writes[64][64];
 
 /*
@@ -73,8 +74,9 @@ static void bus_data_now(const uint8_t *data, uint32_t bits)
     for (uint32_t i = 0; i < bits / 8; ++i) {
         if (command == 0x2C) {
             part[part_n++] = data[i];
-            if (part_n == 2) {
-                if (column < 64 && page < 64) glass[page][column] = (uint16_t)(part[0] << 8 | part[1]), ++writes[page][column];
+            if (part_n == pixel_bytes) {
+                const uint32_t v = pixel_bytes == 3 ? (uint32_t)part[0] << 16 | (uint32_t)part[1] << 8 | part[2] : (uint32_t)part[0] << 8 | part[1];
+                if (column < 64 && page < 64) glass[page][column] = v, ++writes[page][column];
                 part_n = 0;
                 if (++column > ec) column = sc, ++page;
             }
@@ -96,7 +98,7 @@ static void bus_sync(struct _dgx_bus_protocols_t *bus)
 static const dgx_lcd_init_cmd_t no_init[] = {
     {0, 0, 0xff, 0, {0}}
 };
-static const dgx_panel_t panel64 = {.name = "64", .width = 64, .height = 64, .colmod = {0, 0x55}, .init = no_init};
+static const dgx_panel_t panel64 = {.name = "64", .width = 64, .height = 64, .colmod = {0, 0x55, 0x66}, .init = no_init};
 
 #define RED   0xF800u
 #define BLUE  0x001Fu
@@ -434,6 +436,50 @@ int main(void)
             dgx_screen_destroy(&box);
         }
         dgx_screen_destroy(&narrow);
+
+        /* a panel of 18 bits, three bytes a pixel: every pixel of a run reaches the glass, by runs or in one window, as a
+           virtual screen of 18 bits has it */
+        {
+            static uint32_t tab18[256];
+            static uint8_t  vals[20 * 37], cover[20 * 37];
+            for (int i = 0; i < 256; ++i) tab18[i] = DGX_RGB_18(i * 37 & 255, i * 91 & 255, i * 53 & 255);
+            for (int y = 0; y < 37; ++y)
+                for (int x = 0; x < 20; ++x) vals[y * 20 + x] = (uint8_t)((x + 3 * y) % 8), cover[y * 20 + x] = (uint8_t)((x * 29 + y * 13) & 255);
+            static uint8_t nibbles[10 * 37];
+            for (int i = 0; i < 10 * 37; ++i) nibbles[i] = (uint8_t)(vals[2 * i] << 4 | vals[2 * i + 1]);
+            const dgx_image_t eight = {.width = 20, .height = 37, .format = DGX_IMAGE_8BPP, .data = vals};
+            const dgx_image_t four  = {.width = 20, .height = 37, .format = DGX_IMAGE_4BPP, .data = nibbles};
+            const dgx_image_t mask  = {.width = 20, .height = 37, .format = DGX_IMAGE_8BPP, .data = cover};
+            const dgx_image_t *const pics[] = {&eight, &four, &mask};
+            static const uint32_t ways[] = {0, DGX_IMAGE_OPAQUE, DGX_IMAGE_SOFT | DGX_IMAGE_BG, DGX_IMAGE_SOFT | DGX_IMAGE_OPAQUE};
+            pixel_bytes = 3;
+            dgx_screen_t *p18 = dgx_panel_init(&bus, &panel64, GPIO_NUM_NC, GPIO_NUM_NC, 18, DgxScreenRGB);
+            dgx_screen_t *r18 = dgx_vscreen_init(64, 64, 18, DgxScreenRGB);
+            CHECK(p18 && p18->color_bits == 18 && r18);
+            const uint32_t none = DGX_RGB_18(16, 32, 48);
+            int            failed = 0;
+            for (unsigned pi = 0; p18 && pi < 3; ++pi)
+                for (unsigned wi = 0; wi < 4; ++wi) {
+                    if (pi == 2 && !(ways[wi] & DGX_IMAGE_SOFT)) continue;
+                    for (int o = 0; o <= (int)DgxOutputTransverse; ++o)
+                        for (int scale = 1; scale <= 2; ++scale) {
+                            dgx_image_blit_t how = {.flags = ways[wi] | (pi == 2 ? DGX_IMAGE_SILHOUETTE : 0u), .color = DGX_RGB_18(255, 255, 255),
+                                                    .bg = DGX_RGB_18(0, 0, 255), .scale = (uint8_t)scale, .orientation = (dgx_output_orientation_t)o};
+                            if (pi < 2) how.colors = tab18;
+                            fill_now(p18, 0, 0, 64, 64, none);
+                            dgx_fill_rectangle(r18, 0, 0, 64, 64, none);
+                            CHECK(blit_now(p18, 22, 13, pics[pi], &how) == ESP_OK && dgx_image_blit(r18, 22, 13, pics[pi], &how) == ESP_OK);
+                            int same = 1;
+                            for (int y = 0; y < 64; ++y)
+                                for (int x = 0; x < 64; ++x) same &= glass[y][x] == dgx_get_pixel(r18, x, y);
+                            if (!same) ++failed;
+                        }
+                }
+            CHECK(failed == 0);
+            pixel_bytes = 2;
+            dgx_screen_destroy(&p18);
+            dgx_screen_destroy(&r18);
+        }
         /* with DGX_IMAGE_BG: the edges mixed with bg, a pixel not covered not written */
         fill_now(lcd, 0, 0, 64, 64, GRAY);
         memset(writes, 0, sizeof writes);

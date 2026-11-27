@@ -1,5 +1,20 @@
 # Changes
 
+## Unreleased
+
+Fixed:
+
+- A picture drawn by its colors without `DGX_IMAGE_OPAQUE` on a display of
+  18 bits behind a bus lost the last quarter of every run of a row: a pixel
+  of 18 bits lies in three bytes, and the run handed the window 18 bits a
+  pixel since 0.12.12. A run of 7 pixels showed 5. It hands it three bytes
+  a pixel again.
+
+Tests:
+
+- test_image_soft: a panel of 18 bits, three bytes a pixel, against a
+  virtual screen of 18 bits, by runs and in one window, in every turn.
+
 ## 0.12.12 - 2026-11-27
 
 Animations of GIF files, snapshots of a screen read off a device, and
