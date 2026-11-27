@@ -82,6 +82,18 @@ Fixed:
   of its own, which was filled with the next run, and freed at the end,
   while the run before could still be on its way from it by DMA. The row is
   now waited for, as the buffer of the bus is.
+- `tools/dgx_images.py` rounded every channel of a picture of pixels to the
+  nearest level, where `DGX_RGB_16()`, `dgx_rgb_to_16()` and
+  `dgx_screen_rgb()` keep its high bits: a color of a PNG came one level
+  off the same color written by the program in 52 of the 256 values of a
+  channel of 5 bits and 42 of 6 bits, so a background drawn in the color of
+  an icon met it with a step, and a texture key missed its pixels. The tool
+  keeps the high bits now, at every depth; a picture made again may differ
+  by one level in a channel. The opacity of a mask is still rounded.
+- A picture of 16 bits drawn on a screen of 18 or 24 bits took its
+  channels with their low bits 0, white as (248, 252, 248); they are
+  widened by their high bits now, as `dgx_vscreen_to_argb8888()` and the
+  DSI bus widen them, and white stays white.
 
 Tests:
 

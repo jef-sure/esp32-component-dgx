@@ -284,12 +284,16 @@ One rule for every depth, in two branches.
 - **Mask.** The opacity of the PNG, or its brightness when nothing in the
   set is transparent (the light the ink, or the dark with `INK DARK`),
   rounded to the nearest of 16 or 256 levels; `DITHER` spreads the error.
-- **Pixels.** Every color is rounded to the nearest of the depth; nothing is
-  refused. The brightness at 1, 4 and 8 bits is
-  `(77 r + 150 g + 29 b) / 256`, as `dgx_screen_rgb()` takes it.
+- **Pixels.** Every channel keeps its high bits, as `DGX_RGB_16()` and
+  `dgx_screen_rgb()` keep them, so a color of a picture is the color the
+  program writes with them: a background drawn in the color of a PNG meets
+  the PNG without a step, and a texture key of `dgx_rgb_to_16()` finds its
+  pixels. Nothing is refused. The brightness at 1, 4 and 8 bits is
+  `(77 r + 150 g + 29 b) / 256`, as `dgx_screen_rgb()` takes it, and keeps
+  its high bits too.
 - **`DITHER`** spreads the error of every pixel over its neighbours, at any
-  depth and of either kind: the error of the rounding or of the entry
-  chosen.
+  depth and of either kind: what the bits left out, or the entry chosen,
+  took from it.
 
 The colors of a PNG are taken as they are written: its gamma and color
 profile are not applied, as most programs do not apply them either. A PNG of

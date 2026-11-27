@@ -164,19 +164,21 @@ def gray(r, g, b):
 
 
 def screen_value(bits, r, g, b, a):
-    """what dgx_get_pixel() gives for the pixel of a virtual screen of the depth made of this color"""
+    """what dgx_get_pixel() gives for the pixel of a virtual screen of the depth made of this color: the high bits of
+    each channel, as DGX_RGB_12(), DGX_RGB_16(), DGX_RGB_18() and dgx_screen_rgb() take them, so that a color of a
+    picture is the color the program writes"""
     if bits == 1:
         return 1 if gray(r, g, b) >= 128 else 0
     if bits == 4:
-        return lvl(gray(r, g, b), 15) << 4
+        return gray(r, g, b) & 0xF0
     if bits == 8:
         return gray(r, g, b)
     if bits == 12:
-        return lvl(r, 15) << 12 | lvl(g, 15) << 8 | lvl(b, 15) << 4
+        return (r & 0xF0) << 8 | (g & 0xF0) << 4 | (b & 0xF0)
     if bits == 16:
-        return lvl(r, 31) << 11 | lvl(g, 63) << 5 | lvl(b, 31)
+        return (r & 0xF8) << 8 | (g & 0xFC) << 3 | (b & 0xF8) >> 3
     if bits == 18:
-        return lvl(r, 63) << 18 | lvl(g, 63) << 10 | lvl(b, 63) << 2
+        return (r & 0xFC) << 16 | (g & 0xFC) << 8 | (b & 0xFC)
     if bits == 24:
         return r << 16 | g << 8 | b
     return a << 24 | r << 16 | g << 8 | b

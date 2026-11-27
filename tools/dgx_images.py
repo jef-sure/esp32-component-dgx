@@ -431,6 +431,12 @@ def _level(v, top):
     return (v * top * 2 + 255) // 510
 
 
+def _high(v, bits):
+    """the high `bits` of a value 0..255: the level DGX_RGB_16() and dgx_screen_rgb() give, so that a color of a
+    picture is the same color the program writes"""
+    return v >> (8 - bits)
+
+
 def _value(q, top):
     """the value 0..255 of the level q of 0..top"""
     return (q * 510 + top) // (2 * top)
@@ -748,7 +754,7 @@ def _pixels(pictures, bits, dither, ink):
             vals = []
             for p in range(n):
                 g = min(255, max(0, int(round(work[p]))))
-                q = _level(g, top)
+                q = _high(g, bits)
                 if dither:
                     _spread(work, w, h, p % w, p // w, [g - _value(q, top)], 1)
                 if ink == "dark":
@@ -756,7 +762,8 @@ def _pixels(pictures, bits, dither, ink):
                 vals.append(q)
             data.append(_pack_pixels(vals, bits))
         else:
-            tops = [(1 << c) - 1 for c in _CHANNEL_BITS[bits]]
+            widths = _CHANNEL_BITS[bits]
+            tops = [(1 << c) - 1 for c in widths]
             work = [float(x) for o in range(0, len(rgba), 4) for x in rgba[o:o + 3]] if dither else None
             out = bytearray()
             pending = None
@@ -765,7 +772,7 @@ def _pixels(pictures, bits, dither, ink):
                     c = [min(255, max(0, int(round(work[p * 3 + k])))) for k in range(3)]
                 else:
                     c = list(rgba[p * 4:p * 4 + 3])
-                q = [_level(c[k], tops[k]) for k in range(3)]
+                q = [_high(c[k], widths[k]) for k in range(3)]
                 if dither:
                     _spread(work, w, h, p % w, p // w, [c[k] - _value(q[k], tops[k]) for k in range(3)], 3)
                 r, g, b = q

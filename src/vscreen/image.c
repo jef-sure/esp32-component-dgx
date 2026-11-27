@@ -383,7 +383,11 @@ static void image_read(const image_colors_t *c, const image_walk_t *wk, int u, i
         if (c->dst->color_bits == 16)
             for (int i = 0; i < n; ++i, p += dp) col[i] = (uint32_t)p[0] << 8 | p[1];
         else
-            for (int i = 0; i < n; ++i, p += dp) col[i] = dgx_screen_rgb(c->dst, p[0] & 0xf8u, (uint8_t)((p[0] << 5 | p[1] >> 3) & 0xfcu), (uint8_t)(p[1] << 3));
+            for (int i = 0; i < n; ++i, p += dp) {
+                /* each channel widened to 8 bits by its high bits again, as DGX widens 16 bits elsewhere: white stays white */
+                const unsigned r = p[0] >> 3, g = (unsigned)(p[0] & 7u) << 3 | p[1] >> 5, b = p[1] & 31u;
+                col[i] = dgx_screen_rgb(c->dst, (uint8_t)(r << 3 | r >> 2), (uint8_t)(g << 2 | g >> 4), (uint8_t)(b << 3 | b >> 2));
+            }
         if (im->alpha) {
             const uint8_t  *a  = im->alpha + (size_t)sy * (size_t)W + (size_t)sx;
             const ptrdiff_t da = !wk->swapped ? dx : wk->y_back ? -(ptrdiff_t)W : (ptrdiff_t)W;

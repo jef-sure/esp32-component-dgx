@@ -5,7 +5,7 @@
  * of the box written once and in one window, on a display behind a bus too, where without it a pixel is put whole
  * from half on; with DGX_IMAGE_BG a pixel partly covered is mixed with bg and one not covered left as it is. A
  * picture drawn by a table of colors lands as the same picture in one color does, in every turn and at every scale;
- * a picture of 16 bits on a screen of 24 bits takes its colors converted.
+ * a picture of 16 bits on a screen of 24 bits takes its colors widened by their high bits, white staying white.
  */
 #include <stdint.h>
 #include <string.h>
@@ -163,7 +163,12 @@ int main(void)
     /* a picture of 16 bits on a screen of 24 bits: its colors converted */
     dgx_screen_t *s24 = dgx_vscreen_init(8, 8, 24, DgxScreenRGB);
     CHECK(dgx_image_blit(s24, 0, 0, &solid, NULL) == ESP_OK);
-    CHECK(dgx_get_pixel(s24, 0, 0) == dgx_rgb_to_24(0xF8, 0, 0) && dgx_get_pixel(s24, 2, 0) == dgx_rgb_to_24(0xF8, 0xFC, 0xF8));
+    CHECK(dgx_get_pixel(s24, 0, 0) == dgx_rgb_to_24(0xFF, 0, 0) && dgx_get_pixel(s24, 1, 0) == dgx_rgb_to_24(0, 0, 0xFF) &&
+          dgx_get_pixel(s24, 2, 0) == dgx_rgb_to_24(0xFF, 0xFF, 0xFF));
+    /* each channel widened by its high bits again: a gray of 16, 32 and 16 levels is 132, 130 and 132 */
+    static const uint8_t mid16[] = {0x84, 0x10};
+    const dgx_image_t    mid     = {.width = 1, .height = 1, .format = DGX_IMAGE_16BPP, .data = mid16};
+    CHECK(dgx_image_blit(s24, 0, 2, &mid, NULL) == ESP_OK && dgx_get_pixel(s24, 0, 2) == dgx_rgb_to_24(132, 130, 132));
 
     /* values through a table of colors and opacities: on any screen, 0 transparent when alpha says so */
     static const uint8_t vals[] = {0x01, 0x23}; /* 2x2 of 4 bits: 0 1 / 2 3 */
