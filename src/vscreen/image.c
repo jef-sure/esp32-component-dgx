@@ -541,11 +541,13 @@ static __attribute__((noinline)) void image_row_to_row(dgx_screen_t *dst, const 
     image_row(dst, wk, scale, c, k, left, right, y, s, IMAGE_TO_ROW);
 }
 
+#if DGX_IMAGE_INDEXED
 static void image_row_to_memory(dgx_screen_t *dst, const image_walk_t *wk, int scale, const image_colors_t *c, const image_put_t *k, int left,
                                 int right, int y, image_sink_t *s)
 {
     image_row(dst, wk, scale, c, k, left, right, y, s, IMAGE_TO_MEMORY);
 }
+#endif
 
 static void image_row_to_runs(dgx_screen_t *dst, const image_walk_t *wk, int scale, const image_colors_t *c, const image_put_t *k, int left,
                               int right, int y, image_sink_t *s)
