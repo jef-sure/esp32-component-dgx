@@ -262,6 +262,9 @@ for (;;) {
 A delay of 0 or 10 ms is kept as 100 ms, as browsers play it. A DGX before
 0.12.12 reads such a file as a set of pictures without their delays.
 
+Example: [examples/gif_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/gif_demo),
+three GIFs on a CYD, or in a window on the computer.
+
 ## Colors
 
 One rule for every depth, in two branches.

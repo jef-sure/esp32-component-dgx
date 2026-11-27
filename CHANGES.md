@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+New:
+
+- **[examples/gif_demo](https://github.com/jef-sure/esp32-component-dgx/tree/main/examples/gif_demo)**:
+  three GIF animations on a CYD, made into files of pictures at build
+  time and drawn by the frame of the time: a spinner of 4 bits with a
+  transparent background, a bouncing ball of 8 bits, a bar played three
+  times as its GIF says; the frame and the time it took under each. Also on
+  the computer, in a window, by `make run`. The GIFs are drawn by
+  `make_gifs.py` with the standard library of Python alone. GIF files of an
+  example go into the package.
+
 Faster:
 
 - A picture of 1 or 4 bits drawn by its colors, a sprite above all, takes
@@ -27,6 +38,9 @@ Tests:
 
 - test_image_soft: a panel of 18 bits, three bytes a pixel, against a
   virtual screen of 18 bits, by runs and in one window, in every turn.
+- test/images writes the block of a GIF that tells how many times it is
+  played as GIF defines it, a name of 11 bytes and a sub-block of 3, which
+  other readers than DGX's take too.
 - test_image_soft: pictures of 1 and 4 bits against the same values in 8
   bits, which are drawn without the table, on displays behind a bus and in
   the memory of a virtual screen, with and without opacities, and soft over

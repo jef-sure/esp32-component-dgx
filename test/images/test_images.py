@@ -440,7 +440,7 @@ def gif(w, h, frames, palette, loops=None, delays=None, disposals=None, transpar
     table = bytes(c for e in palette for c in e) + bytes(3 * (256 - len(palette)))
     out = b"GIF89a" + struct.pack("<HHBBB", w, h, 0xF7, 0, 0) + table
     if loops is not None:
-        out += b"\x21\xff" + blocks(b"NETSCAPE2.0" + struct.pack("<BH", 1, loops))
+        out += b"\x21\xff\x0bNETSCAPE2.0\x03\x01" + struct.pack("<H", loops) + b"\0"
     for k, (left, top, fw, fh, indices) in enumerate(frames):
         disposal = disposals[k] if disposals else 0
         delay = delays[k] if delays else 0

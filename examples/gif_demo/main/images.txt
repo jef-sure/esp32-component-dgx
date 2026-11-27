@@ -1,0 +1,4 @@
+# the animations of the demo, drawn by make_gifs.py; each frame whole, with its delay and the times it is played
+spinner GIF spinner.gif BITS 4
+ball    GIF ball.gif BITS 8
+bar     GIF bar.gif BITS 4

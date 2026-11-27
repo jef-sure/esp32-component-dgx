@@ -142,6 +142,8 @@ files:
     - "examples/*/main/*.cpp"
     - "examples/*/main/*.h"
     - "examples/*/main/*.txt"
+    # the animations of gif_demo, which its build makes into files of pictures
+    - "examples/*/main/*.gif"
     - "test/fonts/Makefile"
     - "test/fonts/fonts.rules"
     - "test/fonts/keys.json"
