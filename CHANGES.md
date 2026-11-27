@@ -42,7 +42,13 @@ Faster:
   display; at a scale a row is made once for all the rows of its band.
   Before, every run of a row had a window of its own. On a virtual screen
   it is written into its memory; before, a row of memory was allocated at
-  every call. `src/vscreen/image.c` takes 2.5 KB more of flash on an ESP32.
+  every call. On a CYD (ESP32, ILI9341 on SPI, 16 bits), a cell of 106x80
+  drawn again with its paper and the picture in it: a picture of 100x70 of
+  4 bits through `colors` 11.9 ms -> 7.2 ms, of 16 bits 11.4 ms -> 6.2 ms;
+  a soft mask of 64x64 9.5 ms -> 6.0 ms, a picture of 16 bits with a plane
+  of opacity 9.1 ms -> 6.1 ms. Over a drawn background without
+  `DGX_IMAGE_OPAQUE`, where the runs keep their windows, 5% less.
+  `src/vscreen/image.c` takes 2.4 KB more of flash on an ESP32.
 
 Fixed:
 
