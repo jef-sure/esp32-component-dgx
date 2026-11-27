@@ -9,8 +9,11 @@ Faster:
   without `DGX_IMAGE_OPAQUE` too: on a display behind a bus, by runs, and
   in the memory of a virtual screen, unless a value partly opaque is mixed
   with what lies under it there. Before, every pixel was read, its opacity
-  looked at and its value found on its own. `src/vscreen/image.c` takes
-  1.7 KB more of flash on an ESP32.
+  looked at and its value found on its own. On a CYD (ESP32, ILI9341 on
+  SPI, 16 bits) a sprite of 100x70 over a drawn background, 125 runs, with
+  the cell of 106x80 it is drawn in: 16.6 ms -> 14.0 ms, faster than the
+  same sprite put from an 8-bit virtual screen with its value 0 left out
+  (15.4 ms). `src/vscreen/image.c` takes 1.7 KB more of flash on an ESP32.
 
 Fixed:
 
