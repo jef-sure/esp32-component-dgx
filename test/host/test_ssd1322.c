@@ -316,6 +316,11 @@ static void run(dgx_bus_protocols_t *bus, int m)
         on_panel(scr, 0, 0, &px, &py);
         CHECK(px == ((turn & 1) ? pw - 1 : 0) && py == ((turn & 2) ? ph - 1 : 0));
         CHECK(panel_gray(px, py) == 15);
+        /* a gray of dgx_screen_rgb() is a level the panel shows: a mid gray 8, white 15 */
+        dgx_set_pixel(scr, 0, 0, dgx_screen_rgb(scr, 128, 128, 128));
+        CHECK(panel_gray(px, py) == 8);
+        dgx_set_pixel(scr, 0, 0, dgx_screen_rgb(scr, 255, 255, 255));
+        CHECK(panel_gray(px, py) == 15);
         /* the mark is 5 pixels long along x of the screen: along the rows of the panel, or down its columns when the axes are swapped */
         on_panel(scr, 4, 0, &px, &py);
         CHECK(panel_gray(px, py) == 15);

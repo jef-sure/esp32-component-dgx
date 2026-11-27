@@ -4,10 +4,12 @@
 
 Animations of GIF files, snapshots of a screen read off a device, and
 pictures drawn by their colors two to three times faster, with
-`DGX_IMAGE_BG` for soft icons over a background of a known color.
-Checked by host tests and builds for ESP32, ESP32-C3, ESP32-S3 and
-ESP32-P4 under IDF 5.5.4 and 6.1; the pictures by their colors timed on a
-CYD.
+`DGX_IMAGE_BG` for soft icons over a background of a known color. The colors
+of pictures made of PNG files, of pictures of 16 bits on deeper screens and
+of `dgx_screen_rgb()` on screens of 4 and 32 bits are the colors the program
+writes and the screens draw. Checked by host tests and builds for ESP32,
+ESP32-C3, ESP32-S3 and ESP32-P4 under IDF 5.5.4 and 6.1; the pictures by
+their colors timed on a CYD.
 
 New:
 
@@ -94,6 +96,14 @@ Fixed:
   channels with their low bits 0, white as (248, 252, 248); they are
   widened by their high bits now, as `dgx_vscreen_to_argb8888()` and the
   DSI bus widen them, and white stays white.
+- `dgx_screen_rgb()` gave a screen of 4 bits a level 0 .. 15, where such a
+  screen, a virtual screen of 4 bits and the SSD1322 on it, keeps the level
+  in the high nibble: white came out black, and so did the colors of an
+  indexed picture by `dgx_image_file_colors()`. It gives `0x00` .. `0xF0`
+  now, the value the screen draws, as the mixing of soft text and of
+  pictures, the snapshots and `dgx_vscreen_to_argb8888()` take it. On a
+  screen of 32 bits it gave the brightness of the color, and gives the color
+  opaque now, `0xFFRRGGBB`.
 
 Tests:
 

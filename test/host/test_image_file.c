@@ -234,6 +234,21 @@ int main(void)
         CHECK(alpha[0] == 0 && colors[1] == dgx_rgb_to_16(0, 0, 0) && alpha[1] == 255 && colors[2] == dgx_rgb_to_16(10, 0, 0) && alpha[2] == 255 &&
               alpha[3] == 0);
         CHECK(dgx_image_file_colors(NULL, s16, colors, alpha) == ESP_ERR_INVALID_ARG);
+        /* an entry of white: white on a screen of every depth, as that screen draws it */
+        uint8_t *const entry = file + ((const uint8_t *)f.palette - file) + 4;
+        entry[0] = entry[1] = entry[2] = entry[3] = 255;
+        CHECK(dgx_image_file_open(file, n, &f) == ESP_OK && dgx_image_file_colors(&f, s16, colors, alpha) == ESP_OK && colors[2] == 0xFFFF);
+        static const struct {
+            uint8_t  bits;
+            uint32_t white;
+        } depths[] = {
+            {1, 1}, {4, 0xF0}, {8, 0xFF}, {12, 0xFFF0}, {18, 0xFCFCFC}, {24, 0xFFFFFF}, {32, 0xFFFFFFFFu}
+        };
+        for (unsigned i = 0; i < sizeof depths / sizeof *depths; ++i) {
+            dgx_screen_t *v = dgx_vscreen_init(2, 1, depths[i].bits, DgxScreenRGB);
+            CHECK(dgx_image_file_colors(&f, v, colors, alpha) == ESP_OK && colors[2] == depths[i].white && alpha[2] == 255);
+            dgx_screen_destroy(&v);
+        }
         dgx_screen_destroy(&s16);
     }
     CHECK(dgx_image_file_open(NULL, size, &f) == ESP_ERR_INVALID_ARG);

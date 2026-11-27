@@ -97,6 +97,25 @@ int main(void)
     CHECK(dgx_screen_brightness(s, 128) == ESP_ERR_NOT_SUPPORTED);
     dgx_screen_wait(s);
 
+    /* a color of dgx_screen_rgb() is one a virtual screen of every depth keeps as it is, and shows as that color: white
+       white, black black, a gray of every depth gray, as a window on a PC takes the screen */
+    {
+        static const uint8_t depths[] = {1, 4, 8, 12, 16, 18, 24, 32};
+        for (unsigned i = 0; i < sizeof depths; ++i) {
+            dgx_screen_t  *v = dgx_vscreen_init(3, 1, depths[i], DgxScreenRGB);
+            const uint32_t white = dgx_screen_rgb(v, 255, 255, 255), black = dgx_screen_rgb(v, 0, 0, 0), gray = dgx_screen_rgb(v, 160, 160, 160);
+            dgx_set_pixel(v, 0, 0, white), dgx_set_pixel(v, 1, 0, black), dgx_set_pixel(v, 2, 0, gray);
+            CHECK(dgx_get_pixel(v, 0, 0) == white && dgx_get_pixel(v, 1, 0) == black && dgx_get_pixel(v, 2, 0) == gray);
+            uint32_t argb[3];
+            CHECK(dgx_vscreen_to_argb8888(v, 0, 0, 3, 1, NULL, argb, 3));
+            CHECK(argb[0] == 0xFFFFFFFFu && argb[1] == 0xFF000000u);
+            const uint32_t r = argb[2] >> 16 & 0xFF, g = argb[2] >> 8 & 0xFF, b = argb[2] & 0xFF;
+            if (depths[i] == 1) CHECK(argb[2] == 0xFFFFFFFFu); /* from a mid gray on, light */
+            else CHECK(r >= 144 && r <= 176 && g >= 144 && g <= 176 && b >= 144 && b <= 176); /* a level of 4 bits off at most */
+            dgx_screen_destroy(&v);
+        }
+    }
+
     /* a color by the depth of the screen; below 12 bits, the brightness as the depth holds it */
     CHECK(dgx_screen_rgb(s, 255, 128, 8) == dgx_rgb_to_16(255, 128, 8));
     {
@@ -109,7 +128,9 @@ int main(void)
         d.color_bits = 8;
         CHECK(dgx_screen_rgb(&d, 0, 0, 0) == 0 && dgx_screen_rgb(&d, 255, 255, 255) == 255 && dgx_screen_rgb(&d, 0, 255, 0) == 149);
         d.color_bits = 4;
-        CHECK(dgx_screen_rgb(&d, 0, 0, 0) == 0 && dgx_screen_rgb(&d, 255, 255, 255) == 15 && dgx_screen_rgb(&d, 128, 128, 128) == 8);
+        CHECK(dgx_screen_rgb(&d, 0, 0, 0) == 0 && dgx_screen_rgb(&d, 255, 255, 255) == 0xF0 && dgx_screen_rgb(&d, 128, 128, 128) == 0x80);
+        d.color_bits = 32;
+        CHECK(dgx_screen_rgb(&d, 255, 128, 8) == 0xFFFF8008u && dgx_screen_rgb(&d, 0, 0, 0) == 0xFF000000u);
         d.color_bits = 1;
         CHECK(dgx_screen_rgb(&d, 0, 0, 0) == 0 && dgx_screen_rgb(&d, 255, 255, 255) == 1);
         CHECK(dgx_screen_rgb(&d, 127, 127, 127) == 0 && dgx_screen_rgb(&d, 129, 129, 129) == 1);

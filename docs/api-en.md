@@ -551,10 +551,12 @@ Code that does not know the depth it will run at, a library or one program
 for several boards, asks the screen: `dgx_screen_rgb(scr, r, g, b)` from
 [include/dgx_screen.h](../include/dgx_screen.h) packs a color as the depth of
 `scr` takes it, at run time. On 12, 16, 18 and 24 bits it gives what the
-packers above give. A screen of fewer bits has no colors and gets the
-brightness of the color: 0 or 1 on a 1-bit screen, 0 .. 15 on a 4-bit one,
-0 .. 255 on an 8-bit one. The inks of e-paper are not a brightness:
-`dgx_rgb_to_bwr()` gives them.
+packers above give, on 32 bits the color opaque, `0xFFRRGGBB`. A screen of
+fewer bits has no colors and gets the brightness of the color: 0 or 1 on a
+1-bit screen; one of 16 levels in the high nibble on a 4-bit one,
+`0x00` .. `0xF0`, as the SSD1322 takes it; 0 .. 255 on an 8-bit one. Every
+value is one the screen draws as it is. The inks of e-paper are not a
+brightness: `dgx_rgb_to_bwr()` gives them.
 
 #### Tables for 8-bit screens
 

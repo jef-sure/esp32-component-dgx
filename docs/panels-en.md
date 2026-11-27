@@ -416,7 +416,8 @@ rst)`. Other modules wire their glass to other parts of its memory:
 and have not been tried on a module. The controller writes its memory in
 groups of four pixels, so the driver keeps the picture in a 4-bit virtual
 screen (8 KB for 256x64) and sends what has changed. A color is a gray level, 0 (dark) to 15 (bright), in the high
-nibble: `15 << 4`. On the 8-bit parallel bus the controller needs a write
+nibble: `15 << 4`, and `dgx_screen_rgb(scr, r, g, b)` gives the level of
+the brightness of a color so. On the 8-bit parallel bus the controller needs a write
 cycle of 300 ns or longer, a clock of 3.3 MHz at most. The picture is turned
 by `dgx_screen_orientation()` in software, as on the ST7920; brightness is
 set by `dgx_ssd1322_contrast()` (0..255) and `dgx_ssd1322_brightness()`

@@ -492,11 +492,13 @@ static inline int dgx_screen_batch_end(dgx_screen_t *_scr)
  * @brief A color of this screen from red, green and blue of 8 bits each, packed as the depth of the screen takes it.
  *
  * For code that does not know the depth it will run at. On a screen of 12,
- * 16, 18 or 24 bits it is what dgx_rgb_to_12() .. dgx_rgb_to_24() give. A
- * screen of fewer bits has no colors and gets the brightness of the color: 0
- * or 1 on a 1-bit screen, 1 from a mid gray on; 0 .. 15 on a 4-bit one;
- * 0 .. 255 on an 8-bit one, which suits a table that runs from dark to
- * bright. The inks of e-paper are not a brightness: dgx_rgb_to_bwr() gives
+ * 16, 18 or 24 bits it is what dgx_rgb_to_12() .. dgx_rgb_to_24() give, and
+ * on one of 32 bits the color opaque, 0xFFRRGGBB. A screen of fewer bits has
+ * no colors and gets the brightness of the color: 0 or 1 on a 1-bit screen,
+ * 1 from a mid gray on; one of 16 levels in the high nibble on a 4-bit one,
+ * 0x00 .. 0xF0, as it keeps a pixel; 0 .. 255 on an 8-bit one, which suits a
+ * table that runs from dark to bright. Every value is one the screen draws
+ * as it is. The inks of e-paper are not a brightness: dgx_rgb_to_bwr() gives
  * them.
  */
 static inline uint32_t dgx_screen_rgb(const dgx_screen_t *_scr, uint8_t r, uint8_t g, uint8_t b)
@@ -510,12 +512,14 @@ static inline uint32_t dgx_screen_rgb(const dgx_screen_t *_scr, uint8_t r, uint8
         return DGX_RGB_18(r, g, b);
     case 24:
         return DGX_RGB_24(r, g, b);
+    case 32:
+        return 0xff000000u | DGX_RGB_24(r, g, b);
     default:
         break;
     }
     const uint32_t gray = (r * 77u + g * 150u + b * 29u) >> 8;
     if (_scr->color_bits == 1) return gray >= 128;
-    return _scr->color_bits < 8 ? gray >> (8 - _scr->color_bits) : gray;
+    return _scr->color_bits == 4 ? gray & 0xf0u : gray;
 }
 
 /**
