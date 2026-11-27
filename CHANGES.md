@@ -49,13 +49,14 @@ Faster:
   every call. Without `DGX_IMAGE_OPAQUE` the runs of a display behind a bus
   go one after another through the halves of its buffer, each made while
   the one before is on the wire. On a CYD (ESP32, ILI9341 on SPI, 16 bits),
-  a cell of 106x80 drawn again with its paper and the picture in it, before
-  the loops for each format: a picture of 100x70 of 4 bits through
-  `colors` 11.9 ms -> 7.2 ms, of 16 bits 11.4 ms -> 6.2 ms; a soft mask of
-  64x64 9.5 ms -> 6.0 ms, a picture of 16 bits with a plane of opacity
-  9.1 ms -> 6.1 ms. Over a drawn background without `DGX_IMAGE_OPAQUE`,
-  where the runs keep their windows, 5% less. `src/vscreen/image.c` takes
-  4.6 KB more of flash on an ESP32.
+  a cell of 106x80 drawn again with its paper and the picture in it: a
+  picture of 100x70 of 4 bits through `colors` 11.95 ms -> 4.06 ms, of 16
+  bits 11.43 ms -> 4.08 ms, faster than the same pictures put through an
+  8-bit virtual screen and a map (4.86 ms) or as a virtual screen of 16
+  bits (4.45 ms); a soft mask of 64x64 9.51 ms -> 4.81 ms, a picture of 16
+  bits with a plane of opacity 9.10 ms -> 4.59 ms. Over a drawn background
+  without `DGX_IMAGE_OPAQUE`, where every run keeps a window of its own, 4%
+  less. `src/vscreen/image.c` takes 4 KB more of flash on an ESP32.
 
 Fixed:
 
