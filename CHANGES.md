@@ -13,17 +13,18 @@ New:
   this one reads it as a set. `dgx_image_file_frame()` gives the frame to
   show a time after the animation began, its loops counted, and
   `dgx_image_file_delay()` the delay of one; `dgx_image_file_t` has
-  `delays` and `loops` at its end. The GIF reader is in Python of its own
-  library, as the PNG one.
+  `delays` and `loops` at its end. The GIF reader, like the PNG one, needs
+  nothing but the standard library of Python.
 - **Snapshots of a screen**, `dgx_snapshot.h`: `dgx_screen_snapshot()`
   hands the picture of a screen that can be read, or of a rectangle of it,
   as a `.dgxi` file to a function of the program a piece at a time;
   `dgx_screen_snapshot_print()` writes it to the console as base64 between
-  marks, with its length and CRC-32, giving a tick away every 4 KB.
+  marks, with its length and CRC-32, and lets other tasks run for a tick
+  after every 4 KB, so that a long snapshot does not trip the task
+  watchdog.
   `tools/dgx_snapshot.py` reads them off a serial port or a saved log and
   writes a `.dgxi` file and a PNG of each; `tools/dgx_images.py png` turns
   any `.dgxi` picture into a PNG.
-
 - **`DGX_IMAGE_BG`** for `dgx_image_blit()` with `DGX_IMAGE_SOFT`: a pixel
   partly covered is mixed with `bg`, not with what lies on the screen, and
   one not covered is left as it is, as soft letters are with
@@ -101,9 +102,9 @@ Tests:
 
 Documentation:
 
-- Animations in `docs/pictures-en.md` and `-ru.md`; snapshots in the API
-  reference and the cookbook.
-
+- Animations, `DGX_IMAGE_BG` and the ways a picture by its colors goes out
+  in `docs/pictures-en.md` and `-ru.md`; snapshots in the API reference and
+  the cookbook.
 - The cookbook turns a picture by any angle: a needle of 16 bits of a
   `.dgxi` file put on the texture quad around its origin, its edges soft,
   its plane of opacity the alpha map; checked on a CYD and the Guition
