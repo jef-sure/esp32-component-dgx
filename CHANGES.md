@@ -1,6 +1,12 @@
 # Changes
 
-## Unreleased
+## 0.12.13 - 2026-11-27
+
+An example of GIF animations on a CYD, faster sprites of 1 or 4 bits drawn
+by their colors, and pictures drawn by their colors on 18-bit displays
+whole again: since 0.12.12 every run lost its end. Checked by host tests
+and builds for ESP32, ESP32-C3, ESP32-S3 and ESP32-P4 under IDF 5.5.4 and
+6.1; the example run on a CYD and the sprite timed on one.
 
 New:
 
