@@ -164,9 +164,9 @@ typedef struct {
  * DGX_IMAGE_SOFT a pixel of an opacity under 128 is left out and the others
  * are put whole; with it the edges are soft, see DGX_IMAGE_SOFT. On a virtual
  * screen the pixels are written in its memory; with DGX_IMAGE_OPAQUE on a
- * display behind a bus the box goes in one window, a row at a time through
- * the buffer of the bus; elsewhere a row goes by runs, each through a window
- * of the screen.
+ * display behind a bus the box goes in one window, through the halves of the
+ * buffer of the bus, a row made while the one before is on the wire;
+ * elsewhere a row goes by runs, each through a window of the screen.
  *
  * With dgx_image_blit_t::scale every pixel of the picture is a square of
  * scale x scale pixels, on any screen, at any depth and turn. The square of

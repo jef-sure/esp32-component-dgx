@@ -16,6 +16,7 @@
 #include "dgx_image.h"
 #include "dgx_vscreen.h"
 #include "esp_heap_caps.h"
+#include "dgx_halves_priv.h"
 #include "../dgx_clip_priv.h"
 #include "../dgx_mix_priv.h"
 #ifdef ESP_PLATFORM
@@ -330,38 +331,22 @@ static bool image_window_scaled(dgx_screen_t *dst, const image_walk_t *wk, int s
 /*
  * ---- A picture by its colors: 16 bits, or values through `colors`, or the coverage of one color, soft or not ----
  *
- * Every pixel of the destination is looked up in the picture: its color, in the format of the screen, and its
- * opacity. The pixels a row writes go into a row of memory and out by runs, each through a window of the screen, as
- * the texture quad sends its rows: a display behind a bus gets one window a run, a virtual screen and a DSI display
- * take the same calls.
+ * A row of the destination is walked along a row of the turned picture. Its pixels are read a piece at a time into
+ * their colors, in the format of the screen, and their opacities, by a loop for each format that steps from pixel to
+ * pixel of the picture; each is then put on as many pixels of the row as the scale makes it, with no division a
+ * pixel. A virtual screen takes them into its memory. With DGX_IMAGE_OPAQUE a display behind a bus takes the box in
+ * one window, through the halves of its buffer: a row is made while the one before is on the wire. Elsewhere a row
+ * goes by runs, each through a window of the screen, as the texture quad sends its rows.
  */
 typedef struct {
-    const dgx_image_t *image;
-    unsigned           format;
-    uint32_t           color;    /* the coverage of one color: what covers */
-    bool               coverage; /* a value of 4 or 8 bits is how much of color covers the pixel */
-    const uint32_t    *colors;   /* the color of each value */
-    const uint8_t     *alpha;    /* the opacity of each value; NULL for 0 transparent, the rest opaque */
+    const dgx_image_t  *image;
+    unsigned            format;
+    uint32_t            color;    /* the coverage of one color: what covers */
+    bool                coverage; /* a value of 4 or 8 bits is how much of color covers the pixel */
+    const uint32_t     *colors;   /* the color of each value */
+    const uint8_t      *alpha;    /* the opacity of each value; NULL for 0 transparent, the rest opaque */
     const dgx_screen_t *dst;
 } image_colors_t;
-
-/* the color, in the format of the screen, and the opacity of the pixel at column sx of row sy of the picture */
-static inline uint32_t image_color(const image_colors_t *c, const uint8_t *row, int sx, int sy, unsigned *a)
-{
-    if (c->format == DGX_IMAGE_16BPP) {
-        const uint32_t v = (uint32_t)row[2 * sx] << 8 | row[2 * sx + 1];
-        *a               = c->image->alpha ? c->image->alpha[(size_t)sy * c->image->width + (size_t)sx] : 255u;
-        if (c->dst->color_bits == 16) return v;
-        return dgx_screen_rgb(c->dst, (uint8_t)((v >> 8) & 0xf8u), (uint8_t)((v >> 3) & 0xfcu), (uint8_t)((v << 3) & 0xf8u));
-    }
-    const unsigned p = image_value(row, c->format, sx);
-    if (c->coverage) {
-        *a = c->format == DGX_IMAGE_4BPP ? p * 17u : p;
-        return c->color;
-    }
-    *a = c->alpha ? c->alpha[p] : p ? 255u : 0u;
-    return c->colors[p];
-}
 
 /* how the pixels of a picture by its colors are put: what partly covered ones are mixed with */
 typedef struct {
@@ -373,16 +358,59 @@ typedef struct {
     uint8_t  bits;
 } image_put_t;
 
-/* the pixel x, y of the destination: false when it is left as it is, else its value in *v */
-static inline bool image_pixel(dgx_screen_t *dst, const image_walk_t *wk, int scale, const image_colors_t *c, const image_put_t *k, int x, int y,
-                               uint32_t *v)
+/* pixels of the picture read at a time: their colors and opacities lie on the stack */
+#define IMAGE_PIECE 32
+
+/* the colors and opacities of n pixels of row v of the turned picture, from its pixel u on */
+static void image_read(const image_colors_t *c, const image_walk_t *wk, int u, int v, int n, uint32_t *col, uint8_t *al)
 {
-    const int      u = (x - wk->box_x) / scale, w = (y - wk->box_y) / scale;
-    const int      W = wk->image->width, H = wk->image->height;
-    const int      sx = wk->x_back ? W - 1 - (wk->swapped ? w : u) : (wk->swapped ? w : u);
-    const int      sy = wk->y_back ? H - 1 - (wk->swapped ? u : w) : (wk->swapped ? u : w);
-    unsigned       a;
-    const uint32_t color = image_color(c, wk->image->data + (size_t)sy * wk->stride, sx, sy, &a);
+    const dgx_image_t *im = c->image;
+    const int          W = im->width, H = im->height;
+    int                sx = wk->x_back ? W - 1 - (wk->swapped ? v : u) : (wk->swapped ? v : u);
+    const int          sy = wk->y_back ? H - 1 - (wk->swapped ? u : v) : (wk->swapped ? u : v);
+    const uint8_t     *row = im->data + (size_t)sy * wk->stride;
+    /* along u the picture is walked along its row, or down or up its column when turned */
+    const int       dx   = wk->swapped ? 0 : wk->x_back ? -1 : 1;
+    const ptrdiff_t drow = !wk->swapped ? 0 : wk->y_back ? -(ptrdiff_t)wk->stride : (ptrdiff_t)wk->stride;
+    switch (c->format) {
+    case DGX_IMAGE_16BPP: {
+        const uint8_t  *p  = row + 2 * sx;
+        const ptrdiff_t dp = wk->swapped ? drow : 2 * dx;
+        if (c->dst->color_bits == 16)
+            for (int i = 0; i < n; ++i, p += dp) col[i] = (uint32_t)p[0] << 8 | p[1];
+        else
+            for (int i = 0; i < n; ++i, p += dp) col[i] = dgx_screen_rgb(c->dst, p[0] & 0xf8u, (uint8_t)((p[0] << 5 | p[1] >> 3) & 0xfcu), (uint8_t)(p[1] << 3));
+        if (im->alpha) {
+            const uint8_t  *a  = im->alpha + (size_t)sy * (size_t)W + (size_t)sx;
+            const ptrdiff_t da = !wk->swapped ? dx : wk->y_back ? -(ptrdiff_t)W : (ptrdiff_t)W;
+            for (int i = 0; i < n; ++i, a += da) al[i] = *a;
+        } else {
+            memset(al, 255, (size_t)n);
+        }
+        return;
+    }
+    case DGX_IMAGE_8BPP: {
+        const uint8_t  *p  = row + sx;
+        const ptrdiff_t dp = wk->swapped ? drow : dx;
+        if (c->coverage)
+            for (int i = 0; i < n; ++i, p += dp) col[i] = c->color, al[i] = *p;
+        else
+            for (int i = 0; i < n; ++i, p += dp) col[i] = c->colors[*p], al[i] = c->alpha ? c->alpha[*p] : *p ? 255u : 0u;
+        return;
+    }
+    default: /* pixels that share bytes: the column moves along the row, or the row along the column */
+        for (int i = 0; i < n; ++i, sx += dx, row += drow) {
+            const unsigned q = image_value(row, c->format, sx);
+            if (c->coverage) col[i] = c->color, al[i] = (uint8_t)(c->format == DGX_IMAGE_4BPP ? q * 17u : q * 255u);
+            else col[i] = c->colors[q], al[i] = c->alpha ? c->alpha[q] : q ? 255u : 0u;
+        }
+        return;
+    }
+}
+
+/* what a pixel of the picture puts on the pixel x, y of the destination: false when it is left as it is */
+static inline bool image_put(dgx_screen_t *dst, const image_put_t *k, uint32_t color, unsigned a, int x, int y, uint32_t *v)
+{
     if (a == 255u) return *v = color, true;
     if (k->opaque) return *v = a == 0u ? k->bg : k->mix ? dgx_mix_color(k->bits, k->bg, color, a) : a >= 128u ? color : k->bg, true;
     if (!a) return false;
@@ -390,6 +418,144 @@ static inline bool image_pixel(dgx_screen_t *dst, const image_walk_t *wk, int sc
     if (k->under) return *v = dgx_mix_color(k->bits, dgx_get_pixel(dst, x, y), color, a), true;
     if (a >= 128u) return *v = color, true;
     return false;
+}
+
+/* a value into a row of pixels of `bits` from `base`, the i-th of it: 16 bits in place, the others by a call */
+static void image_store_other(uint8_t bits, uint8_t *base, uint32_t i, uint32_t v)
+{
+    dgx_fill_buf_value(bits, base + (size_t)i * (bits == 18 ? 24u : bits) / 8u, (int)i, v);
+}
+
+static inline void image_store(uint8_t bits, uint8_t *base, uint32_t i, uint32_t v)
+{
+    if (bits != 16) {
+        image_store_other(bits, base, i, v);
+        return;
+    }
+    uint8_t *p = base + 2u * i;
+    p[0] = (uint8_t)(v >> 8), p[1] = (uint8_t)v;
+}
+
+/* where the pixels of a row go */
+enum { IMAGE_TO_ROW, IMAGE_TO_MEMORY, IMAGE_TO_RUNS };
+
+typedef struct {
+    dgx_screen_t *dst;
+    uint8_t      *base;   /* the row in a buffer; the memory of a virtual screen; the buffer of the runs */
+    uint32_t      first;  /* the index the pixel x = 0 of the row has from base */
+    bool          window; /* the runs go through windows, else a pixel at a time */
+    bool          shared; /* the buffer of the runs is that of the bus: it is waited for before it is filled again */
+    int           run;    /* where the run being made starts, -1 for none */
+} image_sink_t;
+
+/* a run of a row out through a window of its own, as many bits as its pixels take */
+static void image_run_out(image_sink_t *s, uint8_t bits, int x, int y, bool more)
+{
+    /* a screen of pixels that share bytes would take the rest of the last byte as pixels from the start of the window
+       again; 12-bit pixels go to a display behind a bus, which takes whole bytes, with the rest of their last byte */
+    const uint32_t n = (uint32_t)(x - s->run);
+    s->dst->set_area(s->dst, (uint16_t)s->run, (uint16_t)(x - 1), (uint16_t)y, (uint16_t)y);
+    s->dst->write_area(s->dst, s->base, bits == 12 ? dgx_color_points_to_bytes(bits, n) * 8u : n * bits);
+    if (s->shared && more && s->dst->wait) s->dst->wait(s->dst);
+    s->run = -1;
+}
+
+/* the pixel x, y: put to the sink, or left as it is */
+static inline __attribute__((always_inline)) void image_sink(image_sink_t *s, int to, uint8_t bits, int x, int y, bool put, uint32_t v)
+{
+    if (to == IMAGE_TO_ROW) {
+        image_store(bits, s->base, (uint32_t)x - s->first, v);
+    } else if (to == IMAGE_TO_MEMORY) {
+        if (put) image_store(bits, s->base, s->first + (uint32_t)x, v);
+    } else if (put) {
+        if (!s->window) {
+            dgx_set_pixel(s->dst, x, y, v);
+            return;
+        }
+        if (s->run < 0) s->run = x;
+        image_store(bits, s->base, (uint32_t)(x - s->run), v);
+    } else if (s->run >= 0) {
+        image_run_out(s, bits, x, y, true);
+    }
+}
+
+/* the pixels left .. right - 1 of the row y of the destination, to the sink */
+static inline __attribute__((always_inline)) void image_row(dgx_screen_t *dst, const image_walk_t *wk, int scale, const image_colors_t *c,
+                                                            const image_put_t *k, int left, int right, int y, image_sink_t *s, int to)
+{
+    const int v    = (y - wk->box_y) / scale;
+    const int last = (right - 1 - wk->box_x) / scale; /* the last pixel u of the picture the row shows */
+    uint32_t  col[IMAGE_PIECE];
+    uint8_t   al[IMAGE_PIECE];
+    int       x = left;
+    for (int u = (left - wk->box_x) / scale; u <= last;) {
+        const int n = DGX_MIN(IMAGE_PIECE, last - u + 1);
+        image_read(c, wk, u, v, n, col, al);
+        for (int i = 0; i < n; ++i, ++u) {
+            const int end   = scale == 1 ? x + 1 : DGX_MIN(right, wk->box_x + (u + 1) * scale);
+            uint32_t  value = 0;
+            bool      put   = false;
+            /* the pixels of a piece take one value, unless each is mixed with what lies under it */
+            for (const int from = x; x < end; ++x) {
+                if (x == from || k->under) put = image_put(dst, k, col[i], al[i], x, y, &value);
+                image_sink(s, to, k->bits, x, y, put, value);
+            }
+        }
+    }
+    if (to == IMAGE_TO_RUNS && s->run >= 0) image_run_out(s, k->bits, right, y, false);
+}
+
+/* image_row() made once for each place the pixels go */
+static void image_row_to_row(dgx_screen_t *dst, const image_walk_t *wk, int scale, const image_colors_t *c, const image_put_t *k, int left,
+                             int right, int y, image_sink_t *s)
+{
+    image_row(dst, wk, scale, c, k, left, right, y, s, IMAGE_TO_ROW);
+}
+
+static void image_row_to_memory(dgx_screen_t *dst, const image_walk_t *wk, int scale, const image_colors_t *c, const image_put_t *k, int left,
+                                int right, int y, image_sink_t *s)
+{
+    image_row(dst, wk, scale, c, k, left, right, y, s, IMAGE_TO_MEMORY);
+}
+
+static void image_row_to_runs(dgx_screen_t *dst, const image_walk_t *wk, int scale, const image_colors_t *c, const image_put_t *k, int left,
+                              int right, int y, image_sink_t *s)
+{
+    image_row(dst, wk, scale, c, k, left, right, y, s, IMAGE_TO_RUNS);
+}
+
+/*
+ * Every pixel of the box on a display behind a bus whose pixels are of whole bytes and whose buffer holds two rows:
+ * one window, the rows made into the halves of the buffer, one while the other is on the wire. At a scale the rows
+ * of a band are one row of the picture, made once and copied, from a half that is not written over before the copy.
+ */
+static bool image_halves(dgx_screen_t *dst, const image_walk_t *wk, int scale, const image_colors_t *c, const image_put_t *k, int left, int top,
+                         int right, int bottom)
+{
+    const uint8_t bytes = dgx_vscreen_pixel_bytes(dst->color_bits);
+    if (!bytes || dst->screen_subtype != DgxPhysicalScreenWithBus || !dst->set_area || !dst->write_area || !dst->wait) return false;
+    const dgx_bus_protocols_t *bus       = ((dgx_screen_with_bus_t *)dst)->bus;
+    const uint32_t             row_bytes = (uint32_t)(right - left) * bytes;
+    const uint32_t             all_bytes = row_bytes * (uint32_t)(bottom - top);
+    if (!bus->buffer || (all_bytes > bus->buffer_len && row_bytes > bus->buffer_len / 2u / bytes * bytes)) return false;
+    dgx_vscreen_halves_t h;
+    dgx_vscreen_halves_window(&h, dst, left, top, right - left, bottom - top, bytes);
+    const uint8_t *made     = NULL;
+    int            made_row = -1; /* the row of the picture made last */
+    for (int y = top; y < bottom; ++y) {
+        const int row = (y - wk->box_y) / scale;
+        if (row == made_row) {
+            memmove(h.at, made, row_bytes);
+        } else {
+            image_sink_t s = {.dst = dst, .base = h.at, .first = (uint32_t)left};
+            image_row_to_row(dst, wk, scale, c, k, left, right, y, &s);
+            made = h.at, made_row = row;
+        }
+        h.at += row_bytes;
+        if (dgx_vscreen_halves_room(&h) == 0) dgx_vscreen_halves_send(&h);
+    }
+    dgx_vscreen_halves_end(&h);
+    return true;
 }
 
 static esp_err_t image_by_colors(dgx_screen_t *dst, const image_walk_t *wk, int scale, const dgx_image_blit_t *how, const image_colors_t *c,
@@ -404,27 +570,28 @@ static esp_err_t image_by_colors(dgx_screen_t *dst, const image_walk_t *wk, int 
     k.under            = k.mix && !k.opaque && !k.paper && dgx_screen_is_readable(dst);
     const int      n     = right - left;
     const uint32_t bytes = dgx_color_points_to_bytes(bits, (uint32_t)n);
-    uint32_t       v;
     dgx_screen_batch_begin(dst);
 #if DGX_IMAGE_INDEXED
     if (dgx_vscreen_is_linear(dst)) {
         /* a virtual screen in memory: every pixel written in its place, no row of memory needed */
-        uint8_t *const array  = ((dgx_vscreen_t *)dst)->v_array;
-        const unsigned stored = bits == 18 ? 24u : bits;
-        for (int y = top; y < bottom; ++y)
-            for (int x = left; x < right; ++x)
-                if (image_pixel(dst, wk, scale, c, &k, x, y, &v)) {
-                    const uint32_t i = (uint32_t)y * dst->width + (uint32_t)x;
-                    dgx_fill_buf_value(bits, array + (size_t)i * stored / 8u, (int)i, v);
-                }
+        image_sink_t s = {.dst = dst, .base = ((dgx_vscreen_t *)dst)->v_array};
+        for (int y = top; y < bottom; ++y) {
+            s.first = (uint32_t)y * (uint32_t)dst->width;
+            image_row_to_memory(dst, wk, scale, c, &k, left, right, y, &s);
+        }
         dgx_screen_touch(dst, left, right - 1, top, bottom - 1);
         dgx_screen_batch_end(dst);
         return ESP_OK;
     }
 #endif
+    if (k.opaque && image_halves(dst, wk, scale, c, &k, left, top, right, bottom)) {
+        dgx_screen_touch(dst, left, right - 1, top, bottom - 1);
+        dgx_screen_batch_end(dst);
+        return ESP_OK;
+    }
     if (k.opaque && dst->screen_subtype == DgxPhysicalScreenWithBus && dst->draw_buffer && (uint32_t)n * bits % 8u == 0 && bytes <= dst->draw_buffer_len) {
-        /* every pixel of the box, on a display behind a bus: one window, a row at a time through the buffer of the bus; at a
-           scale the rows of a band are one row of the picture, made once and sent as many times */
+        /* the same where the buffer does not hold two rows, or a pixel is not of whole bytes: one window, a row at a
+           time through the buffer, a band of rows at a scale sent from one row made once */
         if (dst->wait) dst->wait(dst);
         dst->set_area(dst, (uint16_t)left, (uint16_t)(right - 1), (uint16_t)top, (uint16_t)(bottom - 1));
         int made = -1; /* the row of the picture the buffer holds */
@@ -432,11 +599,8 @@ static esp_err_t image_by_colors(dgx_screen_t *dst, const image_walk_t *wk, int 
             const int row = (y - wk->box_y) / scale;
             if (row != made) {
                 if (dst->wait) dst->wait(dst); /* the rows before may still be on their way from the buffer */
-                uint8_t *lp = dst->draw_buffer;
-                for (int x = left; x < right; ++x) {
-                    image_pixel(dst, wk, scale, c, &k, x, y, &v);
-                    lp = dgx_fill_buf_value(bits, lp, x - left, v);
-                }
+                image_sink_t s = {.dst = dst, .base = dst->draw_buffer, .first = (uint32_t)left};
+                image_row_to_row(dst, wk, scale, c, &k, left, right, y, &s);
                 made = row;
             }
             dst->write_area(dst, dst->draw_buffer, bytes * 8u);
@@ -456,28 +620,10 @@ static esp_err_t image_by_colors(dgx_screen_t *dst, const image_walk_t *wk, int 
             return ESP_ERR_NO_MEM;
         }
     }
-    uint8_t *const buffer = shared ? dst->draw_buffer : own;
+    image_sink_t s = {.dst = dst, .base = shared ? dst->draw_buffer : own, .window = window, .shared = shared, .run = -1};
     for (int y = top; y < bottom; ++y) {
-        int run = -1; /* where the run being made starts, -1 for none */
         if (shared && dst->wait) dst->wait(dst); /* the row before may still be on its way from the buffer */
-        uint8_t *lp = buffer;
-        for (int x = left; x <= right; ++x) {
-            const bool put = x < right && image_pixel(dst, wk, scale, c, &k, x, y, &v);
-            if (put) {
-                if (!window) {
-                    dgx_set_pixel(dst, x, y, v);
-                    continue;
-                }
-                if (run < 0) run = x, lp = buffer;
-                lp = dgx_fill_buf_value(bits, lp, x - run, v);
-            } else if (run >= 0) {
-                /* the run ends: out through a window of its own */
-                dst->set_area(dst, (uint16_t)run, (uint16_t)(x - 1), (uint16_t)y, (uint16_t)y);
-                dst->write_area(dst, buffer, dgx_color_points_to_bytes(bits, (uint32_t)(x - run)) * 8u);
-                if (shared && dst->wait && x < right) dst->wait(dst);
-                run = -1;
-            }
-        }
+        image_row_to_runs(dst, wk, scale, c, &k, left, right, y, &s);
     }
     if (window) dgx_screen_touch(dst, left, right - 1, top, bottom - 1);
     dgx_screen_batch_end(dst);

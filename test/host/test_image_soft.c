@@ -16,6 +16,7 @@
 #include "drivers/dgx_lcd_init.c"
 #include "drivers/panel.c"
 
+#include "dgx_bw_screen.h"
 #include "dgx_draw.h"
 #include "dgx_image.h"
 #include "dgx_vscreen.h"
@@ -184,6 +185,30 @@ int main(void)
         }
     }
 
+    /* a monochrome screen in pages, which takes its rows through windows: a row of a length not of whole bytes lands
+       as on a virtual screen of 1 bit, its window not run over into the next row */
+    {
+        uint8_t cover[12 * 10];
+        for (int i = 0; i < 12 * 10; ++i) cover[i] = (uint8_t)((i * 37 + i / 12 * 91) & 0xFF);
+        const dgx_image_t m   = {.width = 12, .height = 10, .format = DGX_IMAGE_8BPP, .data = cover};
+        dgx_screen_t     *bw  = dgx_bw_init(32, 16);
+        dgx_screen_t     *ref = dgx_vscreen_init(32, 16, 1, DgxScreenRGB);
+        CHECK(bw && ref && !dgx_vscreen_is_linear(bw));
+        for (int opaque = 0; opaque < 2; ++opaque)
+            for (int x = 0; x <= 8; x += 2) {
+                dgx_fill_rectangle(bw, 0, 0, 32, 16, 0);
+                dgx_fill_rectangle(ref, 0, 0, 32, 16, 0);
+                const dgx_image_blit_t how = {.flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT | (opaque ? DGX_IMAGE_OPAQUE : 0u), .color = 1, .bg = 0};
+                CHECK(dgx_image_blit(bw, x, 3, &m, &how) == ESP_OK && dgx_image_blit(ref, x, 3, &m, &how) == ESP_OK);
+                int same = 1;
+                for (int yy = 0; yy < 16; ++yy)
+                    for (int xx = 0; xx < 32; ++xx) same &= dgx_get_pixel(bw, xx, yy) == dgx_get_pixel(ref, xx, yy);
+                CHECK(same);
+            }
+        dgx_screen_destroy(&bw);
+        dgx_screen_destroy(&ref);
+    }
+
     /* DGX_IMAGE_BG on a screen that can be read: the edges mixed with bg, not with what lies under */
     dgx_fill_rectangle(scr, 0, 0, 64, 64, GRAY);
     CHECK(dgx_image_blit(scr, 0, 0, &mask8, &(dgx_image_blit_t){.flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT | DGX_IMAGE_BG, .color = WHITE, .bg = BLUE}) ==
@@ -216,30 +241,49 @@ int main(void)
         CHECK(once && outside == 0 && windows == 1);
         CHECK(glass[20][10] == BLUE && glass[22][14] == dgx_mix_color(16, BLUE, WHITE, 128) && glass[21][17] == WHITE &&
               glass[20][20] == dgx_mix_color(16, BLUE, WHITE, 1));
-        /* the same by a table of colors, turned and cut by a clip: one window still, every pixel of what is left once and
-           as a virtual screen has it, at every scale, in every turn */
-        dgx_screen_t *ref = dgx_vscreen_init(64, 64, 16, DgxScreenRGB);
-        for (int o = 0; o <= (int)DgxOutputTransverse; ++o)
-            for (int scale = 1; scale <= 4; ++scale) {
-                const dgx_image_blit_t how = {.colors = colors, .alpha = alpha, .flags = DGX_IMAGE_SOFT | DGX_IMAGE_OPAQUE | DGX_IMAGE_CLIP, .bg = BLUE,
-                                              .scale = (uint8_t)scale, .orientation = (dgx_output_orientation_t)o, .clip_x = 31, .clip_y = 30, .clip_w = 64,
-                                              .clip_h = 7};
-                const uint16_t         none = 0x1234u; /* no color of the picture, nor a mix of them */
-                dgx_fill_rectangle(ref, 0, 0, 64, 64, none);
-                CHECK(dgx_image_blit(ref, 32, 32, &four, &how) == ESP_OK);
-                memset(writes, 0, sizeof writes);
-                windows  = 0;
-                CHECK(dgx_image_blit(lcd, 32, 32, &four, &how) == ESP_OK);
-                int same = 1, boxed = 0;
-                for (int y = 0; y < 64; ++y)
-                    for (int x = 0; x < 64; ++x) {
-                        const int in = px(ref, x, y) != none;
-                        boxed += in;
-                        same &= writes[y][x] == in && (!in || glass[y][x] == px(ref, x, y));
+        /* the same by a table of colors, turned and cut by a clip, at every scale, in every turn: with DGX_IMAGE_OPAQUE
+           one window, every pixel of what is left once and as a virtual screen has it, through the halves of a buffer
+           of two rows and more or through a buffer of one; with DGX_IMAGE_BG by runs, the pixels not covered not
+           written and the others as on a virtual screen, where BG mixes with bg too */
+        dgx_bus_protocols_t one    = bus;
+        static uint8_t      row[20];
+        one.buffer = row, one.buffer_len = sizeof row; /* a row of the box, 8 pixels of 16 bits, and not two */
+        dgx_screen_t       *narrow = dgx_panel_init(&one, &panel64, GPIO_NUM_NC, GPIO_NUM_NC, 16, DgxScreenRGB);
+        dgx_screen_t       *ref    = dgx_vscreen_init(64, 64, 16, DgxScreenRGB);
+        CHECK(narrow && ref);
+        for (int screen = 0; screen < 2; ++screen)
+            for (int bg = 0; bg < 2; ++bg)
+                for (int o = 0; o <= (int)DgxOutputTransverse; ++o)
+                    for (int scale = 1; scale <= 4; ++scale) {
+                        dgx_screen_t *const    to   = screen ? narrow : lcd;
+                        const dgx_image_blit_t how  = {.colors      = colors,
+                                                       .alpha       = alpha,
+                                                       .flags       = DGX_IMAGE_SOFT | DGX_IMAGE_CLIP | (bg ? DGX_IMAGE_BG : DGX_IMAGE_OPAQUE),
+                                                       .bg          = BLUE,
+                                                       .scale       = (uint8_t)scale,
+                                                       .orientation = (dgx_output_orientation_t)o,
+                                                       .clip_x      = 31,
+                                                       .clip_y      = 30,
+                                                       .clip_w      = 64,
+                                                       .clip_h      = 7};
+                        const uint16_t         none = 0x1234u; /* no color of the picture, nor a mix of them */
+                        dgx_fill_rectangle(ref, 0, 0, 64, 64, none);
+                        dgx_fill_rectangle(to, 0, 0, 64, 64, none);
+                        CHECK(dgx_image_blit(ref, 32, 32, &four, &how) == ESP_OK);
+                        memset(writes, 0, sizeof writes);
+                        windows = 0;
+                        CHECK(dgx_image_blit(to, 32, 32, &four, &how) == ESP_OK);
+                        int same = 1, boxed = 0;
+                        for (int y = 0; y < 64; ++y)
+                            for (int x = 0; x < 64; ++x) {
+                                const int in = px(ref, x, y) != none;
+                                boxed += in;
+                                same &= writes[y][x] == in && glass[y][x] == px(ref, x, y);
+                            }
+                        CHECK(same && boxed > 0 && (bg || windows == 1));
                     }
-                CHECK(same && boxed > 0 && windows == 1);
-            }
         dgx_screen_destroy(&ref);
+        dgx_screen_destroy(&narrow);
         /* with DGX_IMAGE_BG: the edges mixed with bg, a pixel not covered not written */
         dgx_fill_rectangle(lcd, 0, 0, 64, 64, GRAY);
         memset(writes, 0, sizeof writes);

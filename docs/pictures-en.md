@@ -210,8 +210,9 @@ What a partly covered pixel is mixed with:
   opacity on. DGX does not read a display back.
 
 With `DGX_IMAGE_OPAQUE` on a display behind a bus the box goes out in one
-window, a row at a time through the buffer of the bus, as a picture in one
-color does; on a virtual screen the pixels are written into its memory.
+window, through the two halves of the buffer of the bus, a row made while
+the one before is on the wire; on a virtual screen the pixels are written
+into its memory.
 Otherwise a row goes out by runs of the pixels put, each through a window of
 its own.
 

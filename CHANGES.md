@@ -32,21 +32,38 @@ New:
 
 Faster:
 
-- A picture drawn by its colors (16 bits, `colors`, or a soft mask) with
-  `DGX_IMAGE_OPAQUE` on a display behind a bus goes out in one window, a
-  row at a time through the buffer of the bus, as a picture in one color
-  does; at a scale the row is made once for all the rows of its band.
-  Before, every run of a row had a window of its own.
-- On a virtual screen such a picture is written into its memory; before, a
-  row of memory was allocated at every call.
+- A picture drawn by its colors (16 bits, `colors`, or a soft mask) walks
+  a row of the screen along a row of the picture, reading its pixels by a
+  loop for each format and putting them by a loop that needs no division a
+  pixel; before, every pixel was looked up in the picture on its own.
+- With `DGX_IMAGE_OPAQUE` on a display behind a bus such a picture goes out
+  in one window through the two halves of the buffer of the bus, a row made
+  while the one before is on the wire, as a virtual screen goes to a
+  display; at a scale a row is made once for all the rows of its band.
+  Before, every run of a row had a window of its own. On a virtual screen
+  it is written into its memory; before, a row of memory was allocated at
+  every call. `src/vscreen/image.c` takes 2.5 KB more of flash on an ESP32.
+
+Fixed:
+
+- A picture drawn by its colors on a screen of 1 or 4 bits a pixel with
+  windows, a virtual screen or a monochrome display of `dgx_bw_init()`
+  (SSD1306, SH1106, SSD1309, ST7565R), handed each run of a row to the
+  window with its length rounded up to whole bytes, and the rest of the
+  last byte went around the window onto the first pixels of the run: a
+  mask of 12x10 on a virtual screen of 1 bit had 17 to 19 pixels wrong. A run now takes as many bits as its
+  pixels; 12-bit pixels go to a display behind a bus with the rest of their
+  last byte, as the texture quad sends them.
 
 Tests:
 
 - test_image_soft: a box with `DGX_IMAGE_OPAQUE` on a display behind a bus
   goes in one window, every pixel once and as a virtual screen has it, in
-  every turn and at every scale; pictures by colors on virtual screens of
-  every depth and of an odd width, the pixels near them kept;
-  `DGX_IMAGE_BG` on a virtual screen and behind a bus.
+  every turn and at every scale, through the halves of a buffer and through
+  a buffer of one row; with `DGX_IMAGE_BG` by runs, as on a virtual screen;
+  pictures by colors on virtual screens of every depth and of an odd width,
+  the pixels near them kept; masks on a monochrome screen of
+  `dgx_bw_init()` as on a virtual screen of 1 bit.
 - test_snapshot: snapshots of virtual screens of every depth, whole and by
   rectangles whose edges cut bytes, read back pixel for pixel; the console
   form against the length and CRC of the file; a screen behind a bus
