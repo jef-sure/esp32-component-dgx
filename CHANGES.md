@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+Faster:
+
+- A picture of 1 or 4 bits drawn by its colors, a sprite above all, takes
+  what each of its values puts from a table made once for the picture,
+  without `DGX_IMAGE_OPAQUE` too: on a display behind a bus, by runs, and
+  in the memory of a virtual screen, unless a value partly opaque is mixed
+  with what lies under it there. Before, every pixel was read, its opacity
+  looked at and its value found on its own. `src/vscreen/image.c` takes
+  1.7 KB more of flash on an ESP32.
+
 Fixed:
 
 - A picture drawn by its colors without `DGX_IMAGE_OPAQUE` on a display of
@@ -14,6 +24,10 @@ Tests:
 
 - test_image_soft: a panel of 18 bits, three bytes a pixel, against a
   virtual screen of 18 bits, by runs and in one window, in every turn.
+- test_image_soft: pictures of 1 and 4 bits against the same values in 8
+  bits, which are drawn without the table, on displays behind a bus and in
+  the memory of a virtual screen, with and without opacities, and soft over
+  a virtual screen whose pixels differ.
 
 ## 0.12.12 - 2026-11-27
 

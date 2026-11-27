@@ -358,6 +358,13 @@ int main(void)
             for (int i = 0; i < 9; ++i) val4[i] = (uint8_t)(i * 0x37u + 0x10u);
             val1[0] = 0xA8, val1[1] = 0x50, val1[2] = 0xF8;
             val8[0] = 0, val8[7] = 0; /* transparent where colors come without opacities */
+            /* the pictures of 1 and 4 bits again in 8 bits, the same values: the slow way for them, without their table */
+            static uint8_t twin4[5 * 3], twin1[5 * 3];
+            for (int y = 0; y < 3; ++y)
+                for (int x = 0; x < 5; ++x) {
+                    twin4[y * 5 + x] = (uint8_t)((val4[y * 3 + x / 2] >> (x & 1 ? 0 : 4)) & 15u);
+                    twin1[y * 5 + x] = (uint8_t)((val1[y] >> (7 - x)) & 1u);
+                }
             const dgx_image_t pictures[] = {
                 {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_16BPP, .data = pix16},
                 {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_16BPP, .data = pix16, .alpha = plane},
@@ -368,9 +375,17 @@ int main(void)
                 {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_8BPP, .data = val8},
                 {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_4BPP, .data = val4},
             };
+            const dgx_image_t twins[] = {
+                pictures[0], pictures[1], pictures[2], pictures[3],
+                {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_8BPP, .data = twin4},
+                {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_8BPP, .data = twin1},
+                pictures[6],
+                {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_8BPP, .data = twin4},
+            };
             static const uint32_t puts[] = {DGX_IMAGE_SOFT | DGX_IMAGE_OPAQUE, DGX_IMAGE_OPAQUE, DGX_IMAGE_SOFT | DGX_IMAGE_BG, 0};
             const uint16_t        none   = 0x1234u;
             dgx_screen_t         *slow = dgx_vscreen_init(64, 64, 16, DgxScreenRGB), *box = dgx_vscreen_init(64, 64, 16, DgxScreenRGB);
+            dgx_screen_t         *vmem = dgx_vscreen_init(64, 64, 16, DgxScreenRGB); /* drawn in memory */
             int                   failed = 0;
             for (unsigned pi = 0; pi < sizeof pictures / sizeof *pictures; ++pi)
                 for (unsigned wi = 0; wi < sizeof puts / sizeof *puts; ++wi) {
@@ -378,8 +393,8 @@ int main(void)
                     if (coverage && !(puts[wi] & DGX_IMAGE_SOFT)) continue; /* a mask is drawn soft, or in one color */
                     for (int o = 0; o <= (int)DgxOutputTransverse; ++o)
                         for (int scale = 1; scale <= 3; ++scale)
-                            for (int screen = 0; screen < 2; ++screen) {
-                                dgx_screen_t *const to  = screen ? narrow : lcd;
+                            for (int screen = 0; screen < 3; ++screen) {
+                                dgx_screen_t *const to  = screen == 2 ? vmem : screen ? narrow : lcd;
                                 const bool          opq = (puts[wi] & DGX_IMAGE_OPAQUE) != 0;
                                 dgx_image_blit_t    how = {.flags       = puts[wi] | DGX_IMAGE_CLIP | (coverage ? DGX_IMAGE_SILHOUETTE : 0u),
                                                            .color       = WHITE,
@@ -409,7 +424,7 @@ int main(void)
                                        outside the pixels put none */
                                     dgx_fill_rectangle(slow, 0, 0, 64, 64, BLUE);
                                 }
-                                CHECK(dgx_image_blit(slow, 32, 32, &pictures[pi], &slow_how) == ESP_OK);
+                                CHECK(dgx_image_blit(slow, 32, 32, &twins[pi], &slow_how) == ESP_OK);
                                 fill_now(to, 0, 0, 64, 64, none);
                                 memset(writes, 0, sizeof writes);
                                 windows = 0;
@@ -419,7 +434,12 @@ int main(void)
                                     for (int x = 0; x < 64; ++x) {
                                         const int in = px(box, x, y) != none;
                                         boxed += in;
-                                        if (opq) {
+                                        if (to == vmem) {
+                                            const uint16_t m = px(vmem, x, y), w = px(slow, x, y);
+                                            if (opq) same &= m == (in ? w : none);
+                                            else if (puts[wi] & DGX_IMAGE_BG) same &= (w == BLUE || m == w) && (m == none || m == w);
+                                            else same &= m == w;
+                                        } else if (opq) {
                                             same &= writes[y][x] == in && (!in || glass[y][x] == px(slow, x, y));
                                         } else if (puts[wi] & DGX_IMAGE_BG) {
                                             /* put where the slow way changed bg, or put bg itself: the value then as there */
@@ -428,12 +448,37 @@ int main(void)
                                             same &= writes[y][x] == (px(slow, x, y) != none) && glass[y][x] == px(slow, x, y);
                                         }
                                     }
-                                if (!(same && boxed > 0 && (!opq || windows == 1))) ++failed;
+                                if (!(same && boxed > 0 && (!opq || to == vmem || windows == 1))) ++failed;
                             }
                 }
             CHECK(failed == 0);
+            /* soft over what lies under, on a virtual screen whose pixels differ: a value partly opaque is mixed with
+               its own pixel, so a picture of 1 or 4 bits with such values does not go by its table */
+            failed = 0;
+            for (unsigned pi = 0; pi < sizeof pictures / sizeof *pictures; ++pi)
+                for (int o = 0; o <= (int)DgxOutputTransverse; ++o)
+                    for (int scale = 1; scale <= 3; ++scale) {
+                        static const uint32_t two_colors[2] = {RED, GRAY};
+                        dgx_image_blit_t      how = {.flags = DGX_IMAGE_SOFT | (pi == 3 ? DGX_IMAGE_SILHOUETTE : 0u), .color = WHITE,
+                                                     .scale = (uint8_t)scale, .orientation = (dgx_output_orientation_t)o};
+                        if (pi == 2 || pi == 4) how.colors = tab256, how.alpha = alpha256;
+                        if (pi == 5) how.colors = two_colors;
+                        if (pi >= 6) how.colors = tab256;
+                        for (int y = 0; y < 64; ++y)
+                            for (int x = 0; x < 64; ++x) {
+                                const uint16_t under = (uint16_t)(x * 0x0841u + y * 0x2003u);
+                                dgx_set_pixel(slow, x, y, under), dgx_set_pixel(vmem, x, y, under);
+                            }
+                        CHECK(dgx_image_blit(slow, 32, 32, &twins[pi], &how) == ESP_OK && dgx_image_blit(vmem, 32, 32, &pictures[pi], &how) == ESP_OK);
+                        int same = 1;
+                        for (int y = 0; y < 64; ++y)
+                            for (int x = 0; x < 64; ++x) same &= px(vmem, x, y) == px(slow, x, y);
+                        if (!same) ++failed;
+                    }
+            CHECK(failed == 0);
             dgx_screen_destroy(&slow);
             dgx_screen_destroy(&box);
+            dgx_screen_destroy(&vmem);
         }
         dgx_screen_destroy(&narrow);
 

@@ -358,8 +358,14 @@ typedef struct {
     uint8_t  bits;
     /* every pixel of the box written on a screen of 16 bits: a row is made by image_row16() */
     bool     fast;
-    /* for a picture of 1 or 4 bits there: what each value puts */
+    /*
+     * A picture of 1 or 4 bits, a sprite above all, whose values put the same wherever they lie: what lies under a
+     * pixel is not taken, or no value is partly opaque. What each value puts, and whether it is put, a bit a value,
+     * found once for the picture; its rows are made by image_row_table().
+     */
+    bool     table;
     uint32_t value[16];
+    uint16_t puts;
 } image_put_t;
 
 /* pixels of the picture read at a time: their colors and opacities lie on the stack */
@@ -556,6 +562,51 @@ static void image_row_to_runs(dgx_screen_t *dst, const image_walk_t *wk, int sca
     image_row(dst, wk, scale, c, k, left, right, y, s, IMAGE_TO_RUNS);
 }
 
+/* a pixel to the runs, out of line: the runs of a sprite go through the window of the screen, which costs more */
+static __attribute__((noinline)) void image_run_pixel(image_sink_t *s, uint8_t bits, int x, int y, bool put, uint32_t v)
+{
+    image_sink(s, IMAGE_TO_RUNS, bits, x, y, put, v);
+}
+
+/* what a value puts, out of line, for the table of a picture */
+static __attribute__((noinline)) bool image_put_value(dgx_screen_t *dst, const image_put_t *k, uint32_t color, unsigned a, uint32_t *v)
+{
+    return image_put(dst, k, color, a, 0, 0, v);
+}
+
+/*
+ * The pixels left .. right - 1 of the row y of a picture of 1 or 4 bits by the values of its table, to the memory of a
+ * virtual screen or by runs: one function for both, which costs a test a pixel and spares a copy of the loop.
+ */
+static __attribute__((noinline)) void image_row_table(const image_walk_t *wk, int scale, const image_colors_t *c, const image_put_t *k, int left, int right, int y,
+                            image_sink_t *s, int to)
+{
+    const dgx_image_t *im = c->image;
+    const int          u = (left - wk->box_x) / scale, v = (y - wk->box_y) / scale;
+    int                sx   = wk->x_back ? im->width - 1 - (wk->swapped ? v : u) : (wk->swapped ? v : u);
+    const int          sy   = wk->y_back ? im->height - 1 - (wk->swapped ? u : v) : (wk->swapped ? u : v);
+    const uint8_t     *row  = im->data + (size_t)sy * wk->stride;
+    const int          dx   = wk->swapped ? 0 : wk->x_back ? -1 : 1;
+    const ptrdiff_t    drow = !wk->swapped ? 0 : wk->y_back ? -(ptrdiff_t)wk->stride : (ptrdiff_t)wk->stride;
+    const bool         four = c->format == DGX_IMAGE_4BPP;
+    if (to == IMAGE_TO_RUNS) s->right = right;
+    for (int x = left, next = wk->box_x + (u + 1) * scale;;) {
+        const unsigned q     = four ? (sx & 1 ? row[sx >> 1] : row[sx >> 1] >> 4) & 15u : (row[sx >> 3] >> (7 - (sx & 7))) & 1u;
+        const bool     put   = (k->puts >> q) & 1u;
+        const uint32_t value = k->value[q];
+        const int      stop  = scale == 1 ? x + 1 : DGX_MIN(right, next);
+        if (to == IMAGE_TO_MEMORY) {
+            for (; x < stop; ++x) image_sink(s, IMAGE_TO_MEMORY, k->bits, x, y, put, value);
+        } else {
+            for (; x < stop; ++x) image_run_pixel(s, k->bits, x, y, put, value);
+        }
+        if (x >= right) break;
+        next += scale, sx += dx, row += drow;
+    }
+    if (to == IMAGE_TO_RUNS && s->run >= 0) image_run_out(s, k->bits, right, y, false);
+}
+
+
 /*
  * A row with every pixel of the box written, on a screen of 16 bits: every pixel of the picture read, its value found
  * and written by one loop for its format, the row straight from the first pixel to the last; a picture of 16 bits of
@@ -681,6 +732,7 @@ static void image_to_memory(dgx_screen_t *dst, const image_walk_t *wk, int scale
     for (int y = top; y < bottom; ++y) {
         s.first = (uint32_t)y * (uint32_t)dst->width;
         if (k->fast) image_row16(wk, scale, c, k, left, right, y, s.base + 2u * (s.first + (uint32_t)left));
+        else if (k->table) image_row_table(wk, scale, c, k, left, right, y, &s, IMAGE_TO_MEMORY);
         else image_row_to_memory(dst, wk, scale, c, k, left, right, y, &s);
     }
 }
@@ -738,7 +790,8 @@ static esp_err_t image_by_runs(dgx_screen_t *dst, const image_walk_t *wk, int sc
     }
     for (int y = top; y < bottom; ++y) {
         if (s.shared && !s.ring && dst->wait) dst->wait(dst); /* the row before may still be on its way from the buffer */
-        image_row_to_runs(dst, wk, scale, c, k, left, right, y, &s);
+        if (k->table) image_row_table(wk, scale, c, k, left, right, y, &s, IMAGE_TO_RUNS);
+        else image_row_to_runs(dst, wk, scale, c, k, left, right, y, &s);
     }
     if (own) {
         if (dst->wait) dst->wait(dst); /* the last run off the row before it is freed */
@@ -758,13 +811,15 @@ static esp_err_t image_by_colors(dgx_screen_t *dst, const image_walk_t *wk, int 
     k.paper            = k.mix && !k.opaque && (how->flags & DGX_IMAGE_BG);
     k.under            = k.mix && !k.opaque && !k.paper && dgx_screen_is_readable(dst);
     k.fast             = bits == 16 && k.opaque;
-    if (k.fast && (c->format == DGX_IMAGE_1BPP || c->format == DGX_IMAGE_4BPP)) {
-        /* a value of 1 or 4 bits puts the same wherever it lies: found once for the picture */
+    if (c->format == DGX_IMAGE_1BPP || c->format == DGX_IMAGE_4BPP) {
+        /* what each value of 1 or 4 bits puts; the table serves unless a value partly opaque is mixed with what lies under it */
         const unsigned values = c->format == DGX_IMAGE_1BPP ? 2u : 16u;
+        k.table               = true;
         for (unsigned q = 0; q < values; ++q) {
             const uint32_t color = c->coverage ? c->color : c->colors[q];
             const unsigned a     = c->coverage ? (c->format == DGX_IMAGE_4BPP ? q * 17u : q * 255u) : c->alpha ? c->alpha[q] : q ? 255u : 0u;
-            k.value[q]           = a == 255u ? color : image_opaque16(&k, color, a);
+            if (k.under && a != 0u && a != 255u) k.table = false;
+            if (image_put_value(dst, &k, color, a, &k.value[q])) k.puts |= (uint16_t)(1u << q);
         }
     }
     dgx_screen_batch_begin(dst);
