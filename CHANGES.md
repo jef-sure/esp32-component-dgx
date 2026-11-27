@@ -1,6 +1,13 @@
 # Changes
 
-## Unreleased
+## 0.12.12 - 2026-11-27
+
+Animations of GIF files, snapshots of a screen read off a device, and
+pictures drawn by their colors two to three times faster, with
+`DGX_IMAGE_BG` for soft icons over a background of a known color.
+Checked by host tests and builds for ESP32, ESP32-C3, ESP32-S3 and
+ESP32-P4 under IDF 5.5.4 and 6.1; the pictures by their colors timed on a
+CYD.
 
 New:
 
