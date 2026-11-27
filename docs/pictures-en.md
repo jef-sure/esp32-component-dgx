@@ -200,9 +200,20 @@ What a partly covered pixel is mixed with:
 - with `bg` with `DGX_IMAGE_OPAQUE`, on any screen: the box of the picture
   is written whole, every pixel once, so a soft icon drawn again over itself
   on a display behind a bus does not blink;
-- with nothing on a display behind a bus without `DGX_IMAGE_OPAQUE`, which
-  cannot be read: a pixel is put whole from half its opacity on. DGX does
-  not read a display back.
+- with `bg` with `DGX_IMAGE_BG`, on any screen: a pixel partly covered is
+  mixed with `bg`, one not covered is left as it is, as the letters of a
+  soft font are with `DGX_FONT_BG`. It is for an icon on a background of a
+  known color on a display behind a bus, where what lies near the icon
+  inside its box must stay;
+- with nothing on a display behind a bus without `DGX_IMAGE_OPAQUE` or
+  `DGX_IMAGE_BG`, which cannot be read: a pixel is put whole from half its
+  opacity on. DGX does not read a display back.
+
+With `DGX_IMAGE_OPAQUE` on a display behind a bus the box goes out in one
+window, a row at a time through the buffer of the bus, as a picture in one
+color does; on a virtual screen the pixels are written into its memory.
+Otherwise a row goes out by runs of the pixels put, each through a window of
+its own.
 
 Without `DGX_IMAGE_SOFT` a picture of 16 bits, or one drawn through
 `colors`, puts every pixel of an opacity from 128 on whole and leaves the

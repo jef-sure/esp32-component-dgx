@@ -2,7 +2,8 @@
  * dgx_image_blit() by colors: pictures of 16 bits with a plane of opacity, pictures of 1, 4 or 8 bits through a table
  * of colors, and the coverage of one color with DGX_IMAGE_SOFT. On a virtual screen, which can be read, a pixel partly
  * covered is mixed with what lies under it, rounded, as soft text mixes; with DGX_IMAGE_OPAQUE with bg, every pixel
- * of the box written once, on a display behind a bus too, where without it a pixel is put whole from half on. A
+ * of the box written once and in one window, on a display behind a bus too, where without it a pixel is put whole
+ * from half on; with DGX_IMAGE_BG a pixel partly covered is mixed with bg and one not covered left as it is. A
  * picture drawn by a table of colors lands as the same picture in one color does, in every turn and at every scale;
  * a picture of 16 bits on a screen of 24 bits takes its colors converted.
  */
@@ -23,7 +24,7 @@
 /* ---- a display behind a bus: a 64x64 memory written through windows, every pixel written counted ---- */
 
 static uint8_t  command, params[8], part[2];
-static int      params_n, part_n;
+static int      params_n, part_n, windows;
 static uint16_t sc, ec, sp, ep, column, page, glass[64][64];
 static int      writes[64][64];
 
@@ -31,6 +32,7 @@ static void bus_command(struct _dgx_bus_protocols_t *bus, uint8_t value)
 {
     (void)bus;
     command = value, params_n = 0, part_n = 0;
+    if (value == 0x2A) ++windows;
     if (value == 0x2C) column = sc, page = sp;
 }
 
@@ -149,6 +151,46 @@ int main(void)
         dgx_screen_destroy(&ref);
     }
 
+    /* a virtual screen of every depth, of an odd width: the pixels written in its memory, the pixels near them kept */
+    {
+        static const uint8_t vals7[] = {0x12, 0x30, 0x40, 0x56, 0x07, 0x00}; /* 3x3 of 4 bits: 1 2 3 / 0 4 0 / 5 6 7 */
+        const dgx_image_t    pic     = {.width = 3, .height = 3, .format = DGX_IMAGE_4BPP, .data = vals7};
+        static const uint8_t depths[] = {1, 4, 8, 12, 16, 18, 24, 32};
+        for (unsigned d = 0; d < sizeof depths; ++d) {
+            const uint8_t  b    = depths[d];
+            const uint32_t back = b == 1 ? 1u : b == 4 ? 0x50u : b == 8 ? 0x5Au : b == 12 ? 0x5A50u : b == 16 ? 0x5A5Au : 0x5A5A5Au;
+            uint32_t       tab[16];
+            for (unsigned i = 0; i < 16; ++i)
+                tab[i] = b == 1 ? i & 1u : b == 4 ? (i << 4) & 0xF0u : b == 8 ? i * 17u : b == 12 ? (i * 0x1110u) & 0xFFF0u : b == 16 ? i * 0x1111u
+                                                                                                                            : i * 0x111111u;
+            for (int x0 = 0; x0 < 2; ++x0) {
+                dgx_screen_t *v = dgx_vscreen_init(7, 5, b, DgxScreenRGB), *ref = dgx_vscreen_init(7, 5, b, DgxScreenRGB);
+                dgx_fill_rectangle(v, 0, 0, 7, 5, back);
+                dgx_fill_rectangle(ref, 0, 0, 7, 5, back);
+                CHECK(dgx_image_blit(v, 1 + x0, 1, &pic, &(dgx_image_blit_t){.colors = tab, .alpha = (uint8_t[16]){0, 255, 255, 255, 255, 255, 255, 255}}) ==
+                      ESP_OK);
+                for (int y = 0; y < 3; ++y)
+                    for (int x = 0; x < 3; ++x) {
+                        const unsigned i = (unsigned)(vals7[y * 2 + x / 2] >> (x & 1 ? 0 : 4)) & 15u;
+                        if (i) dgx_set_pixel(ref, 1 + x0 + x, 1 + y, tab[i]);
+                    }
+                int same = 1;
+                for (int y = 0; y < 5; ++y)
+                    for (int x = 0; x < 7; ++x) same &= dgx_get_pixel(v, x, y) == dgx_get_pixel(ref, x, y);
+                CHECK(same);
+                dgx_screen_destroy(&v);
+                dgx_screen_destroy(&ref);
+            }
+        }
+    }
+
+    /* DGX_IMAGE_BG on a screen that can be read: the edges mixed with bg, not with what lies under */
+    dgx_fill_rectangle(scr, 0, 0, 64, 64, GRAY);
+    CHECK(dgx_image_blit(scr, 0, 0, &mask8, &(dgx_image_blit_t){.flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT | DGX_IMAGE_BG, .color = WHITE, .bg = BLUE}) ==
+          ESP_OK);
+    CHECK(px(scr, 0, 0) == GRAY && px(scr, 1, 0) == dgx_mix_color(16, BLUE, WHITE, 128) && px(scr, 2, 0) == WHITE &&
+          px(scr, 3, 0) == dgx_mix_color(16, BLUE, WHITE, 1));
+
     /* a display behind a bus, which cannot be read: hard from half on, or with the paper every pixel once */
     {
         static uint8_t      buffer[4096];
@@ -160,6 +202,7 @@ int main(void)
         CHECK(dgx_image_blit(lcd, 10, 10, &mask8, &(dgx_image_blit_t){.flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT, .color = WHITE}) == ESP_OK);
         CHECK(glass[10][10] == GRAY && glass[10][11] == WHITE && glass[10][12] == WHITE && glass[10][13] == GRAY);
         memset(writes, 0, sizeof writes);
+        windows = 0;
         CHECK(dgx_image_blit(lcd, 10, 20, &mask8,
                              &(dgx_image_blit_t){.flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT | DGX_IMAGE_OPAQUE, .color = WHITE, .bg = BLUE, .scale = 3}) ==
               ESP_OK);
@@ -170,9 +213,40 @@ int main(void)
                 if (in) once &= writes[y][x] == 1;
                 else outside += writes[y][x];
             }
-        CHECK(once && outside == 0);
+        CHECK(once && outside == 0 && windows == 1);
         CHECK(glass[20][10] == BLUE && glass[22][14] == dgx_mix_color(16, BLUE, WHITE, 128) && glass[21][17] == WHITE &&
               glass[20][20] == dgx_mix_color(16, BLUE, WHITE, 1));
+        /* the same by a table of colors, turned and cut by a clip: one window still, every pixel of what is left once and
+           as a virtual screen has it, at every scale, in every turn */
+        dgx_screen_t *ref = dgx_vscreen_init(64, 64, 16, DgxScreenRGB);
+        for (int o = 0; o <= (int)DgxOutputTransverse; ++o)
+            for (int scale = 1; scale <= 4; ++scale) {
+                const dgx_image_blit_t how = {.colors = colors, .alpha = alpha, .flags = DGX_IMAGE_SOFT | DGX_IMAGE_OPAQUE | DGX_IMAGE_CLIP, .bg = BLUE,
+                                              .scale = (uint8_t)scale, .orientation = (dgx_output_orientation_t)o, .clip_x = 31, .clip_y = 30, .clip_w = 64,
+                                              .clip_h = 7};
+                const uint16_t         none = 0x1234u; /* no color of the picture, nor a mix of them */
+                dgx_fill_rectangle(ref, 0, 0, 64, 64, none);
+                CHECK(dgx_image_blit(ref, 32, 32, &four, &how) == ESP_OK);
+                memset(writes, 0, sizeof writes);
+                windows  = 0;
+                CHECK(dgx_image_blit(lcd, 32, 32, &four, &how) == ESP_OK);
+                int same = 1, boxed = 0;
+                for (int y = 0; y < 64; ++y)
+                    for (int x = 0; x < 64; ++x) {
+                        const int in = px(ref, x, y) != none;
+                        boxed += in;
+                        same &= writes[y][x] == in && (!in || glass[y][x] == px(ref, x, y));
+                    }
+                CHECK(same && boxed > 0 && windows == 1);
+            }
+        dgx_screen_destroy(&ref);
+        /* with DGX_IMAGE_BG: the edges mixed with bg, a pixel not covered not written */
+        dgx_fill_rectangle(lcd, 0, 0, 64, 64, GRAY);
+        memset(writes, 0, sizeof writes);
+        CHECK(dgx_image_blit(lcd, 10, 40, &mask8,
+                             &(dgx_image_blit_t){.flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT | DGX_IMAGE_BG, .color = WHITE, .bg = BLUE}) == ESP_OK);
+        CHECK(writes[40][10] == 0 && glass[40][10] == GRAY && glass[40][11] == dgx_mix_color(16, BLUE, WHITE, 128) && glass[40][12] == WHITE &&
+              glass[40][13] == dgx_mix_color(16, BLUE, WHITE, 1));
         dgx_screen_destroy(&lcd);
     }
 

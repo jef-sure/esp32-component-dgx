@@ -363,44 +363,106 @@ static inline uint32_t image_color(const image_colors_t *c, const uint8_t *row, 
     return c->colors[p];
 }
 
+/* how the pixels of a picture by its colors are put: what partly covered ones are mixed with */
+typedef struct {
+    bool     opaque; /* DGX_IMAGE_OPAQUE: every pixel of the box, the uncovered ones bg */
+    bool     mix;    /* DGX_IMAGE_SOFT on a screen whose colors are mixed */
+    bool     paper;  /* DGX_IMAGE_BG: the edges mixed with bg, the screen not read */
+    bool     under;  /* the edges mixed with what lies on the screen */
+    uint32_t bg;
+    uint8_t  bits;
+} image_put_t;
+
+/* the pixel x, y of the destination: false when it is left as it is, else its value in *v */
+static inline bool image_pixel(dgx_screen_t *dst, const image_walk_t *wk, int scale, const image_colors_t *c, const image_put_t *k, int x, int y,
+                               uint32_t *v)
+{
+    const int      u = (x - wk->box_x) / scale, w = (y - wk->box_y) / scale;
+    const int      W = wk->image->width, H = wk->image->height;
+    const int      sx = wk->x_back ? W - 1 - (wk->swapped ? w : u) : (wk->swapped ? w : u);
+    const int      sy = wk->y_back ? H - 1 - (wk->swapped ? u : w) : (wk->swapped ? u : w);
+    unsigned       a;
+    const uint32_t color = image_color(c, wk->image->data + (size_t)sy * wk->stride, sx, sy, &a);
+    if (a == 255u) return *v = color, true;
+    if (k->opaque) return *v = a == 0u ? k->bg : k->mix ? dgx_mix_color(k->bits, k->bg, color, a) : a >= 128u ? color : k->bg, true;
+    if (!a) return false;
+    if (k->paper) return *v = dgx_mix_color(k->bits, k->bg, color, a), true;
+    if (k->under) return *v = dgx_mix_color(k->bits, dgx_get_pixel(dst, x, y), color, a), true;
+    if (a >= 128u) return *v = color, true;
+    return false;
+}
+
 static esp_err_t image_by_colors(dgx_screen_t *dst, const image_walk_t *wk, int scale, const dgx_image_blit_t *how, const image_colors_t *c,
                                  int left, int top, int right, int bottom)
 {
-    const bool     opaque = (how->flags & DGX_IMAGE_OPAQUE) != 0;
-    const uint8_t  bits   = dst->color_bits;
-    const bool     mix    = (how->flags & DGX_IMAGE_SOFT) && dgx_mix_bits(bits);
-    const bool     under  = mix && !opaque && dgx_screen_is_readable(dst); /* mixed with what lies on the screen */
-    const int      n      = right - left;
-    const uint32_t bytes  = dgx_color_points_to_bytes(bits, (uint32_t)n);
-    const bool     window = dst->set_area && dst->write_area;
-    /* a display behind a bus has its buffer; another screen a row of its own, or no window and a pixel at a time */
-    const bool     shared = window && dst->draw_buffer && dst->draw_buffer_len >= bytes;
-    uint8_t       *own    = NULL;
+    const uint8_t bits = dst->color_bits;
+    image_put_t   k    = {.opaque = (how->flags & DGX_IMAGE_OPAQUE) != 0,
+                          .mix    = (how->flags & DGX_IMAGE_SOFT) && dgx_mix_bits(bits),
+                          .bg     = how->bg,
+                          .bits   = bits};
+    k.paper            = k.mix && !k.opaque && (how->flags & DGX_IMAGE_BG);
+    k.under            = k.mix && !k.opaque && !k.paper && dgx_screen_is_readable(dst);
+    const int      n     = right - left;
+    const uint32_t bytes = dgx_color_points_to_bytes(bits, (uint32_t)n);
+    uint32_t       v;
+    dgx_screen_batch_begin(dst);
+#if DGX_IMAGE_INDEXED
+    if (dgx_vscreen_is_linear(dst)) {
+        /* a virtual screen in memory: every pixel written in its place, no row of memory needed */
+        uint8_t *const array  = ((dgx_vscreen_t *)dst)->v_array;
+        const unsigned stored = bits == 18 ? 24u : bits;
+        for (int y = top; y < bottom; ++y)
+            for (int x = left; x < right; ++x)
+                if (image_pixel(dst, wk, scale, c, &k, x, y, &v)) {
+                    const uint32_t i = (uint32_t)y * dst->width + (uint32_t)x;
+                    dgx_fill_buf_value(bits, array + (size_t)i * stored / 8u, (int)i, v);
+                }
+        dgx_screen_touch(dst, left, right - 1, top, bottom - 1);
+        dgx_screen_batch_end(dst);
+        return ESP_OK;
+    }
+#endif
+    if (k.opaque && dst->screen_subtype == DgxPhysicalScreenWithBus && dst->draw_buffer && (uint32_t)n * bits % 8u == 0 && bytes <= dst->draw_buffer_len) {
+        /* every pixel of the box, on a display behind a bus: one window, a row at a time through the buffer of the bus; at a
+           scale the rows of a band are one row of the picture, made once and sent as many times */
+        if (dst->wait) dst->wait(dst);
+        dst->set_area(dst, (uint16_t)left, (uint16_t)(right - 1), (uint16_t)top, (uint16_t)(bottom - 1));
+        int made = -1; /* the row of the picture the buffer holds */
+        for (int y = top; y < bottom; ++y) {
+            const int row = (y - wk->box_y) / scale;
+            if (row != made) {
+                if (dst->wait) dst->wait(dst); /* the rows before may still be on their way from the buffer */
+                uint8_t *lp = dst->draw_buffer;
+                for (int x = left; x < right; ++x) {
+                    image_pixel(dst, wk, scale, c, &k, x, y, &v);
+                    lp = dgx_fill_buf_value(bits, lp, x - left, v);
+                }
+                made = row;
+            }
+            dst->write_area(dst, dst->draw_buffer, bytes * 8u);
+        }
+        dgx_screen_touch(dst, left, right - 1, top, bottom - 1);
+        dgx_screen_batch_end(dst);
+        return ESP_OK;
+    }
+    const bool window = dst->set_area && dst->write_area;
+    /* a display behind a bus has its buffer; another screen with windows a row of its own; one without, a pixel at a time */
+    const bool shared = window && dst->draw_buffer && dst->draw_buffer_len >= bytes;
+    uint8_t   *own    = NULL;
     if (window && !shared) {
         own = heap_caps_malloc(bytes, MALLOC_CAP_DMA);
-        if (!own) return ESP_ERR_NO_MEM;
+        if (!own) {
+            dgx_screen_batch_end(dst);
+            return ESP_ERR_NO_MEM;
+        }
     }
     uint8_t *const buffer = shared ? dst->draw_buffer : own;
-    dgx_screen_batch_begin(dst);
     for (int y = top; y < bottom; ++y) {
         int run = -1; /* where the run being made starts, -1 for none */
         if (shared && dst->wait) dst->wait(dst); /* the row before may still be on its way from the buffer */
         uint8_t *lp = buffer;
         for (int x = left; x <= right; ++x) {
-            bool     put = false;
-            uint32_t v   = 0;
-            if (x < right) {
-                const int      u = (x - wk->box_x) / scale, w = (y - wk->box_y) / scale;
-                const int      W = wk->image->width, H = wk->image->height;
-                const int      sx = wk->x_back ? W - 1 - (wk->swapped ? w : u) : (wk->swapped ? w : u);
-                const int      sy = wk->y_back ? H - 1 - (wk->swapped ? u : w) : (wk->swapped ? u : w);
-                unsigned       a;
-                const uint32_t color = image_color(c, wk->image->data + (size_t)sy * wk->stride, sx, sy, &a);
-                if (a == 255u) put = true, v = color;
-                else if (opaque) put = true, v = a == 0u ? how->bg : mix ? dgx_mix_color(bits, how->bg, color, a) : a >= 128u ? color : how->bg;
-                else if (a && under) put = true, v = dgx_mix_color(bits, dgx_get_pixel(dst, x, y), color, a);
-                else if (a >= 128u) put = true, v = color;
-            }
+            const bool put = x < right && image_pixel(dst, wk, scale, c, &k, x, y, &v);
             if (put) {
                 if (!window) {
                     dgx_set_pixel(dst, x, y, v);

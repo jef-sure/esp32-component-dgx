@@ -89,6 +89,14 @@ typedef struct {
  * mixed: the flag does nothing to them.
  */
 #define DGX_IMAGE_SOFT 8u
+/**
+ * With DGX_IMAGE_SOFT: a pixel partly covered is mixed with `bg`, not with what
+ * lies on the screen, and a pixel not covered is left as it is, as the letters
+ * of a soft font are with DGX_FONT_BG: for a soft icon over a background of a
+ * known color on a display behind a bus, with what lies near it kept, where
+ * DGX_IMAGE_OPAQUE would write the whole box.
+ */
+#define DGX_IMAGE_BG 16u
 
 /**
  * @brief How a picture is drawn. A zero-initialized structure draws it as it
@@ -110,7 +118,7 @@ typedef struct {
  * on a 16-bit display, 1 or 0 on a monochrome one.
  */
 typedef struct {
-    uint32_t                 flags;       /**< DGX_IMAGE_SILHOUETTE, DGX_IMAGE_CLIP, DGX_IMAGE_OPAQUE, DGX_IMAGE_SOFT */
+    uint32_t                 flags;       /**< DGX_IMAGE_SILHOUETTE, DGX_IMAGE_CLIP, DGX_IMAGE_OPAQUE, DGX_IMAGE_SOFT, DGX_IMAGE_BG */
     const uint8_t           *map;         /**< 4 bits: 15 indices; 8 bits: 255 indices; or NULL */
     uint32_t                 color;       /**< for 1 bit and DGX_IMAGE_SILHOUETTE: an index of an 8-bit virtual screen, a color of any other screen */
     dgx_output_orientation_t orientation; /**< mirror or rotation around the origin */
@@ -154,8 +162,11 @@ typedef struct {
  * dgx_image_blit_t::colors, go on any screen in their colors, converted by
  * dgx_screen_rgb() to a screen of another depth than 16. Without
  * DGX_IMAGE_SOFT a pixel of an opacity under 128 is left out and the others
- * are put whole; with it the edges are soft, see DGX_IMAGE_SOFT. Pixels go
- * as runs of a row, each through a window of the screen.
+ * are put whole; with it the edges are soft, see DGX_IMAGE_SOFT. On a virtual
+ * screen the pixels are written in its memory; with DGX_IMAGE_OPAQUE on a
+ * display behind a bus the box goes in one window, a row at a time through
+ * the buffer of the bus; elsewhere a row goes by runs, each through a window
+ * of the screen.
  *
  * With dgx_image_blit_t::scale every pixel of the picture is a square of
  * scale x scale pixels, on any screen, at any depth and turn. The square of

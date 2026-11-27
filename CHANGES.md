@@ -24,8 +24,29 @@ New:
   writes a `.dgxi` file and a PNG of each; `tools/dgx_images.py png` turns
   any `.dgxi` picture into a PNG.
 
+- **`DGX_IMAGE_BG`** for `dgx_image_blit()` with `DGX_IMAGE_SOFT`: a pixel
+  partly covered is mixed with `bg`, not with what lies on the screen, and
+  one not covered is left as it is, as soft letters are with
+  `DGX_FONT_BG`: a soft icon on a display behind a bus without its box
+  written whole.
+
+Faster:
+
+- A picture drawn by its colors (16 bits, `colors`, or a soft mask) with
+  `DGX_IMAGE_OPAQUE` on a display behind a bus goes out in one window, a
+  row at a time through the buffer of the bus, as a picture in one color
+  does; at a scale the row is made once for all the rows of its band.
+  Before, every run of a row had a window of its own.
+- On a virtual screen such a picture is written into its memory; before, a
+  row of memory was allocated at every call.
+
 Tests:
 
+- test_image_soft: a box with `DGX_IMAGE_OPAQUE` on a display behind a bus
+  goes in one window, every pixel once and as a virtual screen has it, in
+  every turn and at every scale; pictures by colors on virtual screens of
+  every depth and of an odd width, the pixels near them kept;
+  `DGX_IMAGE_BG` on a virtual screen and behind a bus.
 - test_snapshot: snapshots of virtual screens of every depth, whole and by
   rectangles whose edges cut bytes, read back pixel for pixel; the console
   form against the length and CRC of the file; a screen behind a bus
