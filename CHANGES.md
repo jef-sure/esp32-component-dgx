@@ -35,20 +35,27 @@ Faster:
 - A picture drawn by its colors (16 bits, `colors`, or a soft mask) walks
   a row of the screen along a row of the picture, reading its pixels by a
   loop for each format and putting them by a loop that needs no division a
-  pixel; before, every pixel was looked up in the picture on its own.
+  pixel; before, every pixel was looked up in the picture on its own. With
+  `DGX_IMAGE_OPAQUE` on a screen of 16 bits one loop for each format reads
+  a pixel and writes its value: a value of a picture of 1 or 4 bits is
+  worked out once for the picture, and a row of a picture of 16 bits
+  without a plane, neither turned nor mirrored, is copied as it lies.
 - With `DGX_IMAGE_OPAQUE` on a display behind a bus such a picture goes out
   in one window through the two halves of the buffer of the bus, a row made
   while the one before is on the wire, as a virtual screen goes to a
   display; at a scale a row is made once for all the rows of its band.
   Before, every run of a row had a window of its own. On a virtual screen
   it is written into its memory; before, a row of memory was allocated at
-  every call. On a CYD (ESP32, ILI9341 on SPI, 16 bits), a cell of 106x80
-  drawn again with its paper and the picture in it: a picture of 100x70 of
-  4 bits through `colors` 11.9 ms -> 7.2 ms, of 16 bits 11.4 ms -> 6.2 ms;
-  a soft mask of 64x64 9.5 ms -> 6.0 ms, a picture of 16 bits with a plane
-  of opacity 9.1 ms -> 6.1 ms. Over a drawn background without
-  `DGX_IMAGE_OPAQUE`, where the runs keep their windows, 5% less.
-  `src/vscreen/image.c` takes 2.4 KB more of flash on an ESP32.
+  every call. Without `DGX_IMAGE_OPAQUE` the runs of a display behind a bus
+  go one after another through the halves of its buffer, each made while
+  the one before is on the wire. On a CYD (ESP32, ILI9341 on SPI, 16 bits),
+  a cell of 106x80 drawn again with its paper and the picture in it, before
+  the loops for each format: a picture of 100x70 of 4 bits through
+  `colors` 11.9 ms -> 7.2 ms, of 16 bits 11.4 ms -> 6.2 ms; a soft mask of
+  64x64 9.5 ms -> 6.0 ms, a picture of 16 bits with a plane of opacity
+  9.1 ms -> 6.1 ms. Over a drawn background without `DGX_IMAGE_OPAQUE`,
+  where the runs keep their windows, 5% less. `src/vscreen/image.c` takes
+  4.6 KB more of flash on an ESP32.
 
 Fixed:
 
@@ -57,9 +64,15 @@ Fixed:
   (SSD1306, SH1106, SSD1309, ST7565R), handed each run of a row to the
   window with its length rounded up to whole bytes, and the rest of the
   last byte went around the window onto the first pixels of the run: a
-  mask of 12x10 on a virtual screen of 1 bit had 17 to 19 pixels wrong. A run now takes as many bits as its
-  pixels; 12-bit pixels go to a display behind a bus with the rest of their
-  last byte, as the texture quad sends them.
+  mask of 12x10 on a virtual screen of 1 bit had 17 to 19 pixels wrong. A
+  run now takes as many bits as its pixels; 12-bit pixels go to a display
+  behind a bus with the rest of their last byte, as the texture quad sends
+  them.
+- A picture drawn by its colors on a display behind a bus, a row of it
+  longer than the buffer of the bus, went by runs through a row of memory
+  of its own, which was filled with the next run, and freed at the end,
+  while the run before could still be on its way from it by DMA. The row is
+  now waited for, as the buffer of the bus is.
 
 Tests:
 
@@ -67,9 +80,13 @@ Tests:
   goes in one window, every pixel once and as a virtual screen has it, in
   every turn and at every scale, through the halves of a buffer and through
   a buffer of one row; with `DGX_IMAGE_BG` by runs, as on a virtual screen;
-  pictures by colors on virtual screens of every depth and of an odd width,
-  the pixels near them kept; masks on a monochrome screen of
-  `dgx_bw_init()` as on a virtual screen of 1 bit.
+  every format, with and without opacities, and every way of putting it,
+  against the pixels the loop for any screen makes; the bus of the test
+  takes the pixels sent without waiting off the buffer only later, as DMA
+  does, so a buffer written over too early shows; pictures by colors on
+  virtual screens of every depth and of an odd width, the pixels near them
+  kept; masks on a monochrome screen of `dgx_bw_init()` as on a virtual
+  screen of 1 bit.
 - test_snapshot: snapshots of virtual screens of every depth, whole and by
   rectangles whose edges cut bytes, read back pixel for pixel; the console
   form against the length and CRC of the file; a screen behind a bus

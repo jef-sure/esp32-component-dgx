@@ -29,9 +29,26 @@ static int      params_n, part_n, windows;
 static uint16_t sc, ec, sp, ep, column, page, glass[64][64];
 static int      writes[64][64];
 
+/*
+ * Pixels sent without waiting are taken off the buffer later, as by DMA: when the next command, data or wait comes.
+ * A buffer written over before that shows on the glass.
+ */
+static const uint8_t *pending;
+static uint32_t       pending_bits;
+static void           bus_data_now(const uint8_t *data, uint32_t bits);
+
+static void bus_flush(void)
+{
+    if (!pending) return;
+    const uint8_t *data = pending;
+    pending             = NULL;
+    bus_data_now(data, pending_bits);
+}
+
 static void bus_command(struct _dgx_bus_protocols_t *bus, uint8_t value)
 {
     (void)bus;
+    bus_flush();
     command = value, params_n = 0, part_n = 0;
     if (value == 0x2A) ++windows;
     if (value == 0x2C) column = sc, page = sp;
@@ -40,6 +57,19 @@ static void bus_command(struct _dgx_bus_protocols_t *bus, uint8_t value)
 static void bus_data(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t bits)
 {
     (void)bus;
+    bus_flush();
+    bus_data_now(data, bits);
+}
+
+static void bus_data_async(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint32_t bits)
+{
+    (void)bus;
+    bus_flush();
+    pending = data, pending_bits = bits;
+}
+
+static void bus_data_now(const uint8_t *data, uint32_t bits)
+{
     for (uint32_t i = 0; i < bits / 8; ++i) {
         if (command == 0x2C) {
             part[part_n++] = data[i];
@@ -57,7 +87,11 @@ static void bus_data(struct _dgx_bus_protocols_t *bus, const uint8_t *data, uint
     }
 }
 
-static void bus_sync(struct _dgx_bus_protocols_t *bus) { (void)bus; }
+static void bus_sync(struct _dgx_bus_protocols_t *bus)
+{
+    (void)bus;
+    bus_flush();
+}
 
 static const dgx_lcd_init_cmd_t no_init[] = {
     {0, 0, 0xff, 0, {0}}
@@ -70,6 +104,20 @@ static const dgx_panel_t panel64 = {.name = "64", .width = 64, .height = 64, .co
 #define WHITE 0xFFFFu
 
 static uint16_t px(dgx_screen_t *s, int x, int y) { return (uint16_t)dgx_get_pixel(s, x, y); }
+
+/* drawing on a display behind a bus, and its last pixels off the wire before the glass is looked at */
+static esp_err_t blit_now(dgx_screen_t *s, int x, int y, const dgx_image_t *image, const dgx_image_blit_t *how)
+{
+    const esp_err_t e = dgx_image_blit(s, x, y, image, how);
+    bus_flush();
+    return e;
+}
+
+static void fill_now(dgx_screen_t *s, int x, int y, int w, int h, uint32_t color)
+{
+    dgx_fill_rectangle(s, x, y, w, h, color);
+    bus_flush();
+}
 
 int main(void)
 {
@@ -219,16 +267,16 @@ int main(void)
     /* a display behind a bus, which cannot be read: hard from half on, or with the paper every pixel once */
     {
         static uint8_t      buffer[4096];
-        dgx_bus_protocols_t bus = {.bus_type = DGX_BUS_SPI, .write_command = bus_command, .write_data = bus_data, .write_data_async = bus_data,
+        dgx_bus_protocols_t bus = {.bus_type = DGX_BUS_SPI, .write_command = bus_command, .write_data = bus_data, .write_data_async = bus_data_async,
                                    .sync_write = bus_sync, .buffer = buffer, .buffer_len = sizeof(buffer)};
         dgx_screen_t       *lcd = dgx_panel_init(&bus, &panel64, GPIO_NUM_NC, GPIO_NUM_NC, 16, DgxScreenRGB);
         CHECK(lcd && !dgx_screen_is_readable(lcd));
-        dgx_fill_rectangle(lcd, 0, 0, 64, 64, GRAY);
-        CHECK(dgx_image_blit(lcd, 10, 10, &mask8, &(dgx_image_blit_t){.flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT, .color = WHITE}) == ESP_OK);
+        fill_now(lcd, 0, 0, 64, 64, GRAY);
+        CHECK(blit_now(lcd, 10, 10, &mask8, &(dgx_image_blit_t){.flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT, .color = WHITE}) == ESP_OK);
         CHECK(glass[10][10] == GRAY && glass[10][11] == WHITE && glass[10][12] == WHITE && glass[10][13] == GRAY);
         memset(writes, 0, sizeof writes);
         windows = 0;
-        CHECK(dgx_image_blit(lcd, 10, 20, &mask8,
+        CHECK(blit_now(lcd, 10, 20, &mask8,
                              &(dgx_image_blit_t){.flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT | DGX_IMAGE_OPAQUE, .color = WHITE, .bg = BLUE, .scale = 3}) ==
               ESP_OK);
         int once = 1, outside = 0;
@@ -268,11 +316,11 @@ int main(void)
                                                        .clip_h      = 7};
                         const uint16_t         none = 0x1234u; /* no color of the picture, nor a mix of them */
                         dgx_fill_rectangle(ref, 0, 0, 64, 64, none);
-                        dgx_fill_rectangle(to, 0, 0, 64, 64, none);
+                        fill_now(to, 0, 0, 64, 64, none);
                         CHECK(dgx_image_blit(ref, 32, 32, &four, &how) == ESP_OK);
                         memset(writes, 0, sizeof writes);
                         windows = 0;
-                        CHECK(dgx_image_blit(to, 32, 32, &four, &how) == ESP_OK);
+                        CHECK(blit_now(to, 32, 32, &four, &how) == ESP_OK);
                         int same = 1, boxed = 0;
                         for (int y = 0; y < 64; ++y)
                             for (int x = 0; x < 64; ++x) {
@@ -283,11 +331,108 @@ int main(void)
                         CHECK(same && boxed > 0 && (bg || windows == 1));
                     }
         dgx_screen_destroy(&ref);
+
+        /* every format, every way of putting, every turn and scale, both buffers: the rows made on a screen of 16 bits
+           against the pixels the slow way makes on a virtual screen. There a box with DGX_IMAGE_OPAQUE is drawn
+           without it over bg, so every pixel is mixed with what lies under it, or put whole from half on, by the
+           loop for any screen. Behind a bus every pixel of the box is written once, and with runs only those put. */
+        {
+            static uint8_t  pix16[5 * 3 * 2], plane[5 * 3], val8[5 * 3], cov8[5 * 3], val4[3 * 3], val1[3];
+            static uint32_t tab256[256];
+            static uint8_t  alpha256[256];
+            for (int i = 0; i < 15; ++i) {
+                const uint16_t color = (uint16_t)(i * 0x1357u + 0x0841u);
+                pix16[2 * i] = (uint8_t)(color >> 8), pix16[2 * i + 1] = (uint8_t)color;
+                plane[i] = (uint8_t)(i % 3 == 0 ? 255 : i % 3 == 1 ? i * 17 : 0);
+                val8[i]  = (uint8_t)(i * 37 + 3);
+                cov8[i]  = (uint8_t)(i % 4 == 0 ? 0 : i % 4 == 1 ? 255 : i * 19);
+            }
+            for (int i = 0; i < 256; ++i) tab256[i] = (uint32_t)(i * 0x0F0Fu + 0x1001u) & 0xFFFFu, alpha256[i] = (uint8_t)(i % 5 == 0 ? 0 : i % 5 == 1 ? 255 : i * 3);
+            for (int i = 0; i < 9; ++i) val4[i] = (uint8_t)(i * 0x37u + 0x10u);
+            val1[0] = 0xA8, val1[1] = 0x50, val1[2] = 0xF8;
+            val8[0] = 0, val8[7] = 0; /* transparent where colors come without opacities */
+            const dgx_image_t pictures[] = {
+                {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_16BPP, .data = pix16},
+                {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_16BPP, .data = pix16, .alpha = plane},
+                {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_8BPP, .data = val8},
+                {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_8BPP, .data = cov8},
+                {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_4BPP, .data = val4},
+                {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_1BPP, .data = val1},
+                {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_8BPP, .data = val8},
+                {.width = 5, .height = 3, .origin_x = 2, .origin_y = 1, .format = DGX_IMAGE_4BPP, .data = val4},
+            };
+            static const uint32_t puts[] = {DGX_IMAGE_SOFT | DGX_IMAGE_OPAQUE, DGX_IMAGE_OPAQUE, DGX_IMAGE_SOFT | DGX_IMAGE_BG, 0};
+            const uint16_t        none   = 0x1234u;
+            dgx_screen_t         *slow = dgx_vscreen_init(64, 64, 16, DgxScreenRGB), *box = dgx_vscreen_init(64, 64, 16, DgxScreenRGB);
+            int                   failed = 0;
+            for (unsigned pi = 0; pi < sizeof pictures / sizeof *pictures; ++pi)
+                for (unsigned wi = 0; wi < sizeof puts / sizeof *puts; ++wi) {
+                    const bool coverage = pi == 3;
+                    if (coverage && !(puts[wi] & DGX_IMAGE_SOFT)) continue; /* a mask is drawn soft, or in one color */
+                    for (int o = 0; o <= (int)DgxOutputTransverse; ++o)
+                        for (int scale = 1; scale <= 3; ++scale)
+                            for (int screen = 0; screen < 2; ++screen) {
+                                dgx_screen_t *const to  = screen ? narrow : lcd;
+                                const bool          opq = (puts[wi] & DGX_IMAGE_OPAQUE) != 0;
+                                dgx_image_blit_t    how = {.flags       = puts[wi] | DGX_IMAGE_CLIP | (coverage ? DGX_IMAGE_SILHOUETTE : 0u),
+                                                           .color       = WHITE,
+                                                           .bg          = BLUE,
+                                                           .scale       = (uint8_t)scale,
+                                                           .orientation = (dgx_output_orientation_t)o,
+                                                           .clip_x      = 20,
+                                                           .clip_y      = 21,
+                                                           .clip_w      = 24,
+                                                           .clip_h      = 22};
+                                if (pi == 2) how.colors = tab256, how.alpha = alpha256;
+                                if (pi == 4) how.colors = tab256, how.alpha = alpha256;
+                                static const uint32_t two_colors[2] = {RED, GRAY};
+                                if (pi == 5) how.colors = two_colors;
+                                if (pi >= 6) how.colors = tab256; /* no opacities: 0 transparent, the others opaque */
+                                /* the box: every pixel of it, put by the quick way on a virtual screen */
+                                dgx_fill_rectangle(box, 0, 0, 64, 64, none);
+                                dgx_image_blit_t whole = how;
+                                whole.flags |= DGX_IMAGE_OPAQUE;
+                                CHECK(dgx_image_blit(box, 32, 32, &pictures[pi], &whole) == ESP_OK);
+                                /* the slow way: without DGX_IMAGE_OPAQUE over bg, or over none */
+                                dgx_image_blit_t slow_how = how;
+                                slow_how.flags &= ~(uint32_t)(DGX_IMAGE_OPAQUE | DGX_IMAGE_BG);
+                                dgx_fill_rectangle(slow, 0, 0, 64, 64, opq ? BLUE : none);
+                                if (puts[wi] & DGX_IMAGE_BG) {
+                                    /* BG mixes with bg where the slow way mixes with what lies under: under it lies bg,
+                                       outside the pixels put none */
+                                    dgx_fill_rectangle(slow, 0, 0, 64, 64, BLUE);
+                                }
+                                CHECK(dgx_image_blit(slow, 32, 32, &pictures[pi], &slow_how) == ESP_OK);
+                                fill_now(to, 0, 0, 64, 64, none);
+                                memset(writes, 0, sizeof writes);
+                                windows = 0;
+                                CHECK(blit_now(to, 32, 32, &pictures[pi], &how) == ESP_OK);
+                                int same = 1, boxed = 0;
+                                for (int y = 0; y < 64; ++y)
+                                    for (int x = 0; x < 64; ++x) {
+                                        const int in = px(box, x, y) != none;
+                                        boxed += in;
+                                        if (opq) {
+                                            same &= writes[y][x] == in && (!in || glass[y][x] == px(slow, x, y));
+                                        } else if (puts[wi] & DGX_IMAGE_BG) {
+                                            /* put where the slow way changed bg, or put bg itself: the value then as there */
+                                            same &= writes[y][x] <= in && (!writes[y][x] ? glass[y][x] == none : glass[y][x] == px(slow, x, y));
+                                        } else {
+                                            same &= writes[y][x] == (px(slow, x, y) != none) && glass[y][x] == px(slow, x, y);
+                                        }
+                                    }
+                                if (!(same && boxed > 0 && (!opq || windows == 1))) ++failed;
+                            }
+                }
+            CHECK(failed == 0);
+            dgx_screen_destroy(&slow);
+            dgx_screen_destroy(&box);
+        }
         dgx_screen_destroy(&narrow);
         /* with DGX_IMAGE_BG: the edges mixed with bg, a pixel not covered not written */
-        dgx_fill_rectangle(lcd, 0, 0, 64, 64, GRAY);
+        fill_now(lcd, 0, 0, 64, 64, GRAY);
         memset(writes, 0, sizeof writes);
-        CHECK(dgx_image_blit(lcd, 10, 40, &mask8,
+        CHECK(blit_now(lcd, 10, 40, &mask8,
                              &(dgx_image_blit_t){.flags = DGX_IMAGE_SILHOUETTE | DGX_IMAGE_SOFT | DGX_IMAGE_BG, .color = WHITE, .bg = BLUE}) == ESP_OK);
         CHECK(writes[40][10] == 0 && glass[40][10] == GRAY && glass[40][11] == dgx_mix_color(16, BLUE, WHITE, 128) && glass[40][12] == WHITE &&
               glass[40][13] == dgx_mix_color(16, BLUE, WHITE, 1));
